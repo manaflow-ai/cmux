@@ -246,8 +246,13 @@ final class FileDropOverlayView: NSView {
         return .copy
     }
 
-    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
-    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+    /// Hit-tests the window to find the GhosttyNSView under the cursor.
+    func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+        if let window,
+           let portalTerminal = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window) {
+            return portalTerminal
+        }
+
         guard let window, let contentView = window.contentView,
               let themeFrame = contentView.superview else { return nil }
         isHidden = true
@@ -265,6 +270,32 @@ final class FileDropOverlayView: NSView {
 }
 
 var fileDropOverlayKey: UInt8 = 0
+
+enum WorkspaceMountPolicy {
+    // Keep only the selected workspace mounted to minimize layer-tree traversal.
+    static let maxMountedWorkspaces = 1
+
+    static func nextMountedWorkspaceIds(
+        current: [UUID],
+        selected: UUID?,
+        existing: Set<UUID>,
+        maxMounted: Int = maxMountedWorkspaces
+    ) -> [UUID] {
+        let clampedMax = max(1, maxMounted)
+        var ordered = current.filter { existing.contains($0) }
+
+        if let selected, existing.contains(selected) {
+            ordered.removeAll { $0 == selected }
+            ordered.insert(selected, at: 0)
+        }
+
+        if ordered.count > clampedMax {
+            ordered.removeSubrange(clampedMax...)
+        }
+
+        return ordered
+    }
+}
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
@@ -306,6 +337,7 @@ struct ContentView: View {
     @State private var isResizerDragging = false
     private let sidebarHandleWidth: CGFloat = 6
     @State private var selectedTabIds: Set<UUID> = []
+    @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
@@ -384,9 +416,12 @@ struct ContentView: View {
     @State private var titlebarPadding: CGFloat = 32
 
     private var terminalContent: some View {
-        ZStack {
+        let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
+        let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
+
+        return ZStack {
             ZStack {
-                ForEach(tabManager.tabs) { tab in
+                ForEach(mountedWorkspaces) { tab in
                     let isActive = tabManager.selectedTabId == tab.id
                     WorkspaceContentView(workspace: tab, isTabActive: isActive)
                         .opacity(isActive ? 1 : 0)
@@ -554,6 +589,7 @@ struct ContentView: View {
         .background(Color.clear)
         .onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
+            reconcileMountedWorkspaceIds()
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -562,6 +598,7 @@ struct ContentView: View {
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
             tabManager.applyWindowBackgroundForSelectedTab()
+            reconcileMountedWorkspaceIds(selectedId: newValue)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
@@ -585,6 +622,7 @@ struct ContentView: View {
         }
         .onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
+            reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -686,6 +724,17 @@ struct ContentView: View {
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
         })
+    }
+
+    private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
+        let currentTabs = tabs ?? tabManager.tabs
+        let existing = Set(currentTabs.map { $0.id })
+        let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
+        mountedWorkspaceIds = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: mountedWorkspaceIds,
+            selected: effectiveSelectedId,
+            existing: existing
+        )
     }
 
     private func addTab() {

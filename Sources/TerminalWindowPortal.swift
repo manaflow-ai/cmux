@@ -1,0 +1,293 @@
+import AppKit
+import ObjectiveC
+
+private var cmuxWindowTerminalPortalKey: UInt8 = 0
+
+final class WindowTerminalHostView: NSView {
+    override var isOpaque: Bool { false }
+}
+
+@MainActor
+final class WindowTerminalPortal: NSObject {
+    private weak var window: NSWindow?
+    private let hostView = WindowTerminalHostView(frame: .zero)
+    private weak var installedContainerView: NSView?
+    private weak var installedReferenceView: NSView?
+    private var installConstraints: [NSLayoutConstraint] = []
+
+    private struct Entry {
+        weak var hostedView: GhosttySurfaceScrollView?
+        weak var anchorView: NSView?
+        var visibleInUI: Bool
+    }
+
+    private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
+    private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    init(window: NSWindow) {
+        self.window = window
+        super.init()
+        hostView.wantsLayer = false
+        hostView.translatesAutoresizingMaskIntoConstraints = false
+        _ = ensureInstalled()
+    }
+
+    @discardableResult
+    private func ensureInstalled() -> Bool {
+        guard let window else { return false }
+        guard let (container, reference) = installationTarget(for: window) else { return false }
+
+        if hostView.superview !== container ||
+            installedContainerView !== container ||
+            installedReferenceView !== reference {
+            NSLayoutConstraint.deactivate(installConstraints)
+            installConstraints.removeAll()
+
+            hostView.removeFromSuperview()
+            container.addSubview(hostView, positioned: .above, relativeTo: reference)
+
+            installConstraints = [
+                hostView.leadingAnchor.constraint(equalTo: reference.leadingAnchor),
+                hostView.trailingAnchor.constraint(equalTo: reference.trailingAnchor),
+                hostView.topAnchor.constraint(equalTo: reference.topAnchor),
+                hostView.bottomAnchor.constraint(equalTo: reference.bottomAnchor),
+            ]
+            NSLayoutConstraint.activate(installConstraints)
+            installedContainerView = container
+            installedReferenceView = reference
+        } else {
+            container.addSubview(hostView, positioned: .above, relativeTo: reference)
+        }
+
+        // Keep the drag/mouse forwarding overlay above portal-hosted terminal views.
+        if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView,
+           overlay.superview === container {
+            container.addSubview(overlay, positioned: .above, relativeTo: hostView)
+        }
+
+        return true
+    }
+
+    private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
+        guard let contentView = window.contentView else { return nil }
+
+        // If NSGlassEffectView wraps the original content view, install inside the glass view
+        // so terminals are above the glass background but below SwiftUI content.
+        if contentView.className == "NSGlassEffectView",
+           let foreground = contentView.subviews.first(where: { $0 !== hostView }) {
+            return (contentView, foreground)
+        }
+
+        guard let themeFrame = contentView.superview else { return nil }
+        return (themeFrame, contentView)
+    }
+
+    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
+        if view.isHidden { return true }
+        var current = view.superview
+        while let v = current {
+            if v.isHidden { return true }
+            current = v.superview
+        }
+        return false
+    }
+
+    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    func detachHostedView(withId hostedId: ObjectIdentifier) {
+        guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        if let anchor = entry.anchorView {
+            hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
+        }
+        if let hostedView = entry.hostedView, hostedView.superview === hostView {
+            hostedView.removeFromSuperview()
+        }
+    }
+
+    func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool) {
+        guard ensureInstalled() else { return }
+
+        let hostedId = ObjectIdentifier(hostedView)
+        let anchorId = ObjectIdentifier(anchorView)
+
+        if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
+            detachHostedView(withId: previousHostedId)
+        }
+
+        if let oldEntry = entriesByHostedId[hostedId],
+           let oldAnchor = oldEntry.anchorView,
+           oldAnchor !== anchorView {
+            hostedByAnchorId.removeValue(forKey: ObjectIdentifier(oldAnchor))
+        }
+
+        hostedByAnchorId[anchorId] = hostedId
+        entriesByHostedId[hostedId] = Entry(
+            hostedView: hostedView,
+            anchorView: anchorView,
+            visibleInUI: visibleInUI
+        )
+
+        if hostedView.superview !== hostView {
+            hostedView.removeFromSuperview()
+            hostView.addSubview(hostedView)
+        }
+
+        synchronizeHostedView(withId: hostedId)
+        pruneDeadEntries()
+    }
+
+    func synchronizeHostedViewForAnchor(_ anchorView: NSView) {
+        guard let hostedId = hostedByAnchorId[ObjectIdentifier(anchorView)] else { return }
+        synchronizeHostedView(withId: hostedId)
+    }
+
+    private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
+        guard ensureInstalled() else { return }
+        guard let entry = entriesByHostedId[hostedId] else { return }
+        guard let hostedView = entry.hostedView else {
+            entriesByHostedId.removeValue(forKey: hostedId)
+            return
+        }
+        guard let anchorView = entry.anchorView, let window else {
+            hostedView.isHidden = true
+            return
+        }
+        guard anchorView.window === window else {
+            hostedView.isHidden = true
+            return
+        }
+
+        let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
+        let frameInHost = hostView.convert(frameInWindow, from: nil)
+        let shouldHide =
+            !entry.visibleInUI ||
+            Self.isHiddenOrAncestorHidden(anchorView) ||
+            frameInHost.width <= 1 ||
+            frameInHost.height <= 1
+
+        let oldFrame = hostedView.frame
+        if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hostedView.frame = frameInHost
+            CATransaction.commit()
+
+            if abs(oldFrame.size.width - frameInHost.size.width) > 0.5 ||
+                abs(oldFrame.size.height - frameInHost.size.height) > 0.5 {
+                hostedView.reconcileGeometryNow()
+            }
+        }
+
+        if hostedView.isHidden != shouldHide {
+            hostedView.isHidden = shouldHide
+        }
+    }
+
+    private func pruneDeadEntries() {
+        let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
+            if entry.hostedView == nil {
+                if let anchor = entry.anchorView {
+                    hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
+                }
+                return hostedId
+            }
+            if entry.anchorView == nil {
+                entry.hostedView?.isHidden = true
+            }
+            return nil
+        }
+
+        for hostedId in deadHostedIds {
+            entriesByHostedId.removeValue(forKey: hostedId)
+        }
+
+        let validAnchorIds = Set(entriesByHostedId.compactMap { _, entry in
+            entry.anchorView.map { ObjectIdentifier($0) }
+        })
+        hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+    }
+
+    func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+
+        // Restrict hit-testing to currently mapped entries so stale detached views
+        // can't steal file-drop/mouse routing.
+        for subview in hostView.subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
+            let hostedId = ObjectIdentifier(hostedView)
+            guard entriesByHostedId[hostedId] != nil else { continue }
+            guard !hostedView.isHidden else { continue }
+            guard hostedView.frame.contains(point) else { continue }
+            let localPoint = hostedView.convert(point, from: hostView)
+            return hostedView.hitTest(localPoint) ?? hostedView
+        }
+
+        return nil
+    }
+
+    func terminalViewAtWindowPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+        guard let hitView = viewAtWindowPoint(windowPoint) else { return nil }
+        var current: NSView? = hitView
+        while let view = current {
+            if let terminal = view as? GhosttyNSView { return terminal }
+            current = view.superview
+        }
+        return nil
+    }
+}
+
+@MainActor
+enum TerminalWindowPortalRegistry {
+    private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
+    private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    private static func portal(for window: NSWindow) -> WindowTerminalPortal {
+        if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
+            portalsByWindowId[ObjectIdentifier(window)] = existing
+            return existing
+        }
+
+        let portal = WindowTerminalPortal(window: window)
+        objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
+        portalsByWindowId[ObjectIdentifier(window)] = portal
+        return portal
+    }
+
+    static func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool) {
+        guard let window = anchorView.window else { return }
+
+        let windowId = ObjectIdentifier(window)
+        let hostedId = ObjectIdentifier(hostedView)
+        let nextPortal = portal(for: window)
+
+        if let oldWindowId = hostedToWindowId[hostedId],
+           oldWindowId != windowId {
+            portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
+        }
+
+        nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI)
+        hostedToWindowId[hostedId] = windowId
+    }
+
+    static func synchronizeForAnchor(_ anchorView: NSView) {
+        guard let window = anchorView.window else { return }
+        let portal = portal(for: window)
+        portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {
+        let portal = portal(for: window)
+        return portal.viewAtWindowPoint(windowPoint)
+    }
+
+    static func terminalViewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> GhosttyNSView? {
+        let portal = portal(for: window)
+        return portal.terminalViewAtWindowPoint(windowPoint)
+    }
+}

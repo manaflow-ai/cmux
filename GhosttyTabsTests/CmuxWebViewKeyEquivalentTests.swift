@@ -1687,3 +1687,79 @@ final class MenuBarIconRendererTests: XCTestCase {
         XCTAssertEqual(withBadge.size.width, 18, accuracy: 0.001)
     }
 }
+
+final class WorkspaceMountPolicyTests: XCTestCase {
+    func testDefaultPolicyMountsOnlySelectedWorkspace() {
+        let a = UUID()
+        let b = UUID()
+        let existing: Set<UUID> = [a, b]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: b,
+            existing: existing
+        )
+
+        XCTAssertEqual(next, [b])
+    }
+
+    func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let existing: Set<UUID> = [a, b, c]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a, b, c],
+            selected: c,
+            existing: existing,
+            maxMounted: 2
+        )
+
+        XCTAssertEqual(next, [c, a])
+    }
+
+    func testMissingWorkspacesArePruned() {
+        let a = UUID()
+        let b = UUID()
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [b, a],
+            selected: nil,
+            existing: [a],
+            maxMounted: 2
+        )
+
+        XCTAssertEqual(next, [a])
+    }
+
+    func testSelectedWorkspaceIsInsertedWhenAbsentFromCurrentCache() {
+        let a = UUID()
+        let b = UUID()
+        let existing: Set<UUID> = [a, b]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: b,
+            existing: existing,
+            maxMounted: 2
+        )
+
+        XCTAssertEqual(next, [b, a])
+    }
+
+    func testMaxMountedIsClampedToAtLeastOne() {
+        let a = UUID()
+        let b = UUID()
+        let existing: Set<UUID> = [a, b]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a, b],
+            selected: nil,
+            existing: existing,
+            maxMounted: 0
+        )
+
+        XCTAssertEqual(next, [a])
+    }
+}

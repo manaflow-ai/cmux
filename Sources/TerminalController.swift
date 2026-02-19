@@ -6291,6 +6291,10 @@ class TerminalController {
 	        guard let parsed = parseShortcutCombo(combo) else {
 	            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
 	        }
+
+	        // Stamp at socket-handler arrival so event.timestamp includes any wait
+	        // before the main-thread event dispatch.
+	        let requestTimestamp = ProcessInfo.processInfo.systemUptime
 	
 	        var result = "ERROR: Failed to create event"
 	        DispatchQueue.main.sync {
@@ -6305,11 +6309,11 @@ class TerminalController {
 	                targetWindow.makeKeyAndOrderFront(nil)
 	            }
 	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
-	            guard let event = NSEvent.keyEvent(
+	            guard let keyDownEvent = NSEvent.keyEvent(
 	                with: .keyDown,
 	                location: .zero,
 	                modifierFlags: parsed.modifierFlags,
-	                timestamp: ProcessInfo.processInfo.systemUptime,
+	                timestamp: requestTimestamp,
 	                windowNumber: windowNumber,
 	                context: nil,
 	                characters: parsed.characters,
@@ -6320,14 +6324,29 @@ class TerminalController {
 	                result = "ERROR: NSEvent.keyEvent returned nil"
 	                return
 	            }
+	            let keyUpEvent = NSEvent.keyEvent(
+	                with: .keyUp,
+	                location: .zero,
+	                modifierFlags: parsed.modifierFlags,
+	                timestamp: requestTimestamp + 0.0001,
+	                windowNumber: windowNumber,
+	                context: nil,
+	                characters: parsed.characters,
+	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+	                isARepeat: false,
+	                keyCode: parsed.keyCode
+	            )
 	            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
 	            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
 	            // normal responder chain for plain typing.
-	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: event) {
+	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
 	                result = "OK"
 	                return
 	            }
-	            NSApp.sendEvent(event)
+	            NSApp.sendEvent(keyDownEvent)
+	            if let keyUpEvent {
+	                NSApp.sendEvent(keyUpEvent)
+	            }
 	            result = "OK"
 	        }
 	        return result
@@ -6447,34 +6466,20 @@ class TerminalController {
                   let contentView = window.contentView,
                   let themeFrame = contentView.superview else { return }
 
-            // Compute the point in contentView's own coordinate system.
-            // NSHostingView is flipped: (0,0) = top-left, matching our API.
-            let contentPoint = NSPoint(
-                x: contentView.bounds.width * nx,
-                y: contentView.bounds.height * ny
+            // Convert normalized top-left coordinates into a window point.
+            let pointInTheme = NSPoint(
+                x: contentView.frame.minX + (contentView.bounds.width * nx),
+                y: contentView.frame.maxY - (contentView.bounds.height * ny)
             )
+            let windowPoint = themeFrame.convert(pointInTheme, to: nil)
 
-            // hitTest expects the point in the receiver's superview's (themeFrame's)
-            // coordinate system.  Use convert to handle the coordinate transform.
-            let hitPoint = contentView.convert(contentPoint, to: themeFrame)
-
-            // Temporarily hide the overlay so it doesn't intercept the hit test.
-            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
-            overlay?.isHidden = true
-
-            let hitView = contentView.hitTest(hitPoint)
-
-            overlay?.isHidden = false
-
-            var current: NSView? = hitView
-            while let view = current {
-                if let terminal = view as? GhosttyNSView,
-                   let surfaceId = terminal.terminalSurface?.id {
-                    result = surfaceId.uuidString.uppercased()
-                    return
-                }
-                current = view.superview
+            if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView,
+               let terminal = overlay.terminalUnderPoint(windowPoint),
+               let surfaceId = terminal.terminalSurface?.id {
+                result = surfaceId.uuidString.uppercased()
+                return
             }
+
             result = "none"
         }
         return result
@@ -9205,6 +9210,25 @@ class TerminalController {
         return "OK Refreshed \(refreshedCount) surfaces"
     }
 
+    private func viewDepth(of view: NSView, maxDepth: Int = 128) -> Int {
+        var depth = 0
+        var current: NSView? = view
+        while let v = current, depth < maxDepth {
+            current = v.superview
+            depth += 1
+        }
+        return depth
+    }
+
+    private func isPortalHosted(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let v = current {
+            if v is WindowTerminalHostView { return true }
+            current = v.superview
+        }
+        return false
+    }
+
     private func surfaceHealth(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
@@ -9219,7 +9243,9 @@ class TerminalController {
                 let type = panel.panelType.rawValue
                 if let tp = panel as? TerminalPanel {
                     let inWindow = tp.surface.isViewInWindow
-                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
+                    let portalHosted = isPortalHosted(tp.hostedView)
+                    let depth = viewDepth(of: tp.hostedView)
+                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow) portal=\(portalHosted) view_depth=\(depth)"
                 } else if let bp = panel as? BrowserPanel {
                     let inWindow = bp.webView.window != nil
                     return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
