@@ -261,12 +261,21 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func terminalViewAtWindowPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard let hitView = viewAtWindowPoint(windowPoint) else { return nil }
-        var current: NSView? = hitView
-        while let view = current {
-            if let terminal = view as? GhosttyNSView { return terminal }
-            current = view.superview
+        guard ensureInstalled() else { return nil }
+        let point = hostView.convert(windowPoint, from: nil)
+
+        for subview in hostView.subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
+            let hostedId = ObjectIdentifier(hostedView)
+            guard entriesByHostedId[hostedId] != nil else { continue }
+            guard !hostedView.isHidden else { continue }
+            guard hostedView.frame.contains(point) else { continue }
+            let localPoint = hostedView.convert(point, from: hostView)
+            if let terminal = hostedView.terminalViewForDrop(at: localPoint) {
+                return terminal
+            }
         }
+
         return nil
     }
 }

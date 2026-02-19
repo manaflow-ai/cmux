@@ -3049,6 +3049,11 @@ final class GhosttySurfaceScrollView: NSView {
         return true
     }
 
+    func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {
+        guard bounds.contains(point), !isHidden else { return nil }
+        return surfaceView
+    }
+
 #if DEBUG
     /// Sends a synthetic Ctrl+D key press directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
