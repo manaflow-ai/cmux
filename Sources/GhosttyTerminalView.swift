@@ -2668,6 +2668,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
+    private let dropZoneOverlayView: NSView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2755,6 +2756,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        dropZoneOverlayView = NSView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2786,6 +2788,13 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
+        dropZoneOverlayView.wantsLayer = true
+        dropZoneOverlayView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        dropZoneOverlayView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        dropZoneOverlayView.layer?.borderWidth = 2
+        dropZoneOverlayView.layer?.cornerRadius = 8
+        dropZoneOverlayView.isHidden = true
+        addSubview(dropZoneOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -2954,6 +2963,33 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        CATransaction.commit()
+    }
+
+    func setDropZoneOverlay(zone: DropZone?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let zone {
+            let padding: CGFloat = 4
+            let size = bounds.size
+            let frame: CGRect
+            switch zone {
+            case .center:
+                frame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
+            case .left:
+                frame = CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+            case .right:
+                frame = CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+            case .top:
+                frame = CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
+            case .bottom:
+                frame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
+            }
+            dropZoneOverlayView.frame = frame
+            dropZoneOverlayView.isHidden = false
+        } else {
+            dropZoneOverlayView.isHidden = true
+        }
         CATransaction.commit()
     }
 
@@ -3672,6 +3708,8 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
+    @Environment(\.paneDropZone) var paneDropZone
+
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
@@ -3777,6 +3815,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
+        hostedView.setDropZoneOverlay(zone: paneDropZone)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
