@@ -591,6 +591,28 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def report_tty(self, tty_name: str, tab: str = None, panel: str = None) -> None:
+        """Register a TTY for batched port scanning."""
+        cmd = f"report_tty {tty_name}"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def ports_kick(self, tab: str = None, panel: str = None) -> None:
+        """Request a batched port scan for the given panel."""
+        cmd = "ports_kick"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def sidebar_state(self, tab: str = None) -> str:
         """Dump all sidebar metadata for a tab."""
         cmd = "sidebar_state"

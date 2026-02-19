@@ -89,6 +89,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var gitBranch: SidebarGitBranchState?
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
+    var surfaceTTYNames: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -330,6 +331,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
+        surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 
@@ -1292,6 +1294,8 @@ extension Workspace: BonsplitDelegate {
         panelDirectories.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
+        surfaceTTYNames.removeValue(forKey: panelId)
+        PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
 
         // Keep the workspace invariant: always retain at least one real panel.
         // This prevents runtime close callbacks from ever collapsing into a tabless workspace.
