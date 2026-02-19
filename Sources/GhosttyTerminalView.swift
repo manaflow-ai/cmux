@@ -2674,9 +2674,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
-	    private var lastSentRow: Int?
-	    private var isActive = true
-	    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    private var lastSentRow: Int?
+    private var isActive = true
+    private var activeDropZone: DropZone?
+    private var dropZoneOverlayAnimationGeneration: UInt64 = 0
+    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 #if DEBUG
 	    private static var flashCounts: [UUID: Int] = [:]
 	    private static var drawCounts: [UUID: Int] = [:]
@@ -2908,6 +2910,9 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.pushTargetSurfaceSize(targetSize)
         documentView.frame.size.width = scrollView.bounds.width
         inactiveOverlayView.frame = bounds
+        if let zone = activeDropZone {
+            dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+        }
         flashOverlayView.frame = bounds
         updateFlashPath()
         synchronizeScrollView()
@@ -2966,31 +2971,96 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    func setDropZoneOverlay(zone: DropZone?) {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if let zone {
-            let padding: CGFloat = 4
-            let size = bounds.size
-            let frame: CGRect
-            switch zone {
-            case .center:
-                frame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
-            case .left:
-                frame = CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
-            case .right:
-                frame = CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
-            case .top:
-                frame = CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
-            case .bottom:
-                frame = CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
-            }
-            dropZoneOverlayView.frame = frame
-            dropZoneOverlayView.isHidden = false
-        } else {
-            dropZoneOverlayView.isHidden = true
+    private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
+        let padding: CGFloat = 4
+        switch zone {
+        case .center:
+            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
+        case .left:
+            return CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+        case .right:
+            return CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+        case .top:
+            return CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
+        case .bottom:
+            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
         }
-        CATransaction.commit()
+    }
+
+    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    func setDropZoneOverlay(zone: DropZone?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setDropZoneOverlay(zone: zone)
+            }
+            return
+        }
+
+        let previousZone = activeDropZone
+        activeDropZone = zone
+
+        let previousFrame = dropZoneOverlayView.frame
+
+        if let zone {
+            let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+            let isSameFrame = Self.rectApproximatelyEqual(previousFrame, targetFrame)
+            let needsFrameUpdate = !isSameFrame
+            let zoneChanged = previousZone != zone
+
+            if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
+                return
+            }
+
+            dropZoneOverlayAnimationGeneration &+= 1
+            dropZoneOverlayView.layer?.removeAllAnimations()
+
+            if dropZoneOverlayView.isHidden {
+                dropZoneOverlayView.frame = targetFrame
+                dropZoneOverlayView.alphaValue = 0
+                dropZoneOverlayView.isHidden = false
+
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    dropZoneOverlayView.animator().alphaValue = 1
+                }
+                return
+            }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                if needsFrameUpdate {
+                    dropZoneOverlayView.animator().frame = targetFrame
+                }
+                if dropZoneOverlayView.alphaValue < 1 {
+                    dropZoneOverlayView.animator().alphaValue = 1
+                }
+            }
+        } else {
+            guard !dropZoneOverlayView.isHidden else { return }
+            dropZoneOverlayAnimationGeneration &+= 1
+            let animationGeneration = dropZoneOverlayAnimationGeneration
+            dropZoneOverlayView.layer?.removeAllAnimations()
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                dropZoneOverlayView.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                guard let self else { return }
+                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
+                guard self.activeDropZone == nil else { return }
+                self.dropZoneOverlayView.isHidden = true
+                self.dropZoneOverlayView.alphaValue = 1
+            }
+        }
     }
 
     func triggerFlash() {
