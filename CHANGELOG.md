@@ -2,6 +2,13 @@
 
 All notable changes to cmux are documented here.
 
+## [0.50.0] - 2026-02-18
+
+### Fixed
+- Fix crashes and fatal error when dropping files from Finder
+- Fix zsh git branch display not refreshing after changing directories
+- Fix menubar and right-click lag on M1 Macs
+
 ## [0.49.0] - 2026-02-18
 
 ### Fixed
