@@ -128,14 +128,13 @@ def test_send_workspace_relative(c: cmux, cli: str) -> None:
     surface_list = surfaces.get("surfaces", [])
     _must(len(surface_list) >= 1, "Need at least 1 surface in workspace")
 
-    # Send via env var - should target the specified workspace
-    # Use a no-op text that won't cause issues
+    # Send a harmless empty echo via env var to verify workspace routing
     output = _run_cli(
-        cli, ["send", ""],
+        cli, ["send", " "],
         env_overrides={"CMUX_WORKSPACE_ID": ws["id"]}
     )
-    # send with empty text should fail - that's fine, we just want to verify the
-    # flag parsing works
+    _must("OK" in output or "surface" in output.lower(),
+          f"Expected OK from send, got: {output}")
     print("  PASS: send workspace-relative (env var accepted)")
 
 
@@ -235,6 +234,7 @@ def main() -> int:
     try:
         test_list_panels_workspace_relative(c, cli)
         test_list_panes_workspace_relative(c, cli)
+        test_send_workspace_relative(c, cli)
         test_send_with_explicit_workspace(c, cli)
         test_v2_migrated_commands_output_refs(c, cli)
         test_surface_health_workspace_relative(c, cli)
