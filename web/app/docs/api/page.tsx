@@ -88,21 +88,23 @@ export default function ApiPage() {
           </tr>
           <tr>
             <td>
-              <strong>Notifications only</strong>
+              <strong>cmux processes only</strong>
             </td>
-            <td>Only notification commands allowed</td>
+            <td>
+              Only processes spawned inside cmux terminals can connect (default)
+            </td>
           </tr>
           <tr>
             <td>
-              <strong>Full control</strong>
+              <strong>allowAll (env only)</strong>
             </td>
-            <td>All commands enabled</td>
+            <td>Allow any same-user local process to connect</td>
           </tr>
         </tbody>
       </table>
       <Callout type="warn">
-        On shared machines, use &ldquo;Notifications only&rdquo; mode to prevent
-        other users from controlling your terminals.
+        <code>allowAll</code> bypasses cmux ancestry checks and is intentionally
+        hidden from the Settings UI.
       </Callout>
 
       <h2>CLI options</h2>
@@ -281,7 +283,8 @@ cmux list-notifications --json`}
               <code>CMUX_SOCKET_ENABLE</code>
             </td>
             <td>
-              Enable/disable socket (<code>1</code>/<code>0</code>)
+              Force socket on/off (<code>1</code>/<code>0</code>, also accepts{" "}
+              <code>true</code>/<code>false</code>)
             </td>
           </tr>
           <tr>
@@ -289,8 +292,9 @@ cmux list-notifications --json`}
               <code>CMUX_SOCKET_MODE</code>
             </td>
             <td>
-              Override access mode (<code>full</code>,{" "}
-              <code>notifications</code>, <code>off</code>)
+              Override access mode (<code>off</code>, <code>cmuxOnly</code>,{" "}
+              <code>allowAll</code>; legacy <code>full</code>/<code>notifications</code>{" "}
+              still accepted)
             </td>
           </tr>
           <tr>
@@ -304,6 +308,12 @@ cmux list-notifications --json`}
               <code>CMUX_SURFACE_ID</code>
             </td>
             <td>Auto-set: current surface ID</td>
+          </tr>
+          <tr>
+            <td>
+              <code>CMUX_TAB_ID</code>, <code>CMUX_PANEL_ID</code>
+            </td>
+            <td>Backward-compatible aliases for workspace/surface IDs</td>
           </tr>
           <tr>
             <td>
@@ -330,22 +340,24 @@ cmux list-notifications --json`}
 
       <h2>Detecting cmux</h2>
       <CodeBlock title="bash" lang="bash">{`# Check for the socket
-[ -S /tmp/cmux.sock ] && echo "In cmux"
+[ -S "\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}" ] && echo "In cmux"
 
 # Check for the CLI
 command -v cmux &>/dev/null && echo "cmux available"
 
 # Distinguish from regular Ghostty
-[ "$TERM_PROGRAM" = "ghostty" ] && [ -S /tmp/cmux.sock ] && echo "In cmux"`}</CodeBlock>
+[ "$TERM_PROGRAM" = "ghostty" ] && [ -n "$CMUX_WORKSPACE_ID" ] && echo "In cmux"`}</CodeBlock>
 
       <h2>Examples</h2>
 
       <h3>Python client</h3>
-      <CodeBlock title="python" lang="python">{`import socket, json
+      <CodeBlock title="python" lang="python">{`import os
+import socket, json
 
 def send_command(cmd):
+    socket_path = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux.sock")
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect('/tmp/cmux.sock')
+    sock.connect(socket_path)
     sock.send(json.dumps(cmd).encode() + b'\\n')
     response = sock.recv(4096).decode()
     sock.close()
@@ -363,8 +375,10 @@ send_command({
 
       <h3>Shell script</h3>
       <CodeBlock title="bash" lang="bash">{`#!/bin/bash
+SOCKET_PATH="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
+
 cmux_cmd() {
-    echo "$1" | nc -U /tmp/cmux.sock
+    echo "$1" | nc -U "$SOCKET_PATH"
 }
 
 cmux_cmd '{"command": "list-workspaces"}'

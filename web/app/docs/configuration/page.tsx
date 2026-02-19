@@ -5,20 +5,28 @@ import { Callout } from "../../components/callout";
 export const metadata: Metadata = {
   title: "Configuration",
   description:
-    "Configure cmux via Ghostty config files. Font, theme, colors, split pane styling, scrollback, and app settings for automation mode.",
+    "Configure cmux via Ghostty config plus in-app settings for theme, workspace placement, updates, socket automation security, browser defaults, and keyboard shortcuts.",
 };
 
 export default function ConfigurationPage() {
   return (
     <>
       <h1>Configuration</h1>
-      <p>
-        cmux reads configuration from Ghostty config files, giving you familiar
-        options if you&apos;re coming from Ghostty.
-      </p>
+      <p>cmux uses two configuration layers:</p>
+      <ul>
+        <li>
+          <strong>Ghostty config files</strong> for terminal appearance and
+          behavior
+        </li>
+        <li>
+          <strong>cmux Settings</strong> (<code>⌘,</code>) for app-level
+          features like automation, browser defaults, and shortcut
+          customization
+        </li>
+      </ul>
 
-      <h2>Config file locations</h2>
-      <p>cmux looks for configuration in these locations (in order):</p>
+      <h2>Ghostty config locations</h2>
+      <p>cmux looks for Ghostty config in this order:</p>
       <ol>
         <li>
           <code>~/.config/ghostty/config</code>
@@ -27,11 +35,15 @@ export default function ConfigurationPage() {
           <code>~/Library/Application Support/com.mitchellh.ghostty/config</code>
         </li>
       </ol>
-      <p>Create the config file if it doesn&apos;t exist:</p>
+      <p>Create the file if needed:</p>
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
+      <p>
+        You can also open Ghostty&apos;s config from
+        <strong> cmux → Ghostty Settings…</strong>.
+      </p>
 
-      <h2>Appearance</h2>
+      <h2>Ghostty appearance and behavior</h2>
 
       <h3>Font</h3>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = JetBrains Mono
@@ -59,54 +71,108 @@ unfocused-split-fill = #1e1e2e
 # Divider color between splits
 split-divider-color = #45475a`}</CodeBlock>
 
-      <h2>Behavior</h2>
+      <h3>Working directory + scrollback</h3>
+      <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Default directory for new terminals
+working-directory = ~/Projects
 
-      <h3>Scrollback</h3>
-      <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Number of lines to keep in scrollback buffer
+# Number of lines kept in scrollback
 scrollback-limit = 10000`}</CodeBlock>
 
-      <h3>Working directory</h3>
-      <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Default directory for new terminals
-working-directory = ~/Projects`}</CodeBlock>
-
-      <h2>App settings</h2>
+      <h2>cmux settings</h2>
       <p>
         In-app settings are available via <strong>cmux → Settings</strong> (
-        <code>⌘,</code>):
+        <code>⌘,</code>).
       </p>
 
-      <h3>Theme mode</h3>
+      <h3>App</h3>
       <ul>
         <li>
-          <strong>System</strong> — follow macOS appearance
+          <strong>Theme</strong> — <code>System</code>, <code>Light</code>, or{" "}
+          <code>Dark</code>
         </li>
         <li>
-          <strong>Light</strong> — always light mode
+          <strong>New Workspace Placement</strong> — <code>Top</code>,{" "}
+          <code>After current</code>, or <code>End</code>
         </li>
         <li>
-          <strong>Dark</strong> — always dark mode
+          <strong>Dock Badge</strong> — show unread count on the app icon
         </li>
       </ul>
 
-      <h3>Automation mode</h3>
-      <p>Control socket access level:</p>
+      <h3>Updates</h3>
       <ul>
         <li>
-          <strong>Off</strong> — no socket control (most secure)
+          <strong>Receive Nightly Builds</strong> — opt into nightly appcasts
+          built from recent <code>main</code> commits
+        </li>
+      </ul>
+
+      <h3>Automation</h3>
+      <p>
+        <strong>Socket Control Mode</strong> controls access to the local Unix
+        socket:
+      </p>
+      <ul>
+        <li>
+          <strong>Off</strong> — disable the control socket
         </li>
         <li>
-          <strong>Notifications only</strong> — only allow notification commands
-        </li>
-        <li>
-          <strong>Full control</strong> — allow all socket commands
+          <strong>cmux processes only</strong> — only processes spawned inside
+          cmux terminals can connect
         </li>
       </ul>
       <Callout type="warn">
-        On shared machines, consider using &ldquo;Notifications only&rdquo; mode
-        to prevent other processes from controlling your terminals.
+        A third mode, <code>allowAll</code>, exists for advanced use via{" "}
+        <code>CMUX_SOCKET_MODE</code> only. It is intentionally hidden from the
+        Settings UI.
       </Callout>
+      <p>Environment variable overrides:</p>
+      <CodeBlock lang="bash">{`# Force socket off/on
+CMUX_SOCKET_ENABLE=0   # off
+CMUX_SOCKET_ENABLE=1   # on
 
-      <h2>Example config</h2>
+# Override mode (accepted forms)
+CMUX_SOCKET_MODE=off
+CMUX_SOCKET_MODE=cmuxOnly
+CMUX_SOCKET_MODE=allowAll
+
+# Override socket path
+CMUX_SOCKET_PATH=/tmp/cmux.sock`}</CodeBlock>
+
+      <h3>Claude Code integration</h3>
+      <p>
+        The <strong>Claude Code Integration</strong> toggle controls whether
+        cmux wraps <code>claude</code> to inject session tracking + notification
+        hooks.
+      </p>
+
+      <h3>Browser</h3>
+      <ul>
+        <li>
+          <strong>Default Search Engine</strong> — Google, DuckDuckGo, or Bing
+        </li>
+        <li>
+          <strong>Show Search Suggestions</strong> — enable or disable omnibar
+          suggestions
+        </li>
+        <li>
+          <strong>Browsing History</strong> — clear stored omnibar history
+        </li>
+      </ul>
+
+      <h3>Keyboard shortcuts</h3>
+      <p>
+        You can customize shortcut bindings directly in Settings. Click a
+        shortcut value to record a new key combo.
+      </p>
+
+      <h3>Reset</h3>
+      <p>
+        Use <strong>Reset All Settings</strong> to restore app settings and
+        shortcut bindings to defaults.
+      </p>
+
+      <h2>Example Ghostty config</h2>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Font
 font-family = SF Mono
 font-size = 13
