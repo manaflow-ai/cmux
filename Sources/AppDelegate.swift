@@ -1872,7 +1872,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+L
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
-            tabManager?.openBrowser(insertAtEnd: true)
+            if let panelId = tabManager?.openBrowser(insertAtEnd: true) {
+                focusBrowserAddressBar(panelId: panelId)
+            }
             return true
         }
 
@@ -1884,17 +1886,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             if let browserAddressBarFocusedPanelId,
-               let tabManager,
-               let workspace = tabManager.selectedWorkspace,
-               let panel = workspace.browserPanel(for: browserAddressBarFocusedPanelId) {
-                workspace.focusPanel(panel.id)
-                focusBrowserAddressBar(in: panel)
+               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
                 return true
             }
 
-            tabManager?.openBrowser(insertAtEnd: true)
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
-                focusBrowserAddressBar(in: focusedPanel)
+            if let panelId = tabManager?.openBrowser(insertAtEnd: true) {
+                focusBrowserAddressBar(panelId: panelId)
                 return true
             }
         }
@@ -1914,8 +1911,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    @discardableResult
+    private func focusBrowserAddressBar(panelId: UUID) -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let panel = workspace.browserPanel(for: panelId) else {
+            return false
+        }
+        workspace.focusPanel(panel.id)
+        focusBrowserAddressBar(in: panel)
+        return true
+    }
+
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
-        panel.beginSuppressWebViewFocusForAddressBar()
+        _ = panel.requestAddressBarFocus()
         browserAddressBarFocusedPanelId = panel.id
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
     }
