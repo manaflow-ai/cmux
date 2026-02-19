@@ -77,12 +77,24 @@ class TerminalController {
     // MARK: - Process Ancestry Check
 
     /// Get the peer PID of a connected Unix domain socket using LOCAL_PEERPID.
-    private func getPeerPid(_ socket: Int32) -> pid_t? {
+    private nonisolated func getPeerPid(_ socket: Int32) -> pid_t? {
         var pid: pid_t = 0
         var pidSize = socklen_t(MemoryLayout<pid_t>.size)
         let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize)
-        guard result == 0, pid > 0 else { return nil }
+        if result != 0 || pid <= 0 {
+            return nil
+        }
         return pid
+    }
+
+    /// Check if the peer has the same UID as this process using LOCAL_PEERCRED.
+    /// This works even after the peer has disconnected (unlike LOCAL_PEERPID).
+    private func peerHasSameUID(_ socket: Int32) -> Bool {
+        var cred = xucred()
+        var credLen = socklen_t(MemoryLayout<xucred>.size)
+        let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
+        guard result == 0 else { return false }
+        return cred.cr_uid == getuid()
     }
 
     /// Check if `pid` is a descendant of this process by walking the process tree.
@@ -175,6 +187,18 @@ class TerminalController {
         isRunning = true
         print("TerminalController: Listening on \(socketPath)")
 
+        // Wire batched port scanner results back to workspace state.
+        PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
+            MainActor.assumeIsolated {
+                guard let self, let tabManager = self.tabManager else { return }
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                let validSurfaceIds = Set(workspace.panels.keys)
+                guard validSurfaceIds.contains(panelId) else { return }
+                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+                workspace.recomputeListeningPorts()
+            }
+        }
+
         // Accept connections in background thread
         Thread.detachNewThread { [weak self] in
             self?.acceptLoop()
@@ -223,28 +247,40 @@ class TerminalController {
 
             consecutiveFailures = 0
 
+            // Capture peer PID immediately — before the client can disconnect.
+            // ncat --send-only closes the connection right after writing, so by
+            // the time a new thread starts the peer may already be gone.
+            let peerPid = getPeerPid(clientSocket)
+
             // Handle client in new thread
             Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket)
+                self?.handleClient(clientSocket, peerPid: peerPid)
             }
         }
     }
 
-    private func handleClient(_ socket: Int32) {
+    private func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
         if accessMode == .cmuxOnly {
-            guard let peerPid = getPeerPid(socket) else {
-                let msg = "ERROR: Unable to verify client process\n"
-                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
-                return
-            }
-            guard isDescendant(peerPid) else {
-                let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
-                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
-                return
+            // Use pre-captured peer PID if available (captured in accept loop before
+            // the peer can disconnect), falling back to live lookup.
+            if let pid = peerPid ?? getPeerPid(socket) {
+                guard isDescendant(pid) else {
+                    let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
+                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    return
+                }
+            } else {
+                // LOCAL_PEERPID fails when the peer disconnects before we read it
+                // (common with ncat --send-only). Fall back to LOCAL_PEERCRED uid check.
+                guard peerHasSameUID(socket) else {
+                    let msg = "ERROR: Unable to verify client process\n"
+                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    return
+                }
             }
         }
 
@@ -402,6 +438,12 @@ class TerminalController {
 
         case "clear_ports":
             return clearPorts(args)
+
+        case "report_tty":
+            return reportTTY(args)
+
+        case "ports_kick":
+            return portsKick(args)
 
         case "report_pwd":
             return reportPwd(args)
@@ -6187,6 +6229,8 @@ class TerminalController {
           report_git_branch <branch> [--status=dirty] [--tab=X] - Report git branch
           clear_git_branch [--tab=X] - Clear git branch
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
+          report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
+          ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -9109,6 +9153,86 @@ class TerminalController {
                 tab.surfaceListeningPorts.removeAll()
             }
             tab.recomputeListeningPorts()
+        }
+        return result
+    }
+
+    private func reportTTY(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let ttyName = parsed.positional.first, !ttyName.isEmpty else {
+            return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.surfaceTTYNames[surfaceId] = ttyName
+            PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+        }
+        return result
+    }
+
+    private func portsKick(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                let parsed = parseOptions(args)
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let parsed = parseOptions(args)
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: ports_kick [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
         }
         return result
     }
