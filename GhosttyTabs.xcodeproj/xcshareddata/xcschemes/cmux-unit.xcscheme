@@ -6,14 +6,14 @@
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5001050" BuildableName="cmux.app" BlueprintName="GhosttyTabs" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
       </BuildActionEntry>
       <BuildActionEntry buildForTesting="YES" buildForRunning="NO" buildForProfiling="NO" buildForArchiving="NO" buildForAnalyzing="NO">
-        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="GhosttyTabsTests.xctest" BlueprintName="GhosttyTabsTests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="cmuxTests.xctest" BlueprintName="cmuxTests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
       </BuildActionEntry>
     </BuildActionEntries>
   </BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
     <Testables>
       <TestableReference skipped="NO">
-        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="GhosttyTabsTests.xctest" BlueprintName="GhosttyTabsTests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="cmuxTests.xctest" BlueprintName="cmuxTests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
       </TestableReference>
     </Testables>
     <MacroExpansion>

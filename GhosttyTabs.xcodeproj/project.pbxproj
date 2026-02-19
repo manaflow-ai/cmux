@@ -14,6 +14,7 @@
 			A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 			A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
 			A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
+			A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 			A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		A5001500 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001510 /* CmuxWebView.swift */; };
@@ -123,8 +124,8 @@
 
 		/* Begin PBXFileReference section */
 			A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
-			F1000002A1B2C3D4E5F60718 /* GhosttyTabsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-			7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GhosttyTabsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+			F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+			7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 			A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 			A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 			9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
@@ -132,6 +133,7 @@
 			A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 			A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 			A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+			A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 			A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -282,8 +284,8 @@
 				A5001016 /* GhosttyKit.xcframework */,
 				A5001017 /* ghostty.h */,
 				A5001018 /* cmux-Bridging-Header.h */,
-				3196C9C2D01F054C1D3385DD /* GhosttyTabsUITests */,
-				F1000003A1B2C3D4E5F60718 /* GhosttyTabsTests */,
+				3196C9C2D01F054C1D3385DD /* cmuxUITests */,
+				F1000003A1B2C3D4E5F60718 /* cmuxTests */,
 				A5001042 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -304,6 +306,7 @@
 				A5001417 /* WorkspaceContentView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				A5001531 /* TerminalWindowPortal.swift */,
 				A5001019 /* TerminalController.swift */,
 				A5001225 /* SocketControlSettings.swift */,
 				A5001090 /* AppDelegate.swift */,
@@ -359,13 +362,13 @@
 			children = (
 				A5001000 /* cmux.app */,
 				B9000004A1B2C3D4E5F60719 /* cmux */,
-				7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */,
-				F1000002A1B2C3D4E5F60718 /* GhosttyTabsTests.xctest */,
+				7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */,
+				F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-			3196C9C2D01F054C1D3385DD /* GhosttyTabsUITests */ = {
+			3196C9C2D01F054C1D3385DD /* cmuxUITests */ = {
 				isa = PBXGroup;
 						children = (
 							B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
@@ -379,16 +382,16 @@
 							C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */,
 					);
-				path = GhosttyTabsUITests;
+				path = cmuxUITests;
 				sourceTree = "<group>";
 			};
-		F1000003A1B2C3D4E5F60718 /* GhosttyTabsTests */ = {
+		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
 				F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
 			);
-			path = GhosttyTabsTests;
+			path = cmuxTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -437,9 +440,9 @@
 			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
 			productType = "com.apple.product-type.tool";
 		};
-		CB450DF0F0B3839599082C4D /* GhosttyTabsUITests */ = {
+		CB450DF0F0B3839599082C4D /* cmuxUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "GhosttyTabsUITests" */;
+			buildConfigurationList = AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "cmuxUITests" */;
 			buildPhases = (
 				E436EF0BA8EC9E6721A42F79 /* Sources */,
 				AB408954939A11B8A87BB5DE /* Frameworks */,
@@ -450,14 +453,14 @@
 			dependencies = (
 				32568B0DCFC8656BA952468E /* PBXTargetDependency */,
 			);
-			name = GhosttyTabsUITests;
-			productName = GhosttyTabsUITests;
-			productReference = 7E7E6EF344A568AC7FEE3715 /* GhosttyTabsUITests.xctest */;
+			name = cmuxUITests;
+			productName = cmuxUITests;
+			productReference = 7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		F1000004A1B2C3D4E5F60718 /* GhosttyTabsTests */ = {
+		F1000004A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "GhosttyTabsTests" */;
+			buildConfigurationList = F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "cmuxTests" */;
 			buildPhases = (
 				F1000005A1B2C3D4E5F60718 /* Sources */,
 				F1000006A1B2C3D4E5F60718 /* Frameworks */,
@@ -468,9 +471,9 @@
 			dependencies = (
 				F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */,
 			);
-			name = GhosttyTabsTests;
-			productName = GhosttyTabsTests;
-			productReference = F1000002A1B2C3D4E5F60718 /* GhosttyTabsTests.xctest */;
+			name = cmuxTests;
+			productName = cmuxTests;
+			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -504,8 +507,8 @@
 			targets = (
 				A5001050 /* GhosttyTabs */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
-				CB450DF0F0B3839599082C4D /* GhosttyTabsUITests */,
-				F1000004A1B2C3D4E5F60718 /* GhosttyTabsTests */,
+				CB450DF0F0B3839599082C4D /* cmuxUITests */,
+				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
 			);
 		};
 /* End PBXProject section */
@@ -528,6 +531,7 @@
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
+				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
@@ -916,7 +920,7 @@
 		defaultConfigurationIsVisible = 0;
 		defaultConfigurationName = Release;
 	};
-	AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "GhosttyTabsUITests" */ = {
+	AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "cmuxUITests" */ = {
 		isa = XCConfigurationList;
 		buildConfigurations = (
 			C117776A77E71D1432F570D7 /* Debug */,
@@ -925,7 +929,7 @@
 		defaultConfigurationIsVisible = 0;
 		defaultConfigurationName = Release;
 	};
-	F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "GhosttyTabsTests" */ = {
+	F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "cmuxTests" */ = {
 		isa = XCConfigurationList;
 		buildConfigurations = (
 			F1000011A1B2C3D4E5F60718 /* Debug */,
