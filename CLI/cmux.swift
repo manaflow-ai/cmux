@@ -1113,7 +1113,7 @@ struct CMUXCLI {
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
-            return trimmed
+            throw CLIError(message: "Invalid window handle: \(trimmed) (expected UUID, ref like window:1, or index)")
         }
 
         let listed = try client.sendV2(method: "window.list")
@@ -1142,7 +1142,7 @@ struct CMUXCLI {
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
-            return trimmed
+            throw CLIError(message: "Invalid workspace handle: \(trimmed) (expected UUID, ref like workspace:1, or index)")
         }
 
         var params: [String: Any] = [:]
@@ -1176,7 +1176,7 @@ struct CMUXCLI {
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
-            return trimmed
+            throw CLIError(message: "Invalid pane handle: \(trimmed) (expected UUID, ref like pane:1, or index)")
         }
 
         var params: [String: Any] = [:]
@@ -1210,7 +1210,7 @@ struct CMUXCLI {
             return trimmed
         }
         guard let wantedIndex = Int(trimmed) else {
-            return trimmed
+            throw CLIError(message: "Invalid surface handle: \(trimmed) (expected UUID, ref like surface:1, or index)")
         }
 
         var params: [String: Any] = [:]
