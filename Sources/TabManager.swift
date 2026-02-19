@@ -174,33 +174,37 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
         for t in st.targets {
             guard let s = t.sample() else { continue }
 
+            let iosW = s.iosurfaceWidthPx
+            let iosH = s.iosurfaceHeightPx
+            let expW = s.expectedWidthPx
+            let expH = s.expectedHeightPx
+            let gravity = s.layerContentsGravity
+            let hasDimensions = iosW > 0 && iosH > 0 && expW > 0 && expH > 0
+            let dw = hasDimensions ? abs(iosW - expW) : 0
+            let dh = hasDimensions ? abs(iosH - expH) : 0
+            let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
+            let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
+
             // Ignore setup/warmup frames before the close action. We only care about
             // regressions that happen at/after the close mutation.
             if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
                 st.firstBlank = (label: t.label, frame: st.framesWritten)
             }
 
-            let iosW = s.iosurfaceWidthPx
-            let iosH = s.iosurfaceHeightPx
-            let expW = s.expectedWidthPx
-            let expH = s.expectedHeightPx
             if st.firstSizeMismatch == nil,
                st.framesWritten >= st.closeFrame,
-               iosW > 0, iosH > 0, expW > 0, expH > 0 {
-                let dw = abs(iosW - expW)
-                let dh = abs(iosH - expH)
-                if dw > 2 || dh > 2 {
-                    st.firstSizeMismatch = (
-                        label: t.label,
-                        frame: st.framesWritten,
-                        ios: "\(iosW)x\(iosH)",
-                        expected: "\(expW)x\(expH)"
-                    )
-                }
+               stretchRisk,
+               hasSizeMismatch {
+                st.firstSizeMismatch = (
+                    label: t.label,
+                    frame: st.framesWritten,
+                    ios: "\(iosW)x\(iosH)",
+                    expected: "\(expW)x\(expH)"
+                )
             }
 
             if st.trace.count < 200 {
-                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):key=\(s.layerContentsKey)")
+                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):gravity=\(gravity):key=\(s.layerContentsKey)")
             }
         }
 
@@ -1720,13 +1724,20 @@ class TabManager: ObservableObject {
                 tab.closePanel(pid, force: true)
             }
 
-            // Create the 2x2 grid. The bug is order-dependent, so support multiple patterns.
+            // Create the repro layout. Most patterns use a 2x2 grid, but keep a single-split
+            // variant for the exact "close right in a horizontal pair" user report.
             let topLeftId = topLeftPanelId
             let topRight: TerminalPanel
-            let bottomLeft: TerminalPanel
-            let bottomRight: TerminalPanel
+            var bottomLeft: TerminalPanel?
+            var bottomRight: TerminalPanel?
 
             switch pattern {
+            case "close_right_single":
+                guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split right from top-left (iteration \(i))"], at: path)
+                    return
+                }
+                topRight = tr
             case "close_right_lrtd", "close_right_lrtd_bottom_first", "close_right_bottom_first", "close_right_lrtd_unfocused":
                 // User repro: split left/right first, then split top/down in each column.
                 guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
@@ -1769,9 +1780,15 @@ class TabManager: ObservableObject {
 
             // Fill left panes with visible content.
             sendText(topLeftId, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_TOPLEFT_\(i); done; printf '\\033[HCMUX_MARKER_TOPLEFT\\n'\r")
-            sendText(bottomLeft.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMLEFT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMLEFT\\n'\r")
             sendText(topRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_TOPRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_TOPRIGHT\\n'\r")
-            sendText(bottomRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMRIGHT\\n'\r")
+            if let bottomLeft {
+                sendText(bottomLeft.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMLEFT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMLEFT\\n'\r")
+            }
+            if let bottomRight {
+                sendText(bottomRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMRIGHT\\n'\r")
+            }
+            // Give shell output a moment to paint before we start the close timeline.
+            try? await Task.sleep(nanoseconds: 180_000_000)
 
             let desiredFrames = max(16, min(burstFrames, 60))
             let closeFrame = min(6, max(1, desiredFrames / 4))
@@ -1781,7 +1798,16 @@ class TabManager: ObservableObject {
             var closeOrder = ""
             let actions: [(frame: Int, action: () -> Void)] = {
                 switch pattern {
+                case "close_right_single":
+                    closeOrder = "TR_ONLY"
+                    return [
+                        (frame: closeFrame, action: {
+                            tab.focusPanel(topRight.id)
+                            tab.closePanel(topRight.id, force: true)
+                        }),
+                    ]
                 case "close_bottom":
+                    guard let bottomRight, let bottomLeft else { return [] }
                     closeOrder = "BR_THEN_BL"
                     return [
                         (frame: closeFrame, action: {
@@ -1794,6 +1820,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 case "close_right_lrtd_bottom_first", "close_right_bottom_first":
+                    guard let bottomRight else { return [] }
                     closeOrder = "BR_THEN_TR"
                     return [
                         (frame: closeFrame, action: {
@@ -1806,6 +1833,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 case "close_right_lrtd_unfocused":
+                    guard let bottomRight else { return [] }
                     closeOrder = "TR_THEN_BR_UNFOCUSED"
                     return [
                         (frame: closeFrame, action: {
@@ -1816,6 +1844,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 default:
+                    guard let bottomRight else { return [] }
                     closeOrder = "TR_THEN_BR"
                     return [
                         (frame: closeFrame, action: {
@@ -1832,6 +1861,10 @@ class TabManager: ObservableObject {
 
             let targets: [(label: String, view: GhosttySurfaceScrollView)] = {
                 switch pattern {
+                case "close_right_single":
+                    return [
+                        ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
+                    ]
                 case "close_bottom":
                     return [
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
@@ -1843,6 +1876,7 @@ class TabManager: ObservableObject {
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
                     ]
                 default:
+                    guard let bottomLeft else { return [] }
                     return [
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
                         ("BL", bottomLeft.surface.hostedView),
