@@ -2668,7 +2668,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
-    private let dropZoneOverlayView: NSView
+    private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2756,7 +2756,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
-        dropZoneOverlayView = NSView(frame: .zero)
+        dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
