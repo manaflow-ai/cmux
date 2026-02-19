@@ -478,6 +478,9 @@ class TerminalController {
         case "seed_drag_pasteboard_fileurl":
             return seedDragPasteboardFileURL()
 
+        case "seed_drag_pasteboard_tabtransfer":
+            return seedDragPasteboardTabTransfer()
+
         case "clear_drag_pasteboard":
             return clearDragPasteboard()
 
@@ -6273,6 +6276,7 @@ class TerminalController {
           simulate_type <text>            - Insert text into the current first responder (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
+          seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
           clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           activate_app                    - Bring app + main window to front (test-only)
@@ -6505,6 +6509,15 @@ class TerminalController {
     private func seedDragPasteboardFileURL() -> String {
         DispatchQueue.main.sync {
             _ = NSPasteboard(name: .drag).declareTypes([.fileURL], owner: nil)
+        }
+        return "OK"
+    }
+
+    private func seedDragPasteboardTabTransfer() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).declareTypes([
+                NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+            ], owner: nil)
         }
         return "OK"
     }

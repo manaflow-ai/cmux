@@ -839,6 +839,12 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def seed_drag_pasteboard_tabtransfer(self) -> None:
+        """Seed NSDrag pasteboard with tab transfer type in the app process (debug builds only)."""
+        response = self._send_command("seed_drag_pasteboard_tabtransfer")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def clear_drag_pasteboard(self) -> None:
         """Clear NSDrag pasteboard in the app process (debug builds only)."""
         response = self._send_command("clear_drag_pasteboard")
