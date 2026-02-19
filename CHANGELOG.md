@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.54.0] - 2026-02-18
+
+### Fixed
+- Fix browser omnibar Cmd+L causing 100% CPU from infinite focus loop
+
 ## [0.53.0] - 2026-02-18
 
 ### Changed
