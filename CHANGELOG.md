@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.50.0] - 2026-02-18
+
+### Fixed
+- Fix UI lag (menubar, right-click) on M1 Macs in release builds
+
 ## [0.49.0] - 2026-02-18
 
 ### Fixed
