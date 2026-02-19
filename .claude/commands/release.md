@@ -55,6 +55,10 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
     - Verify the release appears at: https://github.com/manaflow-ai/cmux/releases
     - Check that the DMG is attached to the release
 
+12. **Notify**
+    - On success: `say "cmux release complete"`
+    - On failure: `say "cmux release failed"`
+
 ## Changelog Guidelines
 
 **Include only end-user visible changes:**
