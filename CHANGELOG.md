@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [0.51.0] - 2026-02-18
+
+### Fixed
+- Fix menubar and right-click lag on M1 Macs in release builds
+- Fix browser panel opening new tabs on link click
+
 ## [0.50.0] - 2026-02-18
 
 ### Fixed
