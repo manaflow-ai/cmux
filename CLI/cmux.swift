@@ -578,12 +578,12 @@ struct CMUXCLI {
                 } else {
                     for ws in workspaces {
                         let selected = (ws["selected"] as? Bool) == true
-                        let ref = (ws["ref"] as? String) ?? (ws["id"] as? String) ?? "?"
+                        let handle = textHandle(ws, idFormat: idFormat)
                         let title = (ws["title"] as? String) ?? ""
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
                         let titlePart = title.isEmpty ? "" : "  \(title)"
-                        print("\(prefix)\(ref)\(titlePart)\(selTag)")
+                        print("\(prefix)\(handle)\(titlePart)\(selTag)")
                     }
                 }
             }
@@ -624,11 +624,11 @@ struct CMUXCLI {
                 } else {
                     for pane in panes {
                         let focused = (pane["focused"] as? Bool) == true
-                        let ref = (pane["ref"] as? String) ?? (pane["id"] as? String) ?? "?"
+                        let handle = textHandle(pane, idFormat: idFormat)
                         let count = pane["surface_count"] as? Int ?? 0
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
-                        print("\(prefix)\(ref)  [\(count) surface\(count == 1 ? "" : "s")]\(focusTag)")
+                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(focusTag)")
                     }
                 }
             }
@@ -651,11 +651,11 @@ struct CMUXCLI {
                 } else {
                     for surface in surfaces {
                         let selected = (surface["selected"] as? Bool) == true
-                        let ref = (surface["ref"] as? String) ?? (surface["id"] as? String) ?? "?"
+                        let handle = textHandle(surface, idFormat: idFormat)
                         let title = (surface["title"] as? String) ?? ""
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
-                        print("\(prefix)\(ref)  \(title)\(selTag)")
+                        print("\(prefix)\(handle)  \(title)\(selTag)")
                     }
                 }
             }
@@ -756,7 +756,7 @@ struct CMUXCLI {
                     print("No surfaces")
                 } else {
                     for surface in surfaces {
-                        let ref = (surface["ref"] as? String) ?? (surface["id"] as? String) ?? "?"
+                        let handle = textHandle(surface, idFormat: idFormat)
                         let sType = (surface["type"] as? String) ?? ""
                         let inWindow = surface["in_window"]
                         let inWindowStr: String
@@ -765,7 +765,7 @@ struct CMUXCLI {
                         } else {
                             inWindowStr = ""
                         }
-                        print("\(ref)  type=\(sType)\(inWindowStr)")
+                        print("\(handle)  type=\(sType)\(inWindowStr)")
                     }
                 }
             }
@@ -797,13 +797,13 @@ struct CMUXCLI {
                 } else {
                     for surface in surfaces {
                         let focused = (surface["focused"] as? Bool) == true
-                        let ref = (surface["ref"] as? String) ?? (surface["id"] as? String) ?? "?"
+                        let handle = textHandle(surface, idFormat: idFormat)
                         let sType = (surface["type"] as? String) ?? ""
                         let title = (surface["title"] as? String) ?? ""
                         let prefix = focused ? "* " : "  "
                         let focusTag = focused ? "  [focused]" : ""
                         let titlePart = title.isEmpty ? "" : "  \"\(title)\""
-                        print("\(prefix)\(ref)  \(sType)\(focusTag)\(titlePart)")
+                        print("\(prefix)\(handle)  \(sType)\(focusTag)\(titlePart)")
                     }
                 }
             }
@@ -2492,11 +2492,16 @@ struct CMUXCLI {
             return raw
         }
         if let raw, isHandleRef(raw) {
-            // Resolve ref to UUID via v2 list
-            let listed = try client.sendV2(method: "workspace.list")
-            let items = listed["workspaces"] as? [[String: Any]] ?? []
-            for item in items where (item["ref"] as? String) == raw {
-                if let id = item["id"] as? String { return id }
+            // Resolve ref to UUID — search across all windows
+            let windows = try client.sendV2(method: "window.list")
+            let windowList = windows["windows"] as? [[String: Any]] ?? []
+            for window in windowList {
+                guard let windowId = window["id"] as? String else { continue }
+                let listed = try client.sendV2(method: "workspace.list", params: ["window_id": windowId])
+                let items = listed["workspaces"] as? [[String: Any]] ?? []
+                for item in items where (item["ref"] as? String) == raw {
+                    if let id = item["id"] as? String { return id }
+                }
             }
             throw CLIError(message: "Workspace ref not found: \(raw)")
         }
@@ -2585,6 +2590,17 @@ struct CMUXCLI {
 
     private func workspaceFromArgsOrEnv(_ args: [String]) -> String? {
         return optionValue(args, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    }
+
+    /// Pick the display handle for an item dict based on --id-format.
+    private func textHandle(_ item: [String: Any], idFormat: CLIIDFormat) -> String {
+        let ref = item["ref"] as? String
+        let id = item["id"] as? String
+        switch idFormat {
+        case .refs:  return ref ?? id ?? "?"
+        case .uuids: return id ?? ref ?? "?"
+        case .both:  return [ref, id].compactMap({ $0 }).joined(separator: " ")
+        }
     }
 
     private func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
