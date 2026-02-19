@@ -30,7 +30,34 @@ _CMUX_GIT_LAST_RUN="${_CMUX_GIT_LAST_RUN:-0}"
 _CMUX_GIT_JOB_PID="${_CMUX_GIT_JOB_PID:-}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
-_CMUX_PORTS_JOB_PID="${_CMUX_PORTS_JOB_PID:-}"
+_CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
+_CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
+
+_cmux_report_tty_once() {
+    # Send the TTY name to the app once per session so the batched port scanner
+    # knows which TTY belongs to this panel.
+    (( _CMUX_TTY_REPORTED )) && return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+    _CMUX_TTY_REPORTED=1
+    {
+        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 &
+}
+
+_cmux_ports_kick() {
+    # Lightweight: just tell the app to run a batched scan for this panel.
+    # The app coalesces kicks across all panels and runs a single ps+lsof.
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _CMUX_PORTS_LAST_RUN=$SECONDS
+    {
+        _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 &
+}
 
 _cmux_prompt_command() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
@@ -39,12 +66,16 @@ _cmux_prompt_command() {
 
     local now=$SECONDS
     local pwd="$PWD"
-    local tty_name=""
-    tty_name="$(tty 2>/dev/null || true)"
-    tty_name="${tty_name##*/}"
-    if [[ "$tty_name" == "not a tty" ]]; then
-        tty_name=""
+
+    # Resolve TTY name once.
+    if [[ -z "$_CMUX_TTY_NAME" ]]; then
+        local t
+        t="$(tty 2>/dev/null || true)"
+        t="${t##*/}"
+        [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
+
+    _cmux_report_tty_once
 
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
@@ -57,68 +88,29 @@ _cmux_prompt_command() {
 
     # Git branch/dirty can change without a directory change (e.g. `git checkout`),
     # so update on every prompt (still async + de-duped by the running-job check).
-    local should_git=1
-
-    if (( should_git )); then
-        if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
-            :
-        else
-            _CMUX_GIT_LAST_PWD="$pwd"
-            _CMUX_GIT_LAST_RUN=$now
-            {
-                local branch dirty_opt=""
-                branch=$(git branch --show-current 2>/dev/null)
-                if [[ -n "$branch" ]]; then
-                    local first
-                    first=$(git status --porcelain -uno 2>/dev/null | head -1)
-                    [[ -n "$first" ]] && dirty_opt="--status=dirty"
-                    _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID"
-                else
-                    _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID"
-                fi
-            } >/dev/null 2>&1 &
-            _CMUX_GIT_JOB_PID=$!
-        fi
+    if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+        :
+    else
+        _CMUX_GIT_LAST_PWD="$pwd"
+        _CMUX_GIT_LAST_RUN=$now
+        {
+            local branch dirty_opt=""
+            branch=$(git branch --show-current 2>/dev/null)
+            if [[ -n "$branch" ]]; then
+                local first
+                first=$(git status --porcelain -uno 2>/dev/null | head -1)
+                [[ -n "$first" ]] && dirty_opt="--status=dirty"
+                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID"
+            else
+                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID"
+            fi
+        } >/dev/null 2>&1 &
+        _CMUX_GIT_JOB_PID=$!
     fi
 
+    # Ports: lightweight kick to the app's batched scanner every ~10s.
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-        if [[ -n "$_CMUX_PORTS_JOB_PID" ]] && kill -0 "$_CMUX_PORTS_JOB_PID" 2>/dev/null; then
-            : # previous scan still running
-        else
-            _CMUX_PORTS_LAST_RUN=$now
-            {
-                local ports=()
-                local pids_csv=""
-                if [[ -n "$tty_name" ]]; then
-                    pids_csv="$(ps -axo pid=,tty= 2>/dev/null | awk -v tty="$tty_name" '$2 == tty {print $1}' | tr '\n' ',' || true)"
-                    pids_csv="${pids_csv%,}"
-                fi
-
-                if [[ -n "$pids_csv" ]]; then
-                    local line name port
-                    while IFS= read -r line; do
-                        [[ "$line" == n* ]] || continue
-                        name="${line#n}"
-                        name="${name%%->*}"
-                        port="${name##*:}"
-                        port="${port%%[^0-9]*}"
-                        [[ -n "$port" ]] && ports+=("$port")
-                    done < <(
-                        lsof -nP -a -p "$pids_csv" -iTCP -sTCP:LISTEN -F n 2>/dev/null || true
-                    )
-                fi
-
-                if ((${#ports[@]} > 0)); then
-                    local ports_sorted
-                    ports_sorted=$(printf '%s\n' "${ports[@]}" | sort -n | uniq | tr '\n' ' ')
-                    ports_sorted="${ports_sorted%% }"
-                    _cmux_send "report_ports $ports_sorted --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                else
-                    _cmux_send "clear_ports --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-                fi
-            } >/dev/null 2>&1 &
-            _CMUX_PORTS_JOB_PID=$!
-        fi
+        _cmux_ports_kick
     fi
 }
 

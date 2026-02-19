@@ -36,9 +36,9 @@ typeset -g _CMUX_GIT_HEAD_MTIME=0
 typeset -g _CMUX_HAVE_ZSTAT=0
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
-typeset -g _CMUX_PORTS_JOB_PID=""
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
+typeset -g _CMUX_TTY_REPORTED=0
 
 _cmux_ensure_zstat() {
     # zstat is substantially cheaper than spawning external `stat`.
@@ -103,89 +103,30 @@ _cmux_git_head_mtime() {
     print -r -- 0
 }
 
-_cmux_ports_scan() {
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-
-    # Report listening TCP ports for the current shell session only (so a fresh
-    # tab doesn't inherit unrelated machine-wide ports). We restrict the scan to
-    # the current controlling TTY which keeps this cheap enough to run often.
-    local -a ports
-    local line name port
-
-    # Best-effort: restrict to the current controlling TTY so a fresh tab doesn't
-    # inherit unrelated machine-wide ports. This is a pragmatic heuristic that
-    # works well for typical dev servers started from that shell.
-    local tty_name pids_csv
-    tty_name="$_CMUX_TTY_NAME"
-    if [[ -z "$tty_name" ]]; then
-        local t
-        t="$(tty 2>/dev/null || true)"
-        t="${t##*/}"
-        [[ "$t" != "not a tty" ]] && tty_name="$t"
-    fi
-
-    if [[ -z "$tty_name" ]]; then
-        _cmux_send "clear_ports --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        return 0
-    fi
-
-    pids_csv="$(ps -axo pid=,tty= 2>/dev/null | awk -v tty="$tty_name" '$2 == tty {print $1}' | tr '\n' ',' || true)"
-    pids_csv="${pids_csv%,}"
-    if [[ -z "$pids_csv" ]]; then
-        _cmux_send "clear_ports --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        return 0
-    fi
-
-    while IFS= read -r line; do
-        [[ "$line" == n* ]] || continue
-        name="${line#n}"
-        # Defensive: if the format ever includes a remote endpoint, keep the local side.
-        name="${name%%->*}"
-        port="${name##*:}"
-        # Strip anything non-numeric (paranoia: "8000 (LISTEN)" etc).
-        port="${port%%[^0-9]*}"
-        [[ -n "$port" ]] && ports+=("$port")
-    done < <(
-        lsof -nP -a -p "$pids_csv" -iTCP -sTCP:LISTEN -F n 2>/dev/null || true
-    )
-
-    ports=("${(@u)ports}")
-    ports=("${(@on)ports}")
-
-    if (( ${#ports[@]} > 0 )); then
-        _cmux_send "report_ports ${(j: :)ports} --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    else
-        _cmux_send "clear_ports --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    fi
-}
-
-_cmux_ports_kick() {
-    # De-duped, async scans (with a short burst) so we still update when a command
-    # runs in the foreground (no prompt updates while it is running).
+_cmux_report_tty_once() {
+    # Send the TTY name to the app once per session so the batched port scanner
+    # knows which TTY belongs to this panel.
+    (( _CMUX_TTY_REPORTED )) && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    if [[ -n "$_CMUX_PORTS_JOB_PID" ]] && kill -0 "$_CMUX_PORTS_JOB_PID" 2>/dev/null; then
-        return 0
-    fi
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+    _CMUX_TTY_REPORTED=1
+    {
+        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 &!
+}
+
+_cmux_ports_kick() {
+    # Lightweight: just tell the app to run a batched scan for this panel.
+    # The app coalesces kicks across all panels and runs a single ps+lsof.
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
     {
-        # Scan over ~10 seconds so slow-starting servers (e.g. `npm run dev`)
-        # still show ports while the command is in the foreground.
-        sleep 0.5 2>/dev/null || true
-        _cmux_ports_scan
-        sleep 1.0 2>/dev/null || true
-        _cmux_ports_scan
-        sleep 1.5 2>/dev/null || true
-        _cmux_ports_scan
-        sleep 2.0 2>/dev/null || true
-        _cmux_ports_scan
-        sleep 2.5 2>/dev/null || true
-        _cmux_ports_scan
-        sleep 2.5 2>/dev/null || true
-        _cmux_ports_scan
+        _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     } >/dev/null 2>&1 &!
-    _CMUX_PORTS_JOB_PID=$!
 }
 
 _cmux_preexec() {
@@ -204,8 +145,8 @@ _cmux_preexec() {
         _CMUX_GIT_FORCE=1
     fi
 
-    # Ports can change due to long-running foreground commands (servers), so start
-    # a short scan burst after command launch.
+    # Register TTY + kick batched port scan for foreground commands (servers).
+    _cmux_report_tty_once
     _cmux_ports_kick
 }
 
@@ -221,6 +162,8 @@ _cmux_precmd() {
         t="${t##*/}"
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
+
+    _cmux_report_tty_once
 
     local now=$EPOCHSECONDS
     local pwd="$PWD"
@@ -302,7 +245,7 @@ _cmux_precmd() {
         fi
     fi
 
-    # Ports:
+    # Ports: lightweight kick to the app's batched scanner.
     # - Periodic scan to avoid stale values.
     # - Forced scan when a long-running command returns to the prompt (common when stopping a server).
     local cmd_dur=0
