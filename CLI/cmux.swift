@@ -709,7 +709,19 @@ struct CMUXCLI {
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
-            if let sfId { params["surface_id"] = sfId }
+            if let sfId {
+                // Validate surface exists before closing to avoid falling back to focused surface
+                let listParams: [String: Any] = wsId != nil ? ["workspace_id": wsId!] : [:]
+                let listed = try client.sendV2(method: "surface.list", params: listParams)
+                let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+                let found = surfaces.contains { item in
+                    (item["id"] as? String) == sfId || (item["ref"] as? String) == sfId
+                }
+                if !found {
+                    throw CLIError(message: "Surface not found: \(surfaceRaw ?? sfId)")
+                }
+                params["surface_id"] = sfId
+            }
             let payload = try client.sendV2(method: "surface.close", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -842,7 +854,7 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
             let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let text = rem1.joined(separator: " ")
+            let text = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
             guard !text.isEmpty else { throw CLIError(message: "send requires text") }
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -857,7 +869,8 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
             let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            guard let key = rem1.first else { throw CLIError(message: "send-key requires a key") }
+            let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
+            guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             var params: [String: Any] = ["key": key]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -873,7 +886,7 @@ struct CMUXCLI {
             guard let panelArg else {
                 throw CLIError(message: "send-panel requires --panel")
             }
-            let text = rem1.joined(separator: " ")
+            let text = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
             guard !text.isEmpty else { throw CLIError(message: "send-panel requires text") }
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -890,7 +903,8 @@ struct CMUXCLI {
             guard let panelArg else {
                 throw CLIError(message: "send-key-panel requires --panel")
             }
-            let key = rem1.first ?? ""
+            let skpArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
+            let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
             var params: [String: Any] = ["key": key]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -2535,12 +2549,18 @@ struct CMUXCLI {
         var remaining: [String] = []
         var value: String?
         var skipNext = false
+        var pastTerminator = false
         for (idx, arg) in args.enumerated() {
             if skipNext {
                 skipNext = false
                 continue
             }
-            if arg == name, idx + 1 < args.count {
+            if arg == "--" {
+                pastTerminator = true
+                remaining.append(arg)
+                continue
+            }
+            if !pastTerminator, arg == name, idx + 1 < args.count {
                 value = args[idx + 1]
                 skipNext = true
                 continue
