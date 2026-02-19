@@ -5,6 +5,11 @@ private var cmuxWindowTerminalPortalKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hitView = super.hitTest(point)
+        return hitView === self ? nil : hitView
+    }
 }
 
 @MainActor
