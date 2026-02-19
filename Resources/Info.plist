@@ -81,6 +81,16 @@
 				<string>public.data</string>
 			</array>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.sidebar-tab-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 	<key>SUFeedURL</key>
 	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
