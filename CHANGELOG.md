@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [0.49.0] - 2026-02-18
+
+### Fixed
+- Fix crash (stack overflow) when clicking after a Finder file drag
+- Fix titlebar folder icon briefly enlarging on workspace switch
+
 ## [0.48.0] - 2026-02-18
 
 ### Fixed
