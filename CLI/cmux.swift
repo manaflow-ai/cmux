@@ -709,19 +709,7 @@ struct CMUXCLI {
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId)
-            if let sfId {
-                // Validate surface exists before closing to avoid falling back to focused surface
-                let listParams: [String: Any] = wsId != nil ? ["workspace_id": wsId!] : [:]
-                let listed = try client.sendV2(method: "surface.list", params: listParams)
-                let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
-                let found = surfaces.contains { item in
-                    (item["id"] as? String) == sfId || (item["ref"] as? String) == sfId
-                }
-                if !found {
-                    throw CLIError(message: "Surface not found: \(surfaceRaw ?? sfId)")
-                }
-                params["surface_id"] = sfId
-            }
+            if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.close", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -1044,6 +1032,12 @@ struct CMUXCLI {
                         out.removeValue(forKey: key)
                     }
                 }
+                for key in keys where key.hasSuffix("_ids") {
+                    let prefix = String(key.dropLast(4))
+                    if out["\(prefix)_refs"] != nil {
+                        out.removeValue(forKey: key)
+                    }
+                }
             case .uuids:
                 if out["id"] != nil && out["ref"] != nil {
                     out.removeValue(forKey: "ref")
@@ -1052,6 +1046,12 @@ struct CMUXCLI {
                 for key in keys where key.hasSuffix("_ref") {
                     let prefix = String(key.dropLast(4))
                     if out["\(prefix)_id"] != nil {
+                        out.removeValue(forKey: key)
+                    }
+                }
+                for key in keys where key.hasSuffix("_refs") {
+                    let prefix = String(key.dropLast(5))
+                    if out["\(prefix)_ids"] != nil {
                         out.removeValue(forKey: key)
                     }
                 }
