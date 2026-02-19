@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.45.0] - 2026-02-18
+
+### Changed
+- Rebuild with Xcode 26.2 and macOS 26.2 SDK
+
 ## [0.44.0] - 2026-02-18
 
 ### Fixed
