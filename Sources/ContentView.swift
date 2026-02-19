@@ -166,7 +166,7 @@ final class SidebarState: ObservableObject {
 /// embedded terminal views. This overlay sits above the entire content view hierarchy and
 /// intercepts file drags, forwarding drops to the GhosttyNSView under the cursor.
 ///
-/// Mouse events are forwarded to the view below the overlay via hit-testing so clicks,
+/// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
 /// scrolls, and other interactions pass through normally.
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
@@ -176,33 +176,53 @@ final class FileDropOverlayView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        registerForDraggedTypes([.fileURL, .URL, .string])
+        registerForDraggedTypes([.fileURL])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    // MARK: Mouse forwarding – resolve the view under the overlay and dispatch directly.
-    //
-    // Using window.sendEvent(_:) here can re-enter this overlay for the same event and recurse
-    // until stack exhaustion. We instead hit-test under the overlay and call the target view.
+    // MARK: Hit-testing — only participate when the system drag pasteboard contains file
+    // URLs (i.e. a Finder file drag is in progress). For everything else — mouse events,
+    // sidebar tab reorder, bonsplit tab drags — return nil so events route to the content
+    // view below and SwiftUI / bonsplit drag-and-drop works normally.
 
-    private func forwardEvent(_ event: NSEvent, dispatch: (NSView, NSEvent) -> Void) {
-        guard let target = viewUnderOverlay(at: event.locationInWindow) else { return }
-        dispatch(target, event)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let pb = NSPasteboard(name: .drag)
+        if let types = pb.types, types.contains(.fileURL) {
+            return super.hitTest(point)
+        }
+        return nil
     }
 
-    override func mouseDown(with event: NSEvent) { forwardEvent(event) { $0.mouseDown(with: $1) } }
-    override func mouseUp(with event: NSEvent) { forwardEvent(event) { $0.mouseUp(with: $1) } }
-    override func mouseDragged(with event: NSEvent) { forwardEvent(event) { $0.mouseDragged(with: $1) } }
-    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDown(with: $1) } }
-    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) { $0.rightMouseUp(with: $1) } }
-    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.rightMouseDragged(with: $1) } }
-    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDown(with: $1) } }
-    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) { $0.otherMouseUp(with: $1) } }
-    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) { $0.otherMouseDragged(with: $1) } }
-    override func scrollWheel(with event: NSEvent) { forwardEvent(event) { $0.scrollWheel(with: $1) } }
+    // MARK: Mouse forwarding — safety net for the rare case where stale drag pasteboard
+    // data causes hitTest to return self when no drag is actually active.
+    // The isForwarding guard prevents infinite recursion: sendEvent → mouseDown →
+    // forwardEvent → sendEvent, which can stack overflow when gesture recognizer
+    // routing re-delivers the event despite isHidden.
 
-    // MARK: NSDraggingDestination – only accept drops over terminal views.
+    private var isForwarding = false
+
+    private func forwardEvent(_ event: NSEvent) {
+        guard !isForwarding else { return }
+        isForwarding = true
+        isHidden = true
+        window?.sendEvent(event)
+        isHidden = false
+        isForwarding = false
+    }
+
+    override func mouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func mouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func mouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func rightMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDown(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseUp(with event: NSEvent) { forwardEvent(event) }
+    override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
+    override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
+
+    // MARK: NSDraggingDestination – only accept file drops over terminal views.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         return dragOperationForSender(sender)
@@ -219,30 +239,21 @@ final class FileDropOverlayView: NSView {
 
     private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let types = sender.draggingPasteboard.types,
-              types.contains(where: { $0 == .fileURL || $0 == .URL || $0 == .string }),
+              types.contains(.fileURL),
               terminalUnderPoint(sender.draggingLocation) != nil else {
             return []
         }
         return .copy
     }
 
-    /// Temporarily hides self and hit-tests content to find the view under the cursor.
-    private func viewUnderOverlay(at windowPoint: NSPoint) -> NSView? {
+    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
+    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         guard let window, let contentView = window.contentView,
               let themeFrame = contentView.superview else { return nil }
         isHidden = true
-        // hitTest expects the point in the receiver's superview's coordinate system.
-        // Converting to contentView's own coords would flip y (NSHostingView is flipped)
-        // causing top/bottom split targeting to be inverted.
         let point = themeFrame.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
         isHidden = false
-        return hitView
-    }
-
-    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
-    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard let hitView = viewUnderOverlay(at: windowPoint) else { return nil }
 
         var current: NSView? = hitView
         while let view = current {
@@ -1322,6 +1333,9 @@ private struct TabItemView: View {
             }
         }
         .onDrag {
+            #if DEBUG
+            dlog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
+            #endif
             draggedTabId = tab.id
             dropIndicator = nil
             return SidebarTabDragPayload.provider(for: tab.id)
@@ -2015,11 +2029,17 @@ private final class SidebarDragAutoScrollController: ObservableObject {
 }
 
 private enum SidebarTabDragPayload {
-    static let typeIdentifier = UTType.plainText.identifier
+    static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
     private static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
-        NSItemProvider(object: "\(prefix)\(tabId.uuidString)" as NSString)
+        let provider = NSItemProvider()
+        let payload = "\(prefix)\(tabId.uuidString)"
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
+            completion(payload.data(using: .utf8), nil)
+            return nil
+        }
+        return provider
     }
 }
 
@@ -2034,10 +2054,18 @@ private struct SidebarTabDropDelegate: DropDelegate {
     @Binding var dropIndicator: SidebarDropIndicator?
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) && draggedTabId != nil
+        let hasType = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let hasDrag = draggedTabId != nil
+        #if DEBUG
+        dlog("sidebar.validateDrop target=\(targetTabId?.uuidString.prefix(5) ?? "end") hasType=\(hasType) hasDrag=\(hasDrag)")
+        #endif
+        return hasType && hasDrag
     }
 
     func dropEntered(info: DropInfo) {
+        #if DEBUG
+        dlog("sidebar.dropEntered target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
+        #endif
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
     }
@@ -2270,16 +2298,22 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 16, height: 16)
+    }
+
     private func setupImageView() {
         imageView = NSImageView()
-        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageScaling = .scaleProportionallyDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
         NSLayoutConstraint.activate([
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.topAnchor.constraint(equalTo: topAnchor),
-            imageView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 16),
+            imageView.heightAnchor.constraint(equalToConstant: 16),
         ])
         updateIcon()
     }
