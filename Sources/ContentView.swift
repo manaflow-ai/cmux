@@ -188,10 +188,17 @@ final class FileDropOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        if let types = pb.types, types.contains(.fileURL) {
-            return super.hitTest(point)
-        }
-        return nil
+        guard let types = pb.types, types.contains(.fileURL) else { return nil }
+
+        // The drag pasteboard can retain stale file types after a completed drag.
+        // Only participate during active drag-motion events.
+        let eventType = NSApp.currentEvent?.type
+        let isDragMouseEvent = eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+        guard isDragMouseEvent else { return nil }
+
+        return super.hitTest(point)
     }
 
     // MARK: Mouse forwarding — safety net for the rare case where stale drag pasteboard
@@ -200,10 +207,9 @@ final class FileDropOverlayView: NSView {
     // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
-        guard let window, let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return }
+        guard let window, let contentView = window.contentView else { return }
         isHidden = true
-        let point = themeFrame.convert(event.locationInWindow, from: nil)
+        let point = contentView.convert(event.locationInWindow, from: nil)
         let target = contentView.hitTest(point)
         isHidden = false
         guard let target else { return }
@@ -265,10 +271,9 @@ final class FileDropOverlayView: NSView {
             return portalTerminal
         }
 
-        guard let window, let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return nil }
+        guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
-        let point = themeFrame.convert(windowPoint, from: nil)
+        let point = contentView.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
         isHidden = false
 

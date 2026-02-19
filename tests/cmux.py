@@ -833,6 +833,18 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def seed_drag_pasteboard_fileurl(self) -> None:
+        """Seed NSDrag pasteboard with public.file-url in the app process (debug builds only)."""
+        response = self._send_command("seed_drag_pasteboard_fileurl")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_drag_pasteboard(self) -> None:
+        """Clear NSDrag pasteboard in the app process (debug builds only)."""
+        response = self._send_command("clear_drag_pasteboard")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def drop_hit_test(self, x: float, y: float) -> Optional[str]:
         """Hit-test the file-drop overlay at normalised (0-1) coords.
 
