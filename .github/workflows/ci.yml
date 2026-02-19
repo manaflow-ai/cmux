@@ -55,6 +55,9 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Build GhosttyKit.xcframework
         run: |
           set -euo pipefail

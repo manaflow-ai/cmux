@@ -2134,9 +2134,21 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 firstResponder === nsView ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
             if isFocused, !isFirstResponder {
-                window.makeFirstResponder(nsView)
+                // Defer to avoid triggering input method XPC during layout pass,
+                // which can crash via re-entrant view hierarchy modification.
+                DispatchQueue.main.async { [weak nsView] in
+                    guard let nsView, let window = nsView.window else { return }
+                    window.makeFirstResponder(nsView)
+                }
             } else if !isFocused, isFirstResponder {
-                window.makeFirstResponder(nil)
+                DispatchQueue.main.async { [weak nsView] in
+                    guard let nsView, let window = nsView.window else { return }
+                    let fr = window.firstResponder
+                    let stillFirst = fr === nsView ||
+                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    guard stillFirst else { return }
+                    window.makeFirstResponder(nil)
+                }
             }
         }
 
