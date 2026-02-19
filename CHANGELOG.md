@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [0.48.0] - 2026-02-18
+
+### Fixed
+- Fix right-click context menu lag in notarized builds by adding missing hardened runtime entitlements
+- Fix claude shim conflicting with `--resume`, `--continue`, and `--session-id` flags
+
 ## [0.47.0] - 2026-02-18
 
 ### Fixed
