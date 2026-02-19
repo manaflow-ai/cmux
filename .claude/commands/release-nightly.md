@@ -1,28 +1,10 @@
 # Release Nightly
 
-End-to-end release: bump version, update changelog, create PR, merge, tag, build locally, sign, notarize, upload DMG. Combines `/release` + `/release-local` into a single command.
-
-## Secrets
-
-Source secrets directly (do NOT rely on direnv):
-
-```bash
-source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
-```
-
-## Signing Identity
-
-The Manaflow signing identity exists in both login and system keychains. Always use the SHA-1 hash to avoid ambiguity:
-
-```
-SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
-```
-
-Use `$SIGN_HASH` instead of `$APPLE_SIGNING_IDENTITY` for all codesign and create-dmg commands.
+End-to-end release via PR flow: bump version, update changelog, create PR, merge, tag, then build locally via `scripts/build-sign-upload.sh`.
 
 ## Steps
 
-### Phase 1: Version bump, changelog, PR, merge, tag (same as /release)
+### Phase 1: Version bump, changelog, PR, merge, tag
 
 1. **Determine the new version number**
    - Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
@@ -63,119 +45,17 @@ Use `$SIGN_HASH` instead of `$APPLE_SIGNING_IDENTITY` for all codesign and creat
 9. **Create and push the tag**
    - `git tag vX.Y.Z && git push origin vX.Y.Z`
 
-### Phase 2: Local build, sign, notarize, upload (same as /release-local)
+### Phase 2: Local build, sign, notarize, upload
 
-10. **Build GhosttyKit (if needed)**
-
-Skip if `GhosttyKit.xcframework` already exists.
+10. **Run the build script**
 
 ```bash
-if [ ! -d "GhosttyKit.xcframework" ]; then
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast && cd ..
-  rm -rf GhosttyKit.xcframework
-  cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-fi
+./scripts/build-sign-upload.sh vX.Y.Z
 ```
 
-11. **Build app (Release, unsigned)**
+This script handles: GhosttyKit build, xcodebuild, Sparkle key injection, codesigning, notarization (app + DMG), appcast generation, GitHub release upload, and cleanup.
 
-```bash
-rm -rf build/
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-```
-
-12. **Inject Sparkle keys into Info.plist**
-
-```bash
-source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
-SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
-APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" 2>/dev/null || true
-/usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $SPARKLE_PUBLIC_KEY_DERIVED" "$APP_PLIST"
-/usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
-```
-
-13. **Codesign app**
-
-```bash
-APP_PATH="build/Build/Products/Release/cmux.app"
-ENTITLEMENTS="cmux.entitlements"
-SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-```
-
-14. **Notarize app**
-
-```bash
-source ~/.secrets/cmuxterm.env
-APP_PATH="build/Build/Products/Release/cmux.app"
-ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
-xcrun notarytool submit cmux-notary.zip --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-xcrun stapler staple "$APP_PATH"
-xcrun stapler validate "$APP_PATH"
-rm -f cmux-notary.zip
-```
-
-15. **Create and notarize DMG**
-
-```bash
-source ~/.secrets/cmuxterm.env
-APP_PATH="build/Build/Products/Release/cmux.app"
-SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
-rm -f cmux-macos.dmg
-create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
-xcrun notarytool submit cmux-macos.dmg --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
-xcrun stapler staple cmux-macos.dmg
-xcrun stapler validate cmux-macos.dmg
-```
-
-16. **Generate Sparkle appcast**
-
-```bash
-source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
-./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
-```
-
-17. **Upload to GitHub release**
-
-If no release exists for the tag yet, create one:
-
-```bash
-gh release create "$TAG" cmux-macos.dmg appcast.xml --title "$TAG" --notes "...changelog..."
-```
-
-If it already exists:
-
-```bash
-gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
-```
-
-18. **Cleanup and notify**
-
-```bash
-rm -rf build/ cmux-macos.dmg appcast.xml
-say "Release complete"
-```
-
-## Completion
-
-When the release is fully done (DMG uploaded, release verified), always run:
-
-```bash
-say "cmux release $TAG is live"
-```
-
-If the release fails at any point, run:
-
-```bash
-say "cmux release failed"
-```
+If the script fails, run `say "cmux release failed"`.
 
 ## Changelog Guidelines
 
