@@ -475,6 +475,12 @@ class TerminalController {
         case "simulate_file_drop":
             return simulateFileDrop(args)
 
+        case "seed_drag_pasteboard_fileurl":
+            return seedDragPasteboardFileURL()
+
+        case "clear_drag_pasteboard":
+            return clearDragPasteboard()
+
         case "drop_hit_test":
             return dropHitTest(args)
 
@@ -6266,6 +6272,8 @@ class TerminalController {
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
+          seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
+          clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
@@ -6492,6 +6500,20 @@ class TerminalController {
                 : "ERROR: Failed to simulate drop"
         }
         return result
+    }
+
+    private func seedDragPasteboardFileURL() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).declareTypes([.fileURL], owner: nil)
+        }
+        return "OK"
+    }
+
+    private func clearDragPasteboard() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).clearContents()
+        }
+        return "OK"
     }
 
     /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
