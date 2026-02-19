@@ -1532,10 +1532,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // target=_blank or window.open() — open in a new tab instead of a new window
+        // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {
-            openInNewTab?(url)
+            webView.load(URLRequest(url: url))
             decisionHandler(.cancel)
             return
         }
@@ -1558,8 +1558,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
 
-    /// Handle cmd+click / target=_blank links. Returning nil tells WebKit not to open a new window;
-    /// instead we open the URL as a new surface in the same pane.
+    /// Returning nil tells WebKit not to open a new window.
+    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
@@ -1567,7 +1567,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url {
-            openInNewTab?(url)
+            if navigationAction.modifierFlags.contains(.command) {
+                openInNewTab?(url)
+            } else {
+                webView.load(URLRequest(url: url))
+            }
         }
         return nil
     }
