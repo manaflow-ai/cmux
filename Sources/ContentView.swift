@@ -196,19 +196,31 @@ final class FileDropOverlayView: NSView {
 
     // MARK: Mouse forwarding — safety net for the rare case where stale drag pasteboard
     // data causes hitTest to return self when no drag is actually active.
-    // The isForwarding guard prevents infinite recursion: sendEvent → mouseDown →
-    // forwardEvent → sendEvent, which can stack overflow when gesture recognizer
-    // routing re-delivers the event despite isHidden.
-
-    private var isForwarding = false
+    // We hit-test contentView directly and dispatch to the target rather than using
+    // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
-        guard !isForwarding else { return }
-        isForwarding = true
+        guard let window, let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return }
         isHidden = true
-        window?.sendEvent(event)
+        let point = themeFrame.convert(event.locationInWindow, from: nil)
+        let target = contentView.hitTest(point)
         isHidden = false
-        isForwarding = false
+        guard let target else { return }
+
+        switch event.type {
+        case .leftMouseDown: target.mouseDown(with: event)
+        case .leftMouseUp: target.mouseUp(with: event)
+        case .leftMouseDragged: target.mouseDragged(with: event)
+        case .rightMouseDown: target.rightMouseDown(with: event)
+        case .rightMouseUp: target.rightMouseUp(with: event)
+        case .rightMouseDragged: target.rightMouseDragged(with: event)
+        case .otherMouseDown: target.otherMouseDown(with: event)
+        case .otherMouseUp: target.otherMouseUp(with: event)
+        case .otherMouseDragged: target.otherMouseDragged(with: event)
+        case .scrollWheel: target.scrollWheel(with: event)
+        default: break
+        }
     }
 
     override func mouseDown(with event: NSEvent) { forwardEvent(event) }
