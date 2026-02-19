@@ -46,6 +46,9 @@ jobs:
           brew install zig
           npm install --global create-dmg
 
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Build GhosttyKit.xcframework
         run: |
           cd ghostty
