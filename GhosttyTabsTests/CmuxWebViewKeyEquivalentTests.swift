@@ -1763,3 +1763,27 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         XCTAssertEqual(next, [a])
     }
 }
+
+@MainActor
+final class WindowTerminalHostViewTests: XCTestCase {
+    private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
+        let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+
+        XCTAssertNil(host.hitTest(NSPoint(x: 10, y: 10)))
+    }
+
+    func testHostViewReturnsSubviewWhenSubviewIsHit() {
+        let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let child = CapturingView(frame: NSRect(x: 20, y: 15, width: 40, height: 30))
+        host.addSubview(child)
+
+        XCTAssertTrue(host.hitTest(NSPoint(x: 25, y: 20)) === child)
+        XCTAssertNil(host.hitTest(NSPoint(x: 150, y: 100)))
+    }
+}

@@ -3639,6 +3639,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        weak var hostedView: GhosttySurfaceScrollView?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -3656,6 +3657,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.hostedView = hostedView
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
@@ -3704,11 +3706,17 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
+        coordinator.desiredIsActive = false
+        coordinator.desiredIsVisibleInUI = false
 
         if let host = nsView as? HostContainerView {
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
         }
+
+        coordinator.hostedView?.setVisibleInUI(false)
+        coordinator.hostedView?.setActive(false)
+        coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }
     }
