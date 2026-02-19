@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.46.0] - 2026-02-18
+
+### Fixed
+- Fix broken mouse click forwarding in terminal views
+
 ## [0.45.0] - 2026-02-18
 
 ### Changed
