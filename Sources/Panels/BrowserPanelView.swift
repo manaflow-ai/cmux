@@ -1868,6 +1868,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         var appliedInlineCompletion: OmnibarInlineCompletion?
         var lastPublishedSelection: NSRange = NSRange(location: NSNotFound, length: 0)
         var lastPublishedHasMarkedText: Bool = false
+        /// Guards against infinite focus loops: `true` = focus requested, `false` = blur requested, `nil` = idle.
+        var pendingFocusRequest: Bool?
 
         init(parent: OmnibarTextFieldRepresentable) {
             self.parent = parent
@@ -1892,8 +1894,11 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         func controlTextDidEndEditing(_ obj: Notification) {
             if parent.isFocused {
                 if parent.shouldSuppressWebViewFocus() {
+                    guard pendingFocusRequest != true else { return }
+                    pendingFocusRequest = true
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
+                        self.pendingFocusRequest = nil
                         guard self.parent.isFocused else { return }
                         guard self.parent.shouldSuppressWebViewFocus() else { return }
                         guard let field = self.parentField, let window = field.window else { return }
@@ -1901,6 +1906,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                         // the actual first responder when the text field is being edited).
                         let fr = window.firstResponder
                         let isAlreadyFocused = fr === field ||
+                            field.currentEditor() != nil ||
                             ((fr as? NSTextView)?.delegate as? NSTextField) === field
                         if !isAlreadyFocused {
                             window.makeFirstResponder(field)
@@ -2130,16 +2136,26 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             let firstResponder = window.firstResponder
             let isFirstResponder =
                 firstResponder === nsView ||
+                nsView.currentEditor() != nil ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-            if isFocused, !isFirstResponder {
+            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
                 // Defer to avoid triggering input method XPC during layout pass,
                 // which can crash via re-entrant view hierarchy modification.
-                DispatchQueue.main.async { [weak nsView] in
+                context.coordinator.pendingFocusRequest = true
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+                    let fr = window.firstResponder
+                    let alreadyFocused = fr === nsView ||
+                        nsView.currentEditor() != nil ||
+                        ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
+                    guard !alreadyFocused else { return }
                     window.makeFirstResponder(nsView)
                 }
-            } else if !isFocused, isFirstResponder {
-                DispatchQueue.main.async { [weak nsView] in
+            } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
+                context.coordinator.pendingFocusRequest = false
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
                     let fr = window.firstResponder
                     let stillFirst = fr === nsView ||
