@@ -110,6 +110,60 @@ def main() -> int:
     )
 
     print("PASS: CLI id-format defaults are refs-first (with both/uuids opt-in working)")
+
+    # ------------------------------------------------------------------
+    # Verify migrated list commands also respect id-format
+    # ------------------------------------------------------------------
+
+    # list-panels
+    panels_default = _run_cli_json(cli, ["list-panels"])
+    surfaces = panels_default.get("surfaces", [])
+    if surfaces:
+        _must(
+            _has_any_key(panels_default, lambda k: k.endswith("_ref") or k == "ref"),
+            f"list-panels default should include refs: {panels_default}",
+        )
+        _must(
+            len(_id_ref_pairs(panels_default)) == 0,
+            f"list-panels default should suppress id when ref exists; pairs={_id_ref_pairs(panels_default)}",
+        )
+
+    panels_both = _run_cli_json(cli, ["list-panels"], extra_flags=["--id-format", "both"])
+    if panels_both.get("surfaces"):
+        _must(len(_id_ref_pairs(panels_both)) > 0, f"list-panels --id-format both should include pairs: {panels_both}")
+
+    # list-panes
+    panes_default = _run_cli_json(cli, ["list-panes"])
+    panes = panes_default.get("panes", [])
+    if panes:
+        _must(
+            _has_any_key(panes_default, lambda k: k.endswith("_ref") or k == "ref"),
+            f"list-panes default should include refs: {panes_default}",
+        )
+
+    # list-workspaces
+    ws_default = _run_cli_json(cli, ["list-workspaces"])
+    workspaces = ws_default.get("workspaces", [])
+    if workspaces:
+        _must(
+            _has_any_key(ws_default, lambda k: k.endswith("_ref") or k == "ref"),
+            f"list-workspaces default should include refs: {ws_default}",
+        )
+        _must(
+            len(_id_ref_pairs(ws_default)) == 0,
+            f"list-workspaces default should suppress id when ref exists; pairs={_id_ref_pairs(ws_default)}",
+        )
+
+    # surface-health
+    health_default = _run_cli_json(cli, ["surface-health"])
+    health_surfaces = health_default.get("surfaces", [])
+    if health_surfaces:
+        _must(
+            _has_any_key(health_default, lambda k: k.endswith("_ref") or k == "ref"),
+            f"surface-health default should include refs: {health_default}",
+        )
+
+    print("PASS: Migrated list commands also respect id-format defaults")
     return 0
 
 

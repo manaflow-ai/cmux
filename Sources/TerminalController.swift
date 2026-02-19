@@ -77,12 +77,24 @@ class TerminalController {
     // MARK: - Process Ancestry Check
 
     /// Get the peer PID of a connected Unix domain socket using LOCAL_PEERPID.
-    private func getPeerPid(_ socket: Int32) -> pid_t? {
+    private nonisolated func getPeerPid(_ socket: Int32) -> pid_t? {
         var pid: pid_t = 0
         var pidSize = socklen_t(MemoryLayout<pid_t>.size)
         let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize)
-        guard result == 0, pid > 0 else { return nil }
+        if result != 0 || pid <= 0 {
+            return nil
+        }
         return pid
+    }
+
+    /// Check if the peer has the same UID as this process using LOCAL_PEERCRED.
+    /// This works even after the peer has disconnected (unlike LOCAL_PEERPID).
+    private func peerHasSameUID(_ socket: Int32) -> Bool {
+        var cred = xucred()
+        var credLen = socklen_t(MemoryLayout<xucred>.size)
+        let result = getsockopt(socket, SOL_LOCAL, LOCAL_PEERCRED, &cred, &credLen)
+        guard result == 0 else { return false }
+        return cred.cr_uid == getuid()
     }
 
     /// Check if `pid` is a descendant of this process by walking the process tree.
@@ -175,6 +187,18 @@ class TerminalController {
         isRunning = true
         print("TerminalController: Listening on \(socketPath)")
 
+        // Wire batched port scanner results back to workspace state.
+        PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
+            MainActor.assumeIsolated {
+                guard let self, let tabManager = self.tabManager else { return }
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+                let validSurfaceIds = Set(workspace.panels.keys)
+                guard validSurfaceIds.contains(panelId) else { return }
+                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+                workspace.recomputeListeningPorts()
+            }
+        }
+
         // Accept connections in background thread
         Thread.detachNewThread { [weak self] in
             self?.acceptLoop()
@@ -223,28 +247,47 @@ class TerminalController {
 
             consecutiveFailures = 0
 
+            // Capture peer PID immediately — before the client can disconnect.
+            // ncat --send-only closes the connection right after writing, so by
+            // the time a new thread starts the peer may already be gone.
+            let peerPid = getPeerPid(clientSocket)
+
             // Handle client in new thread
             Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket)
+                self?.handleClient(clientSocket, peerPid: peerPid)
             }
         }
     }
 
-    private func handleClient(_ socket: Int32) {
+    private func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
         defer { close(socket) }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
         if accessMode == .cmuxOnly {
-            guard let peerPid = getPeerPid(socket) else {
-                let msg = "ERROR: Unable to verify client process\n"
-                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
-                return
+            // Use pre-captured peer PID if available (captured in accept loop before
+            // the peer can disconnect), falling back to live lookup.
+            let pid = peerPid ?? getPeerPid(socket)
+            if let pid {
+                guard isDescendant(pid) else {
+                    let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
+                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    return
+                }
             }
-            guard isDescendant(peerPid) else {
-                let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
-                msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
-                return
+            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
+            // could read it — common with ncat --send-only). We still verify the
+            // peer runs as the same user via LOCAL_PEERCRED. This is the same
+            // security boundary as the socket file permissions (0600), so it does
+            // not widen the attack surface. We also require that the peer actually
+            // sent data (checked in the read loop below) — a connect-only probe
+            // with no data is harmless.
+            if pid == nil {
+                guard peerHasSameUID(socket) else {
+                    let msg = "ERROR: Unable to verify client process\n"
+                    msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
+                    return
+                }
             }
         }
 
@@ -403,6 +446,12 @@ class TerminalController {
         case "clear_ports":
             return clearPorts(args)
 
+        case "report_tty":
+            return reportTTY(args)
+
+        case "ports_kick":
+            return portsKick(args)
+
         case "report_pwd":
             return reportPwd(args)
 
@@ -425,6 +474,12 @@ class TerminalController {
 
         case "simulate_file_drop":
             return simulateFileDrop(args)
+
+        case "seed_drag_pasteboard_fileurl":
+            return seedDragPasteboardFileURL()
+
+        case "clear_drag_pasteboard":
+            return clearDragPasteboard()
 
         case "drop_hit_test":
             return dropHitTest(args)
@@ -6187,6 +6242,8 @@ class TerminalController {
           report_git_branch <branch> [--status=dirty] [--tab=X] - Report git branch
           clear_git_branch [--tab=X] - Clear git branch
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
+          report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
+          ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -6215,6 +6272,8 @@ class TerminalController {
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
+          seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
+          clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
@@ -6291,6 +6350,10 @@ class TerminalController {
 	        guard let parsed = parseShortcutCombo(combo) else {
 	            return "ERROR: Invalid combo. Example: cmd+ctrl+h"
 	        }
+
+	        // Stamp at socket-handler arrival so event.timestamp includes any wait
+	        // before the main-thread event dispatch.
+	        let requestTimestamp = ProcessInfo.processInfo.systemUptime
 	
 	        var result = "ERROR: Failed to create event"
 	        DispatchQueue.main.sync {
@@ -6305,11 +6368,11 @@ class TerminalController {
 	                targetWindow.makeKeyAndOrderFront(nil)
 	            }
 	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
-	            guard let event = NSEvent.keyEvent(
+	            guard let keyDownEvent = NSEvent.keyEvent(
 	                with: .keyDown,
 	                location: .zero,
 	                modifierFlags: parsed.modifierFlags,
-	                timestamp: ProcessInfo.processInfo.systemUptime,
+	                timestamp: requestTimestamp,
 	                windowNumber: windowNumber,
 	                context: nil,
 	                characters: parsed.characters,
@@ -6320,14 +6383,29 @@ class TerminalController {
 	                result = "ERROR: NSEvent.keyEvent returned nil"
 	                return
 	            }
+	            let keyUpEvent = NSEvent.keyEvent(
+	                with: .keyUp,
+	                location: .zero,
+	                modifierFlags: parsed.modifierFlags,
+	                timestamp: requestTimestamp + 0.0001,
+	                windowNumber: windowNumber,
+	                context: nil,
+	                characters: parsed.characters,
+	                charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+	                isARepeat: false,
+	                keyCode: parsed.keyCode
+	            )
 	            // Socket-driven shortcut simulation should reuse the exact same matching logic as the
 	            // app-level shortcut monitor (so tests are hermetic), while still falling back to the
 	            // normal responder chain for plain typing.
-	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: event) {
+	            if let delegate = AppDelegate.shared, delegate.debugHandleCustomShortcut(event: keyDownEvent) {
 	                result = "OK"
 	                return
 	            }
-	            NSApp.sendEvent(event)
+	            NSApp.sendEvent(keyDownEvent)
+	            if let keyUpEvent {
+	                NSApp.sendEvent(keyUpEvent)
+	            }
 	            result = "OK"
 	        }
 	        return result
@@ -6424,6 +6502,20 @@ class TerminalController {
         return result
     }
 
+    private func seedDragPasteboardFileURL() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).declareTypes([.fileURL], owner: nil)
+        }
+        return "OK"
+    }
+
+    private func clearDragPasteboard() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).clearContents()
+        }
+        return "OK"
+    }
+
     /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
     /// Takes normalised (0-1) x,y within the content area where (0,0) is the
     /// top-left corner and (1,1) is the bottom-right corner.  Returns the
@@ -6447,34 +6539,20 @@ class TerminalController {
                   let contentView = window.contentView,
                   let themeFrame = contentView.superview else { return }
 
-            // Compute the point in contentView's own coordinate system.
-            // NSHostingView is flipped: (0,0) = top-left, matching our API.
-            let contentPoint = NSPoint(
-                x: contentView.bounds.width * nx,
-                y: contentView.bounds.height * ny
+            // Convert normalized top-left coordinates into a window point.
+            let pointInTheme = NSPoint(
+                x: contentView.frame.minX + (contentView.bounds.width * nx),
+                y: contentView.frame.maxY - (contentView.bounds.height * ny)
             )
+            let windowPoint = themeFrame.convert(pointInTheme, to: nil)
 
-            // hitTest expects the point in the receiver's superview's (themeFrame's)
-            // coordinate system.  Use convert to handle the coordinate transform.
-            let hitPoint = contentView.convert(contentPoint, to: themeFrame)
-
-            // Temporarily hide the overlay so it doesn't intercept the hit test.
-            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
-            overlay?.isHidden = true
-
-            let hitView = contentView.hitTest(hitPoint)
-
-            overlay?.isHidden = false
-
-            var current: NSView? = hitView
-            while let view = current {
-                if let terminal = view as? GhosttyNSView,
-                   let surfaceId = terminal.terminalSurface?.id {
-                    result = surfaceId.uuidString.uppercased()
-                    return
-                }
-                current = view.superview
+            if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? FileDropOverlayView,
+               let terminal = overlay.terminalUnderPoint(windowPoint),
+               let surfaceId = terminal.terminalSurface?.id {
+                result = surfaceId.uuidString.uppercased()
+                return
             }
+
             result = "none"
         }
         return result
@@ -9108,6 +9186,86 @@ class TerminalController {
         return result
     }
 
+    private func reportTTY(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let ttyName = parsed.positional.first, !ttyName.isEmpty else {
+            return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.surfaceTTYNames[surfaceId] = ttyName
+            PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
+        }
+        return result
+    }
+
+    private func portsKick(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                let parsed = parseOptions(args)
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let parsed = parseOptions(args)
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: ports_kick [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
+        }
+        return result
+    }
+
     private func sidebarState(_ args: String) -> String {
         var result = ""
         DispatchQueue.main.sync {
@@ -9205,6 +9363,25 @@ class TerminalController {
         return "OK Refreshed \(refreshedCount) surfaces"
     }
 
+    private func viewDepth(of view: NSView, maxDepth: Int = 128) -> Int {
+        var depth = 0
+        var current: NSView? = view
+        while let v = current, depth < maxDepth {
+            current = v.superview
+            depth += 1
+        }
+        return depth
+    }
+
+    private func isPortalHosted(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let v = current {
+            if v is WindowTerminalHostView { return true }
+            current = v.superview
+        }
+        return false
+    }
+
     private func surfaceHealth(_ tabArg: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         var result = ""
@@ -9219,7 +9396,9 @@ class TerminalController {
                 let type = panel.panelType.rawValue
                 if let tp = panel as? TerminalPanel {
                     let inWindow = tp.surface.isViewInWindow
-                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"
+                    let portalHosted = isPortalHosted(tp.hostedView)
+                    let depth = viewDepth(of: tp.hostedView)
+                    return "\(index): \(panelId) type=\(type) in_window=\(inWindow) portal=\(portalHosted) view_depth=\(depth)"
                 } else if let bp = panel as? BrowserPanel {
                     let inWindow = bp.webView.window != nil
                     return "\(index): \(panelId) type=\(type) in_window=\(inWindow)"

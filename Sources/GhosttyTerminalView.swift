@@ -1522,6 +1522,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var backgroundColor: NSColor?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
+#if DEBUG
+    private static let keyLatencyProbeEnabled: Bool = {
+        if ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1" {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
+    }()
+#endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
@@ -1834,6 +1842,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
 #endif
+            if let terminalSurface {
+                NotificationCenter.default.post(
+                    name: .ghosttyDidBecomeFirstResponderSurface,
+                    object: nil,
+                    userInfo: [
+                        GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                        GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                    ]
+                )
+            }
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -1867,6 +1885,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var markedText = NSMutableAttributedString()
     private var lastPerformKeyEvent: TimeInterval?
 
+#if DEBUG
+    private func recordKeyLatency(path: String, event: NSEvent) {
+        guard Self.keyLatencyProbeEnabled else { return }
+        guard event.timestamp > 0 else { return }
+        let delayMs = max(0, (CACurrentMediaTime() - event.timestamp) * 1000)
+        let delayText = String(format: "%.2f", delayMs)
+        dlog("key.latency path=\(path) ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
+    }
+#endif
+
     // Prevents NSBeep for unimplemented actions from interpretKeyEvents
     override func doCommand(by selector: Selector) {
         // Intentionally empty - prevents system beep on unhandled key commands
@@ -1877,6 +1905,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
+#if DEBUG
+        recordKeyLatency(path: "performKeyEquivalent", event: event)
+#endif
 
 #if DEBUG
         cmuxWriteChildExitProbe(
@@ -1986,6 +2017,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+#if DEBUG
+        recordKeyLatency(path: "keyDown", event: event)
+#endif
 
 #if DEBUG
         cmuxWriteChildExitProbe(
@@ -2633,6 +2667,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let inactiveOverlayView: GhosttyFlashOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2709,12 +2744,17 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return (presentCounts[surfaceId, default: 0], lastPresentTimes[surfaceId, default: 0], key)
     }
+
+    var debugSurfaceId: UUID? {
+        surfaceView.terminalSurface?.id
+    }
 #endif
 
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
+        inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2742,6 +2782,10 @@ final class GhosttySurfaceScrollView: NSView {
                 .cgColor
         addSubview(backgroundView)
         addSubview(scrollView)
+        inactiveOverlayView.wantsLayer = true
+        inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        inactiveOverlayView.isHidden = true
+        addSubview(inactiveOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -2854,6 +2898,7 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.size = targetSize
         surfaceView.pushTargetSurfaceSize(targetSize)
         documentView.frame.size.width = scrollView.bounds.width
+        inactiveOverlayView.frame = bounds
         flashOverlayView.frame = bounds
         updateFlashPath()
         synchronizeScrollView()
@@ -2903,6 +2948,15 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
+        let clampedOpacity = max(0, min(1, opacity))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
+        inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        CATransaction.commit()
+    }
+
     func triggerFlash() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -2929,7 +2983,17 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setVisibleInUI(_ visible: Bool) {
+        let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
+        isHidden = !visible
+#if DEBUG
+        if wasVisible != visible {
+            debugLogWorkspaceSwitchTiming(
+                event: "ws.term.visible",
+                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(visible ? 1 : 0)"
+            )
+        }
+#endif
         if !visible {
             // If we were focused, yield first responder.
             if let window, let fr = window.firstResponder as? NSView,
@@ -2942,7 +3006,16 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ active: Bool) {
+        let wasActive = isActive
         isActive = active
+#if DEBUG
+        if wasActive != active {
+            debugLogWorkspaceSwitchTiming(
+                event: "ws.term.active",
+                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(active ? 1 : 0)"
+            )
+        }
+#endif
         if active {
             applyFirstResponderIfNeeded()
         } else if let window,
@@ -2951,6 +3024,17 @@ final class GhosttySurfaceScrollView: NSView {
             window.makeFirstResponder(nil)
         }
     }
+
+#if DEBUG
+    private func debugLogWorkspaceSwitchTiming(event: String, suffix: String) {
+        guard let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() else {
+            dlog("\(event) id=none \(suffix)")
+            return
+        }
+        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+        dlog("\(event) id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) \(suffix)")
+    }
+#endif
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
 #if DEBUG
@@ -2986,6 +3070,13 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugRegisteredDropTypes()
     }
 
+    func debugInactiveOverlayState() -> (isHidden: Bool, alpha: CGFloat) {
+        (
+            inactiveOverlayView.isHidden,
+            inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        )
+    }
+
 #endif
 
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
@@ -2999,6 +3090,11 @@ final class GhosttySurfaceScrollView: NSView {
         #endif
         surfaceView.terminalSurface?.sendText(content)
         return true
+    }
+
+    func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {
+        guard bounds.contains(point), !isHidden else { return nil }
+        return surfaceView
     }
 
 #if DEBUG
@@ -3193,6 +3289,7 @@ final class GhosttySurfaceScrollView: NSView {
         let expectedWidthPx: Int
         let expectedHeightPx: Int
         let layerClass: String
+        let layerContentsGravity: String
         let layerContentsKey: String
 
         var isProbablyBlank: Bool {
@@ -3254,6 +3351,7 @@ final class GhosttySurfaceScrollView: NSView {
         // Prefer the presentation layer to better match what the user sees on screen.
         let layer = modelLayer.presentation() ?? modelLayer
         let layerClass = String(describing: type(of: layer))
+        let layerContentsGravity = layer.contentsGravity.rawValue
         let contentsKey = Self.contentsKey(for: layer)
         let presentationScale = max(1.0, layer.contentsScale)
         let expectedWidthPx = Int((layer.bounds.width * presentationScale).rounded(.toNearestOrAwayFromZero))
@@ -3274,6 +3372,7 @@ final class GhosttySurfaceScrollView: NSView {
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
                 layerClass: layerClass,
+                layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
         }
@@ -3299,6 +3398,7 @@ final class GhosttySurfaceScrollView: NSView {
                 expectedWidthPx: expectedWidthPx,
                 expectedHeightPx: expectedHeightPx,
                 layerClass: layerClass,
+                layerContentsGravity: layerContentsGravity,
                 layerContentsKey: contentsKey
             )
         }
@@ -3384,6 +3484,7 @@ final class GhosttySurfaceScrollView: NSView {
             expectedWidthPx: expectedWidthPx,
             expectedHeightPx: expectedHeightPx,
             layerClass: layerClass,
+            layerContentsGravity: layerContentsGravity,
             layerContentsKey: contentsKey
         )
     }
@@ -3574,30 +3675,53 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var portalZPriority: Int = 0
+    var showsInactiveOverlay: Bool = false
+    var inactiveOverlayColor: NSColor = .clear
+    var inactiveOverlayOpacity: Double = 0
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    /// SwiftUI can create NSViewRepresentable containers that are not yet inserted into a
-    /// window (or never inserted at all) during bonsplit structural updates. We must avoid
-    /// re-parenting the hosted terminal view into an off-window container, since it can get
-    /// "stuck" there and leave the visible terminal blank/frozen.
     private final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
+        var onGeometryChanged: (() -> Void)?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            guard window != nil else { return }
             onDidMoveToWindow?()
+            onGeometryChanged?()
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            onGeometryChanged?()
+        }
+
+        override func layout() {
+            super.layout()
+            onGeometryChanged?()
+        }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            super.setFrameOrigin(newOrigin)
+            onGeometryChanged?()
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            onGeometryChanged?()
         }
     }
 
     final class Coordinator {
-        var constraints: [NSLayoutConstraint] = []
         var attachGeneration: Int = 0
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        var desiredPortalZPriority: Int = 0
+        var lastBoundHostId: ObjectIdentifier?
+        weak var hostedView: GhosttySurfaceScrollView?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -3606,111 +3730,130 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
-        container.wantsLayer = true
+        container.wantsLayer = false
         return container
-    }
-
-    private static func attachHostedView(_ hostedView: GhosttySurfaceScrollView, to host: NSView, coordinator: Coordinator) {
-        // Avoid implicit animations during reparenting and constraint updates. Even a single
-        // CoreAnimation scale/bounds animation can produce a 1-frame "blank" or stretched
-        // compositor frame when the IOSurface-backed layer is resized or moved.
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0
-            ctx.allowsImplicitAnimation = false
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            defer { CATransaction.commit() }
-
-            // Remove any stale content views in the host, but avoid unnecessarily removing
-            // the hosted terminal view if it is already attached.
-            for v in host.subviews where v !== hostedView {
-                v.removeFromSuperview()
-            }
-
-            if hostedView.superview !== host {
-                hostedView.removeFromSuperview()
-                host.addSubview(hostedView)
-            }
-
-            hostedView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.deactivate(coordinator.constraints)
-            coordinator.constraints = [
-                hostedView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-                hostedView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-                hostedView.topAnchor.constraint(equalTo: host.topAnchor),
-                hostedView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-            ]
-            NSLayoutConstraint.activate(coordinator.constraints)
-            host.needsLayout = true
-            host.layoutSubtreeIfNeeded()
-        }
-
-        // Re-apply visible/active state after re-parenting so focus/occlusion requests run with
-        // a valid window.
-        // Without this, a focus attempt issued while the hosted view is off-window can time out,
-        // leaving the visible terminal unfocused (keys appear to go to the wrong surface).
-        hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
-        hostedView.setActive(coordinator.desiredIsActive)
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
-        context.coordinator.desiredIsActive = isActive
-        context.coordinator.desiredIsVisibleInUI = isVisibleInUI
+        let coordinator = context.coordinator
+#if DEBUG
+        let previousDesiredIsActive = coordinator.desiredIsActive
+#endif
+        let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
+        let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
+        coordinator.desiredIsActive = isActive
+        coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.desiredPortalZPriority = portalZPriority
+        coordinator.hostedView = hostedView
+#if DEBUG
+        if previousDesiredIsActive != isActive ||
+            previousDesiredIsVisibleInUI != isVisibleInUI ||
+            previousDesiredPortalZPriority != portalZPriority {
+            if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.swiftui.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) " +
+                    "active=\(isActive ? 1 : 0) z=\(portalZPriority)"
+                )
+            } else {
+                dlog(
+                    "ws.swiftui.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0) z=\(portalZPriority)"
+                )
+            }
+        }
+#endif
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
         hostedView.setVisibleInUI(isVisibleInUI)
         hostedView.setActive(isActive)
+        hostedView.setInactiveOverlay(
+            color: inactiveOverlayColor,
+            opacity: CGFloat(inactiveOverlayOpacity),
+            visible: showsInactiveOverlay
+        )
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
 
-        if hostedView.superview !== nsView {
-            context.coordinator.attachGeneration += 1
-            let generation = context.coordinator.attachGeneration
+        coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
 
-            // If this container isn't in a window yet, defer attaching until it is.
-            // Importantly: do NOT detach the hosted view from its current superview
-            // until we have a valid window, otherwise it can disappear and become
-            // "stuck" in an off-window container.
-            if let host = nsView as? HostContainerView {
-                host.onDidMoveToWindow = { [weak coordinator = context.coordinator, weak host, weak hostedView] in
-                    guard let coordinator, coordinator.attachGeneration == generation else { return }
-                    guard let host, let hostedView else { return }
-                    guard host.window != nil else { return }
-                    Self.attachHostedView(hostedView, to: host, coordinator: coordinator)
+        if let host = nsView as? HostContainerView {
+            host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
+                guard let host, let hostedView, let coordinator else { return }
+                guard coordinator.attachGeneration == generation else { return }
+                guard host.window != nil else { return }
+                TerminalWindowPortalRegistry.bind(
+                    hostedView: hostedView,
+                    to: host,
+                    visibleInUI: coordinator.desiredIsVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                coordinator.lastBoundHostId = ObjectIdentifier(host)
+                hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                hostedView.setActive(coordinator.desiredIsActive)
+            }
+            host.onGeometryChanged = { [weak host, weak coordinator] in
+                guard let host, let coordinator else { return }
+                guard coordinator.attachGeneration == generation else { return }
+                guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
+                TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+            }
+
+            if host.window != nil {
+                let hostId = ObjectIdentifier(host)
+                let shouldBindNow =
+                    coordinator.lastBoundHostId != hostId ||
+                    hostedView.superview == nil ||
+                    previousDesiredIsVisibleInUI != isVisibleInUI ||
+                    previousDesiredPortalZPriority != portalZPriority
+                if shouldBindNow {
+                    TerminalWindowPortalRegistry.bind(
+                        hostedView: hostedView,
+                        to: host,
+                        visibleInUI: coordinator.desiredIsVisibleInUI,
+                        zPriority: coordinator.desiredPortalZPriority
+                    )
+                    coordinator.lastBoundHostId = hostId
                 }
-            }
-
-            if nsView.window != nil {
-                Self.attachHostedView(hostedView, to: nsView, coordinator: context.coordinator)
-            }
-        } else {
-            context.coordinator.attachGeneration += 1
-            if let host = nsView as? HostContainerView {
-                host.onDidMoveToWindow = nil
+                TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }
         }
-
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachGeneration += 1
-
-        NSLayoutConstraint.deactivate(coordinator.constraints)
-        coordinator.constraints.removeAll()
+        coordinator.desiredIsActive = false
+        coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredPortalZPriority = 0
+        coordinator.lastBoundHostId = nil
+#if DEBUG
+        if let hostedView = coordinator.hostedView {
+            if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.swiftui.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")"
+                )
+            } else {
+                dlog("ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")")
+            }
+        }
+#endif
 
         if let host = nsView as? HostContainerView {
             host.onDidMoveToWindow = nil
+            host.onGeometryChanged = nil
         }
 
-        // Avoid proactively detaching the hosted terminal view during SwiftUI structural updates.
-        // When bonsplit rearranges panes, SwiftUI can dismantle the "old" container before the
-        // "new" container has re-parented the hosted view; removing it here creates a visible
-        // transient blank (and can strand the view off-window if the re-attach is missed).
-        let hasHostedTerminal = nsView.subviews.contains(where: { $0 is GhosttySurfaceScrollView })
-        if !hasHostedTerminal {
-            nsView.subviews.forEach { $0.removeFromSuperview() }
-        }
+        coordinator.hostedView?.setVisibleInUI(false)
+        coordinator.hostedView?.setActive(false)
+        coordinator.hostedView?.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
+        coordinator.hostedView = nil
+
+        nsView.subviews.forEach { $0.removeFromSuperview() }
     }
 }

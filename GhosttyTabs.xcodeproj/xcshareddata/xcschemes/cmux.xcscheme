@@ -10,7 +10,7 @@
   <TestAction buildConfiguration="Release" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
     <Testables>
       <TestableReference skipped="NO">
-        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="CB450DF0F0B3839599082C4D" BuildableName="GhosttyTabsUITests.xctest" BlueprintName="GhosttyTabsUITests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="CB450DF0F0B3839599082C4D" BuildableName="cmuxUITests.xctest" BlueprintName="cmuxUITests" ReferencedContainer="container:GhosttyTabs.xcodeproj"/>
       </TestableReference>
     </Testables>
     <MacroExpansion>

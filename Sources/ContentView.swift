@@ -188,10 +188,17 @@ final class FileDropOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        if let types = pb.types, types.contains(.fileURL) {
-            return super.hitTest(point)
-        }
-        return nil
+        guard let types = pb.types, types.contains(.fileURL) else { return nil }
+
+        // The drag pasteboard can retain stale file types after a completed drag.
+        // Only participate during active drag-motion events.
+        let eventType = NSApp.currentEvent?.type
+        let isDragMouseEvent = eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+        guard isDragMouseEvent else { return nil }
+
+        return super.hitTest(point)
     }
 
     // MARK: Mouse forwarding — safety net for the rare case where stale drag pasteboard
@@ -200,10 +207,9 @@ final class FileDropOverlayView: NSView {
     // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
-        guard let window, let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return }
+        guard let window, let contentView = window.contentView else { return }
         isHidden = true
-        let point = themeFrame.convert(event.locationInWindow, from: nil)
+        let point = contentView.convert(event.locationInWindow, from: nil)
         let target = contentView.hitTest(point)
         isHidden = false
         guard let target else { return }
@@ -258,12 +264,16 @@ final class FileDropOverlayView: NSView {
         return .copy
     }
 
-    /// Temporarily hides self, hit-tests the window to find the GhosttyNSView under the cursor.
-    private func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
-        guard let window, let contentView = window.contentView,
-              let themeFrame = contentView.superview else { return nil }
+    /// Hit-tests the window to find the GhosttyNSView under the cursor.
+    func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
+        if let window,
+           let portalTerminal = TerminalWindowPortalRegistry.terminalViewAtWindowPoint(windowPoint, in: window) {
+            return portalTerminal
+        }
+
+        guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
-        let point = themeFrame.convert(windowPoint, from: nil)
+        let point = contentView.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
         isHidden = false
 
@@ -277,6 +287,79 @@ final class FileDropOverlayView: NSView {
 }
 
 var fileDropOverlayKey: UInt8 = 0
+
+enum WorkspaceMountPolicy {
+    // Keep only the selected workspace mounted to minimize layer-tree traversal.
+    static let maxMountedWorkspaces = 1
+    // During workspace cycling, keep only a minimal handoff pair (selected + retiring).
+    static let maxMountedWorkspacesDuringCycle = 2
+
+    static func nextMountedWorkspaceIds(
+        current: [UUID],
+        selected: UUID?,
+        pinnedIds: Set<UUID>,
+        orderedTabIds: [UUID],
+        isCycleHot: Bool,
+        maxMounted: Int
+    ) -> [UUID] {
+        let existing = Set(orderedTabIds)
+        let clampedMax = max(1, maxMounted)
+        var ordered = current.filter { existing.contains($0) }
+
+        if let selected, existing.contains(selected) {
+            ordered.removeAll { $0 == selected }
+            ordered.insert(selected, at: 0)
+        }
+
+        if isCycleHot, let selected {
+            let warmIds = cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
+            for id in warmIds.reversed() {
+                ordered.removeAll { $0 == id }
+                ordered.insert(id, at: 0)
+            }
+        }
+
+        if isCycleHot,
+           pinnedIds.isEmpty,
+           let selected {
+            ordered.removeAll { $0 != selected }
+        }
+
+        // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
+        // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
+        let prioritizedPinnedIds = pinnedIds
+            .filter { existing.contains($0) && $0 != selected }
+            .sorted { lhs, rhs in
+                let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
+                let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
+                return lhsIndex < rhsIndex
+            }
+        if let selected, existing.contains(selected) {
+            ordered.removeAll { $0 == selected }
+            ordered.insert(selected, at: 0)
+        }
+        var pinnedInsertionIndex = (selected != nil) ? 1 : 0
+        for pinnedId in prioritizedPinnedIds {
+            ordered.removeAll { $0 == pinnedId }
+            let insertionIndex = min(pinnedInsertionIndex, ordered.count)
+            ordered.insert(pinnedId, at: insertionIndex)
+            pinnedInsertionIndex += 1
+        }
+
+        if ordered.count > clampedMax {
+            ordered.removeSubrange(clampedMax...)
+        }
+
+        return ordered
+    }
+
+    private static func cycleWarmIds(selected: UUID, orderedTabIds: [UUID]) -> [UUID] {
+        guard orderedTabIds.contains(selected) else { return [selected] }
+        // Keep warming focused to the selected workspace. Retiring/target workspaces are
+        // pinned by handoff logic, so warming adjacent neighbors here just adds layout work.
+        return [selected]
+    }
+}
 
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
@@ -318,11 +401,16 @@ struct ContentView: View {
     @State private var isResizerDragging = false
     private let sidebarHandleWidth: CGFloat = 6
     @State private var selectedTabIds: Set<UUID> = []
+    @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @State private var previousSelectedWorkspaceId: UUID?
+    @State private var retiringWorkspaceId: UUID?
+    @State private var workspaceHandoffGeneration: UInt64 = 0
+    @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -396,13 +484,28 @@ struct ContentView: View {
     @State private var titlebarPadding: CGFloat = 32
 
     private var terminalContent: some View {
-        ZStack {
+        let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
+        let mountedWorkspaces = tabManager.tabs.filter { mountedWorkspaceIdSet.contains($0.id) }
+        let selectedWorkspaceId = tabManager.selectedTabId
+        let retiringWorkspaceId = self.retiringWorkspaceId
+
+        return ZStack {
             ZStack {
-                ForEach(tabManager.tabs) { tab in
-                    let isActive = tabManager.selectedTabId == tab.id
-                    WorkspaceContentView(workspace: tab, isTabActive: isActive)
-                        .opacity(isActive ? 1 : 0)
-                        .allowsHitTesting(isActive)
+                ForEach(mountedWorkspaces) { tab in
+                    let isSelectedWorkspace = selectedWorkspaceId == tab.id
+                    let isRetiringWorkspace = retiringWorkspaceId == tab.id
+                    let isInputActive = isSelectedWorkspace || isRetiringWorkspace
+                    let isVisible = isSelectedWorkspace || isRetiringWorkspace
+                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
+                    WorkspaceContentView(
+                        workspace: tab,
+                        isWorkspaceVisible: isVisible,
+                        isWorkspaceInputActive: isInputActive,
+                        workspacePortalPriority: portalPriority
+                    )
+                    .opacity(isVisible ? 1 : 0)
+                    .allowsHitTesting(isSelectedWorkspace)
+                    .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
@@ -566,6 +669,8 @@ struct ContentView: View {
         .background(Color.clear)
         .onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
+            reconcileMountedWorkspaceIds()
+            previousSelectedWorkspaceId = tabManager.selectedTabId
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -573,13 +678,41 @@ struct ContentView: View {
             updateTitlebarText()
         }
         .onChange(of: tabManager.selectedTabId) { newValue in
+#if DEBUG
+            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.view.selectedChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) selected=\(debugShortWorkspaceId(newValue))"
+                )
+            } else {
+                dlog("ws.view.selectedChange id=none selected=\(debugShortWorkspaceId(newValue))")
+            }
+#endif
             tabManager.applyWindowBackgroundForSelectedTab()
+            startWorkspaceHandoffIfNeeded(newSelectedId: newValue)
+            reconcileMountedWorkspaceIds(selectedId: newValue)
             guard let newValue else { return }
             if selectedTabIds.count <= 1 {
                 selectedTabIds = [newValue]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
+        }
+        .onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+#if DEBUG
+            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.view.hotChange id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)"
+                )
+            } else {
+                dlog("ws.view.hotChange id=none hot=\(tabManager.isWorkspaceCycleHot ? 1 : 0)")
+            }
+#endif
+            reconcileMountedWorkspaceIds()
+        }
+        .onChange(of: retiringWorkspaceId) { _ in
+            reconcileMountedWorkspaceIds()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
@@ -593,10 +726,25 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             updateTitlebarText()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
         }
         .onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
+            if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
+                self.retiringWorkspaceId = nil
+                workspaceHandoffFallbackTask?.cancel()
+                workspaceHandoffFallbackTask = nil
+            }
+            if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
+                self.previousSelectedWorkspaceId = tabManager.selectedTabId
+            }
+            reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -700,6 +848,49 @@ struct ContentView: View {
         })
     }
 
+    private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
+        let currentTabs = tabs ?? tabManager.tabs
+        let orderedTabIds = currentTabs.map { $0.id }
+        let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
+        let pinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
+        let isCycleHot = tabManager.isWorkspaceCycleHot
+        let shouldKeepHandoffPair = isCycleHot && !pinnedIds.isEmpty
+        let baseMaxMounted = shouldKeepHandoffPair
+            ? WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
+            : WorkspaceMountPolicy.maxMountedWorkspaces
+        let selectedCount = effectiveSelectedId == nil ? 0 : 1
+        let maxMounted = max(baseMaxMounted, selectedCount + pinnedIds.count)
+        let previousMountedIds = mountedWorkspaceIds
+        mountedWorkspaceIds = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: mountedWorkspaceIds,
+            selected: effectiveSelectedId,
+            pinnedIds: pinnedIds,
+            orderedTabIds: orderedTabIds,
+            isCycleHot: isCycleHot,
+            maxMounted: maxMounted
+        )
+#if DEBUG
+        if mountedWorkspaceIds != previousMountedIds {
+            let added = mountedWorkspaceIds.filter { !previousMountedIds.contains($0) }
+            let removed = previousMountedIds.filter { !mountedWorkspaceIds.contains($0) }
+            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.mount.reconcile id=\(snapshot.id) dt=\(debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
+                    "selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
+                    "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds)) " +
+                    "added=\(debugShortWorkspaceIds(added)) removed=\(debugShortWorkspaceIds(removed))"
+                )
+            } else {
+                dlog(
+                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(debugShortWorkspaceId(effectiveSelectedId)) " +
+                    "mounted=\(debugShortWorkspaceIds(mountedWorkspaceIds))"
+                )
+            }
+        }
+#endif
+    }
+
     private func addTab() {
         tabManager.addTab()
         sidebarSelectionState.selection = .tabs
@@ -721,6 +912,90 @@ struct ContentView: View {
             }
         }
     }
+
+    private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
+        let oldSelectedId = previousSelectedWorkspaceId
+        previousSelectedWorkspaceId = newSelectedId
+
+        guard let oldSelectedId, let newSelectedId, oldSelectedId != newSelectedId else {
+            tabManager.completePendingWorkspaceUnfocus(reason: "no_handoff")
+            retiringWorkspaceId = nil
+            workspaceHandoffFallbackTask?.cancel()
+            workspaceHandoffFallbackTask = nil
+            return
+        }
+
+        workspaceHandoffGeneration &+= 1
+        let generation = workspaceHandoffGeneration
+        retiringWorkspaceId = oldSelectedId
+        workspaceHandoffFallbackTask?.cancel()
+
+#if DEBUG
+        if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.handoff.start id=\(snapshot.id) dt=\(debugMsText(dtMs)) old=\(debugShortWorkspaceId(oldSelectedId)) " +
+                "new=\(debugShortWorkspaceId(newSelectedId))"
+            )
+        } else {
+            dlog(
+                "ws.handoff.start id=none old=\(debugShortWorkspaceId(oldSelectedId)) new=\(debugShortWorkspaceId(newSelectedId))"
+            )
+        }
+#endif
+
+        workspaceHandoffFallbackTask = Task { [generation] in
+            do {
+                try await Task.sleep(nanoseconds: 150_000_000)
+            } catch {
+                return
+            }
+            await MainActor.run {
+                guard workspaceHandoffGeneration == generation else { return }
+                completeWorkspaceHandoff(reason: "timeout")
+            }
+        }
+    }
+
+    private func completeWorkspaceHandoffIfNeeded(focusedTabId: UUID, reason: String) {
+        guard focusedTabId == tabManager.selectedTabId else { return }
+        guard retiringWorkspaceId != nil else { return }
+        completeWorkspaceHandoff(reason: reason)
+    }
+
+    private func completeWorkspaceHandoff(reason: String) {
+        workspaceHandoffFallbackTask?.cancel()
+        workspaceHandoffFallbackTask = nil
+        let retiring = retiringWorkspaceId
+        retiringWorkspaceId = nil
+        tabManager.completePendingWorkspaceUnfocus(reason: reason)
+#if DEBUG
+        if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
+            )
+        } else {
+            dlog("ws.handoff.complete id=none reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))")
+        }
+#endif
+    }
+
+#if DEBUG
+    private func debugShortWorkspaceId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private func debugShortWorkspaceIds(_ ids: [UUID]) -> String {
+        if ids.isEmpty { return "[]" }
+        return "[" + ids.map { String($0.uuidString.prefix(5)) }.joined(separator: ",") + "]"
+    }
+
+    private func debugMsText(_ ms: Double) -> String {
+        String(format: "%.2fms", ms)
+    }
+#endif
 }
 
 struct VerticalTabsSidebar: View {

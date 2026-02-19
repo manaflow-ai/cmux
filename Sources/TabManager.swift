@@ -174,33 +174,37 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
         for t in st.targets {
             guard let s = t.sample() else { continue }
 
+            let iosW = s.iosurfaceWidthPx
+            let iosH = s.iosurfaceHeightPx
+            let expW = s.expectedWidthPx
+            let expH = s.expectedHeightPx
+            let gravity = s.layerContentsGravity
+            let hasDimensions = iosW > 0 && iosH > 0 && expW > 0 && expH > 0
+            let dw = hasDimensions ? abs(iosW - expW) : 0
+            let dh = hasDimensions ? abs(iosH - expH) : 0
+            let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
+            let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
+
             // Ignore setup/warmup frames before the close action. We only care about
             // regressions that happen at/after the close mutation.
             if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
                 st.firstBlank = (label: t.label, frame: st.framesWritten)
             }
 
-            let iosW = s.iosurfaceWidthPx
-            let iosH = s.iosurfaceHeightPx
-            let expW = s.expectedWidthPx
-            let expH = s.expectedHeightPx
             if st.firstSizeMismatch == nil,
                st.framesWritten >= st.closeFrame,
-               iosW > 0, iosH > 0, expW > 0, expH > 0 {
-                let dw = abs(iosW - expW)
-                let dh = abs(iosH - expH)
-                if dw > 2 || dh > 2 {
-                    st.firstSizeMismatch = (
-                        label: t.label,
-                        frame: st.framesWritten,
-                        ios: "\(iosW)x\(iosH)",
-                        expected: "\(expW)x\(expH)"
-                    )
-                }
+               stretchRisk,
+               hasSizeMismatch {
+                st.firstSizeMismatch = (
+                    label: t.label,
+                    frame: st.framesWritten,
+                    ios: "\(iosW)x\(iosH)",
+                    expected: "\(expW)x\(expH)"
+                )
             }
 
             if st.trace.count < 200 {
-                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):key=\(s.layerContentsKey)")
+                st.trace.append("\(st.framesWritten):\(t.label):blank=\(s.isProbablyBlank ? 1 : 0):ios=\(iosW)x\(iosH):exp=\(expW)x\(expH):gravity=\(gravity):key=\(s.layerContentsKey)")
             }
         }
 
@@ -221,6 +225,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 @MainActor
 class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
+    @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -232,12 +237,34 @@ class TabManager: ObservableObject {
             if !isNavigatingHistory, let selectedTabId {
                 recordTabInHistory(selectedTabId)
             }
+#if DEBUG
+            let switchId = debugWorkspaceSwitchId
+            let switchDtMs = debugWorkspaceSwitchStartTime > 0
+                ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
+                : 0
+            dlog(
+                "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
+                "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
+            )
+#endif
+            selectionSideEffectsGeneration &+= 1
+            let generation = selectionSideEffectsGeneration
             DispatchQueue.main.async { [weak self] in
-                self?.focusSelectedTabPanel(previousTabId: previousTabId)
-                self?.updateWindowTitleForSelectedTab()
-                if let selectedTabId = self?.selectedTabId {
-                    self?.markFocusedPanelReadIfActive(tabId: selectedTabId)
+                guard let self, self.selectionSideEffectsGeneration == generation else { return }
+                self.focusSelectedTabPanel(previousTabId: previousTabId)
+                self.updateWindowTitleForSelectedTab()
+                if let selectedTabId = self.selectedTabId {
+                    self.markFocusedPanelReadIfActive(tabId: selectedTabId)
                 }
+#if DEBUG
+                let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                    : 0
+                dlog(
+                    "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
+                    "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
+                )
+#endif
             }
         }
     }
@@ -250,6 +277,15 @@ class TabManager: ObservableObject {
     private var historyIndex: Int = -1
     private var isNavigatingHistory = false
     private let maxHistorySize = 50
+    private var selectionSideEffectsGeneration: UInt64 = 0
+    private var workspaceCycleGeneration: UInt64 = 0
+    private var workspaceCycleCooldownTask: Task<Void, Never>?
+    private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+#if DEBUG
+    private var debugWorkspaceSwitchCounter: UInt64 = 0
+    private var debugWorkspaceSwitchId: UInt64 = 0
+    private var debugWorkspaceSwitchStartTime: CFTimeInterval = 0
+#endif
 
 #if DEBUG
     private var didSetupSplitCloseRightUITest = false
@@ -289,6 +325,10 @@ class TabManager: ObservableObject {
         setupChildExitSplitUITestIfNeeded()
         setupChildExitKeyboardUITestIfNeeded()
 #endif
+    }
+
+    deinit {
+        workspaceCycleCooldownTask?.cancel()
     }
 
     var selectedWorkspace: Workspace? {
@@ -814,12 +854,15 @@ class TabManager: ObservableObject {
         guard let panelId = tab.focusedPanelId,
               let panel = tab.panels[panelId] else { return }
 
-        // Unfocus previous tab's panel
+        // Defer unfocusing the previous workspace's panel until ContentView confirms handoff
+        // completion (new workspace has focus or timeout fallback), to avoid a visible freeze gap.
         if let previousTabId,
            let previousTab = tabs.first(where: { $0.id == previousTabId }),
            let previousPanelId = previousTab.focusedPanelId,
-           let previousPanel = previousTab.panels[previousPanelId] {
-            previousPanel.unfocus()
+           previousTab.panels[previousPanelId] != nil {
+            replacePendingWorkspaceUnfocusTarget(
+                with: (tabId: previousTabId, panelId: previousPanelId)
+            )
         }
 
         panel.focus()
@@ -828,6 +871,94 @@ class TabManager: ObservableObject {
         if let terminalPanel = panel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: selectedTabId, surfaceId: panelId)
         }
+    }
+
+    func completePendingWorkspaceUnfocus(reason: String) {
+        guard let pending = pendingWorkspaceUnfocusTarget else { return }
+        // If this tab became selected again before handoff completion, drop the stale
+        // pending entry so it cannot be flushed later and deactivate the selected workspace.
+        guard Self.shouldUnfocusPendingWorkspace(
+            pendingTabId: pending.tabId,
+            selectedTabId: selectedTabId
+        ) else {
+            pendingWorkspaceUnfocusTarget = nil
+#if DEBUG
+            dlog(
+                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=selected_again"
+            )
+#endif
+            return
+        }
+        pendingWorkspaceUnfocusTarget = nil
+        unfocusWorkspacePanel(tabId: pending.tabId, panelId: pending.panelId)
+#if DEBUG
+        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                "tab=\(Self.debugShortWorkspaceId(pending.tabId)) panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
+            )
+        } else {
+            dlog(
+                "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(pending.tabId)) " +
+                "panel=\(String(pending.panelId.uuidString.prefix(5))) reason=\(reason)"
+            )
+        }
+#endif
+    }
+
+    private func replacePendingWorkspaceUnfocusTarget(with next: (tabId: UUID, panelId: UUID)) {
+        if let current = pendingWorkspaceUnfocusTarget,
+           current.tabId == next.tabId,
+           current.panelId == next.panelId {
+            return
+        }
+
+        if let current = pendingWorkspaceUnfocusTarget {
+            // Never unfocus the currently selected workspace when replacing stale pending state.
+            if Self.shouldUnfocusPendingWorkspace(
+                pendingTabId: current.tabId,
+                selectedTabId: selectedTabId
+            ) {
+                unfocusWorkspacePanel(tabId: current.tabId, panelId: current.panelId)
+#if DEBUG
+                dlog(
+                    "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced"
+                )
+#endif
+            } else {
+#if DEBUG
+                dlog(
+                    "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(current.tabId)) panel=\(String(current.panelId.uuidString.prefix(5))) reason=replaced_selected"
+                )
+#endif
+            }
+        }
+
+        pendingWorkspaceUnfocusTarget = next
+#if DEBUG
+        if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
+            let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            dlog(
+                "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
+                "tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
+            )
+        } else {
+            dlog(
+                "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(next.tabId)) panel=\(String(next.panelId.uuidString.prefix(5)))"
+            )
+        }
+#endif
+    }
+
+    private func unfocusWorkspacePanel(tabId: UUID, panelId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              let panel = tab.panels[panelId] else { return }
+        panel.unfocus()
+    }
+
+    static func shouldUnfocusPendingWorkspace(pendingTabId: UUID, selectedTabId: UUID?) -> Bool {
+        selectedTabId != pendingTabId
     }
 
     private func markFocusedPanelReadIfActive(tabId: UUID) {
@@ -959,6 +1090,17 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let nextIndex = (currentIndex + 1) % tabs.count
+#if DEBUG
+        let nextId = tabs[nextIndex].id
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=next from=\(Self.debugShortWorkspaceId(currentId)) " +
+            "to=\(Self.debugShortWorkspaceId(nextId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+#endif
+        activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[nextIndex].id
     }
 
@@ -966,8 +1108,96 @@ class TabManager: ObservableObject {
         guard let currentId = selectedTabId,
               let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
         let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+#if DEBUG
+        let prevId = tabs[prevIndex].id
+        debugWorkspaceSwitchCounter &+= 1
+        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
+        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
+        dlog(
+            "ws.switch.begin id=\(debugWorkspaceSwitchId) dir=prev from=\(Self.debugShortWorkspaceId(currentId)) " +
+            "to=\(Self.debugShortWorkspaceId(prevId)) hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        )
+#endif
+        activateWorkspaceCycleHotWindow()
         selectedTabId = tabs[prevIndex].id
     }
+
+    private func activateWorkspaceCycleHotWindow() {
+        workspaceCycleGeneration &+= 1
+        let generation = workspaceCycleGeneration
+#if DEBUG
+        let switchId = debugWorkspaceSwitchId
+        let switchDtMs = debugWorkspaceSwitchStartTime > 0
+            ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
+            : 0
+#endif
+        if !isWorkspaceCycleHot {
+            isWorkspaceCycleHot = true
+#if DEBUG
+            dlog(
+                "ws.hot.on id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
+            )
+#endif
+        }
+
+        let hadPendingCooldown = workspaceCycleCooldownTask != nil
+        workspaceCycleCooldownTask?.cancel()
+#if DEBUG
+        if hadPendingCooldown {
+            dlog(
+                "ws.hot.cancelPrev id=\(switchId) gen=\(generation) dt=\(Self.debugMsText(switchDtMs))"
+            )
+        }
+#endif
+        workspaceCycleCooldownTask = Task { [weak self, generation] in
+            do {
+                try await Task.sleep(nanoseconds: 220_000_000)
+            } catch {
+#if DEBUG
+                await MainActor.run {
+                    guard let self else { return }
+                    let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                        ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                        : 0
+                    dlog(
+                        "ws.hot.cooldownCanceled id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
+                    )
+                }
+#endif
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                guard self.workspaceCycleGeneration == generation else { return }
+#if DEBUG
+                let dtMs = self.debugWorkspaceSwitchStartTime > 0
+                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
+                    : 0
+                dlog(
+                    "ws.hot.off id=\(self.debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(dtMs))"
+                )
+#endif
+                self.isWorkspaceCycleHot = false
+                self.workspaceCycleCooldownTask = nil
+            }
+        }
+    }
+
+#if DEBUG
+    func debugCurrentWorkspaceSwitchSnapshot() -> (id: UInt64, startedAt: CFTimeInterval)? {
+        guard debugWorkspaceSwitchId > 0, debugWorkspaceSwitchStartTime > 0 else { return nil }
+        return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
+    }
+
+    private static func debugShortWorkspaceId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugMsText(_ ms: Double) -> String {
+        String(format: "%.2fms", ms)
+    }
+#endif
 
     func selectTab(at index: Int) {
         guard index >= 0 && index < tabs.count else { return }
@@ -1494,13 +1724,20 @@ class TabManager: ObservableObject {
                 tab.closePanel(pid, force: true)
             }
 
-            // Create the 2x2 grid. The bug is order-dependent, so support multiple patterns.
+            // Create the repro layout. Most patterns use a 2x2 grid, but keep a single-split
+            // variant for the exact "close right in a horizontal pair" user report.
             let topLeftId = topLeftPanelId
             let topRight: TerminalPanel
-            let bottomLeft: TerminalPanel
-            let bottomRight: TerminalPanel
+            var bottomLeft: TerminalPanel?
+            var bottomRight: TerminalPanel?
 
             switch pattern {
+            case "close_right_single":
+                guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
+                    writeSplitCloseRightTestData(["setupError": "Failed to split right from top-left (iteration \(i))"], at: path)
+                    return
+                }
+                topRight = tr
             case "close_right_lrtd", "close_right_lrtd_bottom_first", "close_right_bottom_first", "close_right_lrtd_unfocused":
                 // User repro: split left/right first, then split top/down in each column.
                 guard let tr = tab.newTerminalSplit(from: topLeftId, orientation: .horizontal) else {
@@ -1543,9 +1780,15 @@ class TabManager: ObservableObject {
 
             // Fill left panes with visible content.
             sendText(topLeftId, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_TOPLEFT_\(i); done; printf '\\033[HCMUX_MARKER_TOPLEFT\\n'\r")
-            sendText(bottomLeft.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMLEFT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMLEFT\\n'\r")
             sendText(topRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_TOPRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_TOPRIGHT\\n'\r")
-            sendText(bottomRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMRIGHT\\n'\r")
+            if let bottomLeft {
+                sendText(bottomLeft.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMLEFT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMLEFT\\n'\r")
+            }
+            if let bottomRight {
+                sendText(bottomRight.id, "printf '\\033[2J\\033[H'; for i in {1..200}; do echo CMUX_SPLIT_BOTTOMRIGHT_\(i); done; printf '\\033[HCMUX_MARKER_BOTTOMRIGHT\\n'\r")
+            }
+            // Give shell output a moment to paint before we start the close timeline.
+            try? await Task.sleep(nanoseconds: 180_000_000)
 
             let desiredFrames = max(16, min(burstFrames, 60))
             let closeFrame = min(6, max(1, desiredFrames / 4))
@@ -1555,7 +1798,16 @@ class TabManager: ObservableObject {
             var closeOrder = ""
             let actions: [(frame: Int, action: () -> Void)] = {
                 switch pattern {
+                case "close_right_single":
+                    closeOrder = "TR_ONLY"
+                    return [
+                        (frame: closeFrame, action: {
+                            tab.focusPanel(topRight.id)
+                            tab.closePanel(topRight.id, force: true)
+                        }),
+                    ]
                 case "close_bottom":
+                    guard let bottomRight, let bottomLeft else { return [] }
                     closeOrder = "BR_THEN_BL"
                     return [
                         (frame: closeFrame, action: {
@@ -1568,6 +1820,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 case "close_right_lrtd_bottom_first", "close_right_bottom_first":
+                    guard let bottomRight else { return [] }
                     closeOrder = "BR_THEN_TR"
                     return [
                         (frame: closeFrame, action: {
@@ -1580,6 +1833,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 case "close_right_lrtd_unfocused":
+                    guard let bottomRight else { return [] }
                     closeOrder = "TR_THEN_BR_UNFOCUSED"
                     return [
                         (frame: closeFrame, action: {
@@ -1590,6 +1844,7 @@ class TabManager: ObservableObject {
                         }),
                     ]
                 default:
+                    guard let bottomRight else { return [] }
                     closeOrder = "TR_THEN_BR"
                     return [
                         (frame: closeFrame, action: {
@@ -1606,6 +1861,10 @@ class TabManager: ObservableObject {
 
             let targets: [(label: String, view: GhosttySurfaceScrollView)] = {
                 switch pattern {
+                case "close_right_single":
+                    return [
+                        ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
+                    ]
                 case "close_bottom":
                     return [
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
@@ -1617,6 +1876,7 @@ class TabManager: ObservableObject {
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
                     ]
                 default:
+                    guard let bottomLeft else { return [] }
                     return [
                         ("TL", tab.terminalPanel(for: topLeftId)!.surface.hostedView),
                         ("BL", bottomLeft.surface.hostedView),
@@ -2222,6 +2482,7 @@ extension Notification.Name {
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
+    static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
