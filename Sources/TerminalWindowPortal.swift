@@ -2,6 +2,7 @@ import AppKit
 import ObjectiveC
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
+private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
@@ -147,6 +148,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func synchronizeHostedViewForAnchor(_ anchorView: NSView) {
+        pruneDeadEntries()
         guard let hostedId = hostedByAnchorId[ObjectIdentifier(anchorView)] else { return }
         synchronizeHostedView(withId: hostedId)
     }
@@ -194,21 +196,18 @@ final class WindowTerminalPortal: NSObject {
     }
 
     private func pruneDeadEntries() {
+        let currentWindow = window
         let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
-            if entry.hostedView == nil {
-                if let anchor = entry.anchorView {
-                    hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
-                }
+            guard entry.hostedView != nil else { return hostedId }
+            guard let anchor = entry.anchorView else { return hostedId }
+            if anchor.window !== currentWindow || anchor.superview == nil {
                 return hostedId
-            }
-            if entry.anchorView == nil {
-                entry.hostedView?.isHidden = true
             }
             return nil
         }
 
         for hostedId in deadHostedIds {
-            entriesByHostedId.removeValue(forKey: hostedId)
+            detachHostedView(withId: hostedId)
         }
 
         let validAnchorIds = Set(entriesByHostedId.compactMap { _, entry in
@@ -216,6 +215,31 @@ final class WindowTerminalPortal: NSObject {
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
     }
+
+    func hostedIds() -> Set<ObjectIdentifier> {
+        Set(entriesByHostedId.keys)
+    }
+
+    func tearDown() {
+        for hostedId in Array(entriesByHostedId.keys) {
+            detachHostedView(withId: hostedId)
+        }
+        NSLayoutConstraint.deactivate(installConstraints)
+        installConstraints.removeAll()
+        hostView.removeFromSuperview()
+        installedContainerView = nil
+        installedReferenceView = nil
+    }
+
+#if DEBUG
+    func debugEntryCount() -> Int {
+        entriesByHostedId.count
+    }
+
+    func debugHostedSubviewCount() -> Int {
+        hostView.subviews.count
+    }
+#endif
 
     func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
         guard ensureInstalled() else { return nil }
@@ -252,15 +276,65 @@ enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
+    private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
+        guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }
+        let windowId = ObjectIdentifier(window)
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak window] _ in
+            MainActor.assumeIsolated {
+                if let window {
+                    removePortal(for: window)
+                } else {
+                    removePortal(windowId: windowId, window: nil)
+                }
+            }
+        }
+        objc_setAssociatedObject(
+            window,
+            &cmuxWindowTerminalPortalCloseObserverKey,
+            observer,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private static func removePortal(for window: NSWindow) {
+        removePortal(windowId: ObjectIdentifier(window), window: window)
+    }
+
+    private static func removePortal(windowId: ObjectIdentifier, window: NSWindow?) {
+        if let portal = portalsByWindowId.removeValue(forKey: windowId) {
+            portal.tearDown()
+        }
+        hostedToWindowId = hostedToWindowId.filter { $0.value != windowId }
+
+        guard let window else { return }
+        if let observer = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        objc_setAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, nil, .OBJC_ASSOCIATION_RETAIN)
+    }
+
+    private static func pruneHostedMappings(for windowId: ObjectIdentifier, validHostedIds: Set<ObjectIdentifier>) {
+        hostedToWindowId = hostedToWindowId.filter { hostedId, mappedWindowId in
+            mappedWindowId != windowId || validHostedIds.contains(hostedId)
+        }
+    }
+
     private static func portal(for window: NSWindow) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
+            installWindowCloseObserverIfNeeded(for: window)
             return existing
         }
 
         let portal = WindowTerminalPortal(window: window)
         objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
+        installWindowCloseObserverIfNeeded(for: window)
         return portal
     }
 
@@ -278,6 +352,7 @@ enum TerminalWindowPortalRegistry {
 
         nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI)
         hostedToWindowId[hostedId] = windowId
+        pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }
 
     static func synchronizeForAnchor(_ anchorView: NSView) {
@@ -295,4 +370,10 @@ enum TerminalWindowPortalRegistry {
         let portal = portal(for: window)
         return portal.terminalViewAtWindowPoint(windowPoint)
     }
+
+#if DEBUG
+    static func debugPortalCount() -> Int {
+        portalsByWindowId.count
+    }
+#endif
 }
