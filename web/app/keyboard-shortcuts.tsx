@@ -22,7 +22,18 @@ const CATEGORIES: ShortcutCategory[] = [
     title: "Workspaces",
     blurb: "Workspaces live in the sidebar. Each workspace has its own set of panes and surfaces.",
     shortcuts: [
+      { id: "ws-toggle-sidebar", combos: [["⌘", "B"]], description: "Toggle sidebar" },
       { id: "ws-new", combos: [["⌘", "N"]], description: "New workspace" },
+      {
+        id: "ws-next",
+        combos: [["⌃", "⌘", "]"]],
+        description: "Next workspace",
+      },
+      {
+        id: "ws-prev",
+        combos: [["⌃", "⌘", "["]],
+        description: "Previous workspace",
+      },
       {
         id: "ws-jump-1-8",
         combos: [["⌘", "1–8"]],
@@ -46,6 +57,16 @@ const CATEGORIES: ShortcutCategory[] = [
     blurb: "Surfaces are tabs inside a pane.",
     shortcuts: [
       { id: "sf-new", combos: [["⌘", "T"]], description: "New surface" },
+      {
+        id: "sf-next-1",
+        combos: [["⌘", "⇧", "]"]],
+        description: "Next surface",
+      },
+      {
+        id: "sf-next-2",
+        combos: [["⌃", "Tab"]],
+        description: "Next surface",
+      },
       {
         id: "sf-prev-1",
         combos: [["⌘", "⇧", "["]],
@@ -88,10 +109,11 @@ const CATEGORIES: ShortcutCategory[] = [
     shortcuts: [
       {
         id: "br-open",
-        combos: [["⌘", "⇧", "B"]],
+        combos: [["⌘", "⇧", "L"]],
         description: "Open browser in split",
       },
       { id: "br-addr", combos: [["⌘", "L"]], description: "Focus address bar" },
+      { id: "br-back", combos: [["⌘", "["]], description: "Back" },
       { id: "br-forward", combos: [["⌘", "]"]], description: "Forward" },
       { id: "br-reload", combos: [["⌘", "R"]], description: "Reload page" },
       {
@@ -107,7 +129,7 @@ const CATEGORIES: ShortcutCategory[] = [
     shortcuts: [
       {
         id: "nt-panel",
-        combos: [["⌘", "⇧", "I"]],
+        combos: [["⌘", "I"]],
         description: "Show notifications panel",
       },
       {
@@ -117,7 +139,7 @@ const CATEGORIES: ShortcutCategory[] = [
       },
       {
         id: "nt-flash",
-        combos: [["⌘", "⇧", "L"]],
+        combos: [["⌘", "⇧", "H"]],
         description: "Trigger flash",
       },
     ],
@@ -181,7 +203,7 @@ const CATEGORIES: ShortcutCategory[] = [
       { id: "wn-settings", combos: [["⌘", ","]], description: "Settings" },
       {
         id: "wn-reload",
-        combos: [["⌘", "⇧", "R"]],
+        combos: [["⌘", "⇧", ","]],
         description: "Reload configuration",
       },
       { id: "wn-quit", combos: [["⌘", "Q"]], description: "Quit" },

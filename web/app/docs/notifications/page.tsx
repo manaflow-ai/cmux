@@ -37,14 +37,13 @@ export default function NotificationsPage() {
       <h3>Suppression</h3>
       <p>Desktop alerts are suppressed when:</p>
       <ul>
-        <li>The cmux window is focused</li>
-        <li>The specific workspace sending the notification is active</li>
-        <li>The notification panel is open</li>
+        <li>cmux is focused in the foreground</li>
+        <li>The same panel that sent the notification is currently focused</li>
       </ul>
 
       <h3>Notification panel</h3>
       <p>
-        Press <code>⌘⇧I</code> to open the notification panel. Click a
+        Press <code>⌘I</code> to open the notification panel. Click a
         notification to jump to that workspace. Press <code>⌘⇧U</code> to jump
         directly to the workspace with the most recent unread notification.
       </p>

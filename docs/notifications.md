@@ -48,8 +48,8 @@ cmux notify --title "Build Complete"
 # With subtitle and body
 cmux notify --title "Claude Code" --subtitle "Permission" --body "Approval needed"
 
-# Notify specific tab/panel
-cmux notify --title "Done" --tab 0 --panel 1
+# Notify a specific workspace/surface
+cmux notify --title "Done" --workspace 0 --surface 1
 ```
 
 ## Integration Examples
@@ -137,13 +137,15 @@ cmux sets these in child shells:
 | Variable | Description |
 |----------|-------------|
 | `CMUX_SOCKET_PATH` | Path to control socket |
+| `CMUX_WORKSPACE_ID` | UUID of the current workspace |
+| `CMUX_SURFACE_ID` | UUID of the current surface |
 | `CMUX_TAB_ID` | UUID of the current tab |
 | `CMUX_PANEL_ID` | UUID of the current panel |
 
 ## CLI Commands
 
 ```
-cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
+cmux notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref|index>] [--surface <id|ref|index>]
 cmux list-notifications
 cmux clear-notifications
 cmux ping

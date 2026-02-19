@@ -76,7 +76,7 @@ export default function ConceptsPage() {
       <p>
         <strong>Shortcuts:</strong> <code>⌘N</code> (new),{" "}
         <code>⌘1</code>–<code>⌘9</code> (jump), <code>⌘⇧W</code> (close),{" "}
-        <code>⌘⇧[</code> / <code>⌘⇧]</code> (prev/next)
+        <code>⌃⌘[</code> / <code>⌃⌘]</code> (prev/next)
       </p>
 
       <h3>Pane</h3>
@@ -91,7 +91,8 @@ export default function ConceptsPage() {
       <p>
         A tab within a pane. Each pane has its own tab bar and can hold multiple
         surfaces. Created with <code>⌘T</code>, navigated with{" "}
-        <code>⌘[</code> / <code>⌘]</code> or <code>⌃1</code>–
+        <code>⌘⇧[</code> / <code>⌘⇧]</code>, <code>⌃⇧Tab</code> /{" "}
+        <code>⌃Tab</code>, or <code>⌃1</code>–
         <code>⌃9</code>.
       </p>
       <p>
