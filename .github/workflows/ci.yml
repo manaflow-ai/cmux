@@ -80,4 +80,4 @@ jobs:
         run: |
           set -euo pipefail
           # Run directly on the self-hosted macOS runner.
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:GhosttyTabsUITests/UpdatePillUITests test
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
