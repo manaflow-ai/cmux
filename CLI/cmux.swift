@@ -468,8 +468,8 @@ struct CMUXCLI {
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
             if includeCaller {
                 let idWsFlag = optionValue(commandArgs, name: "--workspace")
-                let workspaceArg = idWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (idWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+                let workspaceArg = idWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (idWsFlag == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
                 if workspaceArg != nil || surfaceArg != nil {
                     let workspaceId = try normalizeWorkspaceHandle(
                         workspaceArg,
@@ -596,8 +596,8 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
             let (sfArg, rem2) = parseOption(rem1, name: "--surface")
-            let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             guard let direction = rem2.first else {
                 throw CLIError(message: "new-split requires a direction")
             }
@@ -610,7 +610,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "list-panes":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -634,7 +634,7 @@ struct CMUXCLI {
             }
 
         case "list-pane-surfaces":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let paneRaw = optionValue(commandArgs, name: "--pane")
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -661,7 +661,7 @@ struct CMUXCLI {
             }
 
         case "focus-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
                 throw CLIError(message: "focus-pane requires --pane <id|ref>")
             }
@@ -674,7 +674,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
@@ -687,7 +687,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "new-surface":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
@@ -703,8 +703,8 @@ struct CMUXCLI {
 
         case "close-surface":
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
-            let workspaceArg = csWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = csWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -731,7 +731,7 @@ struct CMUXCLI {
             print(response)
 
         case "surface-health":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -760,8 +760,8 @@ struct CMUXCLI {
 
         case "trigger-flash":
             let tfWsFlag = optionValue(commandArgs, name: "--workspace")
-            let workspaceArg = tfWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (tfWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = tfWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (tfWsFlag == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -771,7 +771,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
         case "list-panels":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -797,7 +797,7 @@ struct CMUXCLI {
             }
 
         case "focus-panel":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let panelRaw = optionValue(commandArgs, name: "--panel") else {
                 throw CLIError(message: "focus-panel requires --panel")
             }
@@ -840,8 +840,8 @@ struct CMUXCLI {
         case "send":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
-            let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let rawText = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
             let text = unescapeSendText(rawText)
@@ -856,8 +856,8 @@ struct CMUXCLI {
         case "send-key":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
-            let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             var params: [String: Any] = ["key": key]
@@ -871,7 +871,7 @@ struct CMUXCLI {
         case "send-panel":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
-            let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             guard let panelArg else {
                 throw CLIError(message: "send-panel requires --panel")
             }
@@ -889,7 +889,7 @@ struct CMUXCLI {
         case "send-key-panel":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
-            let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             guard let panelArg else {
                 throw CLIError(message: "send-key-panel requires --panel")
             }
@@ -910,8 +910,8 @@ struct CMUXCLI {
             let body = optionValue(commandArgs, name: "--body") ?? ""
 
             let notifyWsFlag = optionValue(commandArgs, name: "--workspace")
-            let workspaceArg = notifyWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (notifyWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let workspaceArg = notifyWsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (notifyWsFlag == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
             let targetWorkspace = try resolveWorkspaceId(workspaceArg, client: client)
             let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
@@ -1473,7 +1473,7 @@ struct CMUXCLI {
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
             }
-            let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             if let workspaceRaw {
                 if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
                     params["workspace_id"] = workspace
@@ -2599,8 +2599,11 @@ struct CMUXCLI {
             .replacingOccurrences(of: "\\t", with: "\t")
     }
 
-    private func workspaceFromArgsOrEnv(_ args: [String]) -> String? {
-        return optionValue(args, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+    private func workspaceFromArgsOrEnv(_ args: [String], windowOverride: String? = nil) -> String? {
+        if let explicit = optionValue(args, name: "--workspace") { return explicit }
+        // When --window is explicitly targeted, don't fall back to env workspace from a different window
+        if windowOverride != nil { return nil }
+        return ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
     /// Pick the display handle for an item dict based on --id-format.
