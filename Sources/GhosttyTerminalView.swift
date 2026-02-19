@@ -1842,6 +1842,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
 #endif
+            if let terminalSurface {
+                NotificationCenter.default.post(
+                    name: .ghosttyDidBecomeFirstResponderSurface,
+                    object: nil,
+                    userInfo: [
+                        GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                        GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                    ]
+                )
+            }
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -2734,6 +2744,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return (presentCounts[surfaceId, default: 0], lastPresentTimes[surfaceId, default: 0], key)
     }
+
+    var debugSurfaceId: UUID? {
+        surfaceView.terminalSurface?.id
+    }
 #endif
 
     init(surfaceView: GhosttyNSView) {
@@ -2969,8 +2983,17 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setVisibleInUI(_ visible: Bool) {
+        let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+#if DEBUG
+        if wasVisible != visible {
+            debugLogWorkspaceSwitchTiming(
+                event: "ws.term.visible",
+                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(visible ? 1 : 0)"
+            )
+        }
+#endif
         if !visible {
             // If we were focused, yield first responder.
             if let window, let fr = window.firstResponder as? NSView,
@@ -2983,7 +3006,16 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setActive(_ active: Bool) {
+        let wasActive = isActive
         isActive = active
+#if DEBUG
+        if wasActive != active {
+            debugLogWorkspaceSwitchTiming(
+                event: "ws.term.active",
+                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(active ? 1 : 0)"
+            )
+        }
+#endif
         if active {
             applyFirstResponderIfNeeded()
         } else if let window,
@@ -2992,6 +3024,17 @@ final class GhosttySurfaceScrollView: NSView {
             window.makeFirstResponder(nil)
         }
     }
+
+#if DEBUG
+    private func debugLogWorkspaceSwitchTiming(event: String, suffix: String) {
+        guard let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() else {
+            dlog("\(event) id=none \(suffix)")
+            return
+        }
+        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+        dlog("\(event) id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) \(suffix)")
+    }
+#endif
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
 #if DEBUG
@@ -3686,9 +3729,27 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         let coordinator = context.coordinator
+        let previousDesiredIsActive = coordinator.desiredIsActive
+        let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
         coordinator.hostedView = hostedView
+#if DEBUG
+        if previousDesiredIsActive != isActive || previousDesiredIsVisibleInUI != isVisibleInUI {
+            if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.swiftui.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
+                )
+            } else {
+                dlog(
+                    "ws.swiftui.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
+                )
+            }
+        }
+#endif
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
@@ -3744,6 +3805,19 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
+#if DEBUG
+        if let hostedView = coordinator.hostedView {
+            if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.swiftui.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
+                    "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")"
+                )
+            } else {
+                dlog("ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")")
+            }
+        }
+#endif
 
         if let host = nsView as? HostContainerView {
             host.onDidMoveToWindow = nil
