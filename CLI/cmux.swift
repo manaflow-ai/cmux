@@ -854,8 +854,9 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
             let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let text = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
-            guard !text.isEmpty else { throw CLIError(message: "send requires text") }
+            let rawText = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
+            guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
+            let text = unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -886,8 +887,9 @@ struct CMUXCLI {
             guard let panelArg else {
                 throw CLIError(message: "send-panel requires --panel")
             }
-            let text = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
-            guard !text.isEmpty else { throw CLIError(message: "send-panel requires text") }
+            let rawText = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
+            guard !rawText.isEmpty else { throw CLIError(message: "send-panel requires text") }
+            let text = unescapeSendText(rawText)
             var params: [String: Any] = ["text": text]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -2586,6 +2588,15 @@ struct CMUXCLI {
 
     private func replaceToken(_ args: [String], from: String, to: String) -> [String] {
         args.map { $0 == from ? to : $0 }
+    }
+
+    /// Unescape CLI escape sequences to match legacy v1 send behavior.
+    /// \n and \r → carriage return (Enter), \t → tab.
+    private func unescapeSendText(_ text: String) -> String {
+        return text
+            .replacingOccurrences(of: "\\n", with: "\r")
+            .replacingOccurrences(of: "\\r", with: "\r")
+            .replacingOccurrences(of: "\\t", with: "\t")
     }
 
     private func workspaceFromArgsOrEnv(_ args: [String]) -> String? {
