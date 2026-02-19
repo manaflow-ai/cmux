@@ -2668,14 +2668,17 @@ final class GhosttySurfaceScrollView: NSView {
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
+    private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
-	    private var lastSentRow: Int?
-	    private var isActive = true
-	    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    private var lastSentRow: Int?
+    private var isActive = true
+    private var activeDropZone: DropZone?
+    private var dropZoneOverlayAnimationGeneration: UInt64 = 0
+    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 #if DEBUG
 	    private static var flashCounts: [UUID: Int] = [:]
 	    private static var drawCounts: [UUID: Int] = [:]
@@ -2755,6 +2758,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2786,6 +2790,13 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
         addSubview(inactiveOverlayView)
+        dropZoneOverlayView.wantsLayer = true
+        dropZoneOverlayView.layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.25).cgColor
+        dropZoneOverlayView.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        dropZoneOverlayView.layer?.borderWidth = 2
+        dropZoneOverlayView.layer?.cornerRadius = 8
+        dropZoneOverlayView.isHidden = true
+        addSubview(dropZoneOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -2899,6 +2910,9 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.pushTargetSurfaceSize(targetSize)
         documentView.frame.size.width = scrollView.bounds.width
         inactiveOverlayView.frame = bounds
+        if let zone = activeDropZone {
+            dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+        }
         flashOverlayView.frame = bounds
         updateFlashPath()
         synchronizeScrollView()
@@ -2955,6 +2969,98 @@ final class GhosttySurfaceScrollView: NSView {
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
         CATransaction.commit()
+    }
+
+    private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
+        let padding: CGFloat = 4
+        switch zone {
+        case .center:
+            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height - padding * 2)
+        case .left:
+            return CGRect(x: padding, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+        case .right:
+            return CGRect(x: size.width / 2, y: padding, width: size.width / 2 - padding, height: size.height - padding * 2)
+        case .top:
+            return CGRect(x: padding, y: size.height / 2, width: size.width - padding * 2, height: size.height / 2 - padding)
+        case .bottom:
+            return CGRect(x: padding, y: padding, width: size.width - padding * 2, height: size.height / 2 - padding)
+        }
+    }
+
+    private static func rectApproximatelyEqual(_ lhs: CGRect, _ rhs: CGRect, epsilon: CGFloat = 0.5) -> Bool {
+        abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
+            abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
+            abs(lhs.size.width - rhs.size.width) <= epsilon &&
+            abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    func setDropZoneOverlay(zone: DropZone?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setDropZoneOverlay(zone: zone)
+            }
+            return
+        }
+
+        let previousZone = activeDropZone
+        activeDropZone = zone
+
+        let previousFrame = dropZoneOverlayView.frame
+
+        if let zone {
+            let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
+            let isSameFrame = Self.rectApproximatelyEqual(previousFrame, targetFrame)
+            let needsFrameUpdate = !isSameFrame
+            let zoneChanged = previousZone != zone
+
+            if !dropZoneOverlayView.isHidden && !needsFrameUpdate && !zoneChanged {
+                return
+            }
+
+            dropZoneOverlayAnimationGeneration &+= 1
+            dropZoneOverlayView.layer?.removeAllAnimations()
+
+            if dropZoneOverlayView.isHidden {
+                dropZoneOverlayView.frame = targetFrame
+                dropZoneOverlayView.alphaValue = 0
+                dropZoneOverlayView.isHidden = false
+
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    dropZoneOverlayView.animator().alphaValue = 1
+                }
+                return
+            }
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                if needsFrameUpdate {
+                    dropZoneOverlayView.animator().frame = targetFrame
+                }
+                if dropZoneOverlayView.alphaValue < 1 {
+                    dropZoneOverlayView.animator().alphaValue = 1
+                }
+            }
+        } else {
+            guard !dropZoneOverlayView.isHidden else { return }
+            dropZoneOverlayAnimationGeneration &+= 1
+            let animationGeneration = dropZoneOverlayAnimationGeneration
+            dropZoneOverlayView.layer?.removeAllAnimations()
+
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.14
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                dropZoneOverlayView.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                guard let self else { return }
+                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
+                guard self.activeDropZone == nil else { return }
+                self.dropZoneOverlayView.isHidden = true
+                self.dropZoneOverlayView.alphaValue = 1
+            }
+        }
     }
 
     func triggerFlash() {
@@ -3672,6 +3778,8 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
+    @Environment(\.paneDropZone) var paneDropZone
+
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
@@ -3777,6 +3885,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
+        hostedView.setDropZoneOverlay(zone: paneDropZone)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
