@@ -1789,6 +1789,24 @@ final class WindowTerminalHostViewTests: XCTestCase {
 }
 
 @MainActor
+final class GhosttySurfaceOverlayTests: XCTestCase {
+    func testInactiveOverlayVisibilityTracksRequestedState() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
+        )
+
+        hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: true)
+        var state = hostedView.debugInactiveOverlayState()
+        XCTAssertFalse(state.isHidden)
+        XCTAssertEqual(state.alpha, 0.35, accuracy: 0.01)
+
+        hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
+        state = hostedView.debugInactiveOverlayState()
+        XCTAssertTrue(state.isHidden)
+    }
+}
+
+@MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
     func testRegistryPrunesPortalWhenWindowCloses() {
         let baseline = TerminalWindowPortalRegistry.debugPortalCount()

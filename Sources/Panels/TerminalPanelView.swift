@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import AppKit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
@@ -18,6 +19,9 @@ struct TerminalPanelView: View {
                 terminalSurface: panel.surface,
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
+                showsInactiveOverlay: isSplit && !isFocused,
+                inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in onFocus() },
                 onTriggerFlash: onTriggerFlash
@@ -63,12 +67,14 @@ struct TerminalPanelView: View {
 struct PanelAppearance {
     let dividerColor: Color
     let unfocusedOverlayColor: Color
+    let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
 
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         PanelAppearance(
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayColor: Color(nsColor: config.unfocusedSplitOverlayFill),
+            unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity
         )
     }
