@@ -46,10 +46,13 @@ jobs:
           brew install zig
           npm install --global create-dmg
 
+      - name: Download Metal Toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Build GhosttyKit.xcframework
         run: |
           cd ghostty
-          zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
+          zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast
           cd ..
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
