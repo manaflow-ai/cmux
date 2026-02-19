@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import ObjectiveC
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
@@ -8,6 +9,18 @@ final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // During Bonsplit tab drags, pass through so SwiftUI's dropZonesLayer
+        // receives the drag and shows the blue hover indicator.
+        // Same pattern as FileDropOverlayView.hitTest (ContentView.swift:189).
+        let pb = NSPasteboard(name: .drag)
+        if let types = pb.types,
+           types.contains(NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")) {
+#if DEBUG
+            dlog("portal.hitTest SKIP (tabTransfer drag active)")
+#endif
+            return nil
+        }
+
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
     }
