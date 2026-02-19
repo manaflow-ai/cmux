@@ -510,6 +510,52 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
+    func testRequestPersistsUntilAcknowledged() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+
+        let requestId = panel.requestAddressBarFocus()
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+
+        panel.acknowledgeAddressBarFocusRequest(requestId)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+
+        // Acknowledgement only clears the durable request; focus suppression follows
+        // explicit blur state transitions.
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        panel.endSuppressWebViewFocusForAddressBar()
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+    }
+
+    func testRequestCoalescesWhilePending() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstRequest = panel.requestAddressBarFocus()
+        let secondRequest = panel.requestAddressBarFocus()
+
+        XCTAssertEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, firstRequest)
+    }
+
+    func testStaleAcknowledgementDoesNotClearNewestRequest() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let firstRequest = panel.requestAddressBarFocus()
+        panel.acknowledgeAddressBarFocusRequest(firstRequest)
+        let secondRequest = panel.requestAddressBarFocus()
+
+        XCTAssertNotEqual(firstRequest, secondRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
+
+        panel.acknowledgeAddressBarFocusRequest(firstRequest)
+        XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
+
+        panel.acknowledgeAddressBarFocusRequest(secondRequest)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+    }
+}
+
 final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorForNoOpEdges() {
         let first = UUID()

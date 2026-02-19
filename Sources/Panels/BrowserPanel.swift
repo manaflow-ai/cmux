@@ -805,6 +805,10 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Sticky omnibar-focus intent. This survives view mount timing races and is
+    /// cleared only after BrowserPanelView acknowledges handling it.
+    @Published private(set) var pendingAddressBarFocusRequestId: UUID?
+
     private var cancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -1360,6 +1364,22 @@ extension BrowserPanel {
 
     func endSuppressWebViewFocusForAddressBar() {
         suppressWebViewFocusForAddressBar = false
+    }
+
+    @discardableResult
+    func requestAddressBarFocus() -> UUID {
+        beginSuppressWebViewFocusForAddressBar()
+        if let pendingAddressBarFocusRequestId {
+            return pendingAddressBarFocusRequestId
+        }
+        let requestId = UUID()
+        pendingAddressBarFocusRequestId = requestId
+        return requestId
+    }
+
+    func acknowledgeAddressBarFocusRequest(_ requestId: UUID) {
+        guard pendingAddressBarFocusRequestId == requestId else { return }
+        pendingAddressBarFocusRequestId = nil
     }
 
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
