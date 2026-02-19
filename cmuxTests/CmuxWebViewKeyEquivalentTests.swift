@@ -1803,7 +1803,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         XCTAssertEqual(next, [a])
     }
 
-    func testCycleHotModeWarmsSelectedAndImmediateNeighbors() {
+    func testCycleHotModeKeepsOnlySelectedWhenNoPinnedHandoff() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -1819,7 +1819,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
         )
 
-        XCTAssertEqual(next, [c, b, d])
+        XCTAssertEqual(next, [c])
     }
 
     func testCycleHotModeRespectsMaxMountedLimit() {
@@ -1837,7 +1837,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: 2
         )
 
-        XCTAssertEqual(next, [b, a])
+        XCTAssertEqual(next, [b])
     }
 
     func testPinnedIdsAreRetainedAcrossReconcile() {
@@ -1856,6 +1856,23 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(next, [c, a])
+    }
+
+    func testCycleHotModeKeepsRetiringWorkspaceWhenPinned() {
+        let a = UUID()
+        let b = UUID()
+        let orderedTabIds: [UUID] = [a, b]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: b,
+            pinnedIds: [a],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: true,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
+        )
+
+        XCTAssertEqual(next, [b, a])
     }
 }
 
@@ -1903,6 +1920,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    func testPortalHostInstallsAboveContentViewForVisibility() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowTerminalHostView }),
+              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
+            XCTFail("Expected host/content views in same container")
+            return
+        }
+
+        XCTAssertGreaterThan(
+            hostIndex,
+            contentIndex,
+            "Portal host must remain above content view so portal-hosted terminals stay visible"
+        )
+    }
+
     func testRegistryPrunesPortalWhenWindowCloses() {
         let baseline = TerminalWindowPortalRegistry.debugPortalCount()
         let window = NSWindow(
@@ -1980,6 +2026,87 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNotNil(
             portal.terminalViewAtWindowPoint(windowPoint),
             "Portal hit-testing should resolve the terminal view for Finder file drops"
+        )
+    }
+
+    func testVisibilityTransitionBringsHostedViewToFront() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let anchor2 = NSView(frame: NSRect(x: 80, y: 60, width: 220, height: 180))
+        contentView.addSubview(anchor1)
+        contentView.addSubview(anchor2)
+
+        let terminal1 = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let hosted1 = GhosttySurfaceScrollView(surfaceView: terminal1)
+        let terminal2 = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let hosted2 = GhosttySurfaceScrollView(surfaceView: terminal2)
+
+        portal.bind(hostedView: hosted1, to: anchor1, visibleInUI: true)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+
+        let overlapInContent = NSPoint(x: 120, y: 100)
+        let overlapInWindow = contentView.convert(overlapInContent, to: nil)
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(overlapInWindow) === terminal2,
+            "Latest bind should be top-most before visibility transition"
+        )
+
+        portal.bind(hostedView: hosted1, to: anchor1, visibleInUI: false)
+        portal.bind(hostedView: hosted1, to: anchor1, visibleInUI: true)
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
+            "Becoming visible should refresh z-order for already-hosted view"
+        )
+    }
+
+    func testPriorityIncreaseBringsHostedViewToFrontWithoutVisibilityToggle() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let anchor2 = NSView(frame: NSRect(x: 80, y: 60, width: 220, height: 180))
+        contentView.addSubview(anchor1)
+        contentView.addSubview(anchor2)
+
+        let terminal1 = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let hosted1 = GhosttySurfaceScrollView(surfaceView: terminal1)
+        let terminal2 = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        let hosted2 = GhosttySurfaceScrollView(surfaceView: terminal2)
+
+        portal.bind(hostedView: hosted1, to: anchor1, visibleInUI: true, zPriority: 1)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true, zPriority: 2)
+
+        let overlapInContent = NSPoint(x: 120, y: 100)
+        let overlapInWindow = contentView.convert(overlapInContent, to: nil)
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(overlapInWindow) === terminal2,
+            "Higher-priority terminal should initially be top-most"
+        )
+
+        portal.bind(hostedView: hosted1, to: anchor1, visibleInUI: true, zPriority: 2)
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
+            "Promoting z-priority should bring an already-visible terminal to front"
         )
     }
 }

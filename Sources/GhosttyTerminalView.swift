@@ -3670,6 +3670,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     let terminalSurface: TerminalSurface
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
+    var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
@@ -3713,6 +3714,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        var desiredPortalZPriority: Int = 0
+        var lastBoundHostId: ObjectIdentifier?
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
@@ -3729,23 +3732,30 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         let coordinator = context.coordinator
+#if DEBUG
         let previousDesiredIsActive = coordinator.desiredIsActive
+#endif
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
+        let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
-        if previousDesiredIsActive != isActive || previousDesiredIsVisibleInUI != isVisibleInUI {
+        if previousDesiredIsActive != isActive ||
+            previousDesiredIsVisibleInUI != isVisibleInUI ||
+            previousDesiredPortalZPriority != portalZPriority {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 dlog(
                     "ws.swiftui.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
-                    "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
+                    "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) " +
+                    "active=\(isActive ? 1 : 0) z=\(portalZPriority)"
                 )
             } else {
                 dlog(
                     "ws.swiftui.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
+                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0) z=\(portalZPriority)"
                 )
             }
         }
@@ -3774,28 +3784,36 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI
+                    visibleInUI: coordinator.desiredIsVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
                 )
+                coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
             }
-            host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
-                guard let host, let hostedView, let coordinator else { return }
+            host.onGeometryChanged = { [weak host, weak coordinator] in
+                guard let host, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
-                TerminalWindowPortalRegistry.bind(
-                    hostedView: hostedView,
-                    to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI
-                )
+                guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }
 
             if host.window != nil {
-                TerminalWindowPortalRegistry.bind(
-                    hostedView: hostedView,
-                    to: host,
-                    visibleInUI: coordinator.desiredIsVisibleInUI
-                )
+                let hostId = ObjectIdentifier(host)
+                let shouldBindNow =
+                    coordinator.lastBoundHostId != hostId ||
+                    hostedView.superview == nil ||
+                    previousDesiredIsVisibleInUI != isVisibleInUI ||
+                    previousDesiredPortalZPriority != portalZPriority
+                if shouldBindNow {
+                    TerminalWindowPortalRegistry.bind(
+                        hostedView: hostedView,
+                        to: host,
+                        visibleInUI: coordinator.desiredIsVisibleInUI,
+                        zPriority: coordinator.desiredPortalZPriority
+                    )
+                    coordinator.lastBoundHostId = hostId
+                }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }
         }
@@ -3805,6 +3823,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredPortalZPriority = 0
+        coordinator.lastBoundHostId = nil
 #if DEBUG
         if let hostedView = coordinator.hostedView {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {

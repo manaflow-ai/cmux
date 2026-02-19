@@ -7,6 +7,7 @@ struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
@@ -19,6 +20,7 @@ struct TerminalPanelView: View {
                 terminalSurface: panel.surface,
                 isActive: isFocused,
                 isVisibleInUI: isVisibleInUI,
+                portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,

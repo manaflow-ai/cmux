@@ -274,7 +274,8 @@ var fileDropOverlayKey: UInt8 = 0
 enum WorkspaceMountPolicy {
     // Keep only the selected workspace mounted to minimize layer-tree traversal.
     static let maxMountedWorkspaces = 1
-    static let maxMountedWorkspacesDuringCycle = 3
+    // During workspace cycling, keep only a minimal handoff pair (selected + retiring).
+    static let maxMountedWorkspacesDuringCycle = 2
 
     static func nextMountedWorkspaceIds(
         current: [UUID],
@@ -293,18 +294,39 @@ enum WorkspaceMountPolicy {
             ordered.insert(selected, at: 0)
         }
 
-        let prioritizedPinnedIds = pinnedIds.filter { existing.contains($0) && $0 != selected }
-        for pinnedId in prioritizedPinnedIds.reversed() {
-            ordered.removeAll { $0 == pinnedId }
-            ordered.insert(pinnedId, at: 0)
-        }
-
         if isCycleHot, let selected {
             let warmIds = cycleWarmIds(selected: selected, orderedTabIds: orderedTabIds)
             for id in warmIds.reversed() {
                 ordered.removeAll { $0 == id }
                 ordered.insert(id, at: 0)
             }
+        }
+
+        if isCycleHot,
+           pinnedIds.isEmpty,
+           let selected {
+            ordered.removeAll { $0 != selected }
+        }
+
+        // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
+        // This runs after warming to prevent neighbor warming from evicting the retiring workspace.
+        let prioritizedPinnedIds = pinnedIds
+            .filter { existing.contains($0) && $0 != selected }
+            .sorted { lhs, rhs in
+                let lhsIndex = orderedTabIds.firstIndex(of: lhs) ?? .max
+                let rhsIndex = orderedTabIds.firstIndex(of: rhs) ?? .max
+                return lhsIndex < rhsIndex
+            }
+        if let selected, existing.contains(selected) {
+            ordered.removeAll { $0 == selected }
+            ordered.insert(selected, at: 0)
+        }
+        var pinnedInsertionIndex = (selected != nil) ? 1 : 0
+        for pinnedId in prioritizedPinnedIds {
+            ordered.removeAll { $0 == pinnedId }
+            let insertionIndex = min(pinnedInsertionIndex, ordered.count)
+            ordered.insert(pinnedId, at: insertionIndex)
+            pinnedInsertionIndex += 1
         }
 
         if ordered.count > clampedMax {
@@ -315,18 +337,10 @@ enum WorkspaceMountPolicy {
     }
 
     private static func cycleWarmIds(selected: UUID, orderedTabIds: [UUID]) -> [UUID] {
-        guard let selectedIndex = orderedTabIds.firstIndex(of: selected) else {
-            return [selected]
-        }
-
-        var ids: [UUID] = [selected]
-        if selectedIndex > 0 {
-            ids.append(orderedTabIds[selectedIndex - 1])
-        }
-        if selectedIndex + 1 < orderedTabIds.count {
-            ids.append(orderedTabIds[selectedIndex + 1])
-        }
-        return ids
+        guard orderedTabIds.contains(selected) else { return [selected] }
+        // Keep warming focused to the selected workspace. Retiring/target workspaces are
+        // pinned by handoff logic, so warming adjacent neighbors here just adds layout work.
+        return [selected]
     }
 }
 
@@ -465,10 +479,12 @@ struct ContentView: View {
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let isInputActive = isSelectedWorkspace || isRetiringWorkspace
                     let isVisible = isSelectedWorkspace || isRetiringWorkspace
+                    let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
                         isWorkspaceVisible: isVisible,
-                        isWorkspaceInputActive: isInputActive
+                        isWorkspaceInputActive: isInputActive,
+                        workspacePortalPriority: portalPriority
                     )
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
@@ -821,7 +837,8 @@ struct ContentView: View {
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
         let pinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let isCycleHot = tabManager.isWorkspaceCycleHot
-        let baseMaxMounted = isCycleHot
+        let shouldKeepHandoffPair = isCycleHot && !pinnedIds.isEmpty
+        let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
             : WorkspaceMountPolicy.maxMountedWorkspaces
         let selectedCount = effectiveSelectedId == nil ? 0 : 1
