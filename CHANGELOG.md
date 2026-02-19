@@ -2,6 +2,15 @@
 
 All notable changes to cmux are documented here.
 
+## [0.55.0] - 2026-02-19
+
+### Changed
+- Move port scanning from shell to app-side with batching for faster startup
+
+### Fixed
+- Fix visual stretch when closing split panes
+- Fix omnibar Cmd+L focus races
+
 ## [0.54.0] - 2026-02-18
 
 ### Fixed
