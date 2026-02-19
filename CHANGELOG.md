@@ -2,6 +2,10 @@
 
 All notable changes to cmux are documented here.
 
+## [0.56.0] - 2026-02-19
+
+_No user-facing changes._
+
 ## [0.55.0] - 2026-02-19
 
 ### Changed
