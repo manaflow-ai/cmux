@@ -1858,4 +1858,33 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
         XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
     }
+
+    func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 50, width: 200, height: 120))
+        contentView.addSubview(anchor)
+
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+
+        let center = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        let windowPoint = anchor.convert(center, to: nil)
+        XCTAssertNotNil(
+            portal.terminalViewAtWindowPoint(windowPoint),
+            "Portal hit-testing should resolve the terminal view for Finder file drops"
+        )
+    }
 }
