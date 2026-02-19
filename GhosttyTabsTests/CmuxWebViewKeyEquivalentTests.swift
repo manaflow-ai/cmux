@@ -427,6 +427,35 @@ final class WorkspaceReorderTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
+    func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
+        let tabId = UUID()
+
+        XCTAssertFalse(
+            TabManager.shouldUnfocusPendingWorkspace(
+                pendingTabId: tabId,
+                selectedTabId: tabId
+            )
+        )
+    }
+
+    func testUnfocusesWhenPendingTabIsNotSelected() {
+        XCTAssertTrue(
+            TabManager.shouldUnfocusPendingWorkspace(
+                pendingTabId: UUID(),
+                selectedTabId: UUID()
+            )
+        )
+        XCTAssertTrue(
+            TabManager.shouldUnfocusPendingWorkspace(
+                pendingTabId: UUID(),
+                selectedTabId: nil
+            )
+        )
+    }
+}
+
+@MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
     func testNewSurfaceFocusesCreatedSurface() {
         let manager = TabManager()
@@ -1692,12 +1721,15 @@ final class WorkspaceMountPolicyTests: XCTestCase {
     func testDefaultPolicyMountsOnlySelectedWorkspace() {
         let a = UUID()
         let b = UUID()
-        let existing: Set<UUID> = [a, b]
+        let orderedTabIds: [UUID] = [a, b]
 
         let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
             current: [a],
             selected: b,
-            existing: existing
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
         XCTAssertEqual(next, [b])
@@ -1707,12 +1739,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let a = UUID()
         let b = UUID()
         let c = UUID()
-        let existing: Set<UUID> = [a, b, c]
+        let orderedTabIds: [UUID] = [a, b, c]
 
         let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
             current: [a, b, c],
             selected: c,
-            existing: existing,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
             maxMounted: 2
         )
 
@@ -1726,7 +1760,9 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
             current: [b, a],
             selected: nil,
-            existing: [a],
+            pinnedIds: [],
+            orderedTabIds: [a],
+            isCycleHot: false,
             maxMounted: 2
         )
 
@@ -1736,12 +1772,14 @@ final class WorkspaceMountPolicyTests: XCTestCase {
     func testSelectedWorkspaceIsInsertedWhenAbsentFromCurrentCache() {
         let a = UUID()
         let b = UUID()
-        let existing: Set<UUID> = [a, b]
+        let orderedTabIds: [UUID] = [a, b]
 
         let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
             current: [a],
             selected: b,
-            existing: existing,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
             maxMounted: 2
         )
 
@@ -1751,16 +1789,73 @@ final class WorkspaceMountPolicyTests: XCTestCase {
     func testMaxMountedIsClampedToAtLeastOne() {
         let a = UUID()
         let b = UUID()
-        let existing: Set<UUID> = [a, b]
+        let orderedTabIds: [UUID] = [a, b]
 
         let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
             current: [a, b],
             selected: nil,
-            existing: existing,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
             maxMounted: 0
         )
 
         XCTAssertEqual(next, [a])
+    }
+
+    func testCycleHotModeWarmsSelectedAndImmediateNeighbors() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let d = UUID()
+        let orderedTabIds: [UUID] = [a, b, c, d]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: c,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: true,
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
+        )
+
+        XCTAssertEqual(next, [c, b, d])
+    }
+
+    func testCycleHotModeRespectsMaxMountedLimit() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let orderedTabIds: [UUID] = [a, b, c]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a, b, c],
+            selected: b,
+            pinnedIds: [],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: true,
+            maxMounted: 2
+        )
+
+        XCTAssertEqual(next, [b, a])
+    }
+
+    func testPinnedIdsAreRetainedAcrossReconcile() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let orderedTabIds: [UUID] = [a, b, c]
+
+        let next = WorkspaceMountPolicy.nextMountedWorkspaceIds(
+            current: [a],
+            selected: c,
+            pinnedIds: [a],
+            orderedTabIds: orderedTabIds,
+            isCycleHot: false,
+            maxMounted: 2
+        )
+
+        XCTAssertEqual(next, [c, a])
     }
 }
 
