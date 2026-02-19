@@ -2,6 +2,21 @@
 
 All notable changes to cmux are documented here.
 
+## [0.53.0] - 2026-02-18
+
+### Changed
+- CLI commands are now workspace-relative: commands use `CMUX_WORKSPACE_ID` environment variable so background agents target their own workspace instead of the user's focused workspace
+- Remove all index-based CLI APIs in favor of short ID refs (`surface:1`, `pane:2`, `workspace:3`)
+- CLI `send` and `send-key` support `--workspace` and `--surface` flags for explicit targeting
+- CLI escape sequences (`\n`, `\r`, `\t`) in `send` payloads are now handled correctly
+- `--id-format` flag is respected in text output for all list commands
+
+### Fixed
+- Fix background agents sending input to the wrong workspace
+- Fix `close-surface` rejecting cross-workspace surface refs
+- Fix malformed surface/pane/workspace/window handles passing through without error
+- Fix `--window` flag being overridden by `CMUX_WORKSPACE_ID` environment variable
+
 ## [0.52.0] - 2026-02-18
 
 ### Changed
