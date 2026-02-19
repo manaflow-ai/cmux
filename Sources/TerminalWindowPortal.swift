@@ -25,6 +25,7 @@ final class WindowTerminalPortal: NSObject {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
+        var zPriority: Int
     }
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -61,13 +62,14 @@ final class WindowTerminalPortal: NSObject {
             NSLayoutConstraint.activate(installConstraints)
             installedContainerView = container
             installedReferenceView = reference
-        } else {
+        } else if !Self.isView(hostView, above: reference, in: container) {
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
         }
 
         // Keep the drag/mouse forwarding overlay above portal-hosted terminal views.
         if let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView,
-           overlay.superview === container {
+           overlay.superview === container,
+           !Self.isView(overlay, above: hostView, in: container) {
             container.addSubview(overlay, positioned: .above, relativeTo: hostView)
         }
 
@@ -105,6 +107,14 @@ final class WindowTerminalPortal: NSObject {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
+    private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
+        guard let viewIndex = container.subviews.firstIndex(of: view),
+              let referenceIndex = container.subviews.firstIndex(of: reference) else {
+            return false
+        }
+        return viewIndex > referenceIndex
+    }
+
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
         if let anchor = entry.anchorView {
@@ -115,11 +125,12 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool) {
+    func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
+        let previousEntry = entriesByHostedId[hostedId]
 
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
             detachHostedView(withId: previousHostedId)
@@ -135,10 +146,23 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId] = Entry(
             hostedView: hostedView,
             anchorView: anchorView,
-            visibleInUI: visibleInUI
+            visibleInUI: visibleInUI,
+            zPriority: zPriority
         )
 
+        let didChangeAnchor: Bool = {
+            guard let previousAnchor = previousEntry?.anchorView else { return true }
+            return previousAnchor !== anchorView
+        }()
+        let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
+        let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
+
         if hostedView.superview !== hostView {
+            hostedView.removeFromSuperview()
+            hostView.addSubview(hostedView)
+        } else if (didChangeAnchor || becameVisible || priorityIncreased), hostView.subviews.last !== hostedView {
+            // Refresh z-order only on meaningful transitions. Reordering on every bind call
+            // creates expensive reparent loops during SwiftUI update/layout churn.
             hostedView.removeFromSuperview()
             hostView.addSubview(hostedView)
         }
@@ -347,7 +371,7 @@ enum TerminalWindowPortalRegistry {
         return portal
     }
 
-    static func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool) {
+    static func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
@@ -359,7 +383,7 @@ enum TerminalWindowPortalRegistry {
             portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
         }
 
-        nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI)
+        nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }

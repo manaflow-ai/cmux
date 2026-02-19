@@ -7,6 +7,7 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    let workspacePortalPriority: Int
     @State private var config = GhosttyConfig.load()
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -44,6 +45,7 @@ struct WorkspaceContentView: View {
                     isFocused: isFocused,
                     isSelectedInPane: isSelectedInPane,
                     isVisibleInUI: isVisibleInUI,
+                    portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,

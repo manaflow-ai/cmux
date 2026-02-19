@@ -7,6 +7,7 @@ struct PanelContentView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
     let notificationStore: TerminalNotificationStore
@@ -22,6 +23,7 @@ struct PanelContentView: View {
                     panel: terminalPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
                     notificationStore: notificationStore,
