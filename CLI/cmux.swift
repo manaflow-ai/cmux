@@ -467,8 +467,9 @@ struct CMUXCLI {
             var params: [String: Any] = [:]
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
             if includeCaller {
-                let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                let idWsFlag = optionValue(commandArgs, name: "--workspace")
+                let workspaceArg = idWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+                let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (idWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
                 if workspaceArg != nil || surfaceArg != nil {
                     let workspaceId = try normalizeWorkspaceHandle(
                         workspaceArg,
@@ -596,7 +597,7 @@ struct CMUXCLI {
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
             let (sfArg, rem2) = parseOption(rem1, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceRaw = sfArg ?? panelArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             guard let direction = rem2.first else {
                 throw CLIError(message: "new-split requires a direction")
             }
@@ -701,8 +702,9 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "close-surface":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
-            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            let csWsFlag = optionValue(commandArgs, name: "--workspace")
+            let workspaceArg = csWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -757,8 +759,9 @@ struct CMUXCLI {
             }
 
         case "trigger-flash":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs)
-            let surfaceArg = surfaceFromArgsOrEnv(commandArgs)
+            let tfWsFlag = optionValue(commandArgs, name: "--workspace")
+            let workspaceArg = tfWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (tfWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -838,7 +841,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = sfArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let text = rem1.joined(separator: " ")
             guard !text.isEmpty else { throw CLIError(message: "send requires text") }
             var params: [String: Any] = ["text": text]
@@ -853,7 +856,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = sfArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            let surfaceArg = sfArg ?? (wsArg == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             guard let key = rem1.first else { throw CLIError(message: "send-key requires a key") }
             var params: [String: Any] = ["key": key]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -902,8 +905,9 @@ struct CMUXCLI {
             let subtitle = optionValue(commandArgs, name: "--subtitle") ?? ""
             let body = optionValue(commandArgs, name: "--body") ?? ""
 
-            let workspaceArg = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            let notifyWsFlag = optionValue(commandArgs, name: "--workspace")
+            let workspaceArg = notifyWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            let surfaceArg = optionValue(commandArgs, name: "--surface") ?? (notifyWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
             let targetWorkspace = try resolveWorkspaceId(workspaceArg, client: client)
             let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
@@ -2563,10 +2567,6 @@ struct CMUXCLI {
         return optionValue(args, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
     }
 
-    private func surfaceFromArgsOrEnv(_ args: [String]) -> String? {
-        return optionValue(args, name: "--surface") ?? optionValue(args, name: "--panel") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-    }
-
     private func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
         var parts = ["OK"]
         for kind in kinds {
@@ -2593,8 +2593,9 @@ struct CMUXCLI {
     private func runClaudeHook(commandArgs: [String], client: SocketClient) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
-        let workspaceArg = optionValue(hookArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+        let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
