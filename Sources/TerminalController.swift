@@ -267,15 +267,22 @@ class TerminalController {
         if accessMode == .cmuxOnly {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
-            if let pid = peerPid ?? getPeerPid(socket) {
+            let pid = peerPid ?? getPeerPid(socket)
+            if let pid {
                 guard isDescendant(pid) else {
                     let msg = "ERROR: Access denied — only processes started inside cmux can connect\n"
                     msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }
                     return
                 }
-            } else {
-                // LOCAL_PEERPID fails when the peer disconnects before we read it
-                // (common with ncat --send-only). Fall back to LOCAL_PEERCRED uid check.
+            }
+            // If pid is nil, LOCAL_PEERPID failed (peer disconnected before we
+            // could read it — common with ncat --send-only). We still verify the
+            // peer runs as the same user via LOCAL_PEERCRED. This is the same
+            // security boundary as the socket file permissions (0600), so it does
+            // not widen the attack surface. We also require that the peer actually
+            // sent data (checked in the read loop below) — a connect-only probe
+            // with no data is harmless.
+            if pid == nil {
                 guard peerHasSameUID(socket) else {
                     let msg = "ERROR: Unable to verify client process\n"
                     msg.withCString { ptr in _ = write(socket, ptr, strlen(ptr)) }

@@ -34,8 +34,10 @@ final class PortScanner: @unchecked Sendable {
     /// Coalesce timer (200ms after first kick).
     private var coalesceTimer: DispatchSourceTimer?
 
-    /// Burst scan delays in seconds.
-    private static let burstDelays: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    /// Burst scan offsets in seconds from the start of the burst.
+    /// Each scan fires at this absolute offset; the recursive scheduler
+    /// converts to relative delays between consecutive scans.
+    private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
 
     // MARK: - Public API
 
@@ -96,9 +98,9 @@ final class PortScanner: @unchecked Sendable {
         runBurst(index: 0)
     }
 
-    private func runBurst(index: Int) {
+    private func runBurst(index: Int, burstStart: DispatchTime? = nil) {
         // Already on `queue`.
-        guard index < Self.burstDelays.count else {
+        guard index < Self.burstOffsets.count else {
             burstActive = false
             // If new kicks arrived during the burst, start a new coalesce cycle.
             if !pendingKicks.isEmpty {
@@ -107,11 +109,12 @@ final class PortScanner: @unchecked Sendable {
             return
         }
 
-        let delay = Self.burstDelays[index]
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+        let start = burstStart ?? .now()
+        let deadline = start + Self.burstOffsets[index]
+        queue.asyncAfter(deadline: deadline) { [weak self] in
             guard let self else { return }
             self.runScan()
-            self.runBurst(index: index + 1)
+            self.runBurst(index: index + 1, burstStart: start)
         }
     }
 
