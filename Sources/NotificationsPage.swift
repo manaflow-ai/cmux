@@ -19,7 +19,7 @@ struct NotificationsPage: View {
                         ForEach(notificationStore.notifications) { notification in
                             NotificationRow(
                                 notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
+                                tabTitle: sourceLabel(for: notification.tabId, surfaceId: notification.surfaceId),
                                 onOpen: {
                                     // SwiftUI action closures are not guaranteed to run on the main actor.
                                     // Ensure window focus + tab selection happens on the main thread.
@@ -97,8 +97,10 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    private func sourceLabel(for tabId: UUID, surfaceId: UUID?) -> String? {
+        AppDelegate.shared?.notificationSourceLabel(for: tabId, surfaceId: surfaceId)
+            ?? AppDelegate.shared?.tabTitle(for: tabId)
+            ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
     }
 }
 

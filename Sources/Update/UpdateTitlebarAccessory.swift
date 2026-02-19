@@ -783,7 +783,7 @@ private struct NotificationsPopoverView: View {
                         ForEach(notificationStore.notifications) { notification in
                             NotificationPopoverRow(
                                 notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
+                                tabTitle: sourceLabel(for: notification.tabId, surfaceId: notification.surfaceId),
                                 onOpen: { open(notification) },
                                 onClear: { notificationStore.remove(id: notification.id) }
                             )
@@ -797,8 +797,9 @@ private struct NotificationsPopoverView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId)
+    private func sourceLabel(for tabId: UUID, surfaceId: UUID?) -> String? {
+        AppDelegate.shared?.notificationSourceLabel(for: tabId, surfaceId: surfaceId)
+            ?? AppDelegate.shared?.tabTitle(for: tabId)
     }
 
     private func open(_ notification: TerminalNotification) {

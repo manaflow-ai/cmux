@@ -549,8 +549,11 @@ struct cmuxApp: App {
     }
 
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
-        let tabTitle = appDelegate.tabTitle(for: notification.tabId)
-        return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
+        let sourceLabel = appDelegate.notificationSourceLabel(
+            for: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: sourceLabel)
     }
 
     private func openNotificationFromMainMenu(_ notification: TerminalNotification) {

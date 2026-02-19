@@ -270,7 +270,7 @@ final class TerminalNotificationStore: ObservableObject {
                 ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
                 ?? "cmux"
             content.title = notification.title.isEmpty ? appName : notification.title
-            content.subtitle = notification.subtitle
+            content.subtitle = desktopSubtitle(for: notification)
             content.body = notification.body
             content.sound = UNNotificationSound.default
             content.categoryIdentifier = Self.categoryIdentifier
@@ -294,6 +294,24 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
+    }
+
+    private func desktopSubtitle(for notification: TerminalNotification) -> String {
+        let baseSubtitle = notification.subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceLabel = AppDelegate.shared?
+            .notificationSourceLabel(for: notification.tabId, surfaceId: notification.surfaceId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if baseSubtitle.isEmpty {
+            return sourceLabel
+        }
+        if sourceLabel.isEmpty {
+            return baseSubtitle
+        }
+        if baseSubtitle.caseInsensitiveCompare(sourceLabel) == .orderedSame {
+            return baseSubtitle
+        }
+        return "\(baseSubtitle) • \(sourceLabel)"
     }
 
     private func ensureAuthorization(_ completion: @escaping (Bool) -> Void) {

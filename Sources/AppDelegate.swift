@@ -2625,6 +2625,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.tabs.first(where: { $0.id == tabId })?.title
     }
 
+    func notificationSourceLabel(for tabId: UUID, surfaceId: UUID?) -> String? {
+        let manager = contextContainingTabId(tabId)?.tabManager ?? tabManager
+        guard let manager,
+              let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+            return tabTitle(for: tabId)
+        }
+
+        let workspaceLabel = normalizedNotificationLabel(workspace.title) ?? "Workspace"
+        guard let surfaceId else { return workspaceLabel }
+
+        let panelTitle = normalizedNotificationLabel(
+            workspace.panelTitles[surfaceId] ?? workspace.panels[surfaceId]?.displayTitle
+        )
+
+        let ordinalLabel: String? = {
+            guard let surfaceTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                  let tabIndex = workspace.bonsplitController.allTabIds.firstIndex(of: surfaceTabId) else {
+                return nil
+            }
+            return "Tab \(tabIndex + 1)"
+        }()
+
+        let surfaceLabel: String? = {
+            if let ordinalLabel, let panelTitle {
+                return "\(ordinalLabel): \(panelTitle)"
+            }
+            if let panelTitle {
+                return panelTitle
+            }
+            return ordinalLabel
+        }()
+
+        if let surfaceLabel {
+            return "\(workspaceLabel) • \(surfaceLabel)"
+        }
+        return workspaceLabel
+    }
+
+    private func normalizedNotificationLabel(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func bringToFront(_ window: NSWindow) {
         if window.isMiniaturized {
             window.deminiaturize(nil)
@@ -2847,8 +2891,11 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         guard insertionIndex >= 0 else { return }
 
         for (offset, notification) in recentNotifications.enumerated() {
-            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
-            let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
+            let sourceLabel = AppDelegate.shared?.notificationSourceLabel(
+                for: notification.tabId,
+                surfaceId: notification.surfaceId
+            )
+            let item = makeNotificationItem(notification: notification, tabTitle: sourceLabel)
             menu.insertItem(item, at: insertionIndex + offset)
             notificationItems.append(item)
         }

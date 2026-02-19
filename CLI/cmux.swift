@@ -2759,11 +2759,14 @@ struct CMUXCLI {
 
             var workspaceId = fallbackWorkspaceId
             var preferredSurface = surfaceArg
+            var mappedSession: ClaudeHookSessionRecord?
             if let sessionId = parsedInput.sessionId,
-               let mapped = try? sessionStore.lookup(sessionId: sessionId),
-               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
-                workspaceId = mappedWorkspace
-                preferredSurface = mapped.surfaceId
+               let mapped = try? sessionStore.lookup(sessionId: sessionId) {
+                mappedSession = mapped
+                if let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                    workspaceId = mappedWorkspace
+                    preferredSurface = mapped.surfaceId
+                }
             }
 
             let surfaceId = try resolveSurfaceIdForClaudeHook(
@@ -2786,6 +2789,22 @@ struct CMUXCLI {
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
+            }
+
+            let actionable = isActionableClaudeNotification(summary: summary)
+            let duplicate = isDuplicateClaudeNotification(summary: summary, sessionRecord: mappedSession)
+            guard actionable && !duplicate else {
+                if !actionable {
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        value: "Running",
+                        icon: "bolt.fill",
+                        color: "#4C8DFF"
+                    )
+                }
+                print("OK")
+                break
             }
 
             let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
@@ -3053,6 +3072,27 @@ struct CMUXCLI {
         }
         let body = message.isEmpty ? "Claude needs your input" : message
         return ("Attention", body)
+    }
+
+    private func isActionableClaudeNotification(summary: (subtitle: String, body: String)) -> Bool {
+        switch normalizedSingleLine(summary.subtitle).lowercased() {
+        case "permission", "error", "waiting":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isDuplicateClaudeNotification(
+        summary: (subtitle: String, body: String),
+        sessionRecord: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard let sessionRecord else { return false }
+        let previousSubtitle = normalizedSingleLine(sessionRecord.lastSubtitle ?? "").lowercased()
+        let previousBody = normalizedSingleLine(sessionRecord.lastBody ?? "")
+        let currentSubtitle = normalizedSingleLine(summary.subtitle).lowercased()
+        let currentBody = normalizedSingleLine(summary.body)
+        return previousSubtitle == currentSubtitle && previousBody == currentBody
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
