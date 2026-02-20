@@ -418,6 +418,7 @@ class GhosttyApp {
             guard let app = self?.app else { return }
             ghostty_app_set_focus(app, false)
         })
+
         #endif
     }
 
@@ -1564,6 +1565,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
+    private var appliedColorScheme: ghostty_color_scheme_e?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
 #if DEBUG
@@ -1674,11 +1676,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
+        appliedColorScheme = nil
         terminalSurface = surface
         tabId = surface.tabId
         surface.attachToView(self)
         updateSurfaceSize()
         applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
     }
 
     override func viewDidMoveToWindow() {
@@ -1725,7 +1729,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }()
         updateSurfaceSize(size: targetSize)
         applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
         applyWindowBackgroundIfActive()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applySurfaceColorScheme()
     }
 
     fileprivate func updateOcclusionState() {
@@ -1860,6 +1870,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    private func applySurfaceColorScheme(force: Bool = false) {
+        guard let surface else { return }
+        let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua
+            ? GHOSTTY_COLOR_SCHEME_DARK
+            : GHOSTTY_COLOR_SCHEME_LIGHT
+        if !force, appliedColorScheme == scheme {
+            return
+        }
+        ghostty_surface_set_color_scheme(surface, scheme)
+        appliedColorScheme = scheme
+    }
+
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
         if let surface = surface {
@@ -1868,6 +1891,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard window != nil else { return nil }
         terminalSurface?.attachToView(self)
         updateSurfaceSize(size: bounds.size)
+        applySurfaceColorScheme(force: true)
         return surface
     }
 
