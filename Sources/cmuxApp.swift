@@ -2272,6 +2272,7 @@ struct SettingsView: View {
     @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
@@ -2411,6 +2412,17 @@ struct SettingsView: View {
 
                         SettingsCardRow("Show Search Suggestions") {
                             Toggle("", isOn: $browserSearchSuggestionsEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Terminal Links in cmux Browser",
+                            subtitle: "When off, links clicked in terminal output open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -2564,6 +2576,7 @@ struct SettingsView: View {
         claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
