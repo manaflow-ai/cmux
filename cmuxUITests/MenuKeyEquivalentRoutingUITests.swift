@@ -193,6 +193,12 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
 
+        // Ensure a fresh app instance per test; otherwise shutdown races from a prior test can
+        // overlap with split setup and cause transient "initial terminal not ready" failures.
+        let cleanup = XCUIApplication()
+        cleanup.terminate()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+
         dataPath = "/tmp/cmux-ui-test-split-close-right-\(UUID().uuidString).json"
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
         diagnosticsPath = "/tmp/cmux-ui-test-diagnostics-\(UUID().uuidString).json"

@@ -39,6 +39,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
         // Type a query that matches the seeded URL.
+        omnibar.click()
         omnibar.typeText("exam")
 
         // SwiftUI's accessibility typing for ScrollView can vary; match by identifier regardless of element type.
@@ -112,6 +113,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
         app.typeKey("l", modifierFlags: [.command])
+        omnibar.click()
         omnibar.typeText("exam")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -137,6 +139,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Type a new query to open the popup, then Escape should revert to the current URL.
         app.typeKey("l", modifierFlags: [.command])
+        omnibar.click()
         omnibar.typeText("meaning")
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
 
@@ -154,6 +157,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Click outside should also discard edits and blur.
         app.typeKey("l", modifierFlags: [.command])
+        omnibar.click()
         omnibar.typeText("foo")
 
         let window = app.windows.firstMatch
@@ -196,6 +200,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.click()
         omnibar.typeText("go")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -232,6 +237,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.click()
         omnibar.typeText("go")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -262,6 +268,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
         // Start a real navigation, then re-focus the omnibar immediately.
+        omnibar.click()
         omnibar.typeText("example.com")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -281,6 +288,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
 
         let valueAfterLoad = (omnibar.value as? String) ?? ""
+        omnibar.click()
         omnibar.typeText("zx")
 
         let typed = Date().addingTimeInterval(5.0)
@@ -323,6 +331,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Navigate to a non-empty URL first so Cmd+L must replace existing text.
         app.typeKey("l", modifierFlags: [.command])
+        omnibar.click()
         omnibar.typeText("example.com")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -381,6 +390,8 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
+        omnibar.click()
+
         omnibar.typeText("gm")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -423,6 +434,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         let query = "zzzz-\(UUID().uuidString.prefix(8))"
+        omnibar.click()
         omnibar.typeText(query)
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -468,6 +480,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.click()
         omnibar.typeText("exam")
 
         let valueAfterTyping = (omnibar.value as? String) ?? ""
@@ -506,6 +519,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        omnibar.click()
         omnibar.typeText("go")
 
         let inlineDeadline = Date().addingTimeInterval(3.0)

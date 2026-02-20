@@ -1509,12 +1509,23 @@ class TabManager: ObservableObject {
                 }
 
                 var readyTerminal: TerminalPanel?
-                for _ in 0..<20 {
+                let readyDeadline = Date().addingTimeInterval(6.0)
+                while Date() < readyDeadline {
                     if let terminal = tab.focusedTerminalPanel,
                        terminal.hostedView.window != nil,
                        terminal.surface.surface != nil {
-                        readyTerminal = terminal
-                        break
+                        let size = terminal.hostedView.bounds.size
+                        if size.width >= 5, size.height >= 5 {
+                            readyTerminal = terminal
+                            break
+                        }
+                    }
+
+                    // Force a layout turn so host-view attachment/geometry catches up before we
+                    // declare setup failure on slower CI runners.
+                    NSApp.windows.forEach { window in
+                        window.contentView?.layoutSubtreeIfNeeded()
+                        window.contentView?.displayIfNeeded()
                     }
                     try? await Task.sleep(nanoseconds: 50_000_000)
                 }
