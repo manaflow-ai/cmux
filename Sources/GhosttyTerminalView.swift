@@ -138,6 +138,7 @@ class GhosttyApp {
     }()
     private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
     private var appObservers: [NSObjectProtocol] = []
+    private var appearanceObservation: NSKeyValueObservation?
 
     // Scroll lag tracking
     private(set) var isScrolling = false
@@ -418,7 +419,25 @@ class GhosttyApp {
             guard let app = self?.app else { return }
             ghostty_app_set_focus(app, false)
         })
+        // Set the initial color scheme so Ghostty knows whether we're light or dark.
+        syncColorSchemeToGhostty()
+
+        // Observe effective appearance changes (system light/dark toggle) so Ghostty
+        // surfaces update when the user is in "System" theme mode.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.syncColorSchemeToGhostty()
+            }
+        }
         #endif
+    }
+
+    /// Tell Ghostty whether the current effective appearance is light or dark.
+    func syncColorSchemeToGhostty() {
+        guard let app else { return }
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let scheme: ghostty_color_scheme_e = isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT
+        ghostty_app_set_color_scheme(app, scheme)
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {

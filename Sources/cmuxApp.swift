@@ -9,7 +9,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     private let primaryWindowId = UUID()
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.system.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -509,6 +509,8 @@ struct cmuxApp: App {
             NSApp.appearance = nil
             appearanceMode = AppearanceMode.system.rawValue
         }
+        // Notify Ghostty so terminal surfaces use the correct light/dark theme.
+        GhosttyApp.shared.syncColorSchemeToGhostty()
     }
 
     private func updateSocketController() {
@@ -2233,7 +2235,7 @@ struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.system.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2545,7 +2547,7 @@ struct SettingsView: View {
     }
 
     private func resetAllSettings() {
-        appearanceMode = AppearanceMode.dark.rawValue
+        appearanceMode = AppearanceMode.system.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
