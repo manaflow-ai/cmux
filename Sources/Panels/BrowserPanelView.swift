@@ -127,6 +127,7 @@ struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
+    let portalPriority: Int
     let onRequestPanelFocus: () -> Void
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
@@ -496,7 +497,8 @@ struct BrowserPanelView: View {
             panel: panel,
             shouldAttachWebView: isVisibleInUI,
             shouldFocusWebView: isFocused && !addressBarFocused,
-            isPanelFocused: isFocused
+            isPanelFocused: isFocused,
+            portalZPriority: portalPriority
         )
             // Keep the representable identity stable across bonsplit structural updates.
             // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
@@ -2552,6 +2554,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
+    let portalZPriority: Int
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -2559,6 +2562,41 @@ struct WebViewRepresentable: NSViewRepresentable {
         var attachRetryWorkItem: DispatchWorkItem?
         var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
+        var usesWindowPortal: Bool = false
+        var desiredPortalVisibleInUI: Bool = true
+        var desiredPortalZPriority: Int = 0
+        var lastPortalHostId: ObjectIdentifier?
+    }
+
+    private final class HostContainerView: NSView {
+        var onDidMoveToWindow: (() -> Void)?
+        var onGeometryChanged: (() -> Void)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onDidMoveToWindow?()
+            onGeometryChanged?()
+        }
+
+        override func viewDidMoveToSuperview() {
+            super.viewDidMoveToSuperview()
+            onGeometryChanged?()
+        }
+
+        override func layout() {
+            super.layout()
+            onGeometryChanged?()
+        }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            super.setFrameOrigin(newOrigin)
+            onGeometryChanged?()
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            onGeometryChanged?()
+        }
     }
 
     #if DEBUG
@@ -2586,11 +2624,15 @@ struct WebViewRepresentable: NSViewRepresentable {
         return "\(type(of: responder))@\(objectID(responder))"
     }
 
+    private static func rectDescription(_ rect: NSRect) -> String {
+        String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
+    }
+
     private static func attachContext(webView: WKWebView, host: NSView) -> String {
         let hostWindow = host.window?.windowNumber ?? -1
         let webWindow = webView.window?.windowNumber ?? -1
         let firstResponder = (webView.window ?? host.window)?.firstResponder
-        return "host=\(objectID(host)) hostWin=\(hostWindow) hostInWin=\(host.window == nil ? 0 : 1) oldSuper=\(objectID(webView.superview)) webWin=\(webWindow) webInWin=\(webView.window == nil ? 0 : 1) fr=\(responderDescription(firstResponder))"
+        return "host=\(objectID(host)) hostWin=\(hostWindow) hostInWin=\(host.window == nil ? 0 : 1) hostFrame=\(rectDescription(host.frame)) hostBounds=\(rectDescription(host.bounds)) oldSuper=\(objectID(webView.superview)) webWin=\(webWindow) webInWin=\(webView.window == nil ? 0 : 1) webFrame=\(rectDescription(webView.frame)) webHidden=\(webView.isHidden ? 1 : 0) fr=\(responderDescription(firstResponder))"
     }
     #endif
 
@@ -2644,9 +2686,83 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+        let container = HostContainerView()
         container.wantsLayer = true
         return container
+    }
+
+    private static func clearPortalCallbacks(for host: NSView) {
+        guard let host = host as? HostContainerView else { return }
+        host.onDidMoveToWindow = nil
+        host.onGeometryChanged = nil
+    }
+
+    private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
+        guard let host = nsView as? HostContainerView else { return }
+
+        let coordinator = context.coordinator
+        let previousVisible = coordinator.desiredPortalVisibleInUI
+        let previousZPriority = coordinator.desiredPortalZPriority
+        coordinator.desiredPortalVisibleInUI = shouldAttachWebView
+        coordinator.desiredPortalZPriority = portalZPriority
+        coordinator.attachGeneration += 1
+        let generation = coordinator.attachGeneration
+
+        host.onDidMoveToWindow = { [weak host, weak webView, weak coordinator] in
+            guard let host, let webView, let coordinator else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard host.window != nil else { return }
+            BrowserWindowPortalRegistry.bind(
+                webView: webView,
+                to: host,
+                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                zPriority: coordinator.desiredPortalZPriority
+            )
+            coordinator.lastPortalHostId = ObjectIdentifier(host)
+        }
+        host.onGeometryChanged = { [weak host, weak coordinator] in
+            guard let host, let coordinator else { return }
+            guard coordinator.attachGeneration == generation else { return }
+            guard coordinator.lastPortalHostId == ObjectIdentifier(host) else { return }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        }
+
+        if !shouldAttachWebView {
+            // In portal mode we no longer detach/re-attach to preserve DevTools state.
+            // Sync the inspector preference directly so manual closes are respected.
+            panel.syncDeveloperToolsPreferenceFromInspector()
+        }
+
+        if host.window != nil {
+            let hostId = ObjectIdentifier(host)
+            let shouldBindNow =
+                coordinator.lastPortalHostId != hostId ||
+                webView.superview == nil ||
+                previousVisible != shouldAttachWebView ||
+                previousZPriority != portalZPriority
+            if shouldBindNow {
+                BrowserWindowPortalRegistry.bind(
+                    webView: webView,
+                    to: host,
+                    visibleInUI: coordinator.desiredPortalVisibleInUI,
+                    zPriority: coordinator.desiredPortalZPriority
+                )
+                coordinator.lastPortalHostId = hostId
+            }
+            BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        }
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        #if DEBUG
+        Self.logDevToolsState(
+            panel,
+            event: "portal.update",
+            generation: coordinator.attachGeneration,
+            retryCount: coordinator.attachRetryCount,
+            details: Self.attachContext(webView: webView, host: host)
+        )
+        #endif
     }
 
     private static func attachWebView(_ webView: WKWebView, to host: NSView) {
@@ -2769,6 +2885,28 @@ struct WebViewRepresentable: NSViewRepresentable {
         let webView = panel.webView
         context.coordinator.panel = panel
         context.coordinator.webView = webView
+
+        let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
+        if shouldUseWindowPortal {
+            context.coordinator.usesWindowPortal = true
+            Self.clearPortalCallbacks(for: nsView)
+            updateUsingWindowPortal(nsView, context: context, webView: webView)
+            Self.applyFocus(
+                panel: panel,
+                webView: webView,
+                nsView: nsView,
+                shouldFocusWebView: shouldFocusWebView,
+                isPanelFocused: isPanelFocused
+            )
+            return
+        }
+
+        if context.coordinator.usesWindowPortal {
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            context.coordinator.usesWindowPortal = false
+            context.coordinator.lastPortalHostId = nil
+        }
+        Self.clearPortalCallbacks(for: nsView)
 
         // Bonsplit keepAllAlive keeps hidden tabs alive (opacity 0). WKWebView is fragile when left
         // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
@@ -2938,20 +3076,18 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachRetryCount = 0
             context.coordinator.attachGeneration += 1
-            if panel.hasPendingDeveloperToolsRefreshAfterAttach() {
-                #if DEBUG
+            let hadPendingRefresh = panel.hasPendingDeveloperToolsRefreshAfterAttach()
+            panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            #if DEBUG
+            if hadPendingRefresh {
                 Self.logDevToolsState(
                     panel,
-                    event: "attach.alreadyAttached.deferPendingRefresh",
+                    event: "attach.alreadyAttached.consumePendingRefresh",
                     generation: context.coordinator.attachGeneration,
                     retryCount: context.coordinator.attachRetryCount,
                     details: Self.attachContext(webView: webView, host: nsView)
                 )
-                #endif
-            } else {
-                panel.restoreDeveloperToolsAfterAttachIfNeeded()
             }
-            #if DEBUG
             Self.logDevToolsState(
                 panel,
                 event: "attach.alreadyAttached",
@@ -2962,23 +3098,37 @@ struct WebViewRepresentable: NSViewRepresentable {
             #endif
         }
 
+        Self.applyFocus(
+            panel: panel,
+            webView: webView,
+            nsView: nsView,
+            shouldFocusWebView: shouldFocusWebView,
+            isPanelFocused: isPanelFocused
+        )
+    }
+
+    private static func applyFocus(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        nsView: NSView,
+        shouldFocusWebView: Bool,
+        isPanelFocused: Bool
+    ) {
         // Focus handling. Avoid fighting the address bar when it is focused.
         guard let window = nsView.window else { return }
         if shouldFocusWebView {
             if panel.shouldSuppressWebViewFocus() {
                 return
             }
-            if Self.responderChainContains(window.firstResponder, target: webView) {
+            if responderChainContains(window.firstResponder, target: webView) {
                 return
             }
             window.makeFirstResponder(webView)
-        } else {
+        } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
             // Only force-resign WebView focus when this panel itself is not focused.
             // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
             // clearing first responder here can undo programmatic webview focus (socket tests).
-            if !isPanelFocused && Self.responderChainContains(window.firstResponder, target: webView) {
-                window.makeFirstResponder(nil)
-            }
+            window.makeFirstResponder(nil)
         }
     }
 
@@ -2987,9 +3137,33 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.attachRetryWorkItem = nil
         coordinator.attachRetryCount = 0
         coordinator.attachGeneration += 1
+        clearPortalCallbacks(for: nsView)
 
         guard let webView = coordinator.webView else { return }
         let panel = coordinator.panel
+
+        if coordinator.usesWindowPortal {
+            coordinator.usesWindowPortal = false
+            coordinator.lastPortalHostId = nil
+
+            // During split/layout churn we keep the WKWebView portal-hosted so DevTools
+            // does not lose state. BrowserPanel deinit explicitly detaches on real teardown.
+            if let panel, panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
+                #if DEBUG
+                logDevToolsState(
+                    panel,
+                    event: "dismantle.portal.keepAttached",
+                    generation: coordinator.attachGeneration,
+                    retryCount: coordinator.attachRetryCount,
+                    details: attachContext(webView: webView, host: nsView)
+                )
+                #endif
+                return
+            }
+
+            BrowserWindowPortalRegistry.detach(webView: webView)
+            return
+        }
 
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.

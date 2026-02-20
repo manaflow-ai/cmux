@@ -2068,7 +2068,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let beforeResponder = keyWindow.firstResponder
         let movedToWebView = keyWindow.makeFirstResponder(browser.webView)
         let movedToNil = movedToWebView ? false : keyWindow.makeFirstResponder(nil)
-        browser.requestDeveloperToolsRefreshAfterNextAttach(reason: "split.\(directionLabel).inspectorFirstResponder")
 
         #if DEBUG
         let beforeType = beforeResponder.map { String(describing: type(of: $0)) } ?? "nil"
