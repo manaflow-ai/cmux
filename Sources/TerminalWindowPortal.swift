@@ -195,11 +195,23 @@ final class WindowTerminalPortal: NSObject {
 
         let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
         let frameInHost = hostView.convert(frameInWindow, from: nil)
+        let anchorTooSmall = frameInHost.width <= 1 || frameInHost.height <= 1
+
+        // When the anchor exists and is marked visible but hasn't been laid out yet
+        // (zero/tiny bounds), keep the terminal visible at its current frame. Hiding
+        // it would cause a single-frame black flash during drag-to-swap and other
+        // reparenting operations. The next layout pass will call us again with real
+        // bounds and we'll reposition then.
+        if anchorTooSmall && entry.visibleInUI && !Self.isHiddenOrAncestorHidden(anchorView) {
+            if hostedView.isHidden {
+                hostedView.isHidden = false
+            }
+            return
+        }
+
         let shouldHide =
             !entry.visibleInUI ||
-            Self.isHiddenOrAncestorHidden(anchorView) ||
-            frameInHost.width <= 1 ||
-            frameInHost.height <= 1
+            Self.isHiddenOrAncestorHidden(anchorView)
 
         let oldFrame = hostedView.frame
         if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
