@@ -1733,6 +1733,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // App-level fallback for Find. This avoids responder-chain gaps where
+        // SwiftUI/AppKit key-equivalent dispatch can consume Cmd+F without
+        // invoking our Find command when focus temporarily drifts.
+        if flags == [.command], chars == "f" {
+            return tabManager?.startSearch() ?? false
+        }
+
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             sidebarState?.toggle()

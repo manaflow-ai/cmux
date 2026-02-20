@@ -990,7 +990,6 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
         XCTAssertEqual(actions, [.showFindInterface])
     }
-
 }
 #endif
 
