@@ -171,6 +171,7 @@ final class SidebarState: ObservableObject {
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
+    private var isForwardingMouseEvent = false
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -207,12 +208,19 @@ final class FileDropOverlayView: NSView {
     // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
+        guard !isForwardingMouseEvent else { return }
         guard let window, let contentView = window.contentView else { return }
+
+        isForwardingMouseEvent = true
         isHidden = true
+        defer {
+            isHidden = false
+            isForwardingMouseEvent = false
+        }
+
         let point = contentView.convert(event.locationInWindow, from: nil)
         let target = contentView.hitTest(point)
-        isHidden = false
-        guard let target else { return }
+        guard let target, target !== self else { return }
 
         switch event.type {
         case .leftMouseDown: target.mouseDown(with: event)
@@ -273,9 +281,9 @@ final class FileDropOverlayView: NSView {
 
         guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
+        defer { isHidden = false }
         let point = contentView.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
-        isHidden = false
 
         var current: NSView? = hitView
         while let view = current {
