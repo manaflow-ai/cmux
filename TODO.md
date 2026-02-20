@@ -57,6 +57,7 @@
 - [ ] **P0** Remove `close-workspace` with no args — require explicit workspace short ID or UUID, with clear error message if missing
 
 ## UI/UX Improvements
+- [ ] Show loading indicator in terminal while it's loading
 - [ ] Add question mark icon to learn shortcuts
 - [ ] Notification popover: each button item should show outline outside when focused/hovered
 - [ ] Notification popover: add right-click context menu to mark as read/unread
