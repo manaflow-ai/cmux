@@ -1430,6 +1430,13 @@ extension BrowserPanel {
         return true
     }
 
+    /// During split/layout transitions SwiftUI can briefly mark the browser surface hidden
+    /// while its container is off-window. Avoid detaching in that transient phase if
+    /// DevTools is intended to remain open, because detach/reattach can blank inspector content.
+    func shouldPreserveWebViewAttachmentDuringTransientHide() -> Bool {
+        preferredDeveloperToolsVisible
+    }
+
     @discardableResult
     func zoomIn() -> Bool {
         applyPageZoom(webView.pageZoom + pageZoomStep)
