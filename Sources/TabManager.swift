@@ -227,8 +227,9 @@ class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
 
-    /// Monotonically increasing counter for CMUX_PORT ordinal assignment
-    private var nextPortOrdinal: Int = 0
+    /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
+    /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
+    private static var nextPortOrdinal: Int = 0
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -398,8 +399,8 @@ class TabManager: ObservableObject {
     func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
-        newWorkspace.portOrdinal = nextPortOrdinal
-        nextPortOrdinal += 1
+        newWorkspace.portOrdinal = Self.nextPortOrdinal
+        Self.nextPortOrdinal += 1
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
