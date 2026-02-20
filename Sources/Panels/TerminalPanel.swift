@@ -94,13 +94,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     deinit {
-        // Backstop portal cleanup for permanent panel teardown paths that may bypass explicit
-        // workspace close callbacks.
+        // Backstop cleanup for teardown paths that may bypass explicit workspace close callbacks.
         let hostedView = surface.hostedView
         Task { @MainActor in
-            hostedView.setVisibleInUI(false)
-            hostedView.setActive(false)
-            TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+            TerminalWindowPortalRegistry.scheduleDetach(hostedView: hostedView)
         }
     }
 
@@ -151,9 +148,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func detachHostedViewFromPortal() {
-        hostedView.setVisibleInUI(false)
-        hostedView.setActive(false)
-        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+        TerminalWindowPortalRegistry.scheduleDetach(hostedView: hostedView)
     }
 
     func requestViewReattach() {

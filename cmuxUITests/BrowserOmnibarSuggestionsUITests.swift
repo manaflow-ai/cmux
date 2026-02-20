@@ -39,7 +39,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
         // Type a query that matches the seeded URL.
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("exam")
 
         // SwiftUI's accessibility typing for ScrollView can vary; match by identifier regardless of element type.
@@ -113,7 +112,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
         app.typeKey("l", modifierFlags: [.command])
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("exam")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -139,7 +137,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Type a new query to open the popup, then Escape should revert to the current URL.
         app.typeKey("l", modifierFlags: [.command])
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("meaning")
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
 
@@ -157,7 +154,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Click outside should also discard edits and blur.
         app.typeKey("l", modifierFlags: [.command])
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("foo")
 
         let window = app.windows.firstMatch
@@ -200,7 +196,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("go")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -237,7 +232,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("go")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -268,7 +262,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
         // Start a real navigation, then re-focus the omnibar immediately.
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("example.com")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -288,7 +281,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(loadObserved, "Expected omnibar to reflect the navigated URL after load. value=\(omnibar.value)")
 
         let valueAfterLoad = (omnibar.value as? String) ?? ""
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("zx")
 
         let typed = Date().addingTimeInterval(5.0)
@@ -331,7 +323,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         // Navigate to a non-empty URL first so Cmd+L must replace existing text.
         app.typeKey("l", modifierFlags: [.command])
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("example.com")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -390,8 +381,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
-
         omnibar.typeText("gm")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -434,7 +423,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         let query = "zzzz-\(UUID().uuidString.prefix(8))"
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText(query)
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -480,7 +468,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("exam")
 
         let valueAfterTyping = (omnibar.value as? String) ?? ""
@@ -519,7 +506,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        focusOmnibarForTyping(app: app, omnibar: omnibar)
         omnibar.typeText("go")
 
         let inlineDeadline = Date().addingTimeInterval(3.0)
@@ -543,34 +529,6 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             afterCmdA.contains("google.com"),
             "Expected Cmd+A to preserve inline completion display instead of collapsing to typed prefix. value=\(afterCmdA)"
         )
-    }
-
-    private func focusOmnibarForTyping(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval = 3.0) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            app.activate()
-            app.typeKey("l", modifierFlags: [.command])
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-            if ((omnibar.value(forKey: "hasKeyboardFocus") as? Bool) ?? false) {
-                return
-            }
-
-            if omnibar.exists {
-                omnibar.click()
-                // Restore Cmd+L semantics (select all address text) after fallback click focus.
-                app.typeKey("l", modifierFlags: [.command])
-                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-                if ((omnibar.value(forKey: "hasKeyboardFocus") as? Bool) ?? false) {
-                    return
-                }
-            }
-
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-
-        XCTFail("Failed to focus omnibar for typing")
     }
 
     private struct SeedEntry {

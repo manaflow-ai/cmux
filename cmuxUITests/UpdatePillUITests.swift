@@ -273,9 +273,8 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         XCTAssertEqual(sidebarHintFrame.minY, notificationsHintFrame.minY, accuracy: 1.0)
         XCTAssertEqual(notificationsHintFrame.minY, newTabHintFrame.minY, accuracy: 1.0)
-        // Keep the sidebar hint lane to the right of the sidebar icon. Allow a small tolerance
-        // for AppKit text/layout rounding variance on CI VMs.
-        XCTAssertGreaterThanOrEqual(sidebarHintFrame.minX, hintedToggleFrame.minX - 4.0)
+        // Keep the sidebar hint lane to the right of the sidebar icon so it cannot clip into the traffic-light backdrop.
+        XCTAssertGreaterThanOrEqual(sidebarHintFrame.minX, hintedToggleFrame.minX - 1.0)
 
         let sortedHintFrames = [sidebarHintFrame, notificationsHintFrame, newTabHintFrame]
             .sorted { $0.minX < $1.minX }

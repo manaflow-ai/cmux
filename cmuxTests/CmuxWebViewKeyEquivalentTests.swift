@@ -2011,6 +2011,73 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline)
     }
 
+    func testScheduledDetachRemovesHostedViewWhenNotRebound() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 140, height: 120))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 100))
+        )
+
+        TerminalWindowPortalRegistry.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        let hitPoint = anchor.convert(NSPoint(x: 30, y: 30), to: nil)
+        XCTAssertNotNil(TerminalWindowPortalRegistry.terminalViewAtWindowPoint(hitPoint, in: window))
+
+        TerminalWindowPortalRegistry.scheduleDetach(hostedView: hosted, delay: 0.02)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(hitPoint, in: window),
+            "Scheduled detach should remove portal-hosted terminals that are not rebound"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+    }
+
+    func testScheduledDetachIsCanceledWhenHostedViewRebinds() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 140, height: 120))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 100))
+        )
+
+        TerminalWindowPortalRegistry.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        let hitPoint = anchor.convert(NSPoint(x: 30, y: 30), to: nil)
+        XCTAssertNotNil(TerminalWindowPortalRegistry.terminalViewAtWindowPoint(hitPoint, in: window))
+
+        TerminalWindowPortalRegistry.scheduleDetach(hostedView: hosted, delay: 0.05)
+        TerminalWindowPortalRegistry.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(hitPoint, in: window),
+            "Rebind should cancel pending detach so transient SwiftUI churn does not blackout terminals"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+    }
+
     func testPruneDeadEntriesDetachesAnchorlessHostedView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
