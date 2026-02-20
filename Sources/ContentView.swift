@@ -390,7 +390,6 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
@@ -411,6 +410,7 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var titlebarThemeGeneration: UInt64 = 0
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -533,18 +533,26 @@ struct ContentView: View {
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var fakeTitlebarBackground: Color {
-        if colorScheme == .light {
-            return Color(nsColor: .windowBackgroundColor)
-        }
+        _ = titlebarThemeGeneration
         let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        let alpha: CGFloat = ghosttyBackground.isLightColor ? 0.94 : 0.86
-        return Color(nsColor: ghosttyBackground.withAlphaComponent(alpha))
+        let configuredOpacity = CGFloat(max(0, min(1, GhosttyApp.shared.defaultBackgroundOpacity)))
+        let minimumChromeOpacity: CGFloat = ghosttyBackground.isLightColor ? 0.90 : 0.84
+        let chromeOpacity = max(minimumChromeOpacity, configuredOpacity)
+        return Color(nsColor: ghosttyBackground.withAlphaComponent(chromeOpacity))
     }
     private var fakeTitlebarTextColor: Color {
-        colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.78) : .secondary
+        _ = titlebarThemeGeneration
+        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        return ghosttyBackground.isLightColor
+            ? Color.black.opacity(0.78)
+            : Color.white.opacity(0.82)
     }
     private var fakeTitlebarSeparatorColor: Color {
-        Color(nsColor: .separatorColor).opacity(colorScheme == .light ? 0.68 : 0.34)
+        _ = titlebarThemeGeneration
+        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        return ghosttyBackground.isLightColor
+            ? Color.black.opacity(0.18)
+            : Color.white.opacity(0.22)
     }
 
     private var fullscreenControls: some View {
@@ -728,6 +736,12 @@ struct ContentView: View {
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             updateTitlebarText()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            titlebarThemeGeneration &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            titlebarThemeGeneration &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,

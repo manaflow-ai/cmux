@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Bonsplit
 import Combine
 
@@ -101,6 +102,29 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
+    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(from: config.backgroundColor)
+    }
+
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
+            enableAnimations: false,
+            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor) {
+        let nextHex = backgroundColor.hexString()
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+            return
+        }
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
     init(title: String = "Terminal", workingDirectory: String? = nil) {
         self.id = UUID()
         self.processTitle = title
@@ -115,9 +139,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
-        let appearance = BonsplitConfiguration.Appearance(
-            enableAnimations: false
-        )
+        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
