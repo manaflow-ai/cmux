@@ -462,7 +462,7 @@ struct ContentView: View {
                                     isResizerHovering = true
                                 }
                             }
-                            let maxSidebarWidth = (NSScreen.main?.frame.width ?? 1920) * 2 / 3
+                            let maxSidebarWidth = (NSApp.keyWindow?.screen?.frame.width ?? NSScreen.main?.frame.width ?? 1920) * 2 / 3
                             let nextWidth = max(186, min(maxSidebarWidth, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
                             withTransaction(Transaction(animation: nil)) {
                                 sidebarWidth = nextWidth

@@ -1009,6 +1009,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment
     var portOrdinal: Int = 0
+    /// Snapshotted at surface creation time so mid-session settings changes don't cause inconsistency
+    var portBase: Int = 0
+    var portRangeSize: Int = 0
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1248,12 +1251,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
-        // Port range for this workspace
+        // Port range for this workspace (values snapshotted at surface init)
         do {
-            let portBase = UserDefaults.standard.integer(forKey: "cmuxPortBase")
-            let portRange = UserDefaults.standard.integer(forKey: "cmuxPortRange")
             let effectiveBase = portBase > 0 ? portBase : 9100
-            let effectiveRange = portRange > 0 ? portRange : 10
+            let effectiveRange = portRangeSize > 0 ? portRangeSize : 10
             let startPort = effectiveBase + portOrdinal * effectiveRange
             env["CMUX_PORT"] = String(startPort)
             env["CMUX_PORT_END"] = String(startPort + effectiveRange - 1)

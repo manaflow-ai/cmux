@@ -92,6 +92,8 @@ final class TerminalPanel: Panel, ObservableObject {
             workingDirectory: workingDirectory
         )
         surface.portOrdinal = portOrdinal
+        surface.portBase = UserDefaults.standard.integer(forKey: "cmuxPortBase")
+        surface.portRangeSize = UserDefaults.standard.integer(forKey: "cmuxPortRange")
         self.init(workspaceId: workspaceId, surface: surface)
     }
 
