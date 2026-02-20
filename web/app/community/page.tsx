@@ -54,7 +54,7 @@ export default function CommunityPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <CommunityLink
-            href="https://discord.gg/QRxkhZgY"
+            href="https://discord.com/invite/QRxkhZgY"
             name="Discord"
             action="Join our Discord"
             description="Chat with the community, get help, and share feedback"
