@@ -411,6 +411,7 @@ struct ContentView: View {
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
+    @State private var sidebarDraggedTabId: UUID?
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -521,6 +522,13 @@ struct ContentView: View {
             // Titlebar overlay is only over terminal content, not the sidebar.
             customTitlebar
         }
+    }
+
+    private var terminalContentWithSidebarDropOverlay: some View {
+        terminalContent
+            .overlay {
+                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+            }
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
@@ -651,7 +659,7 @@ struct ContentView: View {
                 // Overlay mode: terminal extends full width, sidebar on top
                 // This allows withinWindow blur to see the terminal content
                 ZStack(alignment: .leading) {
-                    terminalContent
+                    terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                     if sidebarState.isVisible {
                         sidebarView
@@ -663,7 +671,7 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarView
                     }
-                    terminalContent
+                    terminalContentWithSidebarDropOverlay
                 }
             }
         }
@@ -771,6 +779,16 @@ struct ContentView: View {
                     lastSidebarSelectionIndex = nil
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
+            let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
+            sidebarDraggedTabId = tabId
+#if DEBUG
+            dlog(
+                "sidebar.dragState.content tab=\(debugShortWorkspaceId(tabId)) " +
+                "reason=\(SidebarDragLifecycleNotification.reason(from: notification))"
+            )
+#endif
         }
         .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
@@ -1031,7 +1049,6 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragEndMonitor = SidebarDragEndMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
@@ -1115,26 +1132,46 @@ struct VerticalTabsSidebar: View {
             commandKeyMonitor.start()
             draggedTabId = nil
             dropIndicator = nil
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: nil,
+                reason: "sidebar_appear"
+            )
         }
         .onDisappear {
             commandKeyMonitor.stop()
             dragAutoScrollController.stop()
-            dragEndMonitor.stop()
             draggedTabId = nil
             dropIndicator = nil
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: nil,
+                reason: "sidebar_disappear"
+            )
         }
         .onChange(of: draggedTabId) { newDraggedTabId in
-            if newDraggedTabId != nil {
-                dragEndMonitor.start {
-                    guard draggedTabId != nil else { return }
-                    draggedTabId = nil
-                }
-                return
-            }
-            dragEndMonitor.stop()
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: newDraggedTabId,
+                reason: "drag_state_change"
+            )
+#if DEBUG
+            dlog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
+#endif
+            guard newDraggedTabId == nil else { return }
             dragAutoScrollController.stop()
             dropIndicator = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
+            guard draggedTabId != nil else { return }
+            let reason = SidebarDragLifecycleNotification.reason(from: notification)
+#if DEBUG
+            dlog("sidebar.dragClear tab=\(debugShortSidebarTabId(draggedTabId)) reason=\(reason)")
+#endif
+            draggedTabId = nil
+        }
+    }
+
+    private func debugShortSidebarTabId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
     }
 }
 
@@ -1170,62 +1207,86 @@ enum ShortcutHintDebugSettings {
     }
 }
 
-enum SidebarDragEndPolicy {
-    static let escapeKeyCode: UInt16 = 53
+enum SidebarDragLifecycleNotification {
+    static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
+    static let requestClear = Notification.Name("cmux.sidebarDragRequestClear")
+    static let tabIdKey = "tabId"
+    static let reasonKey = "reason"
 
-    static func shouldEndDrag(for eventType: NSEvent.EventType, keyCode: UInt16?) -> Bool {
-        switch eventType {
-        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            return true
-        case .keyDown:
-            return keyCode == escapeKeyCode
-        default:
-            return false
+    static func postStateDidChange(tabId: UUID?, reason: String) {
+        var userInfo: [AnyHashable: Any] = [reasonKey: reason]
+        if let tabId {
+            userInfo[tabIdKey] = tabId
         }
+        NotificationCenter.default.post(
+            name: stateDidChange,
+            object: nil,
+            userInfo: userInfo
+        )
+    }
+
+    static func postClearRequest(reason: String) {
+        NotificationCenter.default.post(
+            name: requestClear,
+            object: nil,
+            userInfo: [reasonKey: reason]
+        )
+    }
+
+    static func tabId(from notification: Notification) -> UUID? {
+        notification.userInfo?[tabIdKey] as? UUID
+    }
+
+    static func reason(from notification: Notification) -> String {
+        notification.userInfo?[reasonKey] as? String ?? "unknown"
     }
 }
 
-@MainActor
-private final class SidebarDragEndMonitor: ObservableObject {
-    private var localMonitor: Any?
-    private var globalMonitor: Any?
-    private var onDragEnd: (() -> Void)?
+enum SidebarOutsideDropResetPolicy {
+    static func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
+        draggedTabId != nil && hasSidebarDragPayload
+    }
+}
 
-    func start(onDragEnd: @escaping () -> Void) {
-        self.onDragEnd = onDragEnd
-        guard localMonitor == nil, globalMonitor == nil else { return }
+private struct SidebarExternalDropOverlay: View {
+    let draggedTabId: UUID?
+    @State private var isTargeted = false
 
-        localMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
-        ) { [weak self] event in
-            self?.queueDragEndIfNeeded(eventType: event.type, keyCode: event.keyCode)
-            return event
-        }
-
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
-        ) { [weak self] event in
-            self?.queueDragEndIfNeeded(eventType: event.type, keyCode: nil)
-        }
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .allowsHitTesting(draggedTabId != nil)
+            .onDrop(of: [SidebarTabDragPayload.typeIdentifier], isTargeted: $isTargeted) { providers in
+                let hasSidebarPayload = providers.contains { provider in
+                    provider.hasItemConformingToTypeIdentifier(SidebarTabDragPayload.typeIdentifier)
+                }
+                guard SidebarOutsideDropResetPolicy.shouldResetDrag(
+                    draggedTabId: draggedTabId,
+                    hasSidebarDragPayload: hasSidebarPayload
+                ) else { return false }
+#if DEBUG
+                dlog(
+                    "sidebar.dropOutside tab=\(debugShortSidebarTabId(draggedTabId)) " +
+                    "providers=\(providers.count)"
+                )
+#endif
+                SidebarDragLifecycleNotification.postClearRequest(reason: "outside_sidebar_drop")
+                return true
+            }
+            .onChange(of: isTargeted) { targeted in
+#if DEBUG
+                guard draggedTabId != nil else { return }
+                dlog(
+                    "sidebar.dropOutside.targeted tab=\(debugShortSidebarTabId(draggedTabId)) " +
+                    "targeted=\(targeted ? 1 : 0)"
+                )
+#endif
+            }
     }
 
-    func stop() {
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-            self.localMonitor = nil
-        }
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
-            self.globalMonitor = nil
-        }
-        onDragEnd = nil
-    }
-
-    private func queueDragEndIfNeeded(eventType: NSEvent.EventType, keyCode: UInt16?) {
-        guard SidebarDragEndPolicy.shouldEndDrag(for: eventType, keyCode: keyCode) else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onDragEnd?()
-        }
+    private func debugShortSidebarTabId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
     }
 }
 
@@ -2454,6 +2515,9 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+#if DEBUG
+        dlog("sidebar.dropExited target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
+#endif
         if dropIndicator?.tabId == targetTabId {
             dropIndicator = nil
         }
@@ -2462,6 +2526,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+#if DEBUG
+        dlog(
+            "sidebar.dropUpdated target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
+            "indicator=\(debugIndicator(dropIndicator))"
+        )
+#endif
         return DropProposal(operation: .move)
     }
 
@@ -2474,8 +2544,18 @@ private struct SidebarTabDropDelegate: DropDelegate {
         #if DEBUG
         dlog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
-        guard let draggedTabId else { return false }
-        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else { return false }
+        guard let draggedTabId else {
+#if DEBUG
+            dlog("sidebar.drop.abort reason=missingDraggedTab")
+#endif
+            return false
+        }
+        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
+#if DEBUG
+            dlog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
+#endif
+            return false
+        }
         let tabIds = tabManager.tabs.map(\.id)
         guard let targetIndex = SidebarDropPlanner.targetIndex(
             draggedTabId: draggedTabId,
@@ -2483,14 +2563,26 @@ private struct SidebarTabDropDelegate: DropDelegate {
             indicator: dropIndicator,
             tabIds: tabIds
         ) else {
+#if DEBUG
+            dlog(
+                "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
+                "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dropIndicator))"
+            )
+#endif
             return false
         }
 
         guard fromIndex != targetIndex else {
+#if DEBUG
+            dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
+#endif
             syncSidebarSelection()
             return true
         }
 
+#if DEBUG
+        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+#endif
         _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
@@ -2520,6 +2612,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
         } else {
             lastSidebarSelectionIndex = nil
         }
+    }
+
+    private func debugIndicator(_ indicator: SidebarDropIndicator?) -> String {
+        guard let indicator else { return "nil" }
+        let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
+        return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
     }
 }
 

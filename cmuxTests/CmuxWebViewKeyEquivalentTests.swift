@@ -781,27 +781,28 @@ final class SidebarDropPlannerTests: XCTestCase {
     }
 }
 
-final class SidebarDragEndPolicyTests: XCTestCase {
-    func testMouseUpEventsEndDrag() {
-        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseUp, keyCode: nil))
-        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .rightMouseUp, keyCode: nil))
-        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .otherMouseUp, keyCode: nil))
-    }
+final class SidebarOutsideDropResetPolicyTests: XCTestCase {
+    func testOutsideDropResetsOnlyWhenDragIsActiveAndPayloadMatches() {
+        let tabId = UUID()
 
-    func testEscapeEndsDragButOtherKeysDoNot() {
         XCTAssertTrue(
-            SidebarDragEndPolicy.shouldEndDrag(
-                for: .keyDown,
-                keyCode: SidebarDragEndPolicy.escapeKeyCode
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: true
             )
         )
-        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .keyDown, keyCode: 0))
-    }
-
-    func testNonTerminalEventsDoNotEndDrag() {
-        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseDown, keyCode: nil))
-        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseDragged, keyCode: nil))
-        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .flagsChanged, keyCode: nil))
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: nil,
+                hasSidebarDragPayload: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: false
+            )
+        )
     }
 }
 
