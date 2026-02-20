@@ -4041,9 +4041,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
         // tree updates. Do not force visible/active false here; that causes avoidable blackouts
         // when the same hosted view is rebound moments later.
-        hostedView?.setFocusHandler(nil)
-        hostedView?.setTriggerFlashHandler(nil)
-        hostedView?.setDropZoneOverlay(zone: nil)
+        if let hostedView {
+            hostedView.setFocusHandler(nil)
+            hostedView.setTriggerFlashHandler(nil)
+            hostedView.setDropZoneOverlay(zone: nil)
+        }
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }

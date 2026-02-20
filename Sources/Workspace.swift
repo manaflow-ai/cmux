@@ -1274,6 +1274,9 @@ extension Workspace: BonsplitDelegate {
         let panel = panels[panelId]
 
         if isDetaching, let panel {
+            if let terminalPanel = panel as? TerminalPanel {
+                terminalPanel.detachHostedViewFromPortal()
+            }
             let browserPanel = panel as? BrowserPanel
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,

@@ -93,6 +93,17 @@ final class TerminalPanel: Panel, ObservableObject {
         self.init(workspaceId: workspaceId, surface: surface)
     }
 
+    deinit {
+        // Backstop portal cleanup for permanent panel teardown paths that may bypass explicit
+        // workspace close callbacks.
+        let hostedView = surface.hostedView
+        Task { @MainActor in
+            hostedView.setVisibleInUI(false)
+            hostedView.setActive(false)
+            TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+        }
+    }
+
     func updateTitle(_ newTitle: String) {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty && title != trimmed {
@@ -133,8 +144,16 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         // The surface will be cleaned up by its deinit
-        // Just unfocus before closing
+        // Detach from the window portal on permanent removal so stale terminal views cannot
+        // linger above non-terminal content.
         unfocus()
+        detachHostedViewFromPortal()
+    }
+
+    func detachHostedViewFromPortal() {
+        hostedView.setVisibleInUI(false)
+        hostedView.setActive(false)
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
     }
 
     func requestViewReattach() {

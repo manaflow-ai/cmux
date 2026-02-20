@@ -398,6 +398,20 @@ enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
 
+    private static func detachHostedView(withId hostedId: ObjectIdentifier) {
+        if let windowId = hostedToWindowId.removeValue(forKey: hostedId),
+           let portal = portalsByWindowId[windowId] {
+            portal.detachHostedView(withId: hostedId)
+            pruneHostedMappings(for: windowId, validHostedIds: portal.hostedIds())
+            return
+        }
+
+        for (windowId, portal) in portalsByWindowId where portal.hostedIds().contains(hostedId) {
+            portal.detachHostedView(withId: hostedId)
+            pruneHostedMappings(for: windowId, validHostedIds: portal.hostedIds())
+        }
+    }
+
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }
         let windowId = ObjectIdentifier(window)
@@ -481,6 +495,11 @@ enum TerminalWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func detach(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        detachHostedView(withId: hostedId)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {
