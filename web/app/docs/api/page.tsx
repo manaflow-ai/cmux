@@ -5,7 +5,7 @@ import { Callout } from "../../components/callout";
 export const metadata: Metadata = {
   title: "API Reference",
   description:
-    "cmux CLI and Unix socket API reference. JSON socket protocol, access control modes, commands, environment variables, and integration examples.",
+    "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, environment variables, and detection methods.",
 };
 
 function Cmd({
@@ -77,9 +77,9 @@ export default function ApiPage() {
 // Response:
 {"id":"req-1","ok":true,"result":{"workspaces":[...]}}`}</CodeBlock>
       <Callout>
-        cmux still accepts legacy v1 socket commands for backwards
-        compatibility, but new integrations should use <code>method</code> and{" "}
-        <code>params</code>.
+        JSON socket requests must use <code>method</code> and{" "}
+        <code>params</code>. Legacy v1 JSON payloads such as{" "}
+        <code>{`{"command":"..."}`}</code> are not supported.
       </Callout>
 
       <h2>Access modes</h2>
