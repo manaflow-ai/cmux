@@ -41,9 +41,14 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 ./scripts/build-sign-upload.sh vX.Y.Z
 ```
 
-This script handles: GhosttyKit build, xcodebuild, Sparkle key injection, codesigning, notarization (app + DMG), appcast generation, GitHub release upload, and cleanup.
+This script handles: GhosttyKit build, xcodebuild, Sparkle key injection, codesigning, notarization (app + DMG), appcast generation, GitHub release upload, homebrew cask update, and cleanup.
 
 If the script fails, run `say "cmux release failed"`.
+
+### 7. Verify homebrew cask
+
+- Run `bash tests/test_homebrew_sha.sh` to confirm the cask SHA matches the release DMG
+- Update the homebrew-cmux submodule pointer: `git add homebrew-cmux && git commit -m "Update homebrew-cmux submodule to latest" && git push origin main`
 
 ## Changelog Guidelines
 

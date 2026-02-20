@@ -91,6 +91,54 @@ fi
 # --- Verify ---
 gh release view "$TAG"
 
+# --- Update Homebrew cask (skip for nightlies) ---
+if [[ "$TAG" != *"-nightly"* ]]; then
+  VERSION="${TAG#v}"
+  DMG_SHA256=$(shasum -a 256 cmux-macos.dmg | cut -d' ' -f1)
+  echo "Updating homebrew cask to $VERSION (SHA: $DMG_SHA256)..."
+  CASK_FILE="homebrew-cmux/Casks/cmux.rb"
+  if [ -f "$CASK_FILE" ]; then
+    cat > "$CASK_FILE" << CASKEOF
+cask "cmux" do
+  version "${VERSION}"
+  sha256 "${DMG_SHA256}"
+
+  url "https://github.com/manaflow-ai/cmux/releases/download/v#{version}/cmux-macos.dmg"
+  name "cmux"
+  desc "Lightweight native macOS terminal with vertical tabs for AI coding agents"
+  homepage "https://github.com/manaflow-ai/cmux"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on macos: ">= :ventura"
+
+  app "cmux.app"
+
+  zap trash: [
+    "~/Library/Application Support/cmux",
+    "~/Library/Caches/cmux",
+    "~/Library/Preferences/ai.manaflow.cmuxterm.plist",
+  ]
+end
+CASKEOF
+    cd homebrew-cmux
+    git add Casks/cmux.rb
+    if git diff --staged --quiet; then
+      echo "Homebrew cask already up to date"
+    else
+      git commit -m "Update cmux to ${VERSION}"
+      git push
+      echo "Homebrew cask updated"
+    fi
+    cd ..
+  else
+    echo "WARNING: homebrew-cmux submodule not found, skipping cask update"
+  fi
+fi
+
 # --- Cleanup ---
 rm -rf build/ cmux-macos.dmg appcast.xml
 echo ""
