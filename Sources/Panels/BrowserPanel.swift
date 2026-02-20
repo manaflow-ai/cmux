@@ -67,11 +67,43 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let browserHostWhitelistKey = "browserHostWhitelist"
+    static let defaultBrowserHostWhitelist: String = ""
+
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Check whether a hostname matches the configured whitelist.
+    /// Empty whitelist means "allow all" (no filtering).
+    /// Supports exact match and wildcard prefix (`*.example.com`).
+    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let patterns = hostWhitelist(defaults: defaults)
+        if patterns.isEmpty { return true }
+        let lowerHost = host.lowercased()
+        for pattern in patterns {
+            let lowerPattern = pattern.lowercased()
+            if lowerPattern.hasPrefix("*.") {
+                let suffix = String(lowerPattern.dropFirst(1)) // ".example.com"
+                if lowerHost.hasSuffix(suffix) || lowerHost == String(lowerPattern.dropFirst(2)) {
+                    return true
+                }
+            } else if lowerHost == lowerPattern {
+                return true
+            }
+        }
+        return false
     }
 }
 
