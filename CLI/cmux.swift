@@ -589,8 +589,18 @@ struct CMUXCLI {
             }
 
         case "new-workspace":
+            let (commandOpt, _) = parseOption(commandArgs, name: "--command")
             let response = try client.send(command: "new_workspace")
             print(response)
+            if let commandText = commandOpt {
+                // Extract workspace ID from "OK <uuid>" response
+                let wsId = response.hasPrefix("OK ") ? String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines) : response.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Wait for shell to initialize
+                Thread.sleep(forTimeInterval: 0.5)
+                let text = unescapeSendText(commandText + "\\n")
+                let params: [String: Any] = ["text": text, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: params)
+            }
 
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -3059,7 +3069,7 @@ struct CMUXCLI {
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           list-workspaces
-          new-workspace
+          new-workspace [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
