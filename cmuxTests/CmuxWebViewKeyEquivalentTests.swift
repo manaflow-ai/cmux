@@ -390,54 +390,26 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
-final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
-    }
-
+final class UpdateFeedResolverTests: XCTestCase {
     func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
-        )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+    func testResolvedFeedDetectsNightlyChannelFromInfoFeed() {
+        let infoFeed = "https://example.com/nightly/appcast.xml"
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -776,6 +748,54 @@ final class SidebarDropPlannerTests: XCTestCase {
                 tabIds: tabIds,
                 pointerY: 38,
                 targetHeight: 40
+            )
+        )
+    }
+}
+
+final class SidebarOutsideDropResetPolicyTests: XCTestCase {
+    func testOutsideDropResetsOnlyWhenDragIsActiveAndPayloadMatches() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: nil,
+                hasSidebarDragPayload: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: false
+            )
+        )
+    }
+}
+
+final class SidebarDragFailsafePolicyTests: XCTestCase {
+    func testRequestsClearOnlyWhenDragIsActiveAndMouseIsUp() {
+        XCTAssertTrue(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: false,
+                isLeftMouseButtonDown: false
             )
         )
     }
