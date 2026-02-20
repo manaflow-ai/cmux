@@ -35,6 +35,7 @@
 			A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 			A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 		C3A7F0B1D2E4A5B6C7D8E9F1 /* LayoutPause.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3A7F0B1D2E4A5B6C7D8E9F0 /* LayoutPause.swift */; };
+		D4B1A2C3E5F6071829304151 /* TerminalIslandView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4B1A2C3E5F6071829304150 /* TerminalIslandView.swift */; };
 			A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
 			A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 			A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
@@ -155,6 +156,7 @@
 		A5001301 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		C3A7F0B1D2E4A5B6C7D8E9F0 /* LayoutPause.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutPause.swift; sourceTree = "<group>"; };
+		D4B1A2C3E5F6071829304150 /* TerminalIslandView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalIslandView.swift; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
 		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
 		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
@@ -299,6 +301,7 @@
 					B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
 					A50012F0 /* Backport.swift */,
 					C3A7F0B1D2E4A5B6C7D8E9F0 /* LayoutPause.swift */,
+					D4B1A2C3E5F6071829304150 /* TerminalIslandView.swift */,
 					A50012F2 /* KeyboardShortcutSettings.swift */,
 					A5001013 /* TabManager.swift */,
 					A5001511 /* UITestRecorder.swift */,
@@ -524,6 +527,7 @@
 					B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
 					C3A7F0B1D2E4A5B6C7D8E9F1 /* LayoutPause.swift in Sources */,
+					D4B1A2C3E5F6071829304151 /* TerminalIslandView.swift in Sources */,
 					A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 						A5001003 /* TabManager.swift in Sources */,
 						A5001501 /* UITestRecorder.swift in Sources */,

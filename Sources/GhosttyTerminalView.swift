@@ -1045,6 +1045,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var lastSetDisplayID: UInt32 = 0
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1165,8 +1166,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
                displayID != 0,
+               displayID != lastSetDisplayID,
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
+                lastSetDisplayID = displayID
             }
             view.forceRefreshSurface()
             return
@@ -1198,6 +1201,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                   let s = surface {
             // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
             ghostty_surface_set_display_id(s, displayID)
+            lastSetDisplayID = displayID
         }
     }
 
@@ -1372,6 +1376,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
            let displayID = screen.displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
+            lastSetDisplayID = displayID
         }
 
         ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
@@ -1476,6 +1481,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
                displayID != 0 {
                 ghostty_surface_set_display_id(surface, displayID)
+                lastSetDisplayID = displayID
             }
         }
     }
@@ -2035,6 +2041,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // These keys are terminal control input, not text composition, so we bypass
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
+        let keyDownT0 = CACurrentMediaTime()
+        // Validate time base: log clock offset to detect mach_absolute vs mach_continuous divergence.
+        let uptime = ProcessInfo.processInfo.systemUptime
+        let clockOffset = (keyDownT0 - uptime) * 1000  // ms; should be ~0 if aligned, large if sleep accumulated
+        let eventAgeCA = (keyDownT0 - event.timestamp) * 1000
+        let eventAgeUptime = (uptime - event.timestamp) * 1000
+        Self.logEventAge(eventAgeCA, clockOffset: clockOffset, eventAgeUptime: eventAgeUptime)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) {
             ghostty_surface_set_focus(surface, true)
@@ -2056,6 +2069,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     _ = ghostty_surface_key(surface, keyEvent)
                 }
             }
+            let keyMs = (CACurrentMediaTime() - keyDownT0) * 1000
+            Self.logKeyTiming(keyMs)
             return
         }
 
@@ -2154,6 +2169,66 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         // Rendering is driven by Ghostty's wakeups/renderer.
+        let keyMs = (CACurrentMediaTime() - keyDownT0) * 1000
+        Self.logKeyTiming(keyMs)
+    }
+
+    private static let keyTimingLogPath = "/tmp/cmux-keytiming.log"
+    private static var keyTimingSamples: [Double] = []
+    private static var keyTimingLastFlush = CACurrentMediaTime()
+
+    private static func logKeyTiming(_ ms: Double) {
+        keyTimingSamples.append(ms)
+        let now = CACurrentMediaTime()
+        guard now - keyTimingLastFlush > 2.0, !keyTimingSamples.isEmpty else { return }
+        let sorted = keyTimingSamples.sorted()
+        let count = sorted.count
+        let avg = sorted.reduce(0, +) / Double(count)
+        let p50 = sorted[count / 2]
+        let p99 = sorted[min(count - 1, Int(Double(count) * 0.99))]
+        let max = sorted.last!
+        let line = "keyDown n=\(count) avg=\(String(format: "%.3f", avg))ms p50=\(String(format: "%.3f", p50))ms p99=\(String(format: "%.3f", p99))ms max=\(String(format: "%.3f", max))ms\n"
+        keyTimingSamples.removeAll(keepingCapacity: true)
+        keyTimingLastFlush = now
+        if let handle = FileHandle(forWritingAtPath: keyTimingLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: keyTimingLogPath, contents: line.data(using: .utf8))
+        }
+    }
+
+    // Event age: time from OS key event generation to our keyDown handler.
+    // Logs both CACurrentMediaTime()-based and ProcessInfo.systemUptime-based measurements
+    // to detect mach_absolute_time vs mach_continuous_time divergence (sleep-time drift).
+    private static let eventAgeLogPath = "/tmp/cmux-eventage.log"
+    private static var eventAgeSamples: [(ca: Double, uptime: Double)] = []
+    private static var lastClockOffset: Double = 0
+    private static var eventAgeLastFlush = CACurrentMediaTime()
+
+    private static func logEventAge(_ caMs: Double, clockOffset: Double, eventAgeUptime: Double) {
+        eventAgeSamples.append((ca: caMs, uptime: eventAgeUptime))
+        lastClockOffset = clockOffset
+        let now = CACurrentMediaTime()
+        guard now - eventAgeLastFlush > 2.0, !eventAgeSamples.isEmpty else { return }
+        let count = eventAgeSamples.count
+        let sortedCA = eventAgeSamples.map(\.ca).sorted()
+        let sortedUptime = eventAgeSamples.map(\.uptime).sorted()
+        let avgCA = sortedCA.reduce(0, +) / Double(count)
+        let p50CA = sortedCA[count / 2]
+        let avgUptime = sortedUptime.reduce(0, +) / Double(count)
+        let p50Uptime = sortedUptime[count / 2]
+        let line = "eventAge n=\(count) CA avg=\(String(format: "%.3f", avgCA))ms p50=\(String(format: "%.3f", p50CA))ms | uptime avg=\(String(format: "%.3f", avgUptime))ms p50=\(String(format: "%.3f", p50Uptime))ms | clockOffset=\(String(format: "%.3f", lastClockOffset))ms\n"
+        eventAgeSamples.removeAll(keepingCapacity: true)
+        eventAgeLastFlush = now
+        if let handle = FileHandle(forWritingAtPath: eventAgeLogPath) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: eventAgeLogPath, contents: line.data(using: .utf8))
+        }
     }
 
     override func keyUp(with event: NSEvent) {
@@ -3582,6 +3657,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
+    // Island overlay state (synced in updateNSView).
+    var dimmingColor: NSColor = .clear
+    var dimmingOpacity: CGFloat = 0
+    var showNotificationBorder: Bool = false
+    var notificationBorderColor: NSColor = .systemBlue
 
     /// SwiftUI can create NSViewRepresentable containers that are not yet inserted into a
     /// window (or never inserted at all) during bonsplit structural updates. We must avoid
@@ -3589,11 +3669,33 @@ struct GhosttyTerminalView: NSViewRepresentable {
     /// "stuck" there and leave the visible terminal blank/frozen.
     private final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
+        var panelId: UUID?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard window != nil else { return }
             onDidMoveToWindow?()
+        }
+
+        // Report frame changes to the island. We override setFrameSize/setFrameOrigin
+        // instead of layout() because layout() won't fire on an empty container (no
+        // subviews to lay out), but setFrameSize/setFrameOrigin are always called when
+        // SwiftUI repositions or resizes this container.
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            reportFrameToIsland()
+        }
+
+        override func setFrameOrigin(_ newOrigin: NSPoint) {
+            super.setFrameOrigin(newOrigin)
+            reportFrameToIsland()
+        }
+
+        private func reportFrameToIsland() {
+            guard let window, let panelId else { return }
+            guard let island = TerminalIslandView.island(for: window) else { return }
+            let islandFrame = island.convert(self.bounds, from: self)
+            island.updateFrame(panelId: panelId, frame: islandFrame)
         }
     }
 
@@ -3603,6 +3705,18 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        // Whether the surface has ever been attached to a window. Used to gate bootstrap
+        // attachment for background-created terminals (they need one attach to create the
+        // surface/PTY, then immediately detach to remove CA layers from traversal).
+        var hasEverAttached: Bool = false
+        // Cache the last values pushed to the hosted view so updateNSView can skip
+        // redundant setActive/setVisibleInUI calls (each triggers applyFirstResponderIfNeeded).
+        var lastAppliedIsActive: Bool?
+        var lastAppliedIsVisibleInUI: Bool?
+        var hasSetHandlers: Bool = false
+        // Island overlay cache.
+        var lastDimmingOpacity: CGFloat?
+        var lastShowNotificationBorder: Bool?
     }
 
     func makeCoordinator() -> Coordinator {
@@ -3612,6 +3726,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = true
+        container.panelId = terminalSurface.id
         return container
     }
 
@@ -3656,44 +3771,163 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // leaving the visible terminal unfocused (keys appear to go to the wrong surface).
         hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
         hostedView.setActive(coordinator.desiredIsActive)
+        // Sync the coordinator cache so the next updateNSView knows the applied state.
+        coordinator.lastAppliedIsVisibleInUI = coordinator.desiredIsVisibleInUI
+        coordinator.lastAppliedIsActive = coordinator.desiredIsActive
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
+        let panelId = terminalSurface.id
         context.coordinator.desiredIsActive = isActive
         context.coordinator.desiredIsVisibleInUI = isVisibleInUI
 
-        // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
-        hostedView.attachSurface(terminalSurface)
-        hostedView.setVisibleInUI(isVisibleInUI)
-        hostedView.setActive(isActive)
-        hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
-        hostedView.setTriggerFlashHandler(onTriggerFlash)
+        islandLog("updateNSView: panel=\(panelId) visible=\(isVisibleInUI) active=\(isActive) nsView.window=\(nsView.window != nil) nsView.bounds=\(nsView.bounds) hostedSuper=\(type(of: hostedView.superview)) surface=\(terminalSurface.surface != nil)")
 
-        if hostedView.superview !== nsView {
+        if !isVisibleInUI {
+            // Bootstrap: attach once so createSurface runs (needs view.window != nil),
+            // then immediately detach below. This ensures background-created terminals
+            // start their PTY immediately without waiting for first reveal.
+            if !context.coordinator.hasEverAttached && nsView.window != nil {
+                hostedView.attachSurface(terminalSurface)
+                if let window = nsView.window, let island = TerminalIslandView.island(for: window) {
+                    let frame = island.convert(nsView.bounds, from: nsView)
+                    island.addTerminal(panelId: panelId, hostedView: hostedView, frame: frame)
+                } else {
+                    Self.attachHostedView(hostedView, to: nsView, coordinator: context.coordinator)
+                }
+                context.coordinator.hasEverAttached = true
+            }
+
+            // Detach to remove CA layer subtree from traversal.
+            // The hostedView stays alive via TerminalPanel.surface.hostedView.
+            // IOSurface/Metal textures survive removal (kernel-managed, ref counted).
+            context.coordinator.attachGeneration += 1
+            // Reset cached state so setActive/setVisibleInUI/handlers run on reattach.
+            context.coordinator.lastAppliedIsActive = nil
+            context.coordinator.lastAppliedIsVisibleInUI = nil
+            context.coordinator.hasSetHandlers = false
+            if let host = nsView as? HostContainerView {
+                host.onDidMoveToWindow = nil
+            }
+            // Remove from island (preferred) or superview (fallback).
+            if let window = nsView.window, let island = TerminalIslandView.island(for: window) {
+                island.removeTerminal(panelId: panelId)
+            } else if hostedView.superview != nil {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                NSLayoutConstraint.deactivate(context.coordinator.constraints)
+                context.coordinator.constraints.removeAll()
+                hostedView.removeFromSuperview()
+                CATransaction.commit()
+            }
+            return
+        }
+
+        // Visible path: make this as close to a no-op as possible.
+        //
+        // Stock Ghostty's updateNSView is an empty no-op. SwiftUI calls updateNSView
+        // on every parent body re-evaluation (2-4/sec from @Published churn on Workspace).
+        // Closure properties (onFocus, onTriggerFlash) prevent SwiftUI from knowing the
+        // view is unchanged, so it always calls through. We must guard every operation
+        // with cached state to avoid redundant work — particularly setActive/setVisibleInUI
+        // which each call applyFirstResponderIfNeeded (window + firstResponder lookups).
+        let island = nsView.window.flatMap { TerminalIslandView.island(for: $0) }
+        let isInIsland = island != nil && hostedView.superview === island
+        let alreadyAttached = (isInIsland || hostedView.superview === nsView) && terminalSurface.surface != nil
+        islandLog("visible path: island=\(island != nil) isInIsland=\(isInIsland) alreadyAttached=\(alreadyAttached)")
+        if !alreadyAttached {
+            hostedView.attachSurface(terminalSurface)
+            // Reset cached state so setActive/setVisibleInUI run after reattach.
+            context.coordinator.lastAppliedIsActive = nil
+            context.coordinator.lastAppliedIsVisibleInUI = nil
+            context.coordinator.hasSetHandlers = false
+        }
+        if context.coordinator.lastAppliedIsVisibleInUI != isVisibleInUI {
+            hostedView.setVisibleInUI(isVisibleInUI)
+            context.coordinator.lastAppliedIsVisibleInUI = isVisibleInUI
+        }
+        if context.coordinator.lastAppliedIsActive != isActive {
+            hostedView.setActive(isActive)
+            context.coordinator.lastAppliedIsActive = isActive
+        }
+        if !context.coordinator.hasSetHandlers {
+            hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
+            hostedView.setTriggerFlashHandler(onTriggerFlash)
+            context.coordinator.hasSetHandlers = true
+        }
+
+        // Mark as bootstrapped on first visible attach.
+        context.coordinator.hasEverAttached = true
+
+        if !isInIsland {
             context.coordinator.attachGeneration += 1
             let generation = context.coordinator.attachGeneration
 
-            // If this container isn't in a window yet, defer attaching until it is.
-            // Importantly: do NOT detach the hosted view from its current superview
-            // until we have a valid window, otherwise it can disappear and become
-            // "stuck" in an off-window container.
-            if let host = nsView as? HostContainerView {
-                host.onDidMoveToWindow = { [weak coordinator = context.coordinator, weak host, weak hostedView] in
-                    guard let coordinator, coordinator.attachGeneration == generation else { return }
-                    guard let host, let hostedView else { return }
-                    guard host.window != nil else { return }
-                    Self.attachHostedView(hostedView, to: host, coordinator: coordinator)
+            if let island {
+                // Deactivate stale constraints from legacy attach before moving to island.
+                NSLayoutConstraint.deactivate(context.coordinator.constraints)
+                context.coordinator.constraints.removeAll()
+                // Attach to island at shallow CA depth.
+                let frame = island.convert(nsView.bounds, from: nsView)
+                islandLog("attaching to island: panel=\(panelId) frame=\(frame)")
+                island.addTerminal(panelId: panelId, hostedView: hostedView, frame: frame)
+                // Re-apply visible/active state after reparenting.
+                hostedView.setVisibleInUI(isVisibleInUI)
+                hostedView.setActive(isActive)
+                context.coordinator.lastAppliedIsVisibleInUI = isVisibleInUI
+                context.coordinator.lastAppliedIsActive = isActive
+            } else {
+                // Fallback: no island yet (window not ready). Use legacy attach.
+                islandLog("fallback: no island, nsView.window=\(nsView.window != nil)")
+                if let host = nsView as? HostContainerView {
+                    host.onDidMoveToWindow = { [weak coordinator = context.coordinator, weak host, weak hostedView] in
+                        guard let coordinator, coordinator.attachGeneration == generation else { return }
+                        guard let host, let hostedView else { return }
+                        guard let window = host.window else { return }
+                        // Try island first when window becomes available.
+                        islandLog("onDidMoveToWindow: panel=\(panelId) host.bounds=\(host.bounds)")
+                        if let island = TerminalIslandView.island(for: window) {
+                            let frame = island.convert(host.bounds, from: host)
+                            islandLog("onDidMoveToWindow: using island, frame=\(frame)")
+                            island.addTerminal(panelId: panelId, hostedView: hostedView, frame: frame)
+                            hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                            hostedView.setActive(coordinator.desiredIsActive)
+                            coordinator.lastAppliedIsVisibleInUI = coordinator.desiredIsVisibleInUI
+                            coordinator.lastAppliedIsActive = coordinator.desiredIsActive
+                        } else {
+                            islandLog("onDidMoveToWindow: no island, legacy attach")
+                            Self.attachHostedView(hostedView, to: host, coordinator: coordinator)
+                        }
+                    }
                 }
-            }
 
-            if nsView.window != nil {
-                Self.attachHostedView(hostedView, to: nsView, coordinator: context.coordinator)
+                if nsView.window != nil {
+                    // Window is ready but island isn't installed yet. Use legacy attach.
+                    Self.attachHostedView(hostedView, to: nsView, coordinator: context.coordinator)
+                }
             }
         } else {
             context.coordinator.attachGeneration += 1
             if let host = nsView as? HostContainerView {
                 host.onDidMoveToWindow = nil
+            }
+            // Sync frame in case HostContainerView was resized since last updateNSView.
+            if let island {
+                let frame = island.convert(nsView.bounds, from: nsView)
+                island.updateFrame(panelId: panelId, frame: frame)
+            }
+        }
+
+        // Sync island overlay state (dimming + notification border).
+        if let island {
+            if context.coordinator.lastDimmingOpacity != dimmingOpacity {
+                island.setDimming(panelId: panelId, color: dimmingColor, opacity: dimmingOpacity)
+                context.coordinator.lastDimmingOpacity = dimmingOpacity
+            }
+            if context.coordinator.lastShowNotificationBorder != showNotificationBorder {
+                island.setNotificationBorder(panelId: panelId, visible: showNotificationBorder, color: notificationBorderColor)
+                context.coordinator.lastShowNotificationBorder = showNotificationBorder
             }
         }
 
