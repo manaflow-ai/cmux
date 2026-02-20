@@ -339,6 +339,110 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class AppearanceSettingsTests: XCTestCase {
+    func testResolvedModeDefaultsToSystemWhenUnset() {
+        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
+
+        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
+        XCTAssertEqual(resolved, .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+    }
+
+    func testResolvedModeMigratesLegacyAndInvalidValuesToSystem() {
+        let suiteName = "AppearanceSettingsTests.Migrate.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.auto.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+
+        defaults.set("invalid-value", forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+    }
+
+    func testResolvedModePreservesExplicitLightAndDark() {
+        let suiteName = "AppearanceSettingsTests.Preserve.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .light)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.light.rawValue)
+
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.dark.rawValue)
+    }
+}
+
+final class UpdateChannelSettingsTests: XCTestCase {
+    func testDefaultNightlyPreferenceIsDisabled() {
+        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
+    }
+
+    func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
+        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
+        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+        XCTAssertFalse(resolved.isNightly)
+        XCTAssertTrue(resolved.usedFallback)
+    }
+
+    func testResolvedFeedUsesInfoFeedForStableChannel() {
+        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let infoFeed = "https://example.com/custom/appcast.xml"
+        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        XCTAssertEqual(resolved.url, infoFeed)
+        XCTAssertFalse(resolved.isNightly)
+        XCTAssertFalse(resolved.usedFallback)
+    }
+
+    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
+        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
+        let resolved = UpdateChannelSettings.resolvedFeedURLString(
+            infoFeedURL: "https://example.com/custom/appcast.xml",
+            defaults: defaults
+        )
+        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+        XCTAssertTrue(resolved.isNightly)
+        XCTAssertFalse(resolved.usedFallback)
+    }
+}
+
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
