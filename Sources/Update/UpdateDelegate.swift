@@ -1,26 +1,6 @@
 import Sparkle
 import Cocoa
 
-enum UpdateChannelSettings {
-    static let includeNightlyBuildsKey = "cmux.includeNightlyBuilds"
-    static let defaultIncludeNightlyBuilds = false
-
-    static let stableFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-    static let nightlyFeedURL = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
-
-    static func resolvedFeedURLString(
-        infoFeedURL: String?,
-        defaults: UserDefaults = .standard
-    ) -> (url: String, isNightly: Bool, usedFallback: Bool) {
-        let stableURL = (infoFeedURL?.isEmpty == false) ? infoFeedURL! : stableFeedURL
-        let includeNightlyBuilds = defaults.bool(forKey: includeNightlyBuildsKey)
-        if includeNightlyBuilds {
-            return (url: nightlyFeedURL, isNightly: true, usedFallback: false)
-        }
-        return (url: stableURL, isNightly: false, usedFallback: stableURL == stableFeedURL)
-    }
-}
-
 extension UpdateDriver: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
 #if DEBUG
@@ -31,11 +11,15 @@ extension UpdateDriver: SPUUpdaterDelegate {
             return override
         }
 #endif
-        let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoURL)
-        UpdateLogStore.shared.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
-        recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
-        return resolved.url
+        // The feed URL is baked into Info.plist at build time:
+        // - Stable releases use the stable appcast URL
+        // - cmux NIGHTLY has the nightly appcast URL injected by CI
+        let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        let isNightly = feedURL?.contains("/nightly/") == true
+        UpdateLogStore.shared.append("update channel: \(isNightly ? "nightly" : "stable")")
+        let usedFallback = feedURL == nil || feedURL?.isEmpty == true
+        recordFeedURLString(feedURL ?? "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml", usedFallback: usedFallback)
+        return feedURL
     }
 
     /// Called when an update is scheduled to install silently,
