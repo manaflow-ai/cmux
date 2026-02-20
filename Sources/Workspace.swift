@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Bonsplit
 import Combine
 
@@ -102,14 +103,22 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Initialization
 
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(from: config.backgroundColor)
+    }
+
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
         BonsplitConfiguration.Appearance(
             enableAnimations: false,
-            chromeColors: .init(backgroundHex: config.backgroundColor.hexString())
+            chromeColors: .init(backgroundHex: backgroundColor.hexString())
         )
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig) {
-        let nextHex = config.backgroundColor.hexString()
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor) {
+        let nextHex = backgroundColor.hexString()
         if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
             return
         }

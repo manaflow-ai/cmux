@@ -523,6 +523,8 @@ class GhosttyApp {
 
     private func updateDefaultBackground(from config: ghostty_config_t?) {
         guard let config else { return }
+        let previousHex = defaultBackgroundColor.hexString()
+        let previousOpacity = defaultBackgroundOpacity
 
         var color = ghostty_config_color_s()
         let bgKey = "background"
@@ -539,8 +541,32 @@ class GhosttyApp {
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         defaultBackgroundOpacity = opacity
+        let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
+            abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
+        if hasChanged {
+            notifyDefaultBackgroundDidChange()
+        }
         if backgroundLogEnabled {
             logBackground("default background updated color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
+        }
+    }
+
+    private func notifyDefaultBackgroundDidChange() {
+        let userInfo: [AnyHashable: Any] = [
+            GhosttyNotificationKey.backgroundColor: defaultBackgroundColor,
+            GhosttyNotificationKey.backgroundOpacity: defaultBackgroundOpacity
+        ]
+        let post = {
+            NotificationCenter.default.post(
+                name: .ghosttyDefaultBackgroundDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.async(execute: post)
         }
     }
 
@@ -635,6 +661,7 @@ class GhosttyApp {
                 if backgroundLogEnabled {
                     logBackground("OSC background change (app target) color=\(defaultBackgroundColor)")
                 }
+                notifyDefaultBackgroundDidChange()
                 DispatchQueue.main.async {
                     GhosttyApp.shared.applyBackgroundToKeyWindow()
                 }
@@ -2732,6 +2759,8 @@ enum GhosttyNotificationKey {
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"
     static let title = "ghostty.title"
+    static let backgroundColor = "ghostty.backgroundColor"
+    static let backgroundOpacity = "ghostty.backgroundOpacity"
 }
 
 extension Notification.Name {
@@ -2739,6 +2768,7 @@ extension Notification.Name {
     static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
+    static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)

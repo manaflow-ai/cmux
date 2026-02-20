@@ -2,6 +2,11 @@ import Foundation
 import AppKit
 
 struct GhosttyConfig {
+    enum ColorSchemePreference {
+        case light
+        case dark
+    }
+
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
     var theme: String?
@@ -155,9 +160,14 @@ struct GhosttyConfig {
     mutating func loadTheme(
         _ name: String,
         environment: [String: String],
-        bundleResourceURL: URL?
+        bundleResourceURL: URL?,
+        preferredColorScheme: ColorSchemePreference? = nil
     ) {
-        for candidateName in Self.themeNameCandidates(from: name) {
+        let resolvedThemeName = Self.resolveThemeName(
+            from: name,
+            preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
+        )
+        for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
             for path in Self.themeSearchPaths(
                 forThemeName: candidateName,
                 environment: environment,
@@ -169,6 +179,76 @@ struct GhosttyConfig {
                 }
             }
         }
+    }
+
+    static func currentColorSchemePreference(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> ColorSchemePreference {
+        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+        return bestMatch == .darkAqua ? .dark : .light
+    }
+
+    static func resolveThemeName(
+        from rawThemeValue: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> String {
+        var fallbackTheme: String?
+        var lightTheme: String?
+        var darkTheme: String?
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count != 2 {
+                if fallbackTheme == nil {
+                    fallbackTheme = entry
+                }
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil {
+                    lightTheme = value
+                }
+            case "dark":
+                if darkTheme == nil {
+                    darkTheme = value
+                }
+            default:
+                if fallbackTheme == nil {
+                    fallbackTheme = value
+                }
+            }
+        }
+
+        switch preferredColorScheme {
+        case .light:
+            if let lightTheme {
+                return lightTheme
+            }
+        case .dark:
+            if let darkTheme {
+                return darkTheme
+            }
+        }
+
+        if let fallbackTheme {
+            return fallbackTheme
+        }
+        if let darkTheme {
+            return darkTheme
+        }
+        if let lightTheme {
+            return lightTheme
+        }
+        return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func themeNameCandidates(from rawName: String) -> [String] {

@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import AppKit
 import Bonsplit
 
 /// View that renders a Workspace's content using BonsplitView
@@ -81,7 +82,7 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
-            workspace.applyGhosttyChrome(from: config)
+            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -89,7 +90,14 @@ struct WorkspaceContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             let next = GhosttyConfig.load()
             config = next
-            workspace.applyGhosttyChrome(from: next)
+            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
+                workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
+            } else {
+                workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            }
         }
     }
 
