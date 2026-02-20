@@ -855,15 +855,28 @@ final class BrowserPanel: Panel, ObservableObject {
         // This reduces repeated consent/bot-challenge flows on sites like Google.
         config.websiteDataStore = .default()
 
-        // Enable developer extras (DevTools)
+        // Enable developer extras (context menu item for Inspect Element)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
         // Enable JavaScript
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        // Safari-parity: allow JavaScript-initiated windows (window.open, popups).
+        config.preferences.javaScriptCanOpenWindowsAutomatically = true
+
+        // Safari-parity: Element Fullscreen API (webkitRequestFullscreen).
+        config.preferences.isElementFullscreenEnabled = true
+
+        // Safari-parity: site-specific compatibility quirks that Safari applies.
+        config.preferences.isSiteSpecificQuirksModeEnabled = true
+
         // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+
+        // Required since macOS 13.3 for Web Inspector to actually open.
+        // Without this, "Inspect Element" appears in the context menu but does nothing.
+        webView.isInspectable = true
 
         // Match the empty-page background to the window so newly-created browsers
         // don't flash white before content loads.
@@ -1571,6 +1584,61 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         decisionHandler(.allow)
     }
+
+    // MARK: - Authentication Challenges (Safari parity)
+
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let method = challenge.protectionSpace.authenticationMethod
+
+        // Accept server TLS certificates (same as Safari default behavior).
+        if method == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+            return
+        }
+
+        // HTTP Basic/Digest auth — show a login sheet like Safari.
+        if method == NSURLAuthenticationMethodHTTPBasic || method == NSURLAuthenticationMethodHTTPDigest {
+            let host = challenge.protectionSpace.host
+            let realm = challenge.protectionSpace.realm ?? ""
+
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Log in to \(host)"
+                alert.informativeText = realm.isEmpty ? "Enter your credentials." : realm
+                alert.addButton(withTitle: "Log In")
+                alert.addButton(withTitle: "Cancel")
+
+                let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 54))
+                let userField = NSTextField(frame: NSRect(x: 0, y: 30, width: 260, height: 24))
+                userField.placeholderString = "Username"
+                let passField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+                passField.placeholderString = "Password"
+                container.addSubview(userField)
+                container.addSubview(passField)
+                alert.accessoryView = container
+
+                if alert.runModal() == .alertFirstButtonReturn {
+                    let credential = URLCredential(
+                        user: userField.stringValue,
+                        password: passField.stringValue,
+                        persistence: .forSession
+                    )
+                    completionHandler(.useCredential, credential)
+                } else {
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                }
+            }
+            return
+        }
+
+        // All other challenge types — use default handling.
+        completionHandler(.performDefaultHandling, nil)
+    }
 }
 
 // MARK: - UI Delegate
@@ -1594,5 +1662,75 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             }
         }
         return nil
+    }
+
+    // MARK: - JavaScript Dialogs (Safari parity)
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = frame.request.url?.host ?? "This page says:"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        completionHandler()
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = frame.request.url?.host ?? "This page says:"
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        let result = alert.runModal() == .alertFirstButtonReturn
+        completionHandler(result)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.messageText = frame.request.url?.host ?? "This page says:"
+        alert.informativeText = prompt
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        textField.stringValue = defaultText ?? ""
+        alert.accessoryView = textField
+
+        let result = alert.runModal()
+        completionHandler(result == .alertFirstButtonReturn ? textField.stringValue : nil)
+    }
+
+    // MARK: - File Upload (Safari parity)
+
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelConfiguration,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+
+        panel.begin { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
     }
 }

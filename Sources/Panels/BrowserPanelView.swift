@@ -436,10 +436,11 @@ struct BrowserPanelView: View {
     }
 
     private func openDevTools() {
-        // WKWebView with developerExtrasEnabled allows right-click > Inspect Element
-        // We can also trigger via JavaScript
-        Task {
-            try? await panel.evaluateJavaScript("window.webkit?.messageHandlers?.devTools?.postMessage('open')")
+        // With isInspectable = true (macOS 13.3+), Web Inspector opens via
+        // right-click > Inspect Element or the _WKInspector API.
+        // Trigger programmatically through the private inspector accessor.
+        if let inspector = panel.webView.value(forKey: "_inspector") as? NSObject {
+            inspector.perform(NSSelectorFromString("show"))
         }
     }
 
