@@ -297,7 +297,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
-    func testForcedRefreshAfterAttachReopensVisibleInspectorOnce() {
+    func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
 
         XCTAssertTrue(panel.showDeveloperTools())
@@ -309,13 +309,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.closeCount, 1)
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertEqual(inspector.showCount, 1)
 
         // The force-refresh request should be one-shot.
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
-        XCTAssertEqual(inspector.closeCount, 1)
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertEqual(inspector.showCount, 1)
     }
 
     func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
@@ -349,7 +349,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             panel: panel,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
-            isPanelFocused: true
+            isPanelFocused: true,
+            portalZPriority: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -369,7 +370,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             panel: panel,
             shouldAttachWebView: true,
             shouldFocusWebView: false,
-            isPanelFocused: true
+            isPanelFocused: true,
+            portalZPriority: 0
         )
         let coordinator = representable.makeCoordinator()
         coordinator.webView = panel.webView
@@ -2448,5 +2450,221 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+}
+
+@MainActor
+final class BrowserWindowPortalLifecycleTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func testPortalHostInstallsAboveContentViewForVisibility() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowBrowserPortal(window: window)
+        _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
+              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
+            XCTFail("Expected host/content views in same container")
+            return
+        }
+
+        XCTAssertGreaterThan(
+            hostIndex,
+            contentIndex,
+            "Browser portal host must remain above content view so portal-hosted web views stay visible"
+        )
+    }
+
+    func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        let anchor2 = NSView(frame: NSRect(x: 240, y: 40, width: 180, height: 120))
+        contentView.addSubview(anchor1)
+        contentView.addSubview(anchor2)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor1, visibleInUI: true)
+        let firstSuperview = webView.superview
+
+        XCTAssertNotNil(firstSuperview)
+        XCTAssertTrue(firstSuperview is WindowBrowserSlotView)
+
+        portal.bind(webView: webView, to: anchor2, visibleInUI: true)
+        XCTAssertTrue(webView.superview === firstSuperview, "Anchor moves should not reparent the web view")
+
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor2)
+        guard let slot = webView.superview as? WindowBrowserSlotView,
+              let host = slot.superview as? WindowBrowserHostView else {
+            XCTFail("Expected browser slot + host views")
+            return
+        }
+        let expectedFrame = host.convert(anchor2.bounds, from: anchor2)
+        XCTAssertEqual(slot.frame.origin.x, expectedFrame.origin.x, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, expectedFrame.origin.y, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, expectedFrame.size.width, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, expectedFrame.size.height, accuracy: 0.5)
+    }
+
+    func testPortalClampsWebViewFrameToHostBoundsWhenAnchorOverflowsSidebar() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        // Simulate a transient oversized anchor rect during split churn.
+        let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected web view slot")
+            return
+        }
+
+        XCTAssertFalse(slot.isHidden, "Partially visible browser anchor should stay visible")
+        XCTAssertEqual(slot.frame.origin.x, 120, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, 200, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, 150, accuracy: 0.5)
+    }
+
+    func testPortalSyncNormalizesOutOfBoundsWebFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        // Reproduce observed drift from logs where WebKit shifts/expands frame beyond slot bounds.
+        webView.frame = NSRect(x: 0, y: 250, width: slot.bounds.width, height: slot.bounds.height)
+        XCTAssertGreaterThan(webView.frame.maxY, slot.bounds.maxY)
+
+        portal.synchronizeWebViewForAnchor(anchor)
+        XCTAssertEqual(webView.frame.origin.x, slot.bounds.origin.x, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.origin.y, slot.bounds.origin.y, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.size.width, slot.bounds.size.width, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.size.height, slot.bounds.size.height, accuracy: 0.5)
+    }
+
+    func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView,
+              let host = slot.superview as? WindowBrowserHostView else {
+            XCTFail("Expected portal slot + host views")
+            return
+        }
+        XCTAssertGreaterThan(host.bounds.width, 1, "Portal host width should be ready for clipping/sync")
+        XCTAssertGreaterThan(host.bounds.height, 1, "Portal host height should be ready for clipping/sync")
+    }
+
+    func testRegistryDetachRemovesPortalHostedWebView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        XCTAssertNotNil(webView.superview)
+
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        XCTAssertNil(webView.superview)
     }
 }

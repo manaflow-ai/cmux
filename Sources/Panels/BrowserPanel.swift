@@ -1244,6 +1244,10 @@ final class BrowserPanel: Panel, ObservableObject {
     deinit {
         developerToolsRestoreRetryWorkItem?.cancel()
         developerToolsRestoreRetryWorkItem = nil
+        let webView = webView
+        Task { @MainActor in
+            BrowserWindowPortalRegistry.detach(webView: webView)
+        }
         webViewObservers.removeAll()
     }
 }
@@ -1398,17 +1402,13 @@ extension BrowserPanel {
         let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
 
-        let closeSelector = NSSelectorFromString("close")
-        if shouldForceRefresh,
-           inspector.responds(to: closeSelector) {
-            #if DEBUG
-            dlog("browser.devtools refresh.forceClose panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
-            #endif
-            inspector.cmuxCallVoid(selector: closeSelector)
-        }
-
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
-        if visible && !shouldForceRefresh {
+        if visible {
+            #if DEBUG
+            if shouldForceRefresh {
+                dlog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+            }
+            #endif
             cancelDeveloperToolsRestoreRetry()
             return
         }
@@ -1420,7 +1420,7 @@ extension BrowserPanel {
         }
         #if DEBUG
         if shouldForceRefresh {
-            dlog("browser.devtools refresh.forceShow panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+            dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
         }
         #endif
         inspector.cmuxCallVoid(selector: selector)
