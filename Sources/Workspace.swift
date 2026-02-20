@@ -966,6 +966,19 @@ final class Workspace: Identifiable, ObservableObject {
         triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: true)
     }
 
+    // MARK: - Portal Lifecycle
+
+    /// Hide all terminal portal views for this workspace.
+    /// Called before the workspace is unmounted to prevent portal-hosted terminal
+    /// views from covering browser panes in the newly selected workspace.
+    func hideAllTerminalPortalViews() {
+        for panel in panels.values {
+            guard let terminal = panel as? TerminalPanel else { continue }
+            terminal.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+        }
+    }
+
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
