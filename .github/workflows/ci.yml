@@ -29,7 +29,8 @@ jobs:
   macos-tests:
     runs-on: self-hosted
     concurrency:
-      group: self-hosted-build
+      # Keep CI serialized per-ref without being preempted by release/nightly jobs.
+      group: self-hosted-ci-${{ github.ref }}
       cancel-in-progress: false
     timeout-minutes: 360
     steps:

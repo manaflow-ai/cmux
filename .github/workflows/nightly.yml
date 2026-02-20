@@ -80,7 +80,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true'
     runs-on: self-hosted
     concurrency:
-      group: self-hosted-build
+      group: self-hosted-nightly
       cancel-in-progress: false
     steps:
       - name: Checkout main

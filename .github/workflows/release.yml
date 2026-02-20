@@ -13,7 +13,7 @@ jobs:
   build-sign-notarize:
     runs-on: self-hosted
     concurrency:
-      group: self-hosted-build
+      group: self-hosted-release
       cancel-in-progress: false
     steps:
       - name: Checkout
