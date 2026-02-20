@@ -10,7 +10,7 @@ struct TerminalPanelView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onTriggerFlash: () -> Void
 
@@ -34,7 +34,7 @@ struct TerminalPanelView: View {
             .background(Color.clear)
 
             // Unread notification indicator
-            if notificationStore.hasUnreadNotification(forTabId: panel.workspaceId, surfaceId: panel.id) {
+            if hasUnreadNotification {
                 Rectangle()
                     .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
                     .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)

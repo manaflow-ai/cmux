@@ -40,6 +40,7 @@ struct WorkspaceContentView: View {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = isWorkspaceVisible && isSelectedInPane
+                let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id)
                 PanelContentView(
                     panel: panel,
                     isFocused: isFocused,
@@ -48,7 +49,7 @@ struct WorkspaceContentView: View {
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
-                    notificationStore: notificationStore,
+                    hasUnreadNotification: hasUnreadNotification,
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
