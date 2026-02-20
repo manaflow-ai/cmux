@@ -253,6 +253,74 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     }
 }
 
+final class KeyboardShortcutSettingsTests: XCTestCase {
+    func testBrowserSplitShortcutDefaults() {
+        let keys = [
+            KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey,
+            KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey
+        ]
+        let defaults = UserDefaults.standard
+        let previousValues = keys.map { key in (key, defaults.data(forKey: key)) }
+        defer {
+            for (key, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .splitBrowserRight).displayString, "⌥⌘D")
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .splitBrowserDown).displayString, "⌥⇧⌘D")
+    }
+
+    @MainActor
+    func testWorkspaceConfiguresSplitButtonTooltipsWithEffectiveShortcuts() throws {
+        let keys = [
+            KeyboardShortcutSettings.Action.newSurface.defaultsKey,
+            KeyboardShortcutSettings.Action.openBrowser.defaultsKey,
+            KeyboardShortcutSettings.Action.splitRight.defaultsKey,
+            KeyboardShortcutSettings.Action.splitDown.defaultsKey
+        ]
+        let defaults = UserDefaults.standard
+        let previousValues = keys.map { key in (key, defaults.data(forKey: key)) }
+        defer {
+            for (key, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        let customPairs: [(KeyboardShortcutSettings.Action, StoredShortcut)] = [
+            (.newSurface, StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)),
+            (.openBrowser, StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)),
+            (.splitRight, StoredShortcut(key: "3", command: true, shift: false, option: false, control: false)),
+            (.splitDown, StoredShortcut(key: "4", command: true, shift: false, option: false, control: false)),
+        ]
+
+        for (action, shortcut) in customPairs {
+            guard let data = try? JSONEncoder().encode(shortcut) else {
+                XCTFail("Failed to encode shortcut for \(action.rawValue)")
+                return
+            }
+            defaults.set(data, forKey: action.defaultsKey)
+        }
+
+        let workspace = Workspace(title: "Tooltip Test")
+        let tooltips = workspace.bonsplitController.configuration.appearance.splitButtonTooltips
+
+        XCTAssertEqual(tooltips.newTerminal, "New Terminal (⌘1)")
+        XCTAssertEqual(tooltips.newBrowser, "New Browser (⌘2)")
+        XCTAssertEqual(tooltips.splitRight, "Split Right (⌘3)")
+        XCTAssertEqual(tooltips.splitDown, "Split Down (⌘4)")
+    }
+}
+
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
