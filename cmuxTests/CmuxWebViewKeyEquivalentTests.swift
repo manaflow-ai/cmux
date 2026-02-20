@@ -339,6 +339,57 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class AppearanceSettingsTests: XCTestCase {
+    func testResolvedModeDefaultsToSystemWhenUnset() {
+        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
+
+        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
+        XCTAssertEqual(resolved, .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+    }
+
+    func testResolvedModeMigratesLegacyAndInvalidValuesToSystem() {
+        let suiteName = "AppearanceSettingsTests.Migrate.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.auto.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+
+        defaults.set("invalid-value", forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
+    }
+
+    func testResolvedModePreservesExplicitLightAndDark() {
+        let suiteName = "AppearanceSettingsTests.Preserve.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .light)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.light.rawValue)
+
+        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.dark.rawValue)
+    }
+}
+
 final class UpdateChannelSettingsTests: XCTestCase {
     func testDefaultNightlyPreferenceIsDisabled() {
         XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
@@ -1962,6 +2013,22 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
     }
+
+    func testUnreadNotificationRingVisibilityTracksRequestedState() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
+        )
+
+        hostedView.setNotificationRing(visible: true)
+        var state = hostedView.debugNotificationRingState()
+        XCTAssertFalse(state.isHidden)
+        XCTAssertEqual(state.opacity, 1, accuracy: 0.001)
+
+        hostedView.setNotificationRing(visible: false)
+        state = hostedView.debugNotificationRingState()
+        XCTAssertTrue(state.isHidden)
+        XCTAssertEqual(state.opacity, 0, accuracy: 0.001)
+    }
 }
 
 @MainActor
@@ -2154,5 +2221,94 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+}
+
+final class BrowserLinkOpenSettingsTests: XCTestCase {
+    private var suiteName: String!
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "BrowserLinkOpenSettingsTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults = nil
+        suiteName = nil
+        super.tearDown()
+    }
+
+    func testTerminalLinksDefaultToCmuxBrowser() {
+        XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+    }
+
+    func testTerminalLinksPreferenceUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+    }
+}
+
+final class TerminalOpenURLTargetResolutionTests: XCTestCase {
+    func testResolvesHTTPSAsEmbeddedBrowser() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertEqual(url.host, "example.com")
+            XCTAssertEqual(url.path, "/path")
+        default:
+            XCTFail("Expected web URL to route to embedded browser")
+        }
+    }
+
+    func testResolvesBareDomainAsEmbeddedBrowser() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
+        switch target {
+        case let .embeddedBrowser(url):
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertEqual(url.host, "example.com")
+            XCTAssertEqual(url.path, "/docs")
+        default:
+            XCTFail("Expected bare domain to be normalized as an HTTPS browser URL")
+        }
+    }
+
+    func testResolvesFileSchemeAsExternal() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/cmux.txt"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/cmux.txt")
+        default:
+            XCTFail("Expected file URL to open externally")
+        }
+    }
+
+    func testResolvesAbsolutePathAsExternalFileURL() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/cmux-path.txt")
+        default:
+            XCTFail("Expected absolute file path to open externally")
+        }
+    }
+
+    func testResolvesNonWebSchemeAsExternal() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("mailto:test@example.com"))
+        switch target {
+        case let .external(url):
+            XCTAssertEqual(url.scheme, "mailto")
+        default:
+            XCTFail("Expected non-web scheme to open externally")
+        }
     }
 }

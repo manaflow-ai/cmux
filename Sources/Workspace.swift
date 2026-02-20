@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Bonsplit
 import Combine
 
@@ -104,6 +105,29 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
+    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(from: config.backgroundColor)
+    }
+
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
+            enableAnimations: false,
+            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor) {
+        let nextHex = backgroundColor.hexString()
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+            return
+        }
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
     init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -119,9 +143,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
-        let appearance = BonsplitConfiguration.Appearance(
-            enableAnimations: false
-        )
+        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
@@ -971,6 +993,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     func triggerDebugFlash(panelId: UUID) {
         triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: true)
+    }
+
+    // MARK: - Portal Lifecycle
+
+    /// Hide all terminal portal views for this workspace.
+    /// Called before the workspace is unmounted to prevent portal-hosted terminal
+    /// views from covering browser panes in the newly selected workspace.
+    func hideAllTerminalPortalViews() {
+        for panel in panels.values {
+            guard let terminal = panel as? TerminalPanel else { continue }
+            terminal.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+        }
     }
 
     // MARK: - Utility
