@@ -1071,7 +1071,19 @@ func buildOmnibarSuggestions(
         )
         order += 1
         if let existing = bestByCompletion[key] {
-            if ranked.score > existing.score {
+            let shouldReplaceExisting: Bool = {
+                // For identical completions, keep "go to URL" over "switch to tab" so
+                // pressing Enter performs navigation unless the user explicitly picks a tab row.
+                switch (existing.suggestion.kind, ranked.suggestion.kind) {
+                case (.navigate, .switchToTab):
+                    return false
+                case (.switchToTab, .navigate):
+                    return true
+                default:
+                    return ranked.score > existing.score
+                }
+            }()
+            if shouldReplaceExisting {
                 bestByCompletion[key] = ranked
             }
         } else {

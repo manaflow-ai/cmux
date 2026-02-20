@@ -1332,6 +1332,39 @@ final class OmnibarSuggestionRankingTests: XCTestCase {
         XCTAssertEqual(results.first?.completion, "https://gmail.com/")
     }
 
+    func testNavigateSuggestionRanksAheadOfSwitchToTabForSameResolvedURL() throws {
+        let targetURL = try XCTUnwrap(URL(string: "http://http.badssl.com/"))
+
+        let results = buildOmnibarSuggestions(
+            query: targetURL.absoluteString,
+            engineName: "Google",
+            historyEntries: [],
+            openTabMatches: [
+                .init(
+                    tabId: UUID(),
+                    panelId: UUID(),
+                    url: targetURL.absoluteString,
+                    title: "http.badssl.com",
+                    isKnownOpenTab: true
+                ),
+            ],
+            remoteQueries: [],
+            resolvedURL: targetURL,
+            limit: 8,
+            now: fixedNow
+        )
+
+        guard let first = results.first else {
+            XCTFail("Expected at least one suggestion")
+            return
+        }
+        guard case .navigate(let navigateURL) = first.kind else {
+            XCTFail("Expected first suggestion to be navigate, got \(first.kind)")
+            return
+        }
+        XCTAssertEqual(navigateURL, targetURL.absoluteString)
+    }
+
     func testSuggestionSelectionPrefersAutocompletionCandidateAfterSuggestionsUpdate() {
         let entries: [BrowserHistoryStore.Entry] = [
             .init(
