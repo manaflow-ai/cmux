@@ -1,12 +1,15 @@
 name: Update Homebrew Cask
 
 on:
-  release:
-    types: [published]
+  # Trigger after the release workflow completes (not on release:published,
+  # which fires before assets finish uploading — causing SHA mismatch).
+  workflow_run:
+    workflows: ["Release macOS app"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g., v1.9.0)'
+        description: 'Version (e.g., 0.58.0 or v0.58.0)'
         required: true
 
 permissions:
@@ -15,6 +18,10 @@ permissions:
 jobs:
   update-cask:
     runs-on: ubuntu-latest
+    # Only run if the release workflow succeeded (or manual trigger)
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Get version
         id: version
@@ -22,18 +29,40 @@ jobs:
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
-            VERSION="${{ github.event.release.tag_name }}"
+            # workflow_run: extract tag from the triggering workflow's head branch
+            VERSION="${{ github.event.workflow_run.head_branch }}"
           fi
           VERSION="${VERSION#v}"
+          if [ -z "$VERSION" ]; then
+            echo "Could not determine version" >&2
+            exit 1
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Updating homebrew cask to version $VERSION"
 
       - name: Download DMG and get SHA256
         id: sha
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          curl -sL "https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg" -o cmux.dmg
+          URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
+          MAX_RETRIES=5
+          for i in $(seq 1 $MAX_RETRIES); do
+            HTTP_CODE=$(curl -sL -w '%{http_code}' "$URL" -o cmux.dmg)
+            FILE_SIZE=$(stat --printf="%s" cmux.dmg 2>/dev/null || stat -f%z cmux.dmg)
+            if [ "$HTTP_CODE" = "200" ] && [ "$FILE_SIZE" -gt 1000000 ]; then
+              echo "Download OK: HTTP $HTTP_CODE, size $FILE_SIZE bytes"
+              break
+            fi
+            echo "Attempt $i/$MAX_RETRIES: HTTP $HTTP_CODE, size ${FILE_SIZE:-0} bytes"
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download DMG after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            sleep 30
+          done
           SHA256=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
           echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "DMG SHA256: $SHA256"
 
       - name: Checkout homebrew-cmux
         uses: actions/checkout@v4
@@ -75,6 +104,16 @@ jobs:
           CASKEOF
           # Remove leading whitespace from heredoc
           sed -i 's/^          //' homebrew-cmux/Casks/cmux.rb
+
+      - name: Verify cask SHA matches DMG
+        run: |
+          CASK_SHA=$(grep 'sha256' homebrew-cmux/Casks/cmux.rb | sed 's/.*"\(.*\)".*/\1/')
+          ACTUAL_SHA=$(shasum -a 256 cmux.dmg | cut -d' ' -f1)
+          if [ "$CASK_SHA" != "$ACTUAL_SHA" ]; then
+            echo "SHA mismatch! Cask: $CASK_SHA, Actual: $ACTUAL_SHA" >&2
+            exit 1
+          fi
+          echo "SHA verification passed: $CASK_SHA"
 
       - name: Commit and push
         env:
