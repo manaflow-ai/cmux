@@ -2560,6 +2560,19 @@ struct WebViewRepresentable: NSViewRepresentable {
         var attachGeneration: Int = 0
     }
 
+    #if DEBUG
+    private static func logDevToolsState(
+        _ panel: BrowserPanel,
+        event: String,
+        generation: Int,
+        retryCount: Int
+    ) {
+        dlog(
+            "browser.devtools event=\(event) panel=\(panel.id.uuidString.prefix(5)) generation=\(generation) retry=\(retryCount) \(panel.debugDeveloperToolsStateSummary())"
+        )
+    }
+    #endif
+
     private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var r = start
         var hops = 0
@@ -2632,6 +2645,16 @@ struct WebViewRepresentable: NSViewRepresentable {
             // is in a window during bonsplit tree updates; moving the webview too early can be flaky.
             guard host.window != nil else {
                 coordinator.attachRetryCount += 1
+                #if DEBUG
+                if coordinator.attachRetryCount == 1 || coordinator.attachRetryCount % 20 == 0 {
+                    logDevToolsState(
+                        panel,
+                        event: "retry.waitingForWindow",
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount
+                    )
+                }
+                #endif
                 // Be generous here: bonsplit structural updates can keep a representable
                 // container off-window longer than a few seconds under load.
                 if coordinator.attachRetryCount < 400 {
@@ -2651,6 +2674,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             coordinator.attachRetryCount = 0
             attachWebView(webView, to: host)
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            #if DEBUG
+            logDevToolsState(panel, event: "retry.attached", generation: generation, retryCount: 0)
+            #endif
         }
 
         coordinator.attachRetryWorkItem = work
@@ -2665,7 +2691,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
         // WebKit crashes, detach the WKWebView when this surface is not the selected tab in its pane.
         if !shouldAttachWebView {
-            panel.syncDeveloperToolsPreferenceFromInspector()
+            #if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "detach.beforeSync",
+                generation: context.coordinator.attachGeneration,
+                retryCount: context.coordinator.attachRetryCount
+            )
+            #endif
+            panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
+            #if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "detach.afterSync",
+                generation: context.coordinator.attachGeneration,
+                retryCount: context.coordinator.attachRetryCount
+            )
+            #endif
             context.coordinator.attachRetryWorkItem?.cancel()
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachRetryCount = 0
@@ -2681,6 +2723,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             nsView.subviews.forEach { $0.removeFromSuperview() }
+            #if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "detach.done",
+                generation: context.coordinator.attachGeneration,
+                retryCount: context.coordinator.attachRetryCount
+            )
+            #endif
             return
         }
 
@@ -2693,6 +2743,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             if nsView.window == nil {
                 // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
                 // can create containers that are never inserted into the window.
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "attach.defer.offWindow",
+                    generation: context.coordinator.attachGeneration,
+                    retryCount: context.coordinator.attachRetryCount
+                )
+                #endif
                 Self.scheduleAttachRetry(
                     webView,
                     panel: panel,
@@ -2703,6 +2761,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             } else {
                 Self.attachWebView(webView, to: nsView)
                 panel.restoreDeveloperToolsAfterAttachIfNeeded()
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "attach.immediate",
+                    generation: context.coordinator.attachGeneration,
+                    retryCount: context.coordinator.attachRetryCount
+                )
+                #endif
             }
         } else {
             // Already attached; no need for any pending retry.
@@ -2711,6 +2777,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachRetryCount = 0
             context.coordinator.attachGeneration += 1
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            #if DEBUG
+            Self.logDevToolsState(
+                panel,
+                event: "attach.alreadyAttached",
+                generation: context.coordinator.attachGeneration,
+                retryCount: context.coordinator.attachRetryCount
+            )
+            #endif
         }
 
         // Focus handling. Avoid fighting the address bar when it is focused.

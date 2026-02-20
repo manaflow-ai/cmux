@@ -281,6 +281,21 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 1)
     }
+
+    func testSyncCanPreserveVisibleIntentDuringDetachChurn() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate a transient close caused by view detach, not user intent.
+        inspector.close()
+        panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
 }
 
 final class WorkspaceShortcutMapperTests: XCTestCase {
