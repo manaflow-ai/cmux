@@ -1016,6 +1016,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var lastDisplayID: UInt32 = 0
+    private var lastAttachHadWindow: Bool = false
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1119,6 +1121,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         abs(lhs - rhs) <= epsilon
     }
 
+    fileprivate func applyDisplayID(_ displayID: UInt32, force: Bool = false) {
+        guard displayID != 0, let surface else { return }
+        guard force || lastDisplayID != displayID else { return }
+        ghostty_surface_set_display_id(surface, displayID)
+        lastDisplayID = displayID
+    }
+
     func attachToView(_ view: GhosttyNSView) {
         #if DEBUG
         print("[TerminalSurface] attachToView: \(id) attachedView=\(attachedView != nil) surface=\(surface != nil)")
@@ -1133,13 +1142,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
             #if DEBUG
             print("[TerminalSurface] attachToView: same view and surface exists")
             #endif
+            let isInWindow = view.window != nil
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
-               displayID != 0,
-               let s = surface {
-                ghostty_surface_set_display_id(s, displayID)
+               displayID != 0 {
+                applyDisplayID(displayID)
             }
-            view.forceRefreshSurface()
+            if isInWindow && !lastAttachHadWindow {
+                view.forceRefreshSurface()
+            }
+            lastAttachHadWindow = isInWindow
             return
         }
 
@@ -1151,6 +1163,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         attachedView = view
+        lastAttachHadWindow = view.window != nil
 
         // If surface doesn't exist yet, create it once the view is in a real window so
         // content scale and pixel geometry are derived from the actual backing context.
@@ -1165,10 +1178,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             #endif
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
-                  displayID != 0,
-                  let s = surface {
+                  displayID != 0 {
             // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
-            ghostty_surface_set_display_id(s, displayID)
+            applyDisplayID(displayID)
         }
     }
 
@@ -1342,7 +1354,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let screen = view.window?.screen ?? NSScreen.main,
            let displayID = screen.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            applyDisplayID(displayID)
         }
 
         ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
@@ -1446,7 +1458,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             if let view = attachedView,
                let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
                displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
+                applyDisplayID(displayID, force: true)
             }
         }
     }
@@ -1653,10 +1665,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             self?.windowDidChangeScreen(notification)
         }
 
-        if let surface = terminalSurface?.surface,
+        if terminalSurface?.surface != nil,
            let displayID = window.screen?.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            terminalSurface?.applyDisplayID(displayID)
         }
 
         // Recompute from current bounds after layout, not stale pending sizes.
@@ -1860,7 +1872,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // renderer can remain stuck until some later screen/focus transition. Reassert the
             // display id now that we're focused to ensure the renderer is running.
             if let displayID = window?.screen?.displayID, displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
+                terminalSurface?.applyDisplayID(displayID, force: true)
             }
         }
         return result
@@ -2497,11 +2509,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
         guard let screen = window.screen else { return }
-        guard let surface = terminalSurface?.surface else { return }
+        guard terminalSurface?.surface != nil else { return }
 
         if let displayID = screen.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            terminalSurface?.applyDisplayID(displayID)
         }
 
         DispatchQueue.main.async { [weak self] in
