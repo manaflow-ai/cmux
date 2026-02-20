@@ -12,6 +12,13 @@ final class GhosttyConfigTests: XCTestCase {
         let candidates = GhosttyConfig.themeNameCandidates(from: "Builtin Solarized Light")
         XCTAssertEqual(candidates.first, "Builtin Solarized Light")
         XCTAssertTrue(candidates.contains("Solarized Light"))
+        XCTAssertTrue(candidates.contains("iTerm2 Solarized Light"))
+    }
+
+    func testThemeNameCandidatesMapSolarizedDarkToITerm2Alias() {
+        let candidates = GhosttyConfig.themeNameCandidates(from: "Builtin Solarized Dark")
+        XCTAssertTrue(candidates.contains("Solarized Dark"))
+        XCTAssertTrue(candidates.contains("iTerm2 Solarized Dark"))
     }
 
     func testThemeSearchPathsIncludeXDGDataDirsThemes() {

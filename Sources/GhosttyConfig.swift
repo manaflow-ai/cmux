@@ -173,12 +173,24 @@ struct GhosttyConfig {
 
     static func themeNameCandidates(from rawName: String) -> [String] {
         var candidates: [String] = []
+        let compatibilityAliases: [String: [String]] = [
+            "solarized light": ["iTerm2 Solarized Light"],
+            "solarized dark": ["iTerm2 Solarized Dark"],
+        ]
 
         func appendCandidate(_ value: String) {
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
             if !candidates.contains(trimmed) {
                 candidates.append(trimmed)
+            }
+
+            if let aliases = compatibilityAliases[trimmed.lowercased()] {
+                for alias in aliases {
+                    if !candidates.contains(alias) {
+                        candidates.append(alias)
+                    }
+                }
             }
         }
 
