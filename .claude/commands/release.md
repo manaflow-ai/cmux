@@ -55,7 +55,13 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
     - Verify the release appears at: https://github.com/manaflow-ai/cmux/releases
     - Check that the DMG is attached to the release
 
-12. **Notify**
+12. **Verify homebrew cask update**
+    - The "Update Homebrew Cask" workflow triggers automatically after the release workflow completes
+    - Watch: `gh run list --workflow=update-homebrew.yml --limit=1` and `gh run watch`
+    - Verify: `cd homebrew-cmux && git pull && grep version Casks/cmux.rb`
+    - Run `bash tests/test_homebrew_sha.sh` to confirm the SHA matches
+
+13. **Notify**
     - On success: `say "cmux release complete"`
     - On failure: `say "cmux release failed"`
 
