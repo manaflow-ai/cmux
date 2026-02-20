@@ -1,8 +1,23 @@
 import AppKit
 import ObjectiveC
+#if DEBUG
+import Bonsplit
+#endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
+
+#if DEBUG
+private func portalDebugToken(_ view: NSView?) -> String {
+    guard let view else { return "nil" }
+    let ptr = Unmanaged.passUnretained(view).toOpaque()
+    return String(describing: ptr)
+}
+
+private func portalDebugFrame(_ rect: NSRect) -> String {
+    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
+}
+#endif
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
@@ -120,6 +135,13 @@ final class WindowTerminalPortal: NSObject {
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
+#if DEBUG
+        let hadSuperview = (entry.hostedView?.superview === hostView) ? 1 : 0
+        dlog(
+            "portal.detach hosted=\(portalDebugToken(entry.hostedView)) " +
+            "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
+        )
+#endif
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
         }
@@ -133,6 +155,15 @@ final class WindowTerminalPortal: NSObject {
         let previousEntry = entriesByHostedId[hostedId]
 
         if let previousHostedId = hostedByAnchorId[anchorId], previousHostedId != hostedId {
+#if DEBUG
+            let previousToken = entriesByHostedId[previousHostedId]
+                .map { portalDebugToken($0.hostedView) }
+                ?? String(describing: previousHostedId)
+            dlog(
+                "portal.bind.replace anchor=\(portalDebugToken(anchorView)) " +
+                "oldHosted=\(previousToken) newHosted=\(portalDebugToken(hostedView))"
+            )
+#endif
             detachHostedView(withId: previousHostedId)
         }
 
@@ -156,15 +187,37 @@ final class WindowTerminalPortal: NSObject {
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
+#if DEBUG
+        if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
+            dlog(
+                "portal.bind hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) prevAnchor=\(portalDebugToken(previousEntry?.anchorView)) " +
+                "visible=\(visibleInUI ? 1 : 0) prevVisible=\((previousEntry?.visibleInUI ?? false) ? 1 : 0) " +
+                "z=\(zPriority) prevZ=\(previousEntry?.zPriority ?? Int.min)"
+            )
+        }
+#endif
 
         if hostedView.superview !== hostView {
-            hostedView.removeFromSuperview()
-            hostView.addSubview(hostedView)
-        } else if (didChangeAnchor || becameVisible || priorityIncreased), hostView.subviews.last !== hostedView {
-            // Refresh z-order only on meaningful transitions. Reordering on every bind call
-            // creates expensive reparent loops during SwiftUI update/layout churn.
-            hostedView.removeFromSuperview()
-            hostView.addSubview(hostedView)
+#if DEBUG
+            dlog(
+                "portal.reparent hosted=\(portalDebugToken(hostedView)) " +
+                "reason=attach super=\(portalDebugToken(hostedView.superview))"
+            )
+#endif
+            hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
+        } else if (becameVisible || priorityIncreased), hostView.subviews.last !== hostedView {
+            // Refresh z-order only when a view becomes visible or gets a higher priority.
+            // Anchor-only churn is common during split tree updates; forcing remove/add there
+            // causes transient inWindow=0 -> 1 bounces that can flash black.
+#if DEBUG
+            dlog(
+                "portal.reparent hosted=\(portalDebugToken(hostedView)) reason=raise " +
+                "didChangeAnchor=\(didChangeAnchor ? 1 : 0) becameVisible=\(becameVisible ? 1 : 0) " +
+                "priorityIncreased=\(priorityIncreased ? 1 : 0)"
+            )
+#endif
+            hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
 
         synchronizeHostedView(withId: hostedId)
@@ -185,23 +238,52 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
+#if DEBUG
+            if !hostedView.isHidden {
+                dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
+            }
+#endif
             hostedView.isHidden = true
             return
         }
         guard anchorView.window === window else {
+#if DEBUG
+            if !hostedView.isHidden {
+                dlog(
+                    "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
+                    "reason=anchorWindowMismatch anchorWindow=\(portalDebugToken(anchorView.window?.contentView))"
+                )
+            }
+#endif
             hostedView.isHidden = true
             return
         }
 
         let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
         let frameInHost = hostView.convert(frameInWindow, from: nil)
+        let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
+        let tinyFrame = frameInHost.width <= 1 || frameInHost.height <= 1
         let shouldHide =
             !entry.visibleInUI ||
-            Self.isHiddenOrAncestorHidden(anchorView) ||
-            frameInHost.width <= 1 ||
-            frameInHost.height <= 1
+            anchorHidden ||
+            tinyFrame
 
         let oldFrame = hostedView.frame
+#if DEBUG
+        let collapsedToTiny = oldFrame.width > 1 && oldFrame.height > 1 && tinyFrame
+        let restoredFromTiny = (oldFrame.width <= 1 || oldFrame.height <= 1) && !tinyFrame
+        if collapsedToTiny {
+            dlog(
+                "portal.frame.collapse hosted=\(portalDebugToken(hostedView)) anchor=\(portalDebugToken(anchorView)) " +
+                "old=\(portalDebugFrame(oldFrame)) new=\(portalDebugFrame(frameInHost))"
+            )
+        } else if restoredFromTiny {
+            dlog(
+                "portal.frame.restore hosted=\(portalDebugToken(hostedView)) anchor=\(portalDebugToken(anchorView)) " +
+                "old=\(portalDebugFrame(oldFrame)) new=\(portalDebugFrame(frameInHost))"
+            )
+        }
+#endif
         if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -215,6 +297,13 @@ final class WindowTerminalPortal: NSObject {
         }
 
         if hostedView.isHidden != shouldHide {
+#if DEBUG
+            dlog(
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=\(shouldHide ? 1 : 0) " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
+            )
+#endif
             hostedView.isHidden = shouldHide
         }
     }
