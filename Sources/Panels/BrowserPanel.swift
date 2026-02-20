@@ -75,6 +75,165 @@ enum BrowserLinkOpenSettings {
     }
 }
 
+enum BrowserInsecureHTTPSettings {
+    static let allowlistKey = "browserInsecureHTTPAllowlist"
+    static let defaultAllowlistPatterns = [
+        "127.0.0.1",
+        "localhost",
+        "*.localtest.me",
+    ]
+    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
+
+    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+    }
+
+    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
+        let source: String
+        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            source = rawValue
+        } else {
+            source = defaultAllowlistText
+        }
+        let parsed = parsePatterns(from: source)
+        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
+    }
+
+    static func isHostAllowed(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        isHostAllowed(host, rawAllowlist: defaults.string(forKey: allowlistKey))
+    }
+
+    static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
+        guard let normalizedHost = normalizeHost(host) else { return false }
+        return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
+            hostMatchesPattern(normalizedHost, pattern: pattern)
+        }
+    }
+
+    static func addAllowedHost(_ host: String, defaults: UserDefaults = .standard) {
+        guard let normalizedHost = normalizeHost(host) else { return }
+        var patterns = normalizedAllowlistPatterns(defaults: defaults)
+        guard !patterns.contains(normalizedHost) else { return }
+        patterns.append(normalizedHost)
+        defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
+    }
+
+    static func normalizeHost(_ rawHost: String) -> String? {
+        var value = rawHost
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !value.isEmpty else { return nil }
+
+        if let parsed = URL(string: value)?.host {
+            return trimHost(parsed)
+        }
+
+        if let schemeRange = value.range(of: "://") {
+            value = String(value[schemeRange.upperBound...])
+        }
+
+        if let slash = value.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            value = String(value[..<slash])
+        }
+
+        if value.hasPrefix("[") {
+            if let closing = value.firstIndex(of: "]") {
+                value = String(value[value.index(after: value.startIndex)..<closing])
+            } else {
+                value.removeFirst()
+            }
+        } else if let colon = value.lastIndex(of: ":"),
+                  value[value.index(after: colon)...].allSatisfy(\.isNumber),
+                  value.filter({ $0 == ":" }).count == 1 {
+            value = String(value[..<colon])
+        }
+
+        return trimHost(value)
+    }
+
+    private static func parsePatterns(from rawValue: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",;\n\r\t")
+        var out: [String] = []
+        var seen = Set<String>()
+        for token in rawValue.components(separatedBy: separators) {
+            guard let normalized = normalizePattern(token) else { continue }
+            guard seen.insert(normalized).inserted else { continue }
+            out.append(normalized)
+        }
+        return out
+    }
+
+    private static func normalizePattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
+
+    private static func trimHost(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+func browserShouldBlockInsecureHTTPURL(
+    _ url: URL,
+    defaults: UserDefaults = .standard,
+    runtimeAllowedHosts: Set<String> = []
+) -> Bool {
+    browserShouldBlockInsecureHTTPURL(
+        url,
+        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey),
+        runtimeAllowedHosts: runtimeAllowedHosts
+    )
+}
+
+func browserShouldBlockInsecureHTTPURL(
+    _ url: URL,
+    rawAllowlist: String?,
+    runtimeAllowedHosts: Set<String> = []
+) -> Bool {
+    guard url.scheme?.lowercased() == "http" else { return false }
+    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
+    if runtimeAllowedHosts.contains(host) {
+        return false
+    }
+    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
+}
+
+@MainActor
+enum BrowserInsecureHTTPRuntimeAllowlist {
+    private static var hosts = Set<String>()
+
+    static func contains(_ host: String) -> Bool {
+        hosts.contains(host)
+    }
+
+    static func allow(_ host: String) {
+        hosts.insert(host)
+    }
+
+    static func snapshot() -> Set<String> {
+        hosts
+    }
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -769,6 +928,11 @@ actor BrowserSearchSuggestionService {
 
 /// BrowserPanel provides a WKWebView-based browser panel.
 /// All browser panels share a WKProcessPool for cookie sharing.
+private enum BrowserInsecureHTTPNavigationIntent {
+    case currentTab
+    case newTab
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
@@ -907,6 +1071,12 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
+            self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
+        }
+        navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] url, intent in
+            self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+        }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
@@ -915,6 +1085,9 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
+        }
+        browserUIDelegate.requestNavigation = { [weak self] url, intent in
+            self?.requestNavigation(url, intent: intent)
         }
         webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
@@ -1208,9 +1381,20 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL) {
+    func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(for: url, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            return
+        }
+        navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+    }
+
+    private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        if recordTypedNavigation {
+            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
+        }
         navigationDelegate?.lastAttemptedURL = url
         var request = URLRequest(url: url)
         // Behave like a normal browser (respect HTTP caching). Reload is handled separately.
@@ -1226,8 +1410,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !trimmed.isEmpty else { return }
 
         if let url = resolveNavigableURL(from: trimmed) {
-            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
-            navigate(to: url)
+            navigate(to: url, recordTypedNavigation: true)
             return
         }
 
@@ -1238,6 +1421,67 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func resolveNavigableURL(from input: String) -> URL? {
         resolveBrowserNavigableURL(input)
+    }
+
+    private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
+        browserShouldBlockInsecureHTTPURL(
+            url,
+            runtimeAllowedHosts: BrowserInsecureHTTPRuntimeAllowlist.snapshot()
+        )
+    }
+
+    private func requestNavigation(_ url: URL, intent: BrowserInsecureHTTPNavigationIntent) {
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+            return
+        }
+        switch intent {
+        case .currentTab:
+            navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+        case .newTab:
+            openLinkInNewTab(url: url)
+        }
+    }
+
+    private func presentInsecureHTTPAlert(
+        for url: URL,
+        intent: BrowserInsecureHTTPNavigationIntent,
+        recordTypedNavigation: Bool
+    ) {
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Connection isn't secure"
+        alert.informativeText = """
+        \(host) uses plain HTTP, so traffic can be read or modified on the network.
+
+        Open this URL in your default browser, or proceed in cmux.
+        """
+        alert.addButton(withTitle: "Open in Default Browser")
+        alert.addButton(withTitle: "Proceed in cmux")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Always allow this host in cmux"
+
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            NSWorkspace.shared.open(url)
+        case .alertSecondButtonReturn:
+            BrowserInsecureHTTPRuntimeAllowlist.allow(host)
+            if alert.suppressionButton?.state == .on {
+                BrowserInsecureHTTPSettings.addAllowedHost(host)
+            }
+            switch intent {
+            case .currentTab:
+                navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+            case .newTab:
+                openLinkInNewTab(url: url)
+            }
+        default:
+            return
+        }
     }
 
     deinit {
@@ -1445,6 +1689,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
+    var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
+    var handleBlockedInsecureHTTPNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
@@ -1564,6 +1810,21 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           shouldBlockInsecureHTTPNavigation?(url) == true {
+            let intent: BrowserInsecureHTTPNavigationIntent
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.modifierFlags.contains(.command) {
+                intent = .newTab
+            } else {
+                intent = .currentTab
+            }
+            handleBlockedInsecureHTTPNavigation?(url, intent)
+            decisionHandler(.cancel)
+            return
+        }
+
         // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {
@@ -1589,6 +1850,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
+    var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
 
     /// Returning nil tells WebKit not to open a new window.
     /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
@@ -1599,7 +1861,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url {
-            if navigationAction.modifierFlags.contains(.command) {
+            if let requestNavigation {
+                let intent: BrowserInsecureHTTPNavigationIntent =
+                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                requestNavigation(url, intent)
+            } else if navigationAction.modifierFlags.contains(.command) {
                 openInNewTab?(url)
             } else {
                 webView.load(URLRequest(url: url))

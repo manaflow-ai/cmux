@@ -2275,6 +2275,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
@@ -2451,6 +2452,37 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("HTTP Host Allowlist")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            Text("HTTP loads outside this list show a warning prompt with options to open externally or proceed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            TextEditor(text: $browserInsecureHTTPAllowlist)
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .frame(minHeight: 86)
+                                .padding(6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(nsColor: .textBackgroundColor))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                )
+                                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
+
+                            Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                        SettingsCardDivider()
+
                         SettingsCardRow("Browsing History", subtitle: browserHistorySubtitle) {
                             Button("Clear History…") {
                                 showClearBrowserHistoryConfirmation = true
@@ -2599,6 +2631,7 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
