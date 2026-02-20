@@ -467,7 +467,7 @@ struct cmuxApp: App {
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    Button("Tab \(number)") {
+                    Button("Workspace \(number)") {
                         let manager = (AppDelegate.shared?.tabManager ?? tabManager)
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
