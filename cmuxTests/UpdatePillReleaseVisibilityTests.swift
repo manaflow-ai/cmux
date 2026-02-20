@@ -64,3 +64,34 @@ final class UpdatePillReleaseVisibilityTests: XCTestCase {
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
+
+/// Regression test: ensure WKWebView can load HTTP development URLs (e.g. *.localtest.me).
+final class AppTransportSecurityTests: XCTestCase {
+    func testInfoPlistAllowsArbitraryLoadsInWebContent() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let ats = try XCTUnwrap(plist["NSAppTransportSecurity"] as? [String: Any])
+        XCTAssertEqual(
+            ats["NSAllowsArbitraryLoadsInWebContent"] as? Bool,
+            true,
+            "Resources/Info.plist must allow HTTP loads in WKWebView for local dev hostnames."
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
