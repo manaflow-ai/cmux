@@ -19,6 +19,25 @@ enum UpdateChannelSettings {
         }
         return (url: stableURL, isNightly: false, usedFallback: stableURL == stableFeedURL)
     }
+
+    static func shouldOfferStableDowngrade(
+        includeNightlyBuilds: Bool,
+        currentShortVersion: String?
+    ) -> Bool {
+        guard !includeNightlyBuilds else { return false }
+        guard let currentShortVersion, !currentShortVersion.isEmpty else { return false }
+        return currentShortVersion.contains("-nightly")
+    }
+
+    static func shouldOfferStableDowngrade(
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) -> Bool {
+        shouldOfferStableDowngrade(
+            includeNightlyBuilds: defaults.bool(forKey: includeNightlyBuildsKey),
+            currentShortVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        )
+    }
 }
 
 extension UpdateDriver: SPUUpdaterDelegate {
@@ -84,6 +103,19 @@ extension UpdateDriver: SPUUpdaterDelegate {
         } else {
             UpdateLogStore.shared.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated), latest=\(latestVersion))")
         }
+    }
+
+    func bestValidUpdate(in appcast: SUAppcast, for updater: SPUUpdater) -> SUAppcastItem? {
+        guard UpdateChannelSettings.shouldOfferStableDowngrade() else { return nil }
+        guard let latestStableItem = appcast.items.first else { return nil }
+
+        let version = latestStableItem.displayVersionString
+        if version.isEmpty {
+            UpdateLogStore.shared.append("stable channel override: selecting latest stable item")
+        } else {
+            UpdateLogStore.shared.append("stable channel override: selecting \(version) so nightly users can return to stable")
+        }
+        return latestStableItem
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
