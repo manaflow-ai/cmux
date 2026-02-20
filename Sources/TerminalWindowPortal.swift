@@ -359,7 +359,11 @@ final class WindowTerminalPortal: NSObject {
             frameInHost.size.height.isFinite
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = frameInHost.width <= 1 || frameInHost.height <= 1
-        let outsideHostBounds = !frameInHost.intersects(hostView.bounds)
+        // During early bind/layout churn hostView can still be zero-sized even though anchors
+        // already report valid window coordinates. Treating that as "outside" hides terminals
+        // and breaks hit-testing/z-order until a later sync.
+        let hasUsableHostBounds = hostView.bounds.width > 1 && hostView.bounds.height > 1
+        let outsideHostBounds = hasUsableHostBounds && !frameInHost.intersects(hostView.bounds)
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
@@ -501,6 +505,31 @@ final class WindowTerminalPortal: NSObject {
 enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private static var pendingDetachTasksByHostedId: [ObjectIdentifier: Task<Void, Never>] = [:]
+    private static var detachGenerationByHostedId: [ObjectIdentifier: UInt64] = [:]
+
+    private static func cancelScheduledDetach(for hostedId: ObjectIdentifier, clearGeneration: Bool = true) {
+        pendingDetachTasksByHostedId.removeValue(forKey: hostedId)?.cancel()
+        if clearGeneration {
+            detachGenerationByHostedId.removeValue(forKey: hostedId)
+        }
+    }
+
+    private static func detachHostedView(withId hostedId: ObjectIdentifier) {
+        cancelScheduledDetach(for: hostedId)
+
+        if let windowId = hostedToWindowId.removeValue(forKey: hostedId),
+           let portal = portalsByWindowId[windowId] {
+            portal.detachHostedView(withId: hostedId)
+            pruneHostedMappings(for: windowId, validHostedIds: portal.hostedIds())
+            return
+        }
+
+        for (windowId, portal) in portalsByWindowId where portal.hostedIds().contains(hostedId) {
+            portal.detachHostedView(withId: hostedId)
+            pruneHostedMappings(for: windowId, validHostedIds: portal.hostedIds())
+        }
+    }
 
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }
@@ -531,6 +560,13 @@ enum TerminalWindowPortalRegistry {
     }
 
     private static func removePortal(windowId: ObjectIdentifier, window: NSWindow?) {
+        let hostedIdsForWindow = hostedToWindowId.compactMap { hostedId, mappedWindowId in
+            mappedWindowId == windowId ? hostedId : nil
+        }
+        hostedIdsForWindow.forEach { hostedId in
+            cancelScheduledDetach(for: hostedId)
+        }
+
         if let portal = portalsByWindowId.removeValue(forKey: windowId) {
             portal.tearDown()
         }
@@ -570,6 +606,7 @@ enum TerminalWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
         let nextPortal = portal(for: window)
+        cancelScheduledDetach(for: hostedId)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
@@ -585,6 +622,28 @@ enum TerminalWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func scheduleDetach(hostedView: GhosttySurfaceScrollView, delay: TimeInterval = 0.25) {
+        let hostedId = ObjectIdentifier(hostedView)
+        cancelScheduledDetach(for: hostedId, clearGeneration: false)
+        let generation = (detachGenerationByHostedId[hostedId] ?? 0) &+ 1
+        detachGenerationByHostedId[hostedId] = generation
+
+        let delayNs = UInt64(max(0.0, delay) * 1_000_000_000)
+        pendingDetachTasksByHostedId[hostedId] = Task { @MainActor in
+            if delayNs > 0 {
+                try? await Task.sleep(nanoseconds: delayNs)
+            }
+            guard !Task.isCancelled else { return }
+            guard detachGenerationByHostedId[hostedId] == generation else { return }
+            detachHostedView(withId: hostedId)
+        }
+    }
+
+    static func detach(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        detachHostedView(withId: hostedId)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {

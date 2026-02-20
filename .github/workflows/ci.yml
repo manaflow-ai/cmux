@@ -5,6 +5,7 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
 
 jobs:
   web-typecheck:
@@ -25,12 +26,39 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  ui-tests:
+  macos-tests:
     runs-on: self-hosted
-    concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
+    timeout-minutes: 360
     steps:
+      - name: Acquire macOS build lock
+        run: |
+          set -euo pipefail
+          LOCK_DIR="/tmp/cmux-self-hosted-build.lock"
+          STALE_AFTER_SECONDS=21600
+          WAIT_SECONDS=10
+          echo "Waiting for lock: $LOCK_DIR"
+          while true; do
+            if mkdir "$LOCK_DIR" 2>/dev/null; then
+              echo "${GITHUB_RUN_ID}:${GITHUB_WORKFLOW}:${GITHUB_JOB}:$(date +%s)" > "$LOCK_DIR/owner"
+              echo "CMUX_BUILD_LOCK_DIR=$LOCK_DIR" >> "$GITHUB_ENV"
+              echo "Acquired lock"
+              break
+            fi
+
+            if [ -f "$LOCK_DIR/owner" ]; then
+              created_at="$(awk -F: '{print $4}' "$LOCK_DIR/owner" 2>/dev/null || echo 0)"
+              now="$(date +%s)"
+              age=$((now - created_at))
+              if [ "$age" -gt "$STALE_AFTER_SECONDS" ]; then
+                echo "Removing stale lock (age ${age}s)"
+                rm -rf "$LOCK_DIR"
+                continue
+              fi
+            fi
+
+            sleep "$WAIT_SECONDS"
+          done
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -69,7 +97,7 @@ jobs:
               exit 1
             fi
           fi
-          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false)
+          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast)
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
           test -d GhosttyKit.xcframework
@@ -77,10 +105,53 @@ jobs:
       - name: Clean DerivedData
         run: |
           # Remove stale build cache to avoid incremental build errors
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-tests-v1
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-tests-v2
 
-      - name: Run UI tests
+      - name: Run Unit Tests
         run: |
           set -euo pipefail
-          # Run directly on the self-hosted macOS runner.
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
+          ./scripts/test-unit.sh test
+
+      - name: Run UI Tests
+        run: |
+          set -euo pipefail
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test
+
+      - name: Run Python E2E Tests (v1)
+        env:
+          CMUX_TEST_ALLOW_ANY_USER: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/run-tests-v1.sh
+
+      - name: Run Python E2E Tests (v2)
+        env:
+          CMUX_TEST_ALLOW_ANY_USER: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/run-tests-v2.sh
+
+      - name: Run Interactive Test Entry Points (expect skip in CI)
+        run: |
+          set -euo pipefail
+          python3 tests/test_ctrl_interactive.py
+          python3 tests_v2/test_ctrl_interactive.py
+          bash tests/test_ctrl_signals.sh
+          bash tests/test_app_keystrokes.sh
+
+      - name: Release macOS build lock
+        if: always()
+        run: |
+          set -euo pipefail
+          LOCK_DIR="${CMUX_BUILD_LOCK_DIR:-/tmp/cmux-self-hosted-build.lock}"
+          if [ -d "$LOCK_DIR" ] && [ -f "$LOCK_DIR/owner" ]; then
+            owner="$(cat "$LOCK_DIR/owner" || true)"
+            if echo "$owner" | grep -q "^${GITHUB_RUN_ID}:"; then
+              rm -rf "$LOCK_DIR"
+              echo "Released lock"
+            else
+              echo "Lock owned by another run; leaving in place"
+            fi
+          fi

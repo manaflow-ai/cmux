@@ -7,18 +7,28 @@ set -e
 echo "=== cmux Keystroke Test ==="
 echo ""
 
-# Check if cmux is running
-if ! pgrep -x "cmux" > /dev/null; then
-    echo "Error: cmux is not running"
-    echo "Please start cmux first"
+# This script requires UI automation and manual verification. Keep it opt-in
+# so automated suites don't fail on non-interactive environments.
+if [[ "${CMUX_RUN_INTERACTIVE_TESTS:-0}" != "1" ]]; then
+    echo "SKIP: manual UI keystroke test (set CMUX_RUN_INTERACTIVE_TESTS=1 to run)"
+    exit 0
+fi
+
+APP_NAME="${CMUX_APP_NAME:-}"
+if [[ -z "$APP_NAME" ]]; then
+    APP_NAME="$(osascript -e 'tell application "System Events" to name of first process whose background only is false and name starts with "cmux"' 2>/dev/null || true)"
+fi
+
+if [[ -z "$APP_NAME" ]]; then
+    echo "Error: no running cmux app process found"
+    echo "Tip: launch cmux first or set CMUX_APP_NAME"
     exit 1
 fi
 
-echo "cmux is running"
-echo ""
+echo "Using app: $APP_NAME"
 
 # Activate cmux
-osascript -e 'tell application "cmux" to activate'
+osascript -e "tell application \"$APP_NAME\" to activate"
 sleep 0.5
 
 echo "Test 1: Testing Ctrl+C (SIGINT)"

@@ -7,7 +7,7 @@ End-to-end release via PR flow: bump version, update changelog, create PR, merge
 ### Phase 1: Version bump, changelog, PR, merge, tag
 
 1. **Determine the new version number**
-   - Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
+   - Get the current version from `cmux.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
    - Bump the minor version unless the user specifies otherwise (e.g., 0.48.0 → 0.49.0)
 
 2. **Create a release branch**
@@ -30,7 +30,7 @@ End-to-end release via PR flow: bump version, update changelog, create PR, merge
    - Run `./scripts/bump-version.sh` (bumps minor by default)
 
 6. **Commit and push the release branch**
-   - Stage: `CHANGELOG.md`, `GhosttyTabs.xcodeproj/project.pbxproj`
+   - Stage: `CHANGELOG.md`, `cmux.xcodeproj/project.pbxproj`
    - Commit message: `Bump version to X.Y.Z`
    - Push: `git push -u origin release/vX.Y.Z`
 

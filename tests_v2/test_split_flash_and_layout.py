@@ -163,7 +163,8 @@ def main() -> int:
 
         c.reset_empty_panel_count()
         c.drag_surface_to_split(drag_panel_id, "right")
-        _assert_no_transient_detach_or_hide(c)
+        # Keep sampling long enough to catch delayed teardown/rebind gaps.
+        _assert_no_transient_detach_or_hide(c, duration_s=3.0)
         time.sleep(0.4)
         flashes = c.empty_panel_count()
         if flashes != 0:

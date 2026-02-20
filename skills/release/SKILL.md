@@ -10,7 +10,7 @@ Run this workflow to prepare and publish a cmux release.
 ## Workflow
 
 1. Determine the version:
-- Read `MARKETING_VERSION` from `GhosttyTabs.xcodeproj/project.pbxproj`.
+- Read `MARKETING_VERSION` from `cmux.xcodeproj/project.pbxproj`.
 - Default to a minor bump unless the user explicitly requests patch/major/specific version.
 
 2. Create a release branch:

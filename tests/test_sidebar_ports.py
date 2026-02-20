@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 # Add the directory containing cmux.py to the path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -96,8 +97,18 @@ def _start_external_server(base: Path, port: int) -> subprocess.Popen:
     return proc
 
 
-def _wait_for_port(client: cmux, port: int, timeout: float = 18.0) -> dict[str, str]:
+def _wait_for_port(
+    client: cmux,
+    port: int,
+    timeout: float = 18.0,
+    kick: Callable[[], None] | None = None,
+) -> dict[str, str]:
     def pred():
+        if kick is not None:
+            try:
+                kick()
+            except Exception:
+                pass
         state = _parse_sidebar_state(client.sidebar_state())
         raw = state.get("ports", "")
         if raw == "none" or not raw:
@@ -266,8 +277,14 @@ def main() -> int:
             # Ensure the server is actually listening (sanity check + reduces flakiness).
             _wait_for_lsof_listen_pid(port, expected_pid=pid, timeout=8.0)
 
-            # Wait for the sidebar to report the port.
-            _wait_for_port(client, port, timeout=18.0)
+            # Trigger a fresh scan after the listener is confirmed, then wait
+            # for the sidebar row to include the port.
+            _wait_for_port(
+                client,
+                port,
+                timeout=18.0,
+                kick=lambda: client.ports_kick(tab=new_tab_id),
+            )
 
             # Cleanup server.
             client.send(f"kill {pid} >/dev/null 2>&1 || true\n")

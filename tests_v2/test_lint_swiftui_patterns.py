@@ -26,12 +26,14 @@ def get_repo_root():
     if result.returncode == 0:
         return Path(result.stdout.strip())
 
-    # Fall back to finding GhosttyTabs directory
+    # Fall back to nearby directories that look like the repo root.
     cwd = Path.cwd()
-    if cwd.name == "GhosttyTabs" or (cwd / "Sources").exists():
+    if (cwd / "Sources").exists():
         return cwd
-    if (cwd.parent / "GhosttyTabs").exists():
-        return cwd.parent / "GhosttyTabs"
+
+    for candidate in [cwd.parent, cwd.parent.parent]:
+        if (candidate / "Sources").exists() and list(candidate.glob("*.xcodeproj")):
+            return candidate
 
     # Last resort: use current directory
     return cwd

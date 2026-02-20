@@ -19,6 +19,40 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
+def _wait_selector_with_retry(c: cmux, target: str, selector: str, timeout_s: float = 5.0) -> None:
+    """
+    Browser splits can transiently race panel/webview mounting right after
+    open_split. Retry a few times before failing to keep the test deterministic.
+    """
+    last_error = None
+    for _ in range(3):
+        try:
+            c._call(
+                "browser.wait",
+                {"surface_id": target, "selector": selector, "timeout_ms": int(timeout_s * 1000)},
+            )
+            return
+        except cmuxError as exc:
+            if "timeout" not in str(exc):
+                raise
+            last_error = exc
+
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            probe = c._call(
+                "browser.eval",
+                {"surface_id": target, "script": f"document.querySelector('{selector}') !== null"},
+            ) or {}
+            if bool(probe.get("value")):
+                return
+            time.sleep(0.05)
+        time.sleep(0.2)
+
+    if last_error is not None:
+        raise last_error
+    raise cmuxError(f"Timed out waiting for selector {selector}")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         ident = c.identify()
@@ -52,22 +86,7 @@ def main() -> int:
         data_url = "data:text/html," + urllib.parse.quote(html)
 
         c._call("browser.navigate", {"surface_id": target, "url": data_url})
-        try:
-            c._call("browser.wait", {"surface_id": target, "selector": "#btn", "timeout_ms": 5000})
-        except cmuxError as exc:
-            if "timeout" not in str(exc):
-                raise
-            deadline = time.time() + 5.0
-            while time.time() < deadline:
-                probe = c._call(
-                    "browser.eval",
-                    {"surface_id": target, "script": "document.querySelector('#btn') !== null"},
-                ) or {}
-                if bool(probe.get("value")):
-                    break
-                time.sleep(0.05)
-            else:
-                raise
+        _wait_selector_with_retry(c, target, "#btn", timeout_s=5.0)
 
         c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "cmux"})
         c._call("browser.click", {"surface_id": target, "selector": "#btn"})

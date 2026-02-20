@@ -73,7 +73,7 @@ func browserOmnibarSelectionDeltaForCommandNavigation(
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
-    guard normalizedFlags == [.control] else { return nil }
+    guard normalizedFlags == [.control] || normalizedFlags == [.command] else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil

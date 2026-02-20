@@ -38,11 +38,42 @@ def _default_socket_path() -> str:
     override = os.environ.get("CMUX_SOCKET_PATH") or os.environ.get("CMUX_SOCKET")
     if override:
         return override
+    last_socket_path_file = "/tmp/cmux-last-socket-path"
+    if os.path.exists(last_socket_path_file):
+        try:
+            with open(last_socket_path_file, "r", encoding="utf-8") as f:
+                candidate = f.read().strip()
+            if candidate and os.path.exists(candidate) and _can_connect(candidate):
+                return candidate
+        except OSError:
+            pass
     candidates = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+    for path in candidates:
+        if os.path.exists(path) and _can_connect(path):
+            return path
+    # If no connectable socket is found yet, fall back to the first existing
+    # candidate so callers that launch cmux shortly after can still connect.
     for path in candidates:
         if os.path.exists(path):
             return path
     return candidates[0]
+
+
+def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
+    for _ in range(max(1, retries)):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.settimeout(timeout)
+            s.connect(path)
+            return True
+        except OSError:
+            time.sleep(0.05)
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    return False
 
 
 def _looks_like_uuid(s: str) -> bool:
@@ -144,6 +175,9 @@ class cmux:
                     pass
                 self._socket = None
                 if e.errno in (errno.ECONNREFUSED, errno.ENOENT) and time.time() - start < 10.0:
+                    # Socket files can be stale after relaunch; refresh from
+                    # current heuristics before retrying.
+                    self.socket_path = _default_socket_path()
                     time.sleep(0.1)
                     continue
                 raise cmuxError(f"Failed to connect: {e}")

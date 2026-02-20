@@ -12,10 +12,36 @@ permissions:
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
-    concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
     steps:
+      - name: Acquire macOS build lock
+        run: |
+          set -euo pipefail
+          LOCK_DIR="/tmp/cmux-self-hosted-build.lock"
+          STALE_AFTER_SECONDS=21600
+          WAIT_SECONDS=10
+          echo "Waiting for lock: $LOCK_DIR"
+          while true; do
+            if mkdir "$LOCK_DIR" 2>/dev/null; then
+              echo "${GITHUB_RUN_ID}:${GITHUB_WORKFLOW}:${GITHUB_JOB}:$(date +%s)" > "$LOCK_DIR/owner"
+              echo "CMUX_BUILD_LOCK_DIR=$LOCK_DIR" >> "$GITHUB_ENV"
+              echo "Acquired lock"
+              break
+            fi
+
+            if [ -f "$LOCK_DIR/owner" ]; then
+              created_at="$(awk -F: '{print $4}' "$LOCK_DIR/owner" 2>/dev/null || echo 0)"
+              now="$(date +%s)"
+              age=$((now - created_at))
+              if [ "$age" -gt "$STALE_AFTER_SECONDS" ]; then
+                echo "Removing stale lock (age ${age}s)"
+                rm -rf "$LOCK_DIR"
+                continue
+              fi
+            fi
+
+            sleep "$WAIT_SECONDS"
+          done
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -60,7 +86,7 @@ jobs:
       - name: Clear SPM cache
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
 
       - name: Configure SwiftPM cache
         run: |
@@ -206,3 +232,18 @@ jobs:
         run: |
           security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
+
+      - name: Release macOS build lock
+        if: always()
+        run: |
+          set -euo pipefail
+          LOCK_DIR="${CMUX_BUILD_LOCK_DIR:-/tmp/cmux-self-hosted-build.lock}"
+          if [ -d "$LOCK_DIR" ] && [ -f "$LOCK_DIR/owner" ]; then
+            owner="$(cat "$LOCK_DIR/owner" || true)"
+            if echo "$owner" | grep -q "^${GITHUB_RUN_ID}:"; then
+              rm -rf "$LOCK_DIR"
+              echo "Released lock"
+            else
+              echo "Lock owned by another run; leaving in place"
+            fi
+          fi

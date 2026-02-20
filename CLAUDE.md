@@ -19,7 +19,7 @@ After making code changes, always run the reload script with a tag to launch the
 After making code changes, always run the build:
 
 ```bash
-xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
 ```
 
 When rebuilding GhosttyKit.xcframework, always use Release optimizations:
@@ -96,7 +96,7 @@ tail -f /tmp/cmux-debug.log
 Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test'
 ```
 
 ## Basic tests
@@ -104,7 +104,7 @@ ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcode
 Run basic automated tests on the UTM macOS VM (never on the host machine):
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ## Ghostty submodule workflow

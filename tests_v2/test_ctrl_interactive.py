@@ -77,9 +77,11 @@ def main():
     print("\nThis script tests if Ctrl+C and Ctrl+D work correctly.")
     print("Run this inside the cmux terminal to verify the fix.\n")
 
-    # Check if running in a terminal
-    if not os.isatty(sys.stdin.fileno()):
-        print("Warning: Not running in a terminal")
+    # This script expects a human driving an interactive TTY. In automated
+    # runners, skip instead of producing false negatives.
+    if not os.isatty(sys.stdin.fileno()) or not os.isatty(sys.stdout.fileno()):
+        print("SKIP: interactive test requires a TTY")
+        return 0
 
     results = []
 

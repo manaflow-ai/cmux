@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,7 +32,7 @@ MONITOR_DURATION_S = 3.0
 SAMPLE_INTERVAL_S = 0.5
 
 
-def get_cmux_pid() -> int | None:
+def get_cmux_pid() -> Optional[int]:
     socket_path = os.environ.get("CMUX_SOCKET_PATH")
     if not socket_path:
         try:

@@ -4,6 +4,13 @@
 
 set -e
 
+# This is a manual interactive test. In non-interactive automation, skip
+# instead of failing due missing Ctrl+C keypress input.
+if [[ ! -t 0 || ! -t 1 ]]; then
+    echo "SKIP: interactive control-signal test requires a TTY"
+    exit 0
+fi
+
 echo "=== Control Signal Test Suite ==="
 echo ""
 

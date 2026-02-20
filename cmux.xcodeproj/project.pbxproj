@@ -105,8 +105,8 @@
 			isa = PBXContainerItemProxy;
 			containerPortal = A5001070 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = A5001050 /* GhosttyTabs */;
-			remoteInfo = GhosttyTabs;
+			remoteGlobalIDString = A5001050 /* cmux */;
+			remoteInfo = cmux;
 		};
 		B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -119,8 +119,8 @@
 			isa = PBXContainerItemProxy;
 			containerPortal = A5001070 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = A5001050 /* GhosttyTabs */;
-			remoteInfo = GhosttyTabs;
+			remoteGlobalIDString = A5001050 /* cmux */;
+			remoteInfo = cmux;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -403,9 +403,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A5001050 /* GhosttyTabs */ = {
+		A5001050 /* cmux */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */;
+			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "cmux" */;
 			buildPhases = (
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
@@ -425,8 +425,8 @@
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
 				);
-			name = GhosttyTabs;
-			productName = GhosttyTabs;
+			name = cmux;
+			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
 			productType = "com.apple.product-type.application";
 		};
@@ -492,7 +492,7 @@
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1500;
 			};
-			buildConfigurationList = A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */;
+			buildConfigurationList = A5001071 /* Build configuration list for PBXProject "cmux" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -511,7 +511,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A5001050 /* GhosttyTabs */,
+				A5001050 /* cmux */,
 				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
 				CB450DF0F0B3839599082C4D /* cmuxUITests */,
 				F1000004A1B2C3D4E5F60718 /* cmuxTests */,
@@ -610,12 +610,12 @@
 /* Begin PBXTargetDependency section */
 		32568B0DCFC8656BA952468E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A5001050 /* GhosttyTabs */;
+			target = A5001050 /* cmux */;
 			targetProxy = 738BF3D3196765B250928A93 /* PBXContainerItemProxy */;
 		};
 		F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A5001050 /* GhosttyTabs */;
+			target = A5001050 /* cmux */;
 			targetProxy = F1000008A1B2C3D4E5F60718 /* PBXContainerItemProxy */;
 		};
 		B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */ = {
@@ -805,7 +805,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
 		};
@@ -821,7 +821,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
 		};
@@ -840,7 +840,7 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Debug;
 		};
@@ -858,7 +858,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
-				TEST_TARGET_NAME = GhosttyTabs;
+				TEST_TARGET_NAME = cmux;
 			};
 			name = Release;
 		};
@@ -919,7 +919,7 @@
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
-	A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */ = {
+	A5001060 /* Build configuration list for PBXNativeTarget "cmux" */ = {
 		isa = XCConfigurationList;
 		buildConfigurations = (
 			A5001082 /* Debug */,
@@ -955,7 +955,7 @@
 		defaultConfigurationIsVisible = 0;
 		defaultConfigurationName = Release;
 	};
-	A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */ = {
+	A5001071 /* Build configuration list for PBXProject "cmux" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A5001080 /* Debug */,
