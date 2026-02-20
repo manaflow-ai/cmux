@@ -2284,6 +2284,7 @@ struct SettingsView: View {
     @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2302,6 +2303,10 @@ struct SettingsView: View {
         default:
             return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
         }
+    }
+
+    private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
+        browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
@@ -2460,7 +2465,7 @@ struct SettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
-                            TextEditor(text: $browserInsecureHTTPAllowlist)
+                            TextEditor(text: $browserInsecureHTTPAllowlistDraft)
                                 .font(.system(size: 12, weight: .regular, design: .monospaced))
                                 .frame(minHeight: 86)
                                 .padding(6)
@@ -2473,6 +2478,17 @@ struct SettingsView: View {
                                         .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                                 )
                                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
+
+                            HStack {
+                                Spacer(minLength: 0)
+                                Button("Save") {
+                                    saveBrowserInsecureHTTPAllowlist()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                            }
 
                             Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
                                 .font(.caption)
@@ -2606,6 +2622,13 @@ struct SettingsView: View {
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+        }
+        .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
+            // Keep draft in sync with external changes unless the user has local unsaved edits.
+            if browserInsecureHTTPAllowlistDraft == oldValue {
+                browserInsecureHTTPAllowlistDraft = newValue
+            }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
@@ -2632,10 +2655,15 @@ struct SettingsView: View {
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+        browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
+    }
+
+    private func saveBrowserInsecureHTTPAllowlist() {
+        browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
     }
 }
 
