@@ -147,6 +147,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @FocusState private var inPageFindFieldFocused: Bool
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
     private let devToolsButtonIconSize: CGFloat = 11
@@ -216,6 +217,65 @@ struct BrowserPanelView: View {
                 .zIndex(1000)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if panel.isInPageFindVisible {
+                HStack(spacing: 6) {
+                    TextField(
+                        "Find in page",
+                        text: Binding(
+                            get: { panel.inPageFindQuery },
+                            set: { panel.updateInPageFindQuery($0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 220)
+                    .focused($inPageFindFieldFocused)
+                    .onSubmit {
+                        _ = panel.inPageFindNextFromUI()
+                    }
+                    .accessibilityIdentifier("BrowserInPageFindField")
+
+                    if panel.inPageFindMatchFound == false {
+                        Text("No match")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
+                        Image(systemName: "chevron.up")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Previous match")
+
+                    Button(action: { _ = panel.inPageFindNextFromUI() }) {
+                        Image(systemName: "chevron.down")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Next match")
+
+                    Button(action: {
+                        _ = panel.hideInPageFindFromUI()
+                    }) {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Close find")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                )
+                .padding(.top, 42)
+                .padding(.trailing, 10)
+                .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+                .zIndex(1100)
+                .onAppear {
+                    inPageFindFieldFocused = true
+                }
+            }
+        }
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
@@ -263,6 +323,9 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onChange(of: panel.inPageFindFocusToken) { _ in
+            inPageFindFieldFocused = true
         }
         .onChange(of: isFocused) { focused in
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).

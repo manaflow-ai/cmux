@@ -872,6 +872,25 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
     }
 }
 
+private func makeShortcutKeyDownEvent(
+    key: String,
+    modifiers: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> NSEvent? {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: 0,
+        context: nil,
+        characters: key,
+        charactersIgnoringModifiers: key,
+        isARepeat: false,
+        keyCode: keyCode
+    )
+}
+
 @MainActor
 final class TabManagerFindRoutingTests: XCTestCase {
     func testBrowserFocusedRoutesFindActionsToTextFinder() {
@@ -907,6 +926,114 @@ final class TabManagerFindRoutingTests: XCTestCase {
 #endif
     }
 }
+
+#if DEBUG
+@MainActor
+final class AppDelegateFindShortcutTests: XCTestCase {
+    override func tearDown() {
+        super.tearDown()
+        AppDelegate.shared = nil
+    }
+
+    func testCmdFShortcutStartsTerminalSearchWhenTerminalPanelFocused() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+        guard let event = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Failed to create key event")
+            return
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
+        XCTAssertNotNil(manager.selectedTerminalPanel?.searchState)
+    }
+
+    func testCmdFShortcutStartsBrowserFindWhenBrowserPanelFocused() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let event = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel and key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
+        XCTAssertEqual(actions, [.showFindInterface])
+    }
+
+}
+#endif
+
+#if DEBUG
+@MainActor
+final class BrowserPanelTextFinderDispatchTests: XCTestCase {
+    private final class FinderResponderView: NSView {
+        private(set) var receivedActionTags: [Int] = []
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func performTextFinderAction(_ sender: Any?) {
+            if let item = sender as? NSMenuItem {
+                receivedActionTags.append(item.tag)
+            }
+        }
+    }
+
+    func testShowFindInterfaceFallsBackToInPageFindUIWhenNoTextFinderResponderExists() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertFalse(panel.webView.responds(to: #selector(NSResponder.performTextFinderAction(_:))))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(panel.isInPageFindVisible)
+    }
+
+    func testShowFindInterfaceDispatchesToDescendantResponder() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        let responderView = FinderResponderView(frame: .zero)
+        panel.webView.addSubview(responderView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+        }
+
+        _ = window.makeFirstResponder(panel.webView)
+
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertEqual(responderView.receivedActionTags, [NSTextFinder.Action.showFindInterface.rawValue])
+    }
+}
+#endif
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
