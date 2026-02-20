@@ -3,6 +3,113 @@ import SwiftUI
 import WebKit
 import AppKit
 
+enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
+    case wrenchAndScrewdriver = "wrench.and.screwdriver"
+    case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
+    case curlyBracesSquare = "curlybraces.square"
+    case curlyBraces = "curlybraces"
+    case terminalFill = "terminal.fill"
+    case terminal = "terminal"
+    case hammer = "hammer"
+    case hammerCircle = "hammer.circle"
+    case ladybug = "ladybug"
+    case ladybugFill = "ladybug.fill"
+    case scope = "scope"
+    case codeChevrons = "chevron.left.slash.chevron.right"
+    case gearshape = "gearshape"
+    case gearshapeFill = "gearshape.fill"
+    case globe = "globe"
+    case globeAmericas = "globe.americas.fill"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .wrenchAndScrewdriver: return "Wrench + Screwdriver"
+        case .wrenchAndScrewdriverFill: return "Wrench + Screwdriver (Fill)"
+        case .curlyBracesSquare: return "Curly Braces"
+        case .curlyBraces: return "Curly Braces (Plain)"
+        case .terminalFill: return "Terminal (Fill)"
+        case .terminal: return "Terminal"
+        case .hammer: return "Hammer"
+        case .hammerCircle: return "Hammer Circle"
+        case .ladybug: return "Bug"
+        case .ladybugFill: return "Bug (Fill)"
+        case .scope: return "Scope"
+        case .codeChevrons: return "Code Chevrons"
+        case .gearshape: return "Gear"
+        case .gearshapeFill: return "Gear (Fill)"
+        case .globe: return "Globe"
+        case .globeAmericas: return "Globe Americas (Fill)"
+        }
+    }
+}
+
+enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
+    case bonsplitInactive
+    case bonsplitActive
+    case accent
+    case tertiary
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bonsplitInactive: return "Bonsplit Inactive (Terminal/Globe)"
+        case .bonsplitActive: return "Bonsplit Active (Terminal/Globe)"
+        case .accent: return "Accent"
+        case .tertiary: return "Tertiary"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .bonsplitInactive:
+            // Matches Bonsplit tab icon tint for inactive tabs.
+            return Color(nsColor: .secondaryLabelColor)
+        case .bonsplitActive:
+            // Matches Bonsplit tab icon tint for active tabs.
+            return Color(nsColor: .labelColor)
+        case .accent:
+            return .accentColor
+        case .tertiary:
+            return Color(nsColor: .tertiaryLabelColor)
+        }
+    }
+}
+
+enum BrowserDevToolsButtonDebugSettings {
+    static let iconNameKey = "browserDevToolsIconName"
+    static let iconColorKey = "browserDevToolsIconColor"
+    static let defaultIcon = BrowserDevToolsIconOption.wrenchAndScrewdriver
+    static let defaultColor = BrowserDevToolsIconColorOption.bonsplitInactive
+
+    static func iconOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconOption {
+        guard let raw = defaults.string(forKey: iconNameKey),
+              let option = BrowserDevToolsIconOption(rawValue: raw) else {
+            return defaultIcon
+        }
+        return option
+    }
+
+    static func colorOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconColorOption {
+        guard let raw = defaults.string(forKey: iconColorKey),
+              let option = BrowserDevToolsIconColorOption(rawValue: raw) else {
+            return defaultColor
+        }
+        return option
+    }
+
+    static func copyPayload(defaults: UserDefaults = .standard) -> String {
+        let icon = iconOption(defaults: defaults)
+        let color = colorOption(defaults: defaults)
+        return """
+        browserDevToolsIconName=\(icon.rawValue)
+        browserDevToolsIconColor=\(color.rawValue)
+        """
+    }
+}
+
 struct OmnibarInlineCompletion: Equatable {
     let typedText: String
     let displayText: String
@@ -25,6 +132,8 @@ struct BrowserPanelView: View {
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -38,6 +147,8 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     private let omnibarPillCornerRadius: CGFloat = 12
+    private let addressBarButtonSize: CGFloat = 22
+    private let devToolsButtonIconSize: CGFloat = 11
 
     private var searchEngine: BrowserSearchEngine {
         BrowserSearchEngine(rawValue: searchEngineRaw) ?? BrowserSearchSettings.defaultSearchEngine
@@ -61,6 +172,14 @@ struct BrowserPanelView: View {
             return false
         }
         return searchSuggestionsEnabled
+    }
+
+    private var devToolsIconOption: BrowserDevToolsIconOption {
+        BrowserDevToolsIconOption(rawValue: devToolsIconNameRaw) ?? BrowserDevToolsButtonDebugSettings.defaultIcon
+    }
+
+    private var devToolsColorOption: BrowserDevToolsIconColorOption {
+        BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
     var body: some View {
@@ -202,6 +321,8 @@ struct BrowserPanelView: View {
             omnibarField
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
+
+            developerToolsButton
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -211,8 +332,6 @@ struct BrowserPanelView: View {
     }
 
     private var addressBarButtonBar: some View {
-        let navButtonSize: CGFloat = 22
-
         return HStack(spacing: 0) {
             Button(action: {
                 #if DEBUG
@@ -222,10 +341,10 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             }
             .buttonStyle(.plain)
-            .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
@@ -238,10 +357,10 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             }
             .buttonStyle(.plain)
-            .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .help("Go Forward")
@@ -261,12 +380,27 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             }
             .buttonStyle(.plain)
-            .frame(width: navButtonSize, height: navButtonSize, alignment: .center)
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .help(panel.isLoading ? "Stop" : "Reload")
         }
+    }
+
+    private var developerToolsButton: some View {
+        Button(action: {
+            openDevTools()
+        }) {
+            Image(systemName: devToolsIconOption.rawValue)
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(devToolsColorOption.color)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(.plain)
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .help("Toggle Developer Tools")
+        .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
     private var omnibarField: some View {
@@ -376,12 +510,6 @@ struct BrowserPanelView: View {
                 }
             })
             .zIndex(0)
-            .contextMenu {
-                Button("Open Developer Tools") {
-                    openDevTools()
-                }
-                .keyboardShortcut("i", modifiers: [.command, .option])
-            }
     }
 
     private func triggerFocusFlashAnimation() {
@@ -445,10 +573,11 @@ struct BrowserPanelView: View {
     }
 
     private func openDevTools() {
-        // WKWebView with developerExtrasEnabled allows right-click > Inspect Element
-        // We can also trigger via JavaScript
-        Task {
-            try? await panel.evaluateJavaScript("window.webkit?.messageHandlers?.devTools?.postMessage('open')")
+        #if DEBUG
+        dlog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5))")
+        #endif
+        if !panel.toggleDeveloperTools() {
+            NSSound.beep()
         }
     }
 
@@ -2426,7 +2555,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     final class Coordinator {
         weak var webView: WKWebView?
-        var constraints: [NSLayoutConstraint] = []
         var attachRetryWorkItem: DispatchWorkItem?
         var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
@@ -2453,7 +2581,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         return container
     }
 
-    private static func attachWebView(_ webView: WKWebView, to host: NSView, coordinator: Coordinator) {
+    private static func attachWebView(_ webView: WKWebView, to host: NSView) {
         // WebKit can crash if a WKWebView (or an internal first-responder object) stays first responder
         // while being detached/reparented during bonsplit/SwiftUI structural updates.
         if let window = webView.window,
@@ -2466,15 +2594,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.subviews.forEach { $0.removeFromSuperview() }
         host.addSubview(webView)
 
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.deactivate(coordinator.constraints)
-        coordinator.constraints = [
-            webView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: host.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: host.bottomAnchor),
-        ]
-        NSLayoutConstraint.activate(coordinator.constraints)
+        // Work around WebKit bug 272474 where Inspect Element can render blank/flicker
+        // when WKWebView is edge-pinned using Auto Layout constraints.
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = host.bounds
 
         // Make reparenting resilient: WebKit can occasionally stay visually blank until forced to lay out.
         webView.needsLayout = true
@@ -2483,7 +2607,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         webView.displayIfNeeded()
     }
 
-    private static func scheduleAttachRetry(_ webView: WKWebView, to host: NSView, coordinator: Coordinator, generation: Int) {
+    private static func scheduleAttachRetry(
+        _ webView: WKWebView,
+        panel: BrowserPanel,
+        to host: NSView,
+        coordinator: Coordinator,
+        generation: Int
+    ) {
         // Don't schedule multiple overlapping retries.
         guard coordinator.attachRetryWorkItem == nil else { return }
 
@@ -2506,14 +2636,21 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // container off-window longer than a few seconds under load.
                 if coordinator.attachRetryCount < 400 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        scheduleAttachRetry(webView, to: host, coordinator: coordinator, generation: generation)
+                        scheduleAttachRetry(
+                            webView,
+                            panel: panel,
+                            to: host,
+                            coordinator: coordinator,
+                            generation: generation
+                        )
                     }
                 }
                 return
             }
 
             coordinator.attachRetryCount = 0
-            attachWebView(webView, to: host, coordinator: coordinator)
+            attachWebView(webView, to: host)
+            panel.restoreDeveloperToolsAfterAttachIfNeeded()
         }
 
         coordinator.attachRetryWorkItem = work
@@ -2528,6 +2665,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
         // WebKit crashes, detach the WKWebView when this surface is not the selected tab in its pane.
         if !shouldAttachWebView {
+            panel.syncDeveloperToolsPreferenceFromInspector()
             context.coordinator.attachRetryWorkItem?.cancel()
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachRetryCount = 0
@@ -2538,9 +2676,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                Self.responderChainContains(window.firstResponder, target: webView) {
                 window.makeFirstResponder(nil)
             }
-
-            NSLayoutConstraint.deactivate(context.coordinator.constraints)
-            context.coordinator.constraints.removeAll()
 
             if webView.superview != nil {
                 webView.removeFromSuperview()
@@ -2560,12 +2695,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // can create containers that are never inserted into the window.
                 Self.scheduleAttachRetry(
                     webView,
+                    panel: panel,
                     to: nsView,
                     coordinator: context.coordinator,
                     generation: context.coordinator.attachGeneration
                 )
             } else {
-                Self.attachWebView(webView, to: nsView, coordinator: context.coordinator)
+                Self.attachWebView(webView, to: nsView)
+                panel.restoreDeveloperToolsAfterAttachIfNeeded()
             }
         } else {
             // Already attached; no need for any pending retry.
@@ -2573,6 +2710,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachRetryCount = 0
             context.coordinator.attachGeneration += 1
+            panel.restoreDeveloperToolsAfterAttachIfNeeded()
         }
 
         // Focus handling. Avoid fighting the address bar when it is focused.
@@ -2600,9 +2738,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.attachRetryWorkItem = nil
         coordinator.attachRetryCount = 0
         coordinator.attachGeneration += 1
-
-        NSLayoutConstraint.deactivate(coordinator.constraints)
-        coordinator.constraints.removeAll()
 
         guard let webView = coordinator.webView else { return }
 

@@ -15,6 +15,10 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
+    private var toggleBrowserDeveloperToolsShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
+    private var showBrowserJavaScriptConsoleShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -422,6 +426,20 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
+                splitCommandButton(title: "Toggle Developer Tools", shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
+                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    if !manager.toggleDeveloperToolsFocusedBrowser() {
+                        NSSound.beep()
+                    }
+                }
+
+                splitCommandButton(title: "Show JavaScript Console", shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
+                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    if !manager.showJavaScriptConsoleFocusedBrowser() {
+                        NSSound.beep()
+                    }
+                }
+
                 Button("Zoom In") {
                     _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
                 }
@@ -534,6 +552,20 @@ struct cmuxApp: App {
 
     private var splitDownMenuShortcut: StoredShortcut {
         decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
+    }
+
+    private var toggleBrowserDeveloperToolsMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleBrowserDeveloperToolsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        )
+    }
+
+    private var showBrowserJavaScriptConsoleMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: showBrowserJavaScriptConsoleShortcutData,
+            fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
     }
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
@@ -1123,6 +1155,7 @@ private enum DebugWindowConfigSnapshot {
         """
 
         let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
+        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
 
         return """
         # Sidebar Debug
@@ -1133,6 +1166,9 @@ private enum DebugWindowConfigSnapshot {
 
         # Menu Bar Extra Debug
         \(menuBarPayload)
+
+        # Browser DevTools Button
+        \(browserDevToolsPayload)
         """
     }
 
@@ -1199,6 +1235,16 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+
+    private var selectedDevToolsIconOption: BrowserDevToolsIconOption {
+        BrowserDevToolsIconOption(rawValue: browserDevToolsIconNameRaw) ?? BrowserDevToolsButtonDebugSettings.defaultIcon
+    }
+
+    private var selectedDevToolsColorOption: BrowserDevToolsIconColorOption {
+        BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
 
     var body: some View {
         ScrollView {
@@ -1282,12 +1328,58 @@ private struct DebugWindowControlsView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox("Browser DevTools Button") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Text("Icon")
+                            Picker("Icon", selection: $browserDevToolsIconNameRaw) {
+                                ForEach(BrowserDevToolsIconOption.allCases) { option in
+                                    Text(option.title).tag(option.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Color")
+                            Picker("Color", selection: $browserDevToolsIconColorRaw) {
+                                ForEach(BrowserDevToolsIconColorOption.allCases) { option in
+                                    Text(option.title).tag(option.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Preview")
+                            Spacer()
+                            Image(systemName: selectedDevToolsIconOption.rawValue)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(selectedDevToolsColorOption.color)
+                        }
+
+                        HStack(spacing: 12) {
+                            Button("Reset Button") {
+                                resetBrowserDevToolsButton()
+                            }
+                            Button("Copy Button Config") {
+                                copyBrowserDevToolsButtonConfig()
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
                 GroupBox("Copy") {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Copy All Debug Config") {
                             DebugWindowConfigSnapshot.copyCombinedToPasteboard()
                         }
-                        Text("Copies sidebar, background, and menu bar debug settings as one payload.")
+                        Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -1344,6 +1436,18 @@ private struct DebugWindowControlsView: View {
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
         shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
         """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    private func resetBrowserDevToolsButton() {
+        browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
+        browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+    }
+
+    private func copyBrowserDevToolsButtonConfig() {
+        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: .standard)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)

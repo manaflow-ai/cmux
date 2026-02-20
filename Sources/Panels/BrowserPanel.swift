@@ -825,6 +825,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
+    // Persist user intent across WebKit detach/reattach churn (split/layout updates).
+    private var preferredDeveloperToolsVisible: Bool = false
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -864,6 +866,11 @@ final class BrowserPanel: Panel, ObservableObject {
         // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+
+        // Required for Web Inspector support on recent WebKit SDKs.
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
 
         // Match the empty-page background to the window so newly-created browsers
         // don't flash white before content loads.
@@ -1297,6 +1304,90 @@ extension BrowserPanel {
     }
 
     @discardableResult
+    func toggleDeveloperTools() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        let targetVisible = !visible
+        let selector = NSSelectorFromString(targetVisible ? "show" : "close")
+        guard inspector.responds(to: selector) else { return false }
+        inspector.cmuxCallVoid(selector: selector)
+        preferredDeveloperToolsVisible = targetVisible
+        return true
+    }
+
+    @discardableResult
+    func showDeveloperTools() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if !visible {
+            let showSelector = NSSelectorFromString("show")
+            guard inspector.responds(to: showSelector) else { return false }
+            inspector.cmuxCallVoid(selector: showSelector)
+        }
+        preferredDeveloperToolsVisible = true
+        return true
+    }
+
+    @discardableResult
+    func showDeveloperToolsConsole() -> Bool {
+        guard showDeveloperTools() else { return false }
+        guard let inspector = webView.cmuxInspectorObject() else { return true }
+        // WebKit private inspector API differs by OS; try known console selectors.
+        let consoleSelectors = [
+            "showConsole",
+            "showConsoleTab",
+            "showConsoleView",
+        ]
+        for raw in consoleSelectors {
+            let selector = NSSelectorFromString(raw)
+            if inspector.responds(to: selector) {
+                inspector.cmuxCallVoid(selector: selector)
+                break
+            }
+        }
+        return true
+    }
+
+    /// Called before WKWebView detaches so manual inspector closes are respected.
+    func syncDeveloperToolsPreferenceFromInspector() {
+        guard let inspector = webView.cmuxInspectorObject() else { return }
+        if let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) {
+            preferredDeveloperToolsVisible = visible
+        }
+    }
+
+    /// Called after WKWebView reattaches to keep inspector stable across split/layout churn.
+    func restoreDeveloperToolsAfterAttachIfNeeded() {
+        guard preferredDeveloperToolsVisible else { return }
+        guard let inspector = webView.cmuxInspectorObject() else { return }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        guard !visible else { return }
+        let selector = NSSelectorFromString("show")
+        guard inspector.responds(to: selector) else { return }
+        inspector.cmuxCallVoid(selector: selector)
+        preferredDeveloperToolsVisible = true
+    }
+
+    @discardableResult
+    func isDeveloperToolsVisible() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+    }
+
+    @discardableResult
+    func hideDeveloperTools() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if visible {
+            let selector = NSSelectorFromString("close")
+            guard inspector.responds(to: selector) else { return false }
+            inspector.cmuxCallVoid(selector: selector)
+        }
+        preferredDeveloperToolsVisible = false
+        return true
+    }
+
+    @discardableResult
     func zoomIn() -> Bool {
         applyPageZoom(webView.pageZoom + pageZoomStep)
     }
@@ -1424,6 +1515,33 @@ private extension BrowserPanel {
             hops += 1
         }
         return false
+    }
+}
+
+private extension WKWebView {
+    func cmuxInspectorObject() -> NSObject? {
+        let selector = NSSelectorFromString("_inspector")
+        guard responds(to: selector),
+              let inspector = perform(selector)?.takeUnretainedValue() as? NSObject else {
+            return nil
+        }
+        return inspector
+    }
+}
+
+private extension NSObject {
+    func cmuxCallBool(selector: Selector) -> Bool? {
+        guard responds(to: selector) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        return fn(self, selector)
+    }
+
+    func cmuxCallVoid(selector: Selector) {
+        guard responds(to: selector) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
     }
 }
 

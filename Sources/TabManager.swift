@@ -823,6 +823,16 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.resetZoom() ?? false
     }
 
+    @discardableResult
+    func toggleDeveloperToolsFocusedBrowser() -> Bool {
+        focusedBrowserPanel?.toggleDeveloperTools() ?? false
+    }
+
+    @discardableResult
+    func showJavaScriptConsoleFocusedBrowser() -> Bool {
+        focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
+    }
+
     /// Backwards compatibility: returns the focused surface ID
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         focusedPanelId(for: tabId)

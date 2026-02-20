@@ -88,6 +88,90 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 }
 
+final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserDevToolsButtonDebugSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testIconCatalogIncludesExpandedChoices() {
+        XCTAssertGreaterThanOrEqual(BrowserDevToolsIconOption.allCases.count, 10)
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.terminal))
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.globe))
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.curlyBracesSquare))
+    }
+
+    func testIconOptionFallsBackToDefaultForUnknownRawValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("this.symbol.does.not.exist", forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
+
+        XCTAssertEqual(
+            BrowserDevToolsButtonDebugSettings.iconOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings.defaultIcon
+        )
+    }
+
+    func testColorOptionFallsBackToDefaultForUnknownRawValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("notAValidColor", forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+
+        XCTAssertEqual(
+            BrowserDevToolsButtonDebugSettings.colorOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings.defaultColor
+        )
+    }
+
+    func testCopyPayloadUsesPersistedValues() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
+        defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+
+        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
+        XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
+    }
+}
+
+final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
+    func testSafariDefaultShortcutForToggleDeveloperTools() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        XCTAssertEqual(shortcut.key, "i")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testSafariDefaultShortcutForShowJavaScriptConsole() {
+        let shortcut = KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        XCTAssertEqual(shortcut.key, "c")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
+}
+
+@MainActor
+final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
+    func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let developerExtras = panel.webView.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool
+        XCTAssertEqual(developerExtras, true)
+
+        if #available(macOS 13.3, *) {
+            XCTAssertTrue(panel.webView.isInspectable)
+        }
+    }
+}
+
 final class WorkspaceShortcutMapperTests: XCTestCase {
     func testCommandNineMapsToLastWorkspaceIndex() {
         XCTAssertEqual(WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: 9, workspaceCount: 1), 0)

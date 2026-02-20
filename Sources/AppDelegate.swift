@@ -1878,6 +1878,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Safari defaults:
+        // - Option+Command+I => Show/Toggle Web Inspector
+        // - Option+Command+C => Show JavaScript Console
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+            let didHandle = tabManager?.toggleDeveloperToolsFocusedBrowser() ?? false
+            if !didHandle { NSSound.beep() }
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+            let didHandle = tabManager?.showJavaScriptConsoleFocusedBrowser() ?? false
+            if !didHandle { NSSound.beep() }
+            return true
+        }
+
         // Focus browser address bar: Cmd+L
         if flags == [.command] && chars == "l" {
             if let focusedPanel = tabManager?.focusedBrowserPanel {
