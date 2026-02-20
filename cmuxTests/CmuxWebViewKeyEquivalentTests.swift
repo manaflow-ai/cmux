@@ -220,6 +220,43 @@ final class BrowserShortcutKeyMatchingTests: XCTestCase {
     }
 }
 
+final class BrowserCommandReturnRoutingTests: XCTestCase {
+    func testBrowserCommandReturnDetectionMatchesMainAndKeypadReturn() {
+        let cmdReturn = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        let cmdKeypadEnter = makeKeyDownEvent(key: "\r", modifiers: [.command, .numericPad], keyCode: 76)
+
+        XCTAssertNotNil(cmdReturn)
+        XCTAssertNotNil(cmdKeypadEnter)
+        XCTAssertTrue(isBrowserCommandReturnEvent(cmdReturn!))
+        XCTAssertTrue(isBrowserCommandReturnEvent(cmdKeypadEnter!))
+    }
+
+    func testBrowserCommandReturnDetectionRequiresCommandModifier() {
+        let plainReturn = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 36)
+        let ctrlReturn = makeKeyDownEvent(key: "\r", modifiers: [.control], keyCode: 36)
+
+        XCTAssertNotNil(plainReturn)
+        XCTAssertNotNil(ctrlReturn)
+        XCTAssertFalse(isBrowserCommandReturnEvent(plainReturn!))
+        XCTAssertFalse(isBrowserCommandReturnEvent(ctrlReturn!))
+    }
+
+    private func makeKeyDownEvent(key: String, modifiers: NSEvent.ModifierFlags, keyCode: UInt16) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))

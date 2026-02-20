@@ -1,6 +1,20 @@
 import AppKit
 import WebKit
 
+func isBrowserCommandReturnEvent(_ event: NSEvent) -> Bool {
+    let flags = event.modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    guard flags.contains(.command) else { return false }
+
+    if event.keyCode == 36 || event.keyCode == 76 { // return / keypad enter
+        return true
+    }
+
+    let chars = event.charactersIgnoringModifiers ?? event.characters ?? ""
+    return chars == "\r" || chars == "\n"
+}
+
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
 /// preventing the app menu/SwiftUI Commands from receiving them. Route menu
 /// key equivalents first so app-level shortcuts continue to work when WebKit is
@@ -18,15 +32,31 @@ final class CmuxWebView: WKWebView {
             return true
         }
 
+        // Let Cmd+Return/Cmd+Enter flow to keyDown. WebKit can consume this in
+        // performKeyEquivalent and trigger an unwanted page reload.
+        if isBrowserCommandReturnEvent(event) {
+#if DEBUG
+            NSLog("[cmux.debug] webview.performKeyEquiv: bypass Cmd+Return -> keyDown")
+#endif
+            return false
+        }
+
         return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-            return
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            let handled = AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true
+#if DEBUG
+            if isBrowserCommandReturnEvent(event) {
+                NSLog("[cmux.debug] webview.keyDown: Cmd+Return handledByApp=%d", handled ? 1 : 0)
+            }
+#endif
+            if handled {
+                return
+            }
         }
 
         super.keyDown(with: event)
