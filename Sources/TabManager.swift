@@ -398,9 +398,9 @@ class TabManager: ObservableObject {
     @discardableResult
     func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
-        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
-        newWorkspace.portOrdinal = Self.nextPortOrdinal
+        let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
+        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, portOrdinal: ordinal)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)

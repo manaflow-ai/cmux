@@ -104,8 +104,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
-    init(title: String = "Terminal", workingDirectory: String? = nil) {
+    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
         self.id = UUID()
+        self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
