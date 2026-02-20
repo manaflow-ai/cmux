@@ -2835,6 +2835,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
+    private let notificationRingOverlayView: GhosttyFlashOverlayView
+    private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2925,6 +2927,8 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2963,6 +2967,23 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
         addSubview(dropZoneOverlayView)
+        notificationRingOverlayView.wantsLayer = true
+        notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        notificationRingOverlayView.layer?.masksToBounds = false
+        notificationRingOverlayView.autoresizingMask = [.width, .height]
+        notificationRingLayer.fillColor = NSColor.clear.cgColor
+        notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.lineWidth = 2.5
+        notificationRingLayer.lineJoin = .round
+        notificationRingLayer.lineCap = .round
+        notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.shadowOpacity = 0.35
+        notificationRingLayer.shadowRadius = 3
+        notificationRingLayer.shadowOffset = .zero
+        notificationRingLayer.opacity = 0
+        notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
+        notificationRingOverlayView.isHidden = true
+        addSubview(notificationRingOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -3079,7 +3100,9 @@ final class GhosttySurfaceScrollView: NSView {
         if let zone = activeDropZone {
             dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
         }
+        notificationRingOverlayView.frame = bounds
         flashOverlayView.frame = bounds
+        updateNotificationRingPath()
         updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
@@ -3134,6 +3157,21 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        CATransaction.commit()
+    }
+
+    func setNotificationRing(visible: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setNotificationRing(visible: visible)
+            }
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        notificationRingOverlayView.isHidden = !visible
+        notificationRingLayer.opacity = visible ? 1 : 0
         CATransaction.commit()
     }
 
@@ -3346,6 +3384,13 @@ final class GhosttySurfaceScrollView: NSView {
         (
             inactiveOverlayView.isHidden,
             inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        )
+    }
+
+    func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
+        (
+            notificationRingOverlayView.isHidden,
+            notificationRingLayer.opacity
         )
     }
 
@@ -3771,17 +3816,24 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
+    private func updateNotificationRingPath() {
+        updateOverlayRingPath(layer: notificationRingLayer, bounds: notificationRingOverlayView.bounds)
+    }
+
     private func updateFlashPath() {
+        updateOverlayRingPath(layer: flashLayer, bounds: flashOverlayView.bounds)
+    }
+
+    private func updateOverlayRingPath(layer: CAShapeLayer, bounds: CGRect) {
         let inset: CGFloat = 2
         let radius: CGFloat = 6
-        let bounds = flashOverlayView.bounds
-        flashLayer.frame = bounds
+        layer.frame = bounds
         guard bounds.width > inset * 2, bounds.height > inset * 2 else {
-            flashLayer.path = nil
+            layer.path = nil
             return
         }
         let rect = bounds.insetBy(dx: inset, dy: inset)
-        flashLayer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
     private func synchronizeScrollView() {
@@ -3999,6 +4051,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
+    var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
     var reattachToken: UInt64 = 0
@@ -4041,6 +4094,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         weak var hostedView: GhosttySurfaceScrollView?
@@ -4063,9 +4117,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let previousDesiredIsActive = coordinator.desiredIsActive
 #endif
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
+        let previousDesiredShowsUnreadNotificationRing = coordinator.desiredShowsUnreadNotificationRing
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
@@ -4097,6 +4153,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             opacity: CGFloat(inactiveOverlayOpacity),
             visible: showsInactiveOverlay
         )
+        hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         hostedView.setDropZoneOverlay(zone: paneDropZone)
@@ -4118,6 +4175,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
+                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
             host.onGeometryChanged = { [weak host, weak coordinator] in
                 guard let host, let coordinator else { return }
@@ -4132,6 +4190,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId != hostId ||
                     hostedView.superview == nil ||
                     previousDesiredIsVisibleInUI != isVisibleInUI ||
+                    previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
                     previousDesiredPortalZPriority != portalZPriority
                 if shouldBindNow {
                     TerminalWindowPortalRegistry.bind(
@@ -4159,6 +4218,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredShowsUnreadNotificationRing = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
         let hostedView = coordinator.hostedView

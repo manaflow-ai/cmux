@@ -2013,6 +2013,22 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
     }
+
+    func testUnreadNotificationRingVisibilityTracksRequestedState() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
+        )
+
+        hostedView.setNotificationRing(visible: true)
+        var state = hostedView.debugNotificationRingState()
+        XCTAssertFalse(state.isHidden)
+        XCTAssertEqual(state.opacity, 1, accuracy: 0.001)
+
+        hostedView.setNotificationRing(visible: false)
+        state = hostedView.debugNotificationRingState()
+        XCTAssertTrue(state.isHidden)
+        XCTAssertEqual(state.opacity, 0, accuracy: 0.001)
+    }
 }
 
 @MainActor

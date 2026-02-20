@@ -2273,7 +2273,6 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    @AppStorage(UpdateChannelSettings.includeNightlyBuildsKey) private var includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -2349,25 +2348,6 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
-                    }
-
-                    SettingsSectionHeader(title: "Updates")
-                    SettingsCard {
-                        SettingsCardRow(
-                            "Receive Nightly Builds",
-                            subtitle: includeNightlyBuilds
-                                ? "Using nightly update channel. Builds may be less stable."
-                                : "Using stable update channel."
-                        ) {
-                            Toggle("", isOn: $includeNightlyBuilds)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsIncludeNightlyBuildsToggle")
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote("Nightly builds are published from the latest main branch commit when available.")
                     }
 
                     SettingsSectionHeader(title: "Automation")
@@ -2585,7 +2565,6 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-        includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
