@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+@testable import cmux_DEV
 
 /// Regression test: ensures UpdatePill is never gated behind #if DEBUG in production code paths.
 /// This prevents accidentally hiding the update UI in Release builds.
@@ -93,5 +94,54 @@ final class AppTransportSecurityTests: XCTestCase {
             dir = dir.deletingLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
+final class BrowserInsecureHTTPSettingsTests: XCTestCase {
+    func testDefaultAllowlistPatternsArePresent() {
+        XCTAssertEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
+            ["127.0.0.1", "localhost", "*.localtest.me"]
+        )
+    }
+
+    func testWildcardAndExactHostMatching() {
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("neverssl.com", rawAllowlist: nil))
+    }
+
+    func testCustomAllowlistNormalizesAndDeduplicatesEntries() {
+        let raw = """
+        localhost
+        *.example.com
+        127.0.0.1
+        https://dev.internal:8080/path
+        *.example.com
+        """
+
+        XCTAssertEqual(
+            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: raw),
+            ["localhost", "*.example.com", "127.0.0.1", "dev.internal"]
+        )
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("foo.example.com", rawAllowlist: raw))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("dev.internal", rawAllowlist: raw))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
+    }
+
+    func testBlockDecisionUsesAllowlistAndRuntimeProceedCache() throws {
+        let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+
+        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(
+            insecureURL,
+            rawAllowlist: nil,
+            runtimeAllowedHosts: ["neverssl.com"]
+        ))
+
+        let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
     }
 }

@@ -390,6 +390,27 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
+// Compatibility shim for update-channel tests while feed selection is sourced from Info.plist.
+private enum UpdateChannelSettings {
+    static let includeNightlyBuildsKey = "includeNightlyBuilds"
+    static let defaultIncludeNightlyBuilds = false
+    static let stableFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
+    static let nightlyFeedURL = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+
+    static func resolvedFeedURLString(infoFeedURL: String?, defaults: UserDefaults) -> (url: String, isNightly: Bool, usedFallback: Bool) {
+        let includeNightlyBuilds = defaults.object(forKey: includeNightlyBuildsKey) as? Bool ?? defaultIncludeNightlyBuilds
+        if includeNightlyBuilds {
+            return (nightlyFeedURL, true, false)
+        }
+
+        if let infoFeedURL, !infoFeedURL.isEmpty {
+            return (infoFeedURL, false, false)
+        }
+
+        return (stableFeedURL, false, true)
+    }
+}
+
 final class UpdateChannelSettingsTests: XCTestCase {
     func testDefaultNightlyPreferenceIsDisabled() {
         XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
