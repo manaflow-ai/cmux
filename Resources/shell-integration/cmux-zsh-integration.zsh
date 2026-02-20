@@ -139,11 +139,12 @@ _cmux_preexec() {
 
     _CMUX_CMD_START=$EPOCHSECONDS
 
-    # Heuristic: git commands can change branch/dirty state without changing $PWD.
+    # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     local cmd="${1## }"
-    if [[ "$cmd" == git\ * || "$cmd" == git ]]; then
-        _CMUX_GIT_FORCE=1
-    fi
+    case "$cmd" in
+        git\ *|git|gh\ *|lazygit|lazygit\ *|tig|tig\ *|gitui|gitui\ *|stg\ *|jj\ *)
+            _CMUX_GIT_FORCE=1 ;;
+    esac
 
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
@@ -196,6 +197,9 @@ _cmux_precmd() {
         head_mtime="$(_cmux_git_head_mtime "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || echo 0)"
         if [[ -n "$head_mtime" && "$head_mtime" != 0 && "$head_mtime" != "$_CMUX_GIT_HEAD_MTIME" ]]; then
             _CMUX_GIT_HEAD_MTIME="$head_mtime"
+            # Treat HEAD file change like a git command — force-replace any
+            # running probe so the sidebar picks up the new branch immediately.
+            _CMUX_GIT_FORCE=1
             should_git=1
         fi
     fi
