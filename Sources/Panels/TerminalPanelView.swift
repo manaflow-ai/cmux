@@ -10,7 +10,7 @@ struct TerminalPanelView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
-    let notificationStore: TerminalNotificationStore
+    @ObservedObject var notificationStore: TerminalNotificationStore
     let onFocus: () -> Void
     let onTriggerFlash: () -> Void
 
