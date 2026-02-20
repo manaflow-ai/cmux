@@ -199,6 +199,11 @@ final class FileDropOverlayView: NSView {
             || eventType == .otherMouseDragged
         guard isDragMouseEvent else { return nil }
 
+        // Only intercept file drags over terminals. Let browser panes and other
+        // views receive native drag routing from AppKit.
+        let windowPoint = convert(point, to: nil)
+        guard terminalUnderPoint(windowPoint) != nil else { return nil }
+
         return super.hitTest(point)
     }
 

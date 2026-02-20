@@ -102,18 +102,54 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    // MARK: - Drag-and-drop passthrough
+    // MARK: - Drag-and-drop routing
 
-    // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
-    // Bonsplit tab drags use NSString (public.utf8-plain-text) which conforms to public.text,
-    // so AppKit's view-hierarchy-based drag routing delivers the session to WKWebView instead
-    // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
-    // AppKit only bubbles up through superviews, not siblings.
-    //
-    // Fix: prevent WKWebView from registering as a drag destination entirely. AppKit won't
-    // route drags here, so they reach the SwiftUI overlay drop zones as intended.
+    // Keep WebKit file/url drops working while excluding tab-reorder payload types so
+    // bonsplit/swiftui tab-drop zones still receive their drags.
+    private static let blockedTabDragTypes: Set<NSPasteboard.PasteboardType> = [
+        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
+        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
+    ]
+
+    private static let blockedDragSupertypes: Set<NSPasteboard.PasteboardType> = [
+        .string,
+        NSPasteboard.PasteboardType("public.text"),
+        NSPasteboard.PasteboardType("public.data"),
+        NSPasteboard.PasteboardType("public.item"),
+    ]
+
+    private static let requiredFileDropTypes: [NSPasteboard.PasteboardType] = [
+        .fileURL,
+        .URL,
+        NSPasteboard.PasteboardType("NSFilenamesPboardType"),
+        NSPasteboard.PasteboardType("com.apple.pasteboard.promised-file-url"),
+    ]
+
+    private static func filteredWebDropTypes(from types: [NSPasteboard.PasteboardType]) -> [NSPasteboard.PasteboardType] {
+        var result: [NSPasteboard.PasteboardType] = []
+        var seen = Set<NSPasteboard.PasteboardType>()
+
+        for type in types {
+            if blockedTabDragTypes.contains(type) || blockedDragSupertypes.contains(type) {
+                continue
+            }
+            if seen.insert(type).inserted {
+                result.append(type)
+            }
+        }
+
+        for type in requiredFileDropTypes where seen.insert(type).inserted {
+            result.append(type)
+        }
+
+        return result
+    }
+
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        // No-op: suppress WKWebView's automatic drag type registration.
+        let filtered = Self.filteredWebDropTypes(from: newTypes)
+        super.unregisterDraggedTypes()
+        guard !filtered.isEmpty else { return }
+        _ = super.registerForDraggedTypes(filtered)
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
