@@ -1124,9 +1124,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func attachToView(_ view: GhosttyNSView) {
-        #if DEBUG
-        print("[TerminalSurface] attachToView: \(id) attachedView=\(attachedView != nil) surface=\(surface != nil)")
-        #endif
+#if DEBUG
+        dlog(
+            "surface.attach surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque()) " +
+            "attached=\(attachedView != nil ? 1 : 0) hasSurface=\(surface != nil ? 1 : 0) inWindow=\(view.window != nil ? 1 : 0)"
+        )
+#endif
 
         // If already attached to this view, nothing to do.
         // Still re-assert the display id: during split close tree restructuring, the view can be
@@ -1134,9 +1137,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Ghostty's vsync-driven renderer depends on having a valid display id; if it is missing
         // or stale, the surface can appear visually frozen until a focus/visibility change.
         if attachedView === view && surface != nil {
-            #if DEBUG
-            print("[TerminalSurface] attachToView: same view and surface exists")
-            #endif
+#if DEBUG
+            dlog("surface.attach.reuse surface=\(id.uuidString.prefix(5)) view=\(Unmanaged.passUnretained(view).toOpaque())")
+#endif
             if let screen = view.window?.screen ?? NSScreen.main,
                let displayID = screen.displayID,
                displayID != 0,
@@ -1148,9 +1151,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if let attachedView, attachedView !== view {
-            #if DEBUG
-            print("[TerminalSurface] attachToView: different view, returning")
-            #endif
+#if DEBUG
+            dlog(
+                "surface.attach.skip surface=\(id.uuidString.prefix(5)) reason=alreadyAttachedToDifferentView " +
+                "current=\(Unmanaged.passUnretained(attachedView).toOpaque()) new=\(Unmanaged.passUnretained(view).toOpaque())"
+            )
+#endif
             return
         }
 
@@ -1159,20 +1165,31 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // If surface doesn't exist yet, create it once the view is in a real window so
         // content scale and pixel geometry are derived from the actual backing context.
         if surface == nil {
-            guard view.window != nil else { return }
-            #if DEBUG
-            print("[TerminalSurface] attachToView: creating surface for \(id)")
-            #endif
+            guard view.window != nil else {
+#if DEBUG
+                dlog(
+                    "surface.attach.defer surface=\(id.uuidString.prefix(5)) reason=noWindow " +
+                    "bounds=\(String(format: "%.1fx%.1f", view.bounds.width, view.bounds.height))"
+                )
+#endif
+                return
+            }
+#if DEBUG
+            dlog("surface.attach.create surface=\(id.uuidString.prefix(5))")
+#endif
             createSurface(for: view)
-            #if DEBUG
-            print("[TerminalSurface] attachToView: after createSurface, surface=\(surface != nil)")
-            #endif
+#if DEBUG
+            dlog("surface.attach.create.done surface=\(id.uuidString.prefix(5)) hasSurface=\(surface != nil ? 1 : 0)")
+#endif
         } else if let screen = view.window?.screen ?? NSScreen.main,
                   let displayID = screen.displayID,
                   displayID != 0,
                   let s = surface {
             // Surface exists but we're (re)attaching after a view hierarchy move; ensure display id.
             ghostty_surface_set_display_id(s, displayID)
+#if DEBUG
+            dlog("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
+#endif
         }
     }
 
@@ -1540,6 +1557,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 	    private var lastScrollEventTime: CFTimeInterval = 0
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
+#if DEBUG
+    private var lastSizeSkipSignature: String?
+#endif
 
         // Visibility is used for focus gating, not for libghostty occlusion.
         fileprivate var isVisibleInUI: Bool { visibleInUI }
@@ -1644,6 +1664,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+#if DEBUG
+        dlog(
+            "surface.view.windowMove surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "inWindow=\(window != nil ? 1 : 0) bounds=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+            "pending=\(String(format: "%.1fx%.1f", pendingSurfaceSize?.width ?? 0, pendingSurfaceSize?.height ?? 0))"
+        )
+#endif
         guard let window else { return }
 
         // If the surface creation was deferred while detached, create/attach it now.
@@ -1704,14 +1731,62 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func updateSurfaceSize(size: CGSize? = nil) {
         guard let terminalSurface = terminalSurface else { return }
         let size = size ?? bounds.size
-        guard size.width > 0 && size.height > 0 else { return }
+        guard size.width > 0 && size.height > 0 else {
+#if DEBUG
+            let signature = "nonPositive-\(Int(size.width))x\(Int(size.height))"
+            if lastSizeSkipSignature != signature {
+                dlog(
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "reason=nonPositive size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
+                    "inWindow=\(window != nil ? 1 : 0)"
+                )
+                lastSizeSkipSignature = signature
+            }
+#endif
+            return
+        }
         pendingSurfaceSize = size
-        guard let window else { return }
+        guard let window else {
+#if DEBUG
+            let signature = "noWindow-\(Int(size.width))x\(Int(size.height))"
+            if lastSizeSkipSignature != signature {
+                dlog(
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=noWindow " +
+                    "size=\(String(format: "%.1fx%.1f", size.width, size.height))"
+                )
+                lastSizeSkipSignature = signature
+            }
+#endif
+            return
+        }
 
         // First principles: derive pixel size from AppKit's backing conversion for the current
         // window/screen. Avoid updating Ghostty while detached from a window.
         let backingSize = convertToBacking(NSRect(origin: .zero, size: size)).size
-        guard backingSize.width > 0, backingSize.height > 0 else { return }
+        guard backingSize.width > 0, backingSize.height > 0 else {
+#if DEBUG
+            let signature = "zeroBacking-\(Int(backingSize.width))x\(Int(backingSize.height))"
+            if lastSizeSkipSignature != signature {
+                dlog(
+                    "surface.size.defer surface=\(terminalSurface.id.uuidString.prefix(5)) reason=zeroBacking " +
+                    "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
+                    "backing=\(String(format: "%.1fx%.1f", backingSize.width, backingSize.height))"
+                )
+                lastSizeSkipSignature = signature
+            }
+#endif
+            return
+        }
+#if DEBUG
+        if lastSizeSkipSignature != nil {
+            dlog(
+                "surface.size.resume surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "size=\(String(format: "%.1fx%.1f", size.width, size.height)) " +
+                "backing=\(String(format: "%.1fx%.1f", backingSize.width, backingSize.height))"
+            )
+            lastSizeSkipSignature = nil
+        }
+#endif
         let xScale = backingSize.width / size.width
         let yScale = backingSize.height / size.height
         let layerScale = max(1.0, window.backingScaleFactor)
@@ -3943,16 +4018,21 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.desiredIsVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
+        let hostedView = coordinator.hostedView
 #if DEBUG
-        if let hostedView = coordinator.hostedView {
+        if let hostedView {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 dlog(
                     "ws.swiftui.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
-                    "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")"
+                    "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+                    "inWindow=\(hostedView.window != nil ? 1 : 0)"
                 )
             } else {
-                dlog("ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil")")
+                dlog(
+                    "ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+                    "inWindow=\(hostedView.window != nil ? 1 : 0)"
+                )
             }
         }
 #endif
@@ -3962,9 +4042,12 @@ struct GhosttyTerminalView: NSViewRepresentable {
             host.onGeometryChanged = nil
         }
 
-        coordinator.hostedView?.setVisibleInUI(false)
-        coordinator.hostedView?.setActive(false)
-        coordinator.hostedView?.setInactiveOverlay(color: .clear, opacity: 0, visible: false)
+        // SwiftUI can transiently dismantle/rebuild NSViewRepresentable instances during split
+        // tree updates. Do not force visible/active false here; that causes avoidable blackouts
+        // when the same hosted view is rebound moments later.
+        hostedView?.setFocusHandler(nil)
+        hostedView?.setTriggerFlashHandler(nil)
+        hostedView?.setDropZoneOverlay(zone: nil)
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }

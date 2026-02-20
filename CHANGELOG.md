@@ -2,6 +2,20 @@
 
 All notable changes to cmux are documented here.
 
+## [0.58.0] - 2026-02-19
+
+### Fixed
+- Fix split blackout race condition and focus handoff when creating or closing splits
+
+## [0.57.0] - 2026-02-19
+
+### Added
+- Terminal panes now show an animated drop overlay when dragging tabs
+
+### Fixed
+- Fix blue hover not showing when dragging tabs onto terminal panes
+- Fix stale drag overlay blocking clicks after tab drag ends
+
 ## [0.56.0] - 2026-02-19
 
 _No user-facing changes._

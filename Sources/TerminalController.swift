@@ -8403,8 +8403,14 @@ class TerminalController {
                 return
             }
 
+            // Programmatic WebView focus should win over stale omnibar focus state, especially
+            // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
+            browserPanel.endSuppressWebViewFocusForAddressBar()
+            browserPanel.clearWebViewFocusSuppression()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+
             // Prevent omnibar auto-focus from immediately stealing first responder back.
-            browserPanel.suppressOmnibarAutofocus(for: 1.0)
+            browserPanel.suppressOmnibarAutofocus(for: 1.5)
 
             let webView = browserPanel.webView
             guard let window = webView.window else {
@@ -8418,6 +8424,15 @@ class TerminalController {
 
             window.makeFirstResponder(webView)
             if Self.responderChainContains(window.firstResponder, target: webView) {
+                // Some focus churn paths (workspace handoff / omnibar blur) can race this call.
+                // Reassert on the next runloop if another responder steals focus immediately.
+                DispatchQueue.main.async { [weak window, weak webView] in
+                    guard let window, let webView else { return }
+                    guard webView.window === window else { return }
+                    if !Self.responderChainContains(window.firstResponder, target: webView) {
+                        window.makeFirstResponder(webView)
+                    }
+                }
                 result = "OK"
             } else {
                 result = "ERROR: Focus did not move into web view"

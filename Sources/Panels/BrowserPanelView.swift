@@ -185,6 +185,14 @@ struct BrowserPanelView: View {
             guard addressBarFocused else { return }
             refreshSuggestions()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar).filter { note in
+            guard let panelId = note.object as? UUID else { return false }
+            return panelId == panel.id
+        }) { _ in
+            if addressBarFocused {
+                addressBarFocused = false
+            }
+        }
     }
 
     private var addressBar: some View {
@@ -353,7 +361,8 @@ struct BrowserPanelView: View {
         WebViewRepresentable(
             panel: panel,
             shouldAttachWebView: isVisibleInUI,
-            shouldFocusWebView: isFocused && !addressBarFocused
+            shouldFocusWebView: isFocused && !addressBarFocused,
+            isPanelFocused: isFocused
         )
             // Keep the representable identity stable across bonsplit structural updates.
             // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
@@ -2413,6 +2422,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let panel: BrowserPanel
     let shouldAttachWebView: Bool
     let shouldFocusWebView: Bool
+    let isPanelFocused: Bool
 
     final class Coordinator {
         weak var webView: WKWebView?
@@ -2576,7 +2586,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             window.makeFirstResponder(webView)
         } else {
-            if Self.responderChainContains(window.firstResponder, target: webView) {
+            // Only force-resign WebView focus when this panel itself is not focused.
+            // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
+            // clearing first responder here can undo programmatic webview focus (socket tests).
+            if !isPanelFocused && Self.responderChainContains(window.firstResponder, target: webView) {
                 window.makeFirstResponder(nil)
             }
         }

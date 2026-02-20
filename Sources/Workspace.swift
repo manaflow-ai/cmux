@@ -1331,7 +1331,14 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
-        _ = source
+#if DEBUG
+        let movedPanel = panelIdFromSurfaceId(tab.id)?.uuidString.prefix(5) ?? "unknown"
+        dlog(
+            "split.moveTab panel=\(movedPanel) " +
+            "from=\(source.id.uuidString.prefix(5)) to=\(destination.id.uuidString.prefix(5)) " +
+            "sourceTabs=\(controller.tabs(inPane: source).count) destTabs=\(controller.tabs(inPane: destination).count)"
+        )
+#endif
         applyTabSelection(tabId: tab.id, inPane: destination)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
@@ -1375,6 +1382,13 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+#if DEBUG
+        dlog(
+            "split.didSplit original=\(originalPane.id.uuidString.prefix(5)) new=\(newPane.id.uuidString.prefix(5)) " +
+            "orientation=\(orientation) programmatic=\(isProgrammaticSplit ? 1 : 0) " +
+            "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count)"
+        )
+#endif
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else {
@@ -1393,11 +1407,68 @@ extension Workspace: BonsplitDelegate {
         if !controller.tabs(inPane: newPane).isEmpty {
             let originalTabs = controller.tabs(inPane: originalPane)
             let hasRealSurface = originalTabs.contains { panelIdFromSurfaceId($0.id) != nil }
+#if DEBUG
+            dlog(
+                "split.didSplit.drag original=\(originalPane.id.uuidString.prefix(5)) " +
+                "new=\(newPane.id.uuidString.prefix(5)) originalTabs=\(originalTabs.count) " +
+                "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0)"
+            )
+#endif
             if !hasRealSurface {
-                _ = newTerminalSurface(inPane: originalPane, focus: false)
-                for tab in controller.tabs(inPane: originalPane) {
-                    if panelIdFromSurfaceId(tab.id) == nil {
-                        bonsplitController.closeTab(tab.id)
+                let placeholderTabs = originalTabs.filter { panelIdFromSurfaceId($0.id) == nil }
+#if DEBUG
+                dlog(
+                    "split.placeholderRepair pane=\(originalPane.id.uuidString.prefix(5)) " +
+                    "action=reusePlaceholder placeholderCount=\(placeholderTabs.count)"
+                )
+#endif
+                if let replacementTab = placeholderTabs.first {
+                    // Keep the existing placeholder tab identity and replace only the panel mapping.
+                    // This avoids an extra create+close tab churn that can transiently render an
+                    // empty pane during drag-to-split of a single-tab pane.
+                    let inheritedConfig: ghostty_surface_config_s? = {
+                        for panel in panels.values {
+                            if let terminalPanel = panel as? TerminalPanel,
+                               let surface = terminalPanel.surface.surface {
+                                return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+                            }
+                        }
+                        return nil
+                    }()
+
+                    let replacementPanel = TerminalPanel(
+                        workspaceId: id,
+                        context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                        configTemplate: inheritedConfig
+                    )
+                    panels[replacementPanel.id] = replacementPanel
+                    surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
+
+                    bonsplitController.updateTab(
+                        replacementTab.id,
+                        title: replacementPanel.displayTitle,
+                        icon: .some(replacementPanel.displayIcon),
+                        iconImageData: .some(nil),
+                        isDirty: replacementPanel.isDirty,
+                        showsNotificationBadge: false,
+                        isLoading: false
+                    )
+
+                    for extraPlaceholder in placeholderTabs.dropFirst() {
+                        bonsplitController.closeTab(extraPlaceholder.id)
+                    }
+                } else {
+#if DEBUG
+                    dlog(
+                        "split.placeholderRepair pane=\(originalPane.id.uuidString.prefix(5)) " +
+                        "fallback=createTerminalAndDropPlaceholders"
+                    )
+#endif
+                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    for tab in controller.tabs(inPane: originalPane) {
+                        if panelIdFromSurfaceId(tab.id) == nil {
+                            bonsplitController.closeTab(tab.id)
+                        }
                     }
                 }
             }
@@ -1409,6 +1480,13 @@ extension Workspace: BonsplitDelegate {
         guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,
               let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
               let sourcePanel = terminalPanel(for: sourcePanelId) else { return }
+
+#if DEBUG
+        dlog(
+            "split.didSplit.autoCreate pane=\(newPane.id.uuidString.prefix(5)) " +
+            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.uuidString.prefix(5))"
+        )
+#endif
 
         let inheritedConfig: ghostty_surface_config_s? = if let existing = sourcePanel.surface.surface {
             ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
@@ -1434,6 +1512,12 @@ extension Workspace: BonsplitDelegate {
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
+#if DEBUG
+        dlog(
+            "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +
+            "panel=\(newPanel.id.uuidString.prefix(5))"
+        )
+#endif
 
         // `createTab` selects the new tab but does not emit didSelectTab; schedule an explicit
         // selection so our focus/unfocus logic runs after this delegate callback returns.
