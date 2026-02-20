@@ -444,6 +444,38 @@ final class UpdateChannelSettingsTests: XCTestCase {
         )
     }
 
+    func testStableDowngradeComparisonTreatsCurrentNightlyBuildAsOlderWhenHostIsLeftOperand() {
+        XCTAssertEqual(
+            UpdateChannelSettings.stableDowngradeComparisonOverride(
+                currentBuildVersion: "2026021901",
+                versionA: "2026021901",
+                versionB: "70"
+            ),
+            .orderedAscending
+        )
+    }
+
+    func testStableDowngradeComparisonTreatsCurrentNightlyBuildAsOlderWhenHostIsRightOperand() {
+        XCTAssertEqual(
+            UpdateChannelSettings.stableDowngradeComparisonOverride(
+                currentBuildVersion: "2026021901",
+                versionA: "70",
+                versionB: "2026021901"
+            ),
+            .orderedDescending
+        )
+    }
+
+    func testStableDowngradeComparisonDoesNotOverrideUnrelatedBuildComparisons() {
+        XCTAssertNil(
+            UpdateChannelSettings.stableDowngradeComparisonOverride(
+                currentBuildVersion: "2026021901",
+                versionA: "70",
+                versionB: "71"
+            )
+        )
+    }
+
     func testShouldOfferNightlyCandidateWhenSemanticVersionMatches() {
         XCTAssertTrue(
             UpdateChannelSettings.shouldOfferNightlyCandidate(

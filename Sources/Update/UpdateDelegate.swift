@@ -74,6 +74,44 @@ enum UpdateChannelSettings {
         guard let candidateSemanticVersion = semanticVersion(from: candidateDisplayVersion) else { return false }
         return candidateSemanticVersion >= currentSemanticVersion
     }
+
+    static func stableDowngradeComparisonOverride(
+        currentBuildVersion: String,
+        versionA: String,
+        versionB: String
+    ) -> ComparisonResult? {
+        guard !currentBuildVersion.isEmpty else { return nil }
+        if versionA == versionB {
+            return .orderedSame
+        }
+        if versionA == currentBuildVersion {
+            return .orderedAscending
+        }
+        if versionB == currentBuildVersion {
+            return .orderedDescending
+        }
+        return nil
+    }
+}
+
+private final class StableDowngradeVersionComparator: NSObject, SUVersionComparison {
+    private let currentBuildVersion: String
+    private let defaultComparator = SUStandardVersionComparator.default
+
+    init(currentBuildVersion: String) {
+        self.currentBuildVersion = currentBuildVersion
+    }
+
+    func compareVersion(_ versionA: String, toVersion versionB: String) -> ComparisonResult {
+        if let override = UpdateChannelSettings.stableDowngradeComparisonOverride(
+            currentBuildVersion: currentBuildVersion,
+            versionA: versionA,
+            versionB: versionB
+        ) {
+            return override
+        }
+        return defaultComparator.compareVersion(versionA, toVersion: versionB)
+    }
 }
 
 extension UpdateDriver: SPUUpdaterDelegate {
@@ -139,6 +177,16 @@ extension UpdateDriver: SPUUpdaterDelegate {
         } else {
             UpdateLogStore.shared.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated), latest=\(latestVersion))")
         }
+    }
+
+    @objc(versionComparatorForUpdater:)
+    func versionComparator(for updater: SPUUpdater) -> (any SUVersionComparison)? {
+        guard UpdateChannelSettings.shouldOfferStableDowngrade() else { return nil }
+        guard let currentBuildVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+              !currentBuildVersion.isEmpty else { return nil }
+
+        UpdateLogStore.shared.append("stable channel override: using version comparator to allow nightly users to return to stable")
+        return StableDowngradeVersionComparator(currentBuildVersion: currentBuildVersion)
     }
 
     func bestValidUpdate(in appcast: SUAppcast, for updater: SPUUpdater) -> SUAppcastItem? {
