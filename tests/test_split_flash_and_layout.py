@@ -85,8 +85,47 @@ def _assert_selected_panels_healthy(payload: dict, *, min_wh: float = 80.0) -> N
                 )
 
 
+def _assert_no_transient_detach_or_hide(
+    c: cmux,
+    *,
+    duration_s: float = 1.0,
+    cadence_s: float = 0.005,
+    max_false_samples: int = 2,
+) -> None:
+    false_in_window: dict[str, int] = {}
+    hidden_true: dict[str, int] = {}
+    deadline = time.time() + duration_s
+
+    while time.time() < deadline:
+        rows = c.surface_health()
+        for row in rows:
+            if row.get("type") != "terminal":
+                continue
+            panel_id = (row.get("id") or "").lower()
+            if not panel_id:
+                continue
+            if row.get("in_window") is False:
+                false_in_window[panel_id] = false_in_window.get(panel_id, 0) + 1
+            if row.get("hidden") is True:
+                hidden_true[panel_id] = hidden_true.get(panel_id, 0) + 1
+        time.sleep(cadence_s)
+
+    detached = {k: v for k, v in false_in_window.items() if v > max_false_samples}
+    hidden = {k: v for k, v in hidden_true.items() if v > max_false_samples}
+    if detached or hidden:
+        raise cmuxError(
+            f"Transient detach/hide during split exceeds tolerance "
+            f"(detached={detached}, hidden={hidden})"
+        )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
+        # Run on a fresh workspace to avoid state carry-over from restored sessions.
+        test_workspace = c.new_workspace()
+        c.select_workspace(test_workspace)
+        time.sleep(0.2)
+
         # Baseline: a fresh counter, no flashes just from connecting.
         c.reset_empty_panel_count()
 
@@ -108,6 +147,38 @@ def main() -> int:
             raise cmuxError(f"Expected >= 2 panes after split, got {len(panes)}")
         _assert_selected_panels_healthy(after)
 
+        # Drag-to-split from a single-surface pane should also avoid EmptyPanelView flashes.
+        drag_workspace = c.new_workspace()
+        c.select_workspace(drag_workspace)
+        time.sleep(0.2)
+        drag_before = c.layout_debug()
+        _assert_selected_panels_healthy(drag_before)
+        drag_selected = drag_before.get("selectedPanels") or []
+        if not drag_selected:
+            raise cmuxError("layout_debug returned no selectedPanels for drag split setup")
+        drag_panel_id = drag_selected[0].get("panelId")
+        if not drag_panel_id:
+            raise cmuxError("drag split setup selected panel has no panelId")
+        drag_panes_before = len(drag_before.get("layout", {}).get("panes") or [])
+
+        c.reset_empty_panel_count()
+        response = c._send_command(f"drag_surface_to_split {drag_panel_id} right")
+        if not response.startswith("OK "):
+            raise cmuxError(response)
+        _assert_no_transient_detach_or_hide(c)
+        time.sleep(0.4)
+        flashes = c.empty_panel_count()
+        if flashes != 0:
+            raise cmuxError(f"EmptyPanelView appeared during drag split (count={flashes})")
+
+        drag_after = c.layout_debug()
+        drag_panes_after = len(drag_after.get("layout", {}).get("panes") or [])
+        if drag_panes_after < drag_panes_before + 1:
+            raise cmuxError(
+                f"Expected drag split to add a pane: before={drag_panes_before} after={drag_panes_after}"
+            )
+        _assert_selected_panels_healthy(drag_after)
+
         # Browser split should also avoid EmptyPanelView flashes.
         c.reset_empty_panel_count()
         browser_id = c._send_command("open_browser https://example.com")
@@ -121,10 +192,12 @@ def main() -> int:
         after_browser = c.layout_debug()
         _assert_selected_panels_healthy(after_browser)
 
+        c.close_workspace(test_workspace)
+        time.sleep(0.1)
+
     print("PASS: split flash + layout bounds checks")
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
