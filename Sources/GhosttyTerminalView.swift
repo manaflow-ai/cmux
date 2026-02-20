@@ -968,6 +968,12 @@ class GhosttyApp {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
+                // If a host whitelist is configured and this host isn't in it, open externally
+                if let host = url.host, !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 guard let tabId = surfaceView.tabId,
                       let surfaceId = surfaceView.terminalSurface?.id else { return false }
                 return performOnMain {
