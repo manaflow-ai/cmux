@@ -10,6 +10,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
     @State private var config = GhosttyConfig.load()
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
@@ -88,9 +89,11 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            let next = GhosttyConfig.load()
-            config = next
-            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            refreshGhosttyAppearanceConfig()
+        }
+        .onChange(of: colorScheme) { _, _ in
+            // Keep split overlay color/opacity in sync with light/dark theme transitions.
+            refreshGhosttyAppearanceConfig()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
@@ -117,6 +120,12 @@ struct WorkspaceContentView: View {
                 }
             }
         }
+    }
+
+    private func refreshGhosttyAppearanceConfig() {
+        let next = GhosttyConfig.load()
+        config = next
+        workspace.applyGhosttyChrome(from: next)
     }
 }
 
