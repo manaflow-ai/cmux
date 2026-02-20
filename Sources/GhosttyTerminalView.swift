@@ -2737,6 +2737,14 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+enum PortalDropZone: Equatable {
+    case center
+    case left
+    case right
+    case top
+    case bottom
+}
+
 final class GhosttySurfaceScrollView: NSView {
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
@@ -2751,7 +2759,7 @@ final class GhosttySurfaceScrollView: NSView {
 	    private var isLiveScrolling = false
     private var lastSentRow: Int?
     private var isActive = true
-    private var activeDropZone: DropZone?
+    private var activeDropZone: PortalDropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 #if DEBUG
@@ -3046,7 +3054,7 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
+    private func dropZoneOverlayFrame(for zone: PortalDropZone, in size: CGSize) -> CGRect {
         let padding: CGFloat = 4
         switch zone {
         case .center:
@@ -3069,7 +3077,7 @@ final class GhosttySurfaceScrollView: NSView {
             abs(lhs.size.height - rhs.size.height) <= epsilon
     }
 
-    func setDropZoneOverlay(zone: DropZone?) {
+    func setDropZoneOverlay(zone: PortalDropZone?) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
                 self?.setDropZoneOverlay(zone: zone)
@@ -3853,9 +3861,8 @@ extension GhosttyNSView: NSTextInputClient {
 // MARK: - SwiftUI Wrapper
 
 struct GhosttyTerminalView: NSViewRepresentable {
-    @Environment(\.paneDropZone) var paneDropZone
-
     let terminalSurface: TerminalSurface
+    var paneDropZone: PortalDropZone? = nil
     var isActive: Bool = true
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
