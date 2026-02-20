@@ -2,8 +2,8 @@ name: Nightly macOS build
 
 on:
   schedule:
-    # 09:30 UTC daily
-    - cron: "30 9 * * *"
+    # Every hour at :30. The 'decide' job skips if main has no new commits.
+    - cron: "30 * * * *"
   workflow_dispatch:
     inputs:
       force:
