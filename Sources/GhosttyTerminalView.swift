@@ -1011,7 +1011,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
     let hostedView: GhosttySurfaceScrollView
-    private let surfaceView: GhosttyNSView
+    let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
@@ -1804,6 +1804,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// Accept the first mouse click even when the window is inactive so that
+    /// clicking into the terminal both activates the window and starts text
+    /// selection in a single gesture — standard terminal-emulator behavior.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         if result {
@@ -2318,7 +2323,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
         #endif
         window?.makeFirstResponder(self)
-        guard let surface = surface else { return }
+        guard let surface = ensureSurfaceReadyForInput() else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
@@ -2878,6 +2883,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
     override var acceptsFirstResponder: Bool { false }
+
+    /// Accept the first mouse click even when the window is inactive so clicks
+    /// pass through to the inner GhosttyNSView and start text selection immediately.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func layout() {
         super.layout()
@@ -3795,6 +3804,63 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
 
+        /// The portal-hosted terminal surface view. When macOS routes mouse events
+        /// through the contentView hierarchy (rather than the themeFrame where the
+        /// portal host lives), this anchor forwards them to the actual terminal view
+        /// so that text selection, click-to-focus, and other mouse interactions work
+        /// reliably on all macOS versions (including Sequoia 15.7+).
+        weak var portalSurfaceView: GhosttyNSView?
+
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.mouseDown(with: event)
+            } else {
+                super.mouseDown(with: event)
+            }
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.mouseDragged(with: event)
+            } else {
+                super.mouseDragged(with: event)
+            }
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.mouseUp(with: event)
+            } else {
+                super.mouseUp(with: event)
+            }
+        }
+
+        override func rightMouseDown(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.rightMouseDown(with: event)
+            } else {
+                super.rightMouseDown(with: event)
+            }
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.rightMouseUp(with: event)
+            } else {
+                super.rightMouseUp(with: event)
+            }
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            if let target = portalSurfaceView {
+                target.scrollWheel(with: event)
+            } else {
+                super.scrollWheel(with: event)
+            }
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             onDidMoveToWindow?()
@@ -3891,6 +3957,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let generation = coordinator.attachGeneration
 
         if let host = nsView as? HostContainerView {
+            host.portalSurfaceView = terminalSurface.surfaceView
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
@@ -3954,6 +4021,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         if let host = nsView as? HostContainerView {
+            host.portalSurfaceView = nil
             host.onDidMoveToWindow = nil
             host.onGeometryChanged = nil
         }

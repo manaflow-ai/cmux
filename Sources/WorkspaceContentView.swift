@@ -64,9 +64,6 @@ struct WorkspaceContentView: View {
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
