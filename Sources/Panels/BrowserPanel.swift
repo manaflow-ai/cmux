@@ -194,27 +194,35 @@ enum BrowserInsecureHTTPSettings {
 
 func browserShouldBlockInsecureHTTPURL(
     _ url: URL,
-    defaults: UserDefaults = .standard,
-    runtimeAllowedHosts: Set<String> = []
+    defaults: UserDefaults = .standard
 ) -> Bool {
     browserShouldBlockInsecureHTTPURL(
         url,
-        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey),
-        runtimeAllowedHosts: runtimeAllowedHosts
+        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
     )
 }
 
 func browserShouldBlockInsecureHTTPURL(
     _ url: URL,
-    rawAllowlist: String?,
-    runtimeAllowedHosts: Set<String> = []
+    rawAllowlist: String?
 ) -> Bool {
     guard url.scheme?.lowercased() == "http" else { return false }
     guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
-    if runtimeAllowedHosts.contains(host) {
+    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
+}
+
+func browserShouldConsumeOneTimeInsecureHTTPBypass(
+    _ url: URL,
+    bypassHostOnce: inout String?
+) -> Bool {
+    guard let bypassHost = bypassHostOnce else { return false }
+    guard url.scheme?.lowercased() == "http",
+          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
         return false
     }
-    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
+    guard host == bypassHost else { return false }
+    bypassHostOnce = nil
+    return true
 }
 
 func browserShouldPersistInsecureHTTPAllowlistSelection(
@@ -223,23 +231,6 @@ func browserShouldPersistInsecureHTTPAllowlistSelection(
 ) -> Bool {
     guard suppressionEnabled else { return false }
     return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
-}
-
-@MainActor
-enum BrowserInsecureHTTPRuntimeAllowlist {
-    private static var hosts = Set<String>()
-
-    static func contains(_ host: String) -> Bool {
-        hosts.contains(host)
-    }
-
-    static func allow(_ host: String) {
-        hosts.insert(host)
-    }
-
-    static func snapshot() -> Set<String> {
-        hosts
-    }
 }
 
 enum BrowserUserAgentSettings {
@@ -1009,6 +1000,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
+    private var insecureHTTPBypassHostOnce: String?
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1028,9 +1020,10 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil) {
+    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -1432,10 +1425,10 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
-        browserShouldBlockInsecureHTTPURL(
-            url,
-            runtimeAllowedHosts: BrowserInsecureHTTPRuntimeAllowlist.snapshot()
-        )
+        if browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce) {
+            return false
+        }
+        return browserShouldBlockInsecureHTTPURL(url)
     }
 
     private func requestNavigation(_ url: URL, intent: BrowserInsecureHTTPNavigationIntent) {
@@ -1483,12 +1476,12 @@ final class BrowserPanel: Panel, ObservableObject {
         case .alertFirstButtonReturn:
             NSWorkspace.shared.open(url)
         case .alertSecondButtonReturn:
-            BrowserInsecureHTTPRuntimeAllowlist.allow(host)
             switch intent {
             case .currentTab:
+                insecureHTTPBypassHostOnce = host
                 navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
             case .newTab:
-                openLinkInNewTab(url: url)
+                openLinkInNewTab(url: url, bypassInsecureHTTPHostOnce: host)
             }
         default:
             return
@@ -1545,11 +1538,16 @@ extension BrowserPanel {
     }
 
     /// Open a link in a new browser surface in the same pane
-    func openLinkInNewTab(url: URL) {
+    func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let tabManager = AppDelegate.shared?.tabManager,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
               let paneId = workspace.paneId(forPanelId: id) else { return }
-        workspace.newBrowserSurface(inPane: paneId, url: url, focus: true)
+        workspace.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: true,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
     }
 
     /// Reload the current page
