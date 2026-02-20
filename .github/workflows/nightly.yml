@@ -180,9 +180,14 @@ jobs:
           NIGHTLY_DATE=$(date -u +%Y%m%d)
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" "$APP_PLIST"
 
-          # Build number: unique/monotonic per workflow run so same-day nightlies still
-          # compare as newer in Sparkle.
-          NIGHTLY_BUILD="${GITHUB_RUN_ID:-${NIGHTLY_DATE}000000}"
+          # Build number: unique/monotonic per workflow run attempt so same-day
+          # nightlies and reruns still compare as newer in Sparkle.
+          if [ -n "${GITHUB_RUN_ID:-}" ]; then
+            RUN_ATTEMPT="$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+            NIGHTLY_BUILD="${GITHUB_RUN_ID}${RUN_ATTEMPT}"
+          else
+            NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
+          fi
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
           # Embed commit SHA for bug reports
