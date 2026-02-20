@@ -130,20 +130,33 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
     }
 
-    func testBlockDecisionUsesAllowlistAndRuntimeProceedCache() throws {
+    func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
         let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
 
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
         XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(
-            insecureURL,
-            rawAllowlist: nil,
-            runtimeAllowedHosts: ["neverssl.com"]
-        ))
 
         let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+    }
+
+    func testOneTimeBypassIsConsumedAfterFirstNavigation() throws {
+        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
+        var bypassHostOnce: String? = "neverssl.com"
+
+        XCTAssertTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
+            insecureURL,
+            bypassHostOnce: &bypassHostOnce
+        ))
+        XCTAssertNil(bypassHostOnce)
+
+        // Subsequent visits should prompt again unless host was saved.
+        XCTAssertFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
+            insecureURL,
+            bypassHostOnce: &bypassHostOnce
+        ))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
     }
 
     func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
