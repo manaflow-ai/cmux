@@ -153,7 +153,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func needsConfirmClose() -> Bool {
-        surface.needsConfirmClose()
+        // Skip the confirmation dialog for terminals that are still initializing
+        // (e.g. immediately after Cmd+T before the shell has sent its first title).
+        if !surface.hasReceivedFirstTitle { return false }
+        return surface.needsConfirmClose()
     }
 
     func triggerFlash() {

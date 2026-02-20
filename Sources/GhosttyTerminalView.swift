@@ -771,6 +771,7 @@ class GhosttyApp {
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
                 DispatchQueue.main.async {
+                    surfaceView.terminalSurface?.hasReceivedFirstTitle = true
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
                         object: surfaceView,
@@ -1012,6 +1013,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let workingDirectory: String?
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
+    /// Whether this surface has received its first title from the shell.
+    /// Used to skip the close-confirmation dialog for terminals that are still initializing.
+    private(set) var hasReceivedFirstTitle: Bool = false
     private var lastPixelWidth: UInt32 = 0
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
