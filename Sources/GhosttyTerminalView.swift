@@ -112,6 +112,42 @@ private enum GhosttyPasteboardHelper {
     }
 }
 
+enum TerminalOpenURLTarget: Equatable {
+    case embeddedBrowser(URL)
+    case external(URL)
+
+    var url: URL {
+        switch self {
+        case let .embeddedBrowser(url), let .external(url):
+            return url
+        }
+    }
+}
+
+func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        return .external(URL(fileURLWithPath: trimmed))
+    }
+
+    if let parsed = URL(string: trimmed),
+       let scheme = parsed.scheme?.lowercased() {
+        if scheme == "http" || scheme == "https" {
+            return .embeddedBrowser(parsed)
+        }
+        return .external(parsed)
+    }
+
+    if let webURL = resolveBrowserNavigableURL(trimmed) {
+        return .embeddedBrowser(webURL)
+    }
+
+    guard let fallback = URL(string: trimmed) else { return nil }
+    return .external(fallback)
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -920,24 +956,31 @@ class GhosttyApp {
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
             let urlString = String(cString: cstr)
-            guard let url = URL(string: urlString) else { return false }
+            guard let target = resolveTerminalOpenURLTarget(urlString) else { return false }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                return performOnMain {
+                    NSWorkspace.shared.open(target.url)
+                }
+            }
+            switch target {
+            case let .external(url):
                 return performOnMain {
                     NSWorkspace.shared.open(url)
                 }
-            }
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return false }
-            return performOnMain {
-                guard let app = AppDelegate.shared,
-                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                    return false
-                }
-                if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
-                    return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-                } else {
-                    return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+            case let .embeddedBrowser(url):
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = surfaceView.terminalSurface?.id else { return false }
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                          let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                        return false
+                    }
+                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                        return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                    } else {
+                        return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                    }
                 }
             }
         default:
