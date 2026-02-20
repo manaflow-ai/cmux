@@ -1715,7 +1715,7 @@ private struct TabItemView: View {
 
             Divider()
 
-            Button("Close Tabs") {
+            Button("Close Workspaces") {
                 closeTabs(targetIds, allowPinned: true)
             }
             .disabled(targetIds.isEmpty)
@@ -1725,12 +1725,12 @@ private struct TabItemView: View {
             }
             .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
 
-            Button("Close Tabs Below") {
+            Button("Close Workspaces Below") {
                 closeTabsBelow(tabId: tab.id)
             }
             .disabled(index >= tabManager.tabs.count - 1)
 
-            Button("Close Tabs Above") {
+            Button("Close Workspaces Above") {
                 closeTabsAbove(tabId: tab.id)
             }
             .disabled(index == 0)
