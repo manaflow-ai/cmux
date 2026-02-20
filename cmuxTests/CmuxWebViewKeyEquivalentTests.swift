@@ -1,12 +1,56 @@
 import XCTest
 import AppKit
 import WebKit
+import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
+private var cmuxUnitTestInspectorOverrideInstalled = false
+
+private extension CmuxWebView {
+    @objc func cmuxUnitTestInspector() -> NSObject? {
+        objc_getAssociatedObject(self, &cmuxUnitTestInspectorAssociationKey) as? NSObject
+    }
+}
+
+private extension WKWebView {
+    func cmuxSetUnitTestInspector(_ inspector: NSObject?) {
+        objc_setAssociatedObject(
+            self,
+            &cmuxUnitTestInspectorAssociationKey,
+            inspector,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+}
+
+private func installCmuxUnitTestInspectorOverride() {
+    guard !cmuxUnitTestInspectorOverrideInstalled else { return }
+
+    guard let replacementMethod = class_getInstanceMethod(
+        CmuxWebView.self,
+        #selector(CmuxWebView.cmuxUnitTestInspector)
+    ) else {
+        fatalError("Unable to locate test inspector replacement method")
+    }
+
+    let added = class_addMethod(
+        CmuxWebView.self,
+        NSSelectorFromString("_inspector"),
+        method_getImplementation(replacementMethod),
+        method_getTypeEncoding(replacementMethod)
+    )
+    guard added else {
+        fatalError("Unable to install CmuxWebView _inspector test override")
+    }
+
+    cmuxUnitTestInspectorOverrideInstalled = true
+}
 
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
@@ -169,6 +213,73 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         if #available(macOS 13.3, *) {
             XCTAssertTrue(panel.webView.isInspectable)
         }
+    }
+}
+
+@MainActor
+final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
+    private final class FakeInspector: NSObject {
+        private(set) var showCount = 0
+        private(set) var closeCount = 0
+        private var visible = false
+
+        @objc func isVisible() -> Bool {
+            visible
+        }
+
+        @objc func show() {
+            showCount += 1
+            visible = true
+        }
+
+        @objc func close() {
+            closeCount += 1
+            visible = false
+        }
+    }
+
+    override class func setUp() {
+        super.setUp()
+        installCmuxUnitTestInspectorOverride()
+    }
+
+    private func makePanelWithInspector() -> (BrowserPanel, FakeInspector) {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let inspector = FakeInspector()
+        panel.webView.cmuxSetUnitTestInspector(inspector)
+        return (panel, inspector)
+    }
+
+    func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate WebKit closing inspector during detach/reattach churn.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 1)
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate user closing inspector before detach.
+        inspector.close()
+        panel.syncDeveloperToolsPreferenceFromInspector()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
     }
 }
 
