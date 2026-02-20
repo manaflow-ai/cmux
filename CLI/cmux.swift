@@ -589,7 +589,10 @@ struct CMUXCLI {
             }
 
         case "new-workspace":
-            let (commandOpt, _) = parseOption(commandArgs, name: "--command")
+            let (commandOpt, remaining) = parseOption(commandArgs, name: "--command")
+            if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
+            }
             let response = try client.send(command: "new_workspace")
             print(response)
             if let commandText = commandOpt {
