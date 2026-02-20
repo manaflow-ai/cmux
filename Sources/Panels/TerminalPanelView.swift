@@ -25,6 +25,7 @@ struct TerminalPanelView: View {
                 showsUnreadNotificationRing: hasUnreadNotification,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 onFocus: { _ in onFocus() },
                 onTriggerFlash: onTriggerFlash
@@ -33,18 +34,6 @@ struct TerminalPanelView: View {
             // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
             .id(panel.id)
             .background(Color.clear)
-
-            // Search overlay
-            if let searchState = panel.searchState {
-                SurfaceSearchOverlay(
-                    surface: panel.surface,
-                    searchState: searchState,
-                    onClose: {
-                        panel.searchState = nil
-                        panel.hostedView.moveFocus()
-                    }
-                )
-            }
         }
     }
 }

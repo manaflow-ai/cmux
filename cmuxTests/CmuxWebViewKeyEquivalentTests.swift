@@ -990,6 +990,20 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
         XCTAssertEqual(actions, [.showFindInterface])
     }
+    func testTerminalFindOverlayMountsInsideHostedView() {
+        let manager = TabManager()
+        guard let panel = manager.selectedTerminalPanel else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        panel.searchState = TerminalSurface.SearchState()
+        panel.hostedView.setSearchOverlay(searchState: panel.searchState)
+        XCTAssertTrue(panel.hostedView.debugHasSearchOverlay())
+
+        panel.hostedView.setSearchOverlay(searchState: nil)
+        XCTAssertFalse(panel.hostedView.debugHasSearchOverlay())
+    }
 }
 #endif
 
