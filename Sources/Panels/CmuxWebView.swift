@@ -1,5 +1,6 @@
 import AppKit
 import WebKit
+import Bonsplit
 
 func isBrowserCommandReturnEvent(_ event: NSEvent) -> Bool {
     let flags = event.modifierFlags
@@ -14,6 +15,16 @@ func isBrowserCommandReturnEvent(_ event: NSEvent) -> Bool {
     let chars = event.charactersIgnoringModifiers ?? event.characters ?? ""
     return chars == "\r" || chars == "\n"
 }
+
+#if DEBUG
+private func browserCommandReturnDebugContext(for webView: CmuxWebView) -> String {
+    let pointer = Unmanaged.passUnretained(webView).toOpaque()
+    let isFirstResponder = webView.window?.firstResponder === webView ? 1 : 0
+    let isHidden = webView.isHiddenOrHasHiddenAncestor ? 1 : 0
+    let isKeyWindow = webView.window?.isKeyWindow == true ? 1 : 0
+    return "view=\(pointer) fr=\(isFirstResponder) hidden=\(isHidden) keyWindow=\(isKeyWindow)"
+}
+#endif
 
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
 /// preventing the app menu/SwiftUI Commands from receiving them. Route menu
@@ -36,7 +47,7 @@ final class CmuxWebView: WKWebView {
         // performKeyEquivalent and trigger an unwanted page reload.
         if isBrowserCommandReturnEvent(event) {
 #if DEBUG
-            NSLog("[cmux.debug] webview.performKeyEquiv: bypass Cmd+Return -> keyDown")
+            dlog("webview.cmdReturn.performKeyEquiv bypass -> keyDown \(browserCommandReturnDebugContext(for: self))")
 #endif
             return false
         }
@@ -51,7 +62,10 @@ final class CmuxWebView: WKWebView {
             let handled = AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true
 #if DEBUG
             if isBrowserCommandReturnEvent(event) {
-                NSLog("[cmux.debug] webview.keyDown: Cmd+Return handledByApp=%d", handled ? 1 : 0)
+                dlog(
+                    "webview.cmdReturn.keyDown handledByApp=\(handled ? 1 : 0) " +
+                    "\(browserCommandReturnDebugContext(for: self))"
+                )
             }
 #endif
             if handled {

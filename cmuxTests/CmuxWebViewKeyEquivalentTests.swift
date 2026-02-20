@@ -257,6 +257,65 @@ final class BrowserCommandReturnRoutingTests: XCTestCase {
     }
 }
 
+final class BrowserCommandReturnWindowBypassTests: XCTestCase {
+    func testBypassesOriginalWindowTraversalWhenFirstResponderIsBrowserWebView() {
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        XCTAssertNotNil(event)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        XCTAssertTrue(
+            shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+                event: event!,
+                firstResponder: webView,
+                hasFocusedBrowserAddressBar: false
+            )
+        )
+    }
+
+    func testBypassesOriginalWindowTraversalWhenBrowserAddressBarIsFocused() {
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        XCTAssertNotNil(event)
+
+        let editor = NSTextView(frame: .zero)
+        XCTAssertTrue(
+            shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+                event: event!,
+                firstResponder: editor,
+                hasFocusedBrowserAddressBar: true
+            )
+        )
+    }
+
+    func testDoesNotBypassForNonBrowserResponderWithoutAddressBarFocus() {
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        XCTAssertNotNil(event)
+
+        let editor = NSTextView(frame: .zero)
+        XCTAssertFalse(
+            shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+                event: event!,
+                firstResponder: editor,
+                hasFocusedBrowserAddressBar: false
+            )
+        )
+    }
+
+    private func makeKeyDownEvent(key: String, modifiers: NSEvent.ModifierFlags, keyCode: UInt16) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))

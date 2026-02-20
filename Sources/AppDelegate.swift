@@ -262,6 +262,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
+    fileprivate var hasFocusedBrowserAddressBar: Bool {
+        browserAddressBarFocusedPanelId != nil
+    }
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatKeyCode: UInt16?
@@ -3389,6 +3392,32 @@ enum MenuBarIconRenderer {
     }
 }
 
+func shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+    event: NSEvent,
+    firstResponder: NSResponder?,
+    hasFocusedBrowserAddressBar: Bool
+) -> Bool {
+    guard isBrowserCommandReturnEvent(event) else { return false }
+
+    if hasFocusedBrowserAddressBar {
+        return true
+    }
+
+    guard let firstResponderView = firstResponder as? NSView else {
+        return false
+    }
+
+    var view: NSView? = firstResponderView
+    while let current = view {
+        if current is CmuxWebView {
+            return true
+        }
+        view = current.superview
+    }
+
+    return false
+}
+
 
 private extension NSWindow {
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -3434,6 +3463,17 @@ private extension NSWindow {
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
 #endif
             return true
+        }
+
+        if shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+            event: event,
+            firstResponder: self.firstResponder,
+            hasFocusedBrowserAddressBar: AppDelegate.shared?.hasFocusedBrowserAddressBar == true
+        ) {
+#if DEBUG
+            dlog("  → bypass original performKeyEquivalent for browser Cmd+Return")
+#endif
+            return false
         }
 
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
