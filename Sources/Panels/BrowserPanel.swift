@@ -989,6 +989,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
+#if DEBUG
+    var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
+#endif
 
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
@@ -1772,6 +1775,31 @@ extension BrowserPanel {
         applyPageZoom(1.0)
     }
 
+    @discardableResult
+    func showFindInterface() -> Bool {
+        performTextFinderAction(.showFindInterface)
+    }
+
+    @discardableResult
+    func findNextMatch() -> Bool {
+        performTextFinderAction(.nextMatch)
+    }
+
+    @discardableResult
+    func findPreviousMatch() -> Bool {
+        performTextFinderAction(.previousMatch)
+    }
+
+    @discardableResult
+    func hideFindInterface() -> Bool {
+        performTextFinderAction(.hideFindInterface)
+    }
+
+    @discardableResult
+    func useSelectionForFind() -> Bool {
+        performTextFinderAction(.setSearchString)
+    }
+
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
         let config = WKSnapshotConfiguration()
@@ -1944,6 +1972,30 @@ extension BrowserPanel {
 #endif
 
 private extension BrowserPanel {
+    @discardableResult
+    func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
+#if DEBUG
+        if let debugTextFinderActionHandler {
+            return debugTextFinderActionHandler(action)
+        }
+#endif
+        if let window = webView.window,
+           !Self.responderChainContains(window.firstResponder, target: webView) {
+            window.makeFirstResponder(webView)
+        }
+
+        let item = NSMenuItem(
+            title: "",
+            action: #selector(NSResponder.performTextFinderAction(_:)),
+            keyEquivalent: ""
+        )
+        item.tag = action.rawValue
+
+        _ = NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: webView, from: item)
+        webView.performTextFinderAction(item)
+        return true
+    }
+
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))

@@ -97,6 +97,18 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testCmdFRoutesToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "f", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) // kVK_ANSI_F
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertTrue(spy.invoked)
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
@@ -857,6 +869,42 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+}
+
+@MainActor
+final class TabManagerFindRoutingTests: XCTestCase {
+    func testBrowserFocusedRoutesFindActionsToTextFinder() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+#if DEBUG
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+#endif
+
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(manager.findNext())
+        XCTAssertTrue(manager.findPrevious())
+        XCTAssertTrue(manager.searchSelection())
+        XCTAssertTrue(manager.hideFind())
+
+#if DEBUG
+        XCTAssertEqual(
+            actions,
+            [.showFindInterface, .nextMatch, .previousMatch, .setSearchString, .hideFindInterface]
+        )
+#endif
     }
 }
 
