@@ -781,6 +781,30 @@ final class SidebarDropPlannerTests: XCTestCase {
     }
 }
 
+final class SidebarDragEndPolicyTests: XCTestCase {
+    func testMouseUpEventsEndDrag() {
+        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseUp, keyCode: nil))
+        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .rightMouseUp, keyCode: nil))
+        XCTAssertTrue(SidebarDragEndPolicy.shouldEndDrag(for: .otherMouseUp, keyCode: nil))
+    }
+
+    func testEscapeEndsDragButOtherKeysDoNot() {
+        XCTAssertTrue(
+            SidebarDragEndPolicy.shouldEndDrag(
+                for: .keyDown,
+                keyCode: SidebarDragEndPolicy.escapeKeyCode
+            )
+        )
+        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .keyDown, keyCode: 0))
+    }
+
+    func testNonTerminalEventsDoNotEndDrag() {
+        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseDown, keyCode: nil))
+        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .leftMouseDragged, keyCode: nil))
+        XCTAssertFalse(SidebarDragEndPolicy.shouldEndDrag(for: .flagsChanged, keyCode: nil))
+    }
+}
+
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
         let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)

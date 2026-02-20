@@ -1031,6 +1031,7 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @StateObject private var dragEndMonitor = SidebarDragEndMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
@@ -1118,11 +1119,19 @@ struct VerticalTabsSidebar: View {
         .onDisappear {
             commandKeyMonitor.stop()
             dragAutoScrollController.stop()
+            dragEndMonitor.stop()
             draggedTabId = nil
             dropIndicator = nil
         }
         .onChange(of: draggedTabId) { newDraggedTabId in
-            guard newDraggedTabId == nil else { return }
+            if newDraggedTabId != nil {
+                dragEndMonitor.start {
+                    guard draggedTabId != nil else { return }
+                    draggedTabId = nil
+                }
+                return
+            }
+            dragEndMonitor.stop()
             dragAutoScrollController.stop()
             dropIndicator = nil
         }
@@ -1158,6 +1167,65 @@ enum ShortcutHintDebugSettings {
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
+    }
+}
+
+enum SidebarDragEndPolicy {
+    static let escapeKeyCode: UInt16 = 53
+
+    static func shouldEndDrag(for eventType: NSEvent.EventType, keyCode: UInt16?) -> Bool {
+        switch eventType {
+        case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            return true
+        case .keyDown:
+            return keyCode == escapeKeyCode
+        default:
+            return false
+        }
+    }
+}
+
+@MainActor
+private final class SidebarDragEndMonitor: ObservableObject {
+    private var localMonitor: Any?
+    private var globalMonitor: Any?
+    private var onDragEnd: (() -> Void)?
+
+    func start(onDragEnd: @escaping () -> Void) {
+        self.onDragEnd = onDragEnd
+        guard localMonitor == nil, globalMonitor == nil else { return }
+
+        localMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp, .keyDown]
+        ) { [weak self] event in
+            self?.queueDragEndIfNeeded(eventType: event.type, keyCode: event.keyCode)
+            return event
+        }
+
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] event in
+            self?.queueDragEndIfNeeded(eventType: event.type, keyCode: nil)
+        }
+    }
+
+    func stop() {
+        if let localMonitor {
+            NSEvent.removeMonitor(localMonitor)
+            self.localMonitor = nil
+        }
+        if let globalMonitor {
+            NSEvent.removeMonitor(globalMonitor)
+            self.globalMonitor = nil
+        }
+        onDragEnd = nil
+    }
+
+    private func queueDragEndIfNeeded(eventType: NSEvent.EventType, keyCode: UInt16?) {
+        guard SidebarDragEndPolicy.shouldEndDrag(for: eventType, keyCode: keyCode) else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.onDragEnd?()
+        }
     }
 }
 
