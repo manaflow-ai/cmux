@@ -1442,6 +1442,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
                 dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
+                    self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
+                }
 #endif
                 if self.handleCustomShortcut(event: event) {
 #if DEBUG
@@ -1882,13 +1885,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
+#endif
             let didHandle = tabManager?.toggleDeveloperToolsFocusedBrowser() ?? false
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "toggle.post", event: event, didHandle: didHandle)
+            DispatchQueue.main.async { [weak self] in
+                self?.logDeveloperToolsShortcutSnapshot(phase: "toggle.tick", didHandle: didHandle)
+            }
+#endif
             if !didHandle { NSSound.beep() }
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
+#endif
             let didHandle = tabManager?.showJavaScriptConsoleFocusedBrowser() ?? false
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "console.post", event: event, didHandle: didHandle)
+            DispatchQueue.main.async { [weak self] in
+                self?.logDeveloperToolsShortcutSnapshot(phase: "console.tick", didHandle: didHandle)
+            }
+#endif
             if !didHandle { NSSound.beep() }
             return true
         }
@@ -2058,6 +2079,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         return false
     }
+
+#if DEBUG
+    private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+            return "toggle.configured"
+        }
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+            return "console.configured"
+        }
+
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == [.command, .option] {
+            if chars == "i" || event.keyCode == 34 {
+                return "toggle.literal"
+            }
+            if chars == "c" || event.keyCode == 8 {
+                return "console.literal"
+            }
+        }
+        return nil
+    }
+
+    private func logDeveloperToolsShortcutSnapshot(
+        phase: String,
+        event: NSEvent? = nil,
+        didHandle: Bool? = nil
+    ) {
+        let keyWindow = NSApp.keyWindow
+        let firstResponder = keyWindow?.firstResponder
+        let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        let eventDescription = event.map(NSWindow.keyDescription) ?? "none"
+        if let browser = tabManager?.focusedBrowserPanel {
+            var line =
+                "browser.devtools shortcut=\(phase) panel=\(browser.id.uuidString.prefix(5)) " +
+                "\(browser.debugDeveloperToolsStateSummary()) \(browser.debugDeveloperToolsGeometrySummary()) " +
+                "keyWin=\(keyWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) event=\(eventDescription)"
+            if let didHandle {
+                line += " handled=\(didHandle ? 1 : 0)"
+            }
+            dlog(line)
+            return
+        }
+        var line =
+            "browser.devtools shortcut=\(phase) panel=nil keyWin=\(keyWindow?.windowNumber ?? -1) " +
+            "fr=\(firstResponderType)@\(firstResponderPtr) event=\(eventDescription)"
+        if let didHandle {
+            line += " handled=\(didHandle ? 1 : 0)"
+        }
+        dlog(line)
+    }
+#endif
 
     private func prepareFocusedBrowserDevToolsForSplit(directionLabel: String) {
         guard let browser = tabManager?.focusedBrowserPanel else { return }
