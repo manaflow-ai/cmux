@@ -39,6 +39,18 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum WorkspaceAutoReorderSettings {
+    static let key = "workspaceAutoReorderOnNotification"
+    static let defaultValue = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent

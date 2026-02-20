@@ -679,7 +679,9 @@ class GhosttyApp {
                     let command = actionTitle.isEmpty ? tabTitle : actionTitle
                     let body = actionBody
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
-                    tabManager.moveTabToTop(tabId)
+                    if WorkspaceAutoReorderSettings.isEnabled() {
+                        tabManager.moveTabToTop(tabId)
+                    }
                     TerminalNotificationStore.shared.addNotification(
                         tabId: tabId,
                         surfaceId: surfaceId,
@@ -883,7 +885,9 @@ class GhosttyApp {
                 let tabTitle = AppDelegate.shared?.tabManager?.titleForTab(tabId) ?? "Terminal"
                 let command = actionTitle.isEmpty ? tabTitle : actionTitle
                 let body = actionBody
-                AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+                if WorkspaceAutoReorderSettings.isEnabled() {
+                    AppDelegate.shared?.tabManager?.moveTabToTop(tabId)
+                }
                 TerminalNotificationStore.shared.addNotification(
                     tabId: tabId,
                     surfaceId: surfaceId,
