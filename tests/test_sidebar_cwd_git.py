@@ -195,6 +195,32 @@ def main() -> int:
             _send_cd_and_wait(client, other)
             _wait_for_git_branch(client, "none")
 
+            # Panel-scoped branch updates should only affect the focused panel.
+            client.new_split("right")
+            time.sleep(0.4)
+            surfaces = client.list_surfaces()
+            if len(surfaces) < 2:
+                raise AssertionError("Expected at least two surfaces after split")
+
+            first_surface = surfaces[0][1]
+            second_surface = surfaces[1][1]
+
+            client.focus_surface(first_surface)
+            client.report_git_branch("panel-one", status="clean", tab=new_tab_id, panel=first_surface)
+            _wait_for_git_branch(client, "panel-one")
+
+            client.report_git_branch("panel-two", status="clean", tab=new_tab_id, panel=second_surface)
+            _wait_for_git_branch(client, "panel-one")
+
+            client.focus_surface(second_surface)
+            _wait_for_git_branch(client, "panel-two")
+
+            client.clear_git_branch(tab=new_tab_id, panel=second_surface)
+            _wait_for_git_branch(client, "none")
+
+            client.focus_surface(first_surface)
+            _wait_for_git_branch(client, "panel-one")
+
             try:
                 client.close_tab(new_tab_id)
             except Exception:

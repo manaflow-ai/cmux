@@ -32,7 +32,7 @@ struct SidebarProgressState {
     let label: String?
 }
 
-struct SidebarGitBranchState {
+struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
 }
@@ -91,6 +91,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
+    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -239,6 +240,7 @@ final class Workspace: Identifiable, ObservableObject {
         let iconImageData: Data?
         let isLoading: Bool
         let directory: String?
+        let gitBranch: SidebarGitBranchState?
         let cachedTitle: String?
     }
 
@@ -354,12 +356,39 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelGitBranch(panelId: UUID, branchState: SidebarGitBranchState?) {
+        if let branchState {
+            panelGitBranches[panelId] = branchState
+        } else {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+
+        if panelId == focusedPanelId {
+            gitBranch = branchState
+        }
+    }
+
+    func clearPanelGitBranches() {
+        panelGitBranches.removeAll()
+        gitBranch = nil
+    }
+
+    private func syncFocusedPanelGitBranch() {
+        guard let focusedPanelId = focusedPanelId else {
+            gitBranch = nil
+            return
+        }
+        gitBranch = panelGitBranches[focusedPanelId]
+    }
+
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
+        syncFocusedPanelGitBranch()
     }
 
     func recomputeListeningPorts() {
@@ -800,6 +829,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
+        if let gitBranch = detached.gitBranch {
+            panelGitBranches[detached.panelId] = gitBranch
+        }
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
         }
@@ -814,6 +846,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
+            panelGitBranches.removeValue(forKey: detached.panelId)
             panelTitles.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             return nil
@@ -1217,6 +1250,7 @@ extension Workspace: BonsplitDelegate {
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
+        syncFocusedPanelGitBranch()
 
         // Post notification
         NotificationCenter.default.post(
@@ -1326,6 +1360,7 @@ extension Workspace: BonsplitDelegate {
                 iconImageData: browserPanel?.faviconPNGData,
                 isLoading: browserPanel?.isLoading ?? false,
                 directory: panelDirectories[panelId],
+                gitBranch: panelGitBranches[panelId],
                 cachedTitle: panelTitles[panelId]
             )
         } else {
@@ -1336,6 +1371,7 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
+        panelGitBranches.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)

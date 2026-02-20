@@ -561,13 +561,29 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
-    def report_git_branch(self, branch: str, status: str = None, tab: str = None) -> None:
+    def report_git_branch(
+        self, branch: str, status: str = None, tab: str = None, panel: str = None
+    ) -> None:
         """Report git branch for sidebar display."""
-        cmd = f"report_git_branch {branch}"
+        cmd = "report_git_branch"
         if status:
             cmd += f" --status={status}"
         if tab:
             cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        cmd += f" -- {_quote_option_value(branch)}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_git_branch(self, tab: str = None, panel: str = None) -> None:
+        """Clear sidebar git branch display."""
+        cmd = "clear_git_branch"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
         response = self._send_command(cmd)
         if not response.startswith("OK"):
             raise cmuxError(response)

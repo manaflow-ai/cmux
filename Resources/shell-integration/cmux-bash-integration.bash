@@ -100,9 +100,10 @@ _cmux_prompt_command() {
                 local first
                 first=$(git status --porcelain -uno 2>/dev/null | head -1)
                 [[ -n "$first" ]] && dirty_opt="--status=dirty"
-                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID"
+                local qbranch="${branch//\"/\\\"}"
+                _cmux_send "report_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID $dirty_opt -- \"${qbranch}\""
             else
-                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID"
+                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
             fi
         } >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
