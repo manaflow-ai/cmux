@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.58.0] - 2026-02-19
+
+### Fixed
+- Fix split blackout race condition and focus handoff when creating or closing splits
+
 ## [0.57.0] - 2026-02-19
 
 ### Added
