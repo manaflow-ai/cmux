@@ -55,18 +55,17 @@ struct WorkspaceContentView: View {
                         // indicator and where keyboard input/flash-focus actually lands.
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
+                        workspace.bonsplitController.focusPane(paneId)
                         workspace.focusPanel(panel.id)
                     },
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
+                        workspace.bonsplitController.focusPane(paneId)
                         workspace.focusPanel(panel.id)
                     },
                     onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                 )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
