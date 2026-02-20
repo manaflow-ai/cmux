@@ -921,6 +921,11 @@ class GhosttyApp {
             guard let cstr = openUrl.url else { return false }
             let urlString = String(cString: cstr)
             guard let url = URL(string: urlString) else { return false }
+            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                return performOnMain {
+                    NSWorkspace.shared.open(url)
+                }
+            }
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id else { return false }
             return performOnMain {
