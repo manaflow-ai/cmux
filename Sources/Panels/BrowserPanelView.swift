@@ -227,6 +227,14 @@ struct BrowserPanelView: View {
         }) { _ in
             onRequestPanelFocus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
+            guard let webView = note.object as? CmuxWebView else { return false }
+            return webView === panel?.webView
+        }) { note in
+            if let url = note.userInfo?["url"] as? URL {
+                panel.openLinkInNewTab(url: url)
+            }
+        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
@@ -1194,7 +1202,19 @@ func buildOmnibarSuggestions(
         )
         order += 1
         if let existing = bestByCompletion[key] {
-            if ranked.score > existing.score {
+            let shouldReplaceExisting: Bool = {
+                // For identical completions, keep "go to URL" over "switch to tab" so
+                // pressing Enter performs navigation unless the user explicitly picks a tab row.
+                switch (existing.suggestion.kind, ranked.suggestion.kind) {
+                case (.navigate, .switchToTab):
+                    return false
+                case (.switchToTab, .navigate):
+                    return true
+                default:
+                    return ranked.score > existing.score
+                }
+            }()
+            if shouldReplaceExisting {
                 bestByCompletion[key] = ranked
             }
         } else {
@@ -2093,6 +2113,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 parent.onMoveSelection(-1)
                 return true
             case #selector(NSResponder.insertNewline(_:)):
+                let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
+                guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
                 parent.onSubmit()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
@@ -2203,6 +2225,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
             switch keyCode {
             case 36, 76: // Return / keypad Enter
+                guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
                 parent.onSubmit()
                 return true
             case 53: // Escape

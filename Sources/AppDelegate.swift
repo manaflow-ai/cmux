@@ -96,6 +96,13 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -187,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var shortcutDefaultsObserver: NSObjectProtocol?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -336,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installWindowKeyEquivalentSwizzle()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
+        installShortcutDefaultsObserver()
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1463,6 +1472,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installShortcutDefaultsObserver() {
+        guard shortcutDefaultsObserver == nil else { return }
+        shortcutDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshSplitButtonTooltipsAcrossWorkspaces()
+        }
+    }
+
+    private func refreshSplitButtonTooltipsAcrossWorkspaces() {
+        var refreshedManagers: Set<ObjectIdentifier> = []
+        if let manager = tabManager {
+            manager.refreshSplitButtonTooltips()
+            refreshedManagers.insert(ObjectIdentifier(manager))
+        }
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            let identifier = ObjectIdentifier(manager)
+            guard refreshedManagers.insert(identifier).inserted else { continue }
+            manager.refreshSplitButtonTooltips()
+        }
+    }
+
     private func installGhosttyConfigObserver() {
         guard ghosttyConfigObserver == nil else { return }
         ghosttyConfigObserver = NotificationCenter.default.addObserver(
@@ -1631,6 +1665,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
+            return false
+        }
+
+        // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
+        // input), don't intercept key events — let them flow through to the input method.
+        if let ghosttyView = NSApp.keyWindow?.firstResponder as? GhosttyNSView,
+           ghosttyView.hasMarkedText() {
             return false
         }
 
@@ -1854,6 +1895,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
             _ = performSplitShortcut(direction: .down)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+            _ = performBrowserSplitShortcut(direction: .right)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+            _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
 
@@ -2219,6 +2270,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
+        return true
+    }
+
+    @discardableResult
+    func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
 
@@ -3539,6 +3597,12 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         if let ghosttyView = self.firstResponder as? GhosttyNSView {
+            // If the IME is composing, don't intercept key events — let them flow
+            // through normal AppKit event dispatch so the input method can process them.
+            if ghosttyView.hasMarkedText() {
+                return cmux_performKeyEquivalent(with: event)
+            }
+
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
                 let result = ghosttyView.performKeyEquivalent(with: event)

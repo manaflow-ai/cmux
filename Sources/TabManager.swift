@@ -226,6 +226,10 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
+
+    /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
+    /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
+    private static var nextPortOrdinal: Int = 0
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
@@ -394,7 +398,9 @@ class TabManager: ObservableObject {
     @discardableResult
     func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
-        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory)
+        let ordinal = Self.nextPortOrdinal
+        Self.nextPortOrdinal += 1
+        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, portOrdinal: ordinal)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
@@ -1257,6 +1263,28 @@ class TabManager: ObservableObject {
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
 
+    /// Create a new browser split from the currently focused panel.
+    @discardableResult
+    func createBrowserSplit(direction: SplitDirection, url: URL? = nil) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        return newBrowserSplit(
+            tabId: selectedTabId,
+            fromPanelId: focusedPanelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            url: url
+        )
+    }
+
+    /// Refresh Bonsplit right-side action button tooltips for all workspaces.
+    func refreshSplitButtonTooltips() {
+        for workspace in tabs {
+            workspace.refreshSplitButtonTooltips()
+        }
+    }
+
     // MARK: - Pane Focus Navigation
 
     /// Move focus to an adjacent pane in the specified direction
@@ -1397,9 +1425,20 @@ class TabManager: ObservableObject {
     // MARK: - Browser Panel Operations
 
     /// Create a new browser panel in a split
-    func newBrowserSplit(tabId: UUID, fromPanelId: UUID, orientation: SplitOrientation, url: URL? = nil) -> UUID? {
+    func newBrowserSplit(
+        tabId: UUID,
+        fromPanelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(from: fromPanelId, orientation: orientation, url: url)?.id
+        return tab.newBrowserSplit(
+            from: fromPanelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url
+        )?.id
     }
 
     /// Create a new browser surface in a pane
@@ -2499,4 +2538,5 @@ extension Notification.Name {
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
+    static let webViewMiddleClickedLink = Notification.Name("webViewMiddleClickedLink")
 }

@@ -171,6 +171,7 @@ final class SidebarState: ObservableObject {
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
+    private var isForwardingMouseEvent = false
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -207,12 +208,19 @@ final class FileDropOverlayView: NSView {
     // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
+        guard !isForwardingMouseEvent else { return }
         guard let window, let contentView = window.contentView else { return }
+
+        isForwardingMouseEvent = true
         isHidden = true
+        defer {
+            isHidden = false
+            isForwardingMouseEvent = false
+        }
+
         let point = contentView.convert(event.locationInWindow, from: nil)
         let target = contentView.hitTest(point)
-        isHidden = false
-        guard let target else { return }
+        guard let target, target !== self else { return }
 
         switch event.type {
         case .leftMouseDown: target.mouseDown(with: event)
@@ -273,9 +281,9 @@ final class FileDropOverlayView: NSView {
 
         guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
+        defer { isHidden = false }
         let point = contentView.convert(windowPoint, from: nil)
         let hitView = contentView.hitTest(point)
-        isHidden = false
 
         var current: NSView? = hitView
         while let view = current {
@@ -390,7 +398,6 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
-    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
@@ -411,6 +418,8 @@ struct ContentView: View {
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
+    @State private var titlebarThemeGeneration: UInt64 = 0
+    @State private var sidebarDraggedTabId: UUID?
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -462,7 +471,8 @@ struct ContentView: View {
                                     isResizerHovering = true
                                 }
                             }
-                            let nextWidth = max(186, min(360, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
+                            let maxSidebarWidth = (NSApp.keyWindow?.screen?.frame.width ?? NSScreen.main?.frame.width ?? 1920) * 2 / 3
+                            let nextWidth = max(186, min(maxSidebarWidth, value.location.x - sidebarMinX + sidebarHandleWidth / 2))
                             withTransaction(Transaction(animation: nil)) {
                                 sidebarWidth = nextWidth
                             }
@@ -522,6 +532,13 @@ struct ContentView: View {
         }
     }
 
+    private var terminalContentWithSidebarDropOverlay: some View {
+        terminalContent
+            .overlay {
+                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
+            }
+    }
+
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
 
     // Background glass settings
@@ -533,18 +550,26 @@ struct ContentView: View {
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var fakeTitlebarBackground: Color {
-        if colorScheme == .light {
-            return Color(nsColor: .windowBackgroundColor)
-        }
+        _ = titlebarThemeGeneration
         let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        let alpha: CGFloat = ghosttyBackground.isLightColor ? 0.94 : 0.86
-        return Color(nsColor: ghosttyBackground.withAlphaComponent(alpha))
+        let configuredOpacity = CGFloat(max(0, min(1, GhosttyApp.shared.defaultBackgroundOpacity)))
+        let minimumChromeOpacity: CGFloat = ghosttyBackground.isLightColor ? 0.90 : 0.84
+        let chromeOpacity = max(minimumChromeOpacity, configuredOpacity)
+        return Color(nsColor: ghosttyBackground.withAlphaComponent(chromeOpacity))
     }
     private var fakeTitlebarTextColor: Color {
-        colorScheme == .light ? Color(nsColor: .labelColor).opacity(0.78) : .secondary
+        _ = titlebarThemeGeneration
+        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        return ghosttyBackground.isLightColor
+            ? Color.black.opacity(0.78)
+            : Color.white.opacity(0.82)
     }
     private var fakeTitlebarSeparatorColor: Color {
-        Color(nsColor: .separatorColor).opacity(colorScheme == .light ? 0.68 : 0.34)
+        _ = titlebarThemeGeneration
+        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        return ghosttyBackground.isLightColor
+            ? Color.black.opacity(0.18)
+            : Color.white.opacity(0.22)
     }
 
     private var fullscreenControls: some View {
@@ -642,7 +667,7 @@ struct ContentView: View {
                 // Overlay mode: terminal extends full width, sidebar on top
                 // This allows withinWindow blur to see the terminal content
                 ZStack(alignment: .leading) {
-                    terminalContent
+                    terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
                     if sidebarState.isVisible {
                         sidebarView
@@ -654,7 +679,7 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarView
                     }
-                    terminalContent
+                    terminalContentWithSidebarDropOverlay
                 }
             }
         }
@@ -729,6 +754,12 @@ struct ContentView: View {
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             updateTitlebarText()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            titlebarThemeGeneration &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            titlebarThemeGeneration &+= 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
@@ -756,6 +787,16 @@ struct ContentView: View {
                     lastSidebarSelectionIndex = nil
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
+            let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
+            sidebarDraggedTabId = tabId
+#if DEBUG
+            dlog(
+                "sidebar.dragState.content tab=\(debugShortWorkspaceId(tabId)) " +
+                "reason=\(SidebarDragLifecycleNotification.reason(from: notification))"
+            )
+#endif
         }
         .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
@@ -967,6 +1008,16 @@ struct ContentView: View {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
+
+        // Hide terminal portal views for the retiring workspace BEFORE clearing
+        // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
+        // the workspace — but dismantleNSView intentionally doesn't hide portal views
+        // (to avoid blackouts during transient bonsplit dismantles). Hiding here
+        // prevents stale portal-hosted terminals from covering browser panes.
+        if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
+            workspace.hideAllTerminalPortalViews()
+        }
+
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
 #if DEBUG
@@ -1006,6 +1057,7 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
@@ -1089,18 +1141,53 @@ struct VerticalTabsSidebar: View {
             commandKeyMonitor.start()
             draggedTabId = nil
             dropIndicator = nil
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: nil,
+                reason: "sidebar_appear"
+            )
         }
         .onDisappear {
             commandKeyMonitor.stop()
             dragAutoScrollController.stop()
+            dragFailsafeMonitor.stop()
             draggedTabId = nil
             dropIndicator = nil
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: nil,
+                reason: "sidebar_disappear"
+            )
         }
         .onChange(of: draggedTabId) { newDraggedTabId in
-            guard newDraggedTabId == nil else { return }
+            SidebarDragLifecycleNotification.postStateDidChange(
+                tabId: newDraggedTabId,
+                reason: "drag_state_change"
+            )
+#if DEBUG
+            dlog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
+#endif
+            if newDraggedTabId != nil {
+                dragFailsafeMonitor.start {
+                    SidebarDragLifecycleNotification.postClearRequest(reason: $0)
+                }
+                return
+            }
+            dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dropIndicator = nil
         }
+        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
+            guard draggedTabId != nil else { return }
+            let reason = SidebarDragLifecycleNotification.reason(from: notification)
+#if DEBUG
+            dlog("sidebar.dragClear tab=\(debugShortSidebarTabId(draggedTabId)) reason=\(reason)")
+#endif
+            draggedTabId = nil
+        }
+    }
+
+    private func debugShortSidebarTabId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
     }
 }
 
@@ -1133,6 +1220,207 @@ enum ShortcutHintDebugSettings {
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
+    }
+}
+
+enum SidebarDragLifecycleNotification {
+    static let stateDidChange = Notification.Name("cmux.sidebarDragStateDidChange")
+    static let requestClear = Notification.Name("cmux.sidebarDragRequestClear")
+    static let tabIdKey = "tabId"
+    static let reasonKey = "reason"
+
+    static func postStateDidChange(tabId: UUID?, reason: String) {
+        var userInfo: [AnyHashable: Any] = [reasonKey: reason]
+        if let tabId {
+            userInfo[tabIdKey] = tabId
+        }
+        NotificationCenter.default.post(
+            name: stateDidChange,
+            object: nil,
+            userInfo: userInfo
+        )
+    }
+
+    static func postClearRequest(reason: String) {
+        NotificationCenter.default.post(
+            name: requestClear,
+            object: nil,
+            userInfo: [reasonKey: reason]
+        )
+    }
+
+    static func tabId(from notification: Notification) -> UUID? {
+        notification.userInfo?[tabIdKey] as? UUID
+    }
+
+    static func reason(from notification: Notification) -> String {
+        notification.userInfo?[reasonKey] as? String ?? "unknown"
+    }
+}
+
+enum SidebarOutsideDropResetPolicy {
+    static func shouldResetDrag(draggedTabId: UUID?, hasSidebarDragPayload: Bool) -> Bool {
+        draggedTabId != nil && hasSidebarDragPayload
+    }
+}
+
+enum SidebarDragFailsafePolicy {
+    static let pollInterval: TimeInterval = 0.05
+    static let clearDelay: TimeInterval = 0.15
+
+    static func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
+        isDragActive && !isLeftMouseButtonDown
+    }
+}
+
+@MainActor
+private final class SidebarDragFailsafeMonitor: ObservableObject {
+    private static let escapeKeyCode: UInt16 = 53
+    private var timer: Timer?
+    private var pendingClearWorkItem: DispatchWorkItem?
+    private var appResignObserver: NSObjectProtocol?
+    private var keyDownMonitor: Any?
+    private var onRequestClear: ((String) -> Void)?
+
+    func start(onRequestClear: @escaping (String) -> Void) {
+        self.onRequestClear = onRequestClear
+        if timer == nil {
+            let timer = Timer(timeInterval: SidebarDragFailsafePolicy.pollInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.tick()
+                }
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        if appResignObserver == nil {
+            appResignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.requestClearSoon(reason: "app_resign_active")
+                }
+            }
+        }
+        if keyDownMonitor == nil {
+            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == Self.escapeKeyCode {
+                    self?.requestClearSoon(reason: "escape_cancel")
+                }
+                return event
+            }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        pendingClearWorkItem?.cancel()
+        pendingClearWorkItem = nil
+        if let appResignObserver {
+            NotificationCenter.default.removeObserver(appResignObserver)
+            self.appResignObserver = nil
+        }
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
+        onRequestClear = nil
+    }
+
+    private func tick() {
+        let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
+        guard SidebarDragFailsafePolicy.shouldRequestClear(
+            isDragActive: true, // Monitor only runs while drag is active.
+            isLeftMouseButtonDown: isLeftMouseButtonDown
+        ) else { return }
+        requestClearSoon(reason: "mouse_up_failsafe")
+    }
+
+    private func requestClearSoon(reason: String) {
+        guard pendingClearWorkItem == nil else { return }
+#if DEBUG
+        dlog("sidebar.dragFailsafe.schedule reason=\(reason)")
+#endif
+        let workItem = DispatchWorkItem { [weak self] in
+#if DEBUG
+            dlog("sidebar.dragFailsafe.fire reason=\(reason)")
+#endif
+            self?.pendingClearWorkItem = nil
+            self?.onRequestClear?(reason)
+        }
+        pendingClearWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarDragFailsafePolicy.clearDelay, execute: workItem)
+    }
+}
+
+private struct SidebarExternalDropOverlay: View {
+    let draggedTabId: UUID?
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .allowsHitTesting(draggedTabId != nil)
+            .onDrop(
+                of: [SidebarTabDragPayload.typeIdentifier],
+                delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
+            )
+    }
+}
+
+private struct SidebarExternalDropDelegate: DropDelegate {
+    let draggedTabId: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let shouldReset = SidebarOutsideDropResetPolicy.shouldResetDrag(
+            draggedTabId: draggedTabId,
+            hasSidebarDragPayload: hasSidebarPayload
+        )
+#if DEBUG
+        dlog(
+            "sidebar.dropOutside.validate tab=\(debugShortSidebarTabId(draggedTabId)) " +
+            "hasType=\(hasSidebarPayload) allowed=\(shouldReset)"
+        )
+#endif
+        return shouldReset
+    }
+
+    func dropEntered(info: DropInfo) {
+#if DEBUG
+        dlog("sidebar.dropOutside.entered tab=\(debugShortSidebarTabId(draggedTabId))")
+#endif
+    }
+
+    func dropExited(info: DropInfo) {
+#if DEBUG
+        dlog("sidebar.dropOutside.exited tab=\(debugShortSidebarTabId(draggedTabId))")
+#endif
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else { return nil }
+#if DEBUG
+        dlog("sidebar.dropOutside.updated tab=\(debugShortSidebarTabId(draggedTabId)) op=move")
+#endif
+        // Explicit move proposal avoids AppKit showing a copy (+) cursor.
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info) else { return false }
+#if DEBUG
+        dlog("sidebar.dropOutside.perform tab=\(debugShortSidebarTabId(draggedTabId))")
+#endif
+        SidebarDragLifecycleNotification.postClearRequest(reason: "outside_sidebar_drop")
+        return true
+    }
+
+    private func debugShortSidebarTabId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
     }
 }
 
@@ -1564,7 +1852,7 @@ private struct TabItemView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Branch + directory + ports row
+            // Branch + directory row
             if let dirRow = branchDirectoryRow {
                 HStack(spacing: 3) {
                     if sidebarShowGitBranch && tab.gitBranch != nil && sidebarShowGitBranchIcon {
@@ -1578,6 +1866,15 @@ private struct TabItemView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+            }
+
+            // Ports row
+            if sidebarShowPorts, !tab.listeningPorts.isEmpty {
+                Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
@@ -1691,7 +1988,7 @@ private struct TabItemView: View {
 
             Divider()
 
-            Button("Close Tabs") {
+            Button("Close Workspaces") {
                 closeTabs(targetIds, allowPinned: true)
             }
             .disabled(targetIds.isEmpty)
@@ -1701,12 +1998,12 @@ private struct TabItemView: View {
             }
             .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
 
-            Button("Close Tabs Below") {
+            Button("Close Workspaces Below") {
                 closeTabsBelow(tabId: tab.id)
             }
             .disabled(index >= tabManager.tabs.count - 1)
 
-            Button("Close Tabs Above") {
+            Button("Close Workspaces Above") {
                 closeTabsAbove(tabId: tab.id)
             }
             .disabled(index == 0)
@@ -1899,12 +2196,6 @@ private struct TabItemView: View {
         // Directory summary
         if let dirs = directorySummaryText {
             parts.append(dirs)
-        }
-
-        // Ports (if enabled and available)
-        if sidebarShowPorts, !tab.listeningPorts.isEmpty {
-            let portsStr = tab.listeningPorts.map { ":\($0)" }.joined(separator: ",")
-            parts.append(portsStr)
         }
 
         let result = parts.joined(separator: " · ")
@@ -2358,6 +2649,9 @@ private struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func dropExited(info: DropInfo) {
+#if DEBUG
+        dlog("sidebar.dropExited target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
+#endif
         if dropIndicator?.tabId == targetTabId {
             dropIndicator = nil
         }
@@ -2366,6 +2660,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
+#if DEBUG
+        dlog(
+            "sidebar.dropUpdated target=\(targetTabId?.uuidString.prefix(5) ?? "end") " +
+            "indicator=\(debugIndicator(dropIndicator))"
+        )
+#endif
         return DropProposal(operation: .move)
     }
 
@@ -2378,8 +2678,18 @@ private struct SidebarTabDropDelegate: DropDelegate {
         #if DEBUG
         dlog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
         #endif
-        guard let draggedTabId else { return false }
-        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else { return false }
+        guard let draggedTabId else {
+#if DEBUG
+            dlog("sidebar.drop.abort reason=missingDraggedTab")
+#endif
+            return false
+        }
+        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
+#if DEBUG
+            dlog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
+#endif
+            return false
+        }
         let tabIds = tabManager.tabs.map(\.id)
         guard let targetIndex = SidebarDropPlanner.targetIndex(
             draggedTabId: draggedTabId,
@@ -2387,14 +2697,26 @@ private struct SidebarTabDropDelegate: DropDelegate {
             indicator: dropIndicator,
             tabIds: tabIds
         ) else {
+#if DEBUG
+            dlog(
+                "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
+                "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dropIndicator))"
+            )
+#endif
             return false
         }
 
         guard fromIndex != targetIndex else {
+#if DEBUG
+            dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
+#endif
             syncSidebarSelection()
             return true
         }
 
+#if DEBUG
+        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+#endif
         _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
@@ -2424,6 +2746,12 @@ private struct SidebarTabDropDelegate: DropDelegate {
         } else {
             lastSidebarSelectionIndex = nil
         }
+    }
+
+    private func debugIndicator(_ indicator: SidebarDropIndicator?) -> String {
+        guard let indicator else { return "nil" }
+        let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
+        return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
     }
 }
 
