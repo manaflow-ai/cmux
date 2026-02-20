@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Generate nightly app icon variants with a purple 'NIGHTLY' banner.
+"""Generate nightly app icon by recoloring the Debug icon.
 
-Follows the same pattern as AppIcon-Debug (orange DEV banner) but uses
-a purple banner with 'NIGHTLY' text.
+Takes the AppIcon-Debug icons (which have an orange "DEV" banner) and:
+1. Recolors the orange banner to purple
+2. Replaces the "DEV" text with "NIGHTLY"
+
+This preserves the exact same icon design, glow effects, and chevron
+positioning as the debug icon.
 """
 import os
-import sys
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon.appiconset")
+SRC_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon-Debug.appiconset")
 DST_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon-Nightly.appiconset")
 
-# Purple color for nightly (distinct from orange DEV)
-BANNER_COLOR = (128, 0, 255)  # vibrant purple
-TEXT_COLOR = (255, 255, 255)
+# Debug banner color: (255, 107, 0) orange
+# Target: purple
+PURPLE = (140, 60, 220)
 
-# Icon sizes: (filename, pixel_size)
 SIZES = [
     ("16.png", 16),
     ("16@2x.png", 32),
@@ -31,55 +33,96 @@ SIZES = [
 ]
 
 
-def add_nightly_banner(img: Image.Image) -> Image.Image:
-    """Add a purple 'NIGHTLY' banner at the bottom of the icon."""
+def recolor_banner(img: Image.Image) -> Image.Image:
+    """Recolor the orange banner to purple and replace DEV with NIGHTLY."""
     img = img.convert("RGBA")
     w, h = img.size
+    pixels = img.load()
 
-    # Banner proportions matching the debug icon style
-    banner_height = max(int(h * 0.18), 4)
-    banner_y = h - banner_height
-
-    draw = ImageDraw.Draw(img)
-
-    # Draw the banner rectangle
-    draw.rectangle([0, banner_y, w, h], fill=BANNER_COLOR)
-
-    # For very small icons (16px), skip text - just use the color band
-    if w < 32:
-        return img
-
-    # Find a suitable font size
-    text = "NIGHTLY"
-    target_text_height = int(banner_height * 0.6)
-    font_size = max(target_text_height, 6)
-
-    # Try to use a system font
-    font = None
-    for font_path in [
-        "/System/Library/Fonts/SFCompact-Bold.otf",
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-        "/System/Library/Fonts/Helvetica.ttc",
-        "/Library/Fonts/Arial Bold.ttf",
-    ]:
-        if os.path.exists(font_path):
-            try:
-                font = ImageFont.truetype(font_path, font_size)
-                break
-            except Exception:
+    # Pass 1: Recolor orange pixels to purple.
+    # The debug icon's banner is (255, 107, 0) with anti-aliased edges.
+    # We detect "orange-ish" pixels and remap them to purple, preserving
+    # the relative luminance and alpha for smooth edges.
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
                 continue
+            # Detect orange: high R, moderate G, very low B
+            if r > 180 and g < 180 and b < 100 and r > g and r - b > 100:
+                # How "orange" is this pixel (0-1)?
+                # Pure orange = (255,107,0), so measure closeness
+                orange_strength = min(r / 255.0, 1.0)
+                # Remap to purple, preserving the intensity
+                nr = int(PURPLE[0] * orange_strength)
+                ng = int(PURPLE[1] * orange_strength)
+                nb = int(PURPLE[2] * orange_strength)
+                pixels[x, y] = (nr, ng, nb, a)
 
-    if font is None:
-        font = ImageFont.load_default()
+    # Pass 2: Replace the "DEV" text with "NIGHTLY".
+    # First, blank out the existing text by filling the text region with
+    # the banner color, then draw "NIGHTLY" centered.
+    #
+    # The banner occupies roughly the bottom 18% of the icon.
+    banner_y = int(h * 0.82)
+    banner_h = h - banner_y
 
-    # Center the text in the banner
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    text_x = (w - text_w) // 2
-    text_y = banner_y + (banner_height - text_h) // 2 - bbox[1]
+    # Find the text bounding box by looking for white/light pixels in the banner
+    # (the DEV text is white on orange, now white on purple)
+    text_pixels = []
+    for y in range(banner_y, h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            # White or near-white text pixels
+            if r > 220 and g > 220 and b > 220 and a > 200:
+                text_pixels.append((x, y))
 
-    draw.text((text_x, text_y), text, fill=TEXT_COLOR, font=font)
+    if text_pixels:
+        # Erase old text by painting over with the banner purple
+        min_x = min(p[0] for p in text_pixels)
+        max_x = max(p[0] for p in text_pixels)
+        min_y = min(p[1] for p in text_pixels)
+        max_y = max(p[1] for p in text_pixels)
+
+        # Expand slightly to catch anti-aliased edges
+        pad = max(2, int(h * 0.005))
+        min_x = max(0, min_x - pad)
+        max_x = min(w - 1, max_x + pad)
+        min_y = max(banner_y, min_y - pad)
+        max_y = min(h - 1, max_y + pad)
+
+        # Fill the text area with the banner color
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([min_x, min_y, max_x, max_y], fill=(*PURPLE, 255))
+
+        # Now draw "NIGHTLY" centered in the banner
+        text = "NIGHTLY"
+        text_area_h = max_y - min_y
+        font_size = max(int(text_area_h * 0.85), 6)
+
+        font = None
+        for font_path in [
+            "/System/Library/Fonts/SFCompact-Bold.otf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]:
+            if os.path.exists(font_path):
+                try:
+                    font = ImageFont.truetype(font_path, font_size)
+                    break
+                except Exception:
+                    continue
+        if font is None:
+            font = ImageFont.load_default()
+
+        # Center in the banner
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+        tx = (w - tw) // 2
+        ty = banner_y + (banner_h - th) // 2 - bbox[1]
+
+        draw.text((tx, ty), text, fill=(255, 255, 255, 255), font=font)
 
     return img
 
@@ -96,11 +139,10 @@ def main():
             continue
 
         img = Image.open(src_path)
-        # Resize if needed (shouldn't be, but just in case)
         if img.size != (pixel_size, pixel_size):
             img = img.resize((pixel_size, pixel_size), Image.LANCZOS)
 
-        result = add_nightly_banner(img)
+        result = recolor_banner(img)
         result.save(dst_path, "PNG")
         print(f"  {filename} ({pixel_size}x{pixel_size})")
 
