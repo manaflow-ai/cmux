@@ -1049,6 +1049,7 @@ struct VerticalTabsSidebar: View {
     @Binding var lastSidebarSelectionIndex: Int?
     @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
@@ -1140,6 +1141,7 @@ struct VerticalTabsSidebar: View {
         .onDisappear {
             commandKeyMonitor.stop()
             dragAutoScrollController.stop()
+            dragFailsafeMonitor.stop()
             draggedTabId = nil
             dropIndicator = nil
             SidebarDragLifecycleNotification.postStateDidChange(
@@ -1155,7 +1157,13 @@ struct VerticalTabsSidebar: View {
 #if DEBUG
             dlog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
-            guard newDraggedTabId == nil else { return }
+            if newDraggedTabId != nil {
+                dragFailsafeMonitor.start {
+                    SidebarDragLifecycleNotification.postClearRequest(reason: $0)
+                }
+                return
+            }
+            dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dropIndicator = nil
         }
@@ -1248,40 +1256,158 @@ enum SidebarOutsideDropResetPolicy {
     }
 }
 
+enum SidebarDragFailsafePolicy {
+    static let pollInterval: TimeInterval = 0.05
+    static let clearDelay: TimeInterval = 0.15
+
+    static func shouldRequestClear(isDragActive: Bool, isLeftMouseButtonDown: Bool) -> Bool {
+        isDragActive && !isLeftMouseButtonDown
+    }
+}
+
+@MainActor
+private final class SidebarDragFailsafeMonitor: ObservableObject {
+    private static let escapeKeyCode: UInt16 = 53
+    private var timer: Timer?
+    private var pendingClearWorkItem: DispatchWorkItem?
+    private var appResignObserver: NSObjectProtocol?
+    private var keyDownMonitor: Any?
+    private var onRequestClear: ((String) -> Void)?
+
+    func start(onRequestClear: @escaping (String) -> Void) {
+        self.onRequestClear = onRequestClear
+        if timer == nil {
+            let timer = Timer(timeInterval: SidebarDragFailsafePolicy.pollInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.tick()
+                }
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        if appResignObserver == nil {
+            appResignObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.requestClearSoon(reason: "app_resign_active")
+                }
+            }
+        }
+        if keyDownMonitor == nil {
+            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == Self.escapeKeyCode {
+                    self?.requestClearSoon(reason: "escape_cancel")
+                }
+                return event
+            }
+        }
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        pendingClearWorkItem?.cancel()
+        pendingClearWorkItem = nil
+        if let appResignObserver {
+            NotificationCenter.default.removeObserver(appResignObserver)
+            self.appResignObserver = nil
+        }
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
+        onRequestClear = nil
+    }
+
+    private func tick() {
+        let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
+        guard SidebarDragFailsafePolicy.shouldRequestClear(
+            isDragActive: true, // Monitor only runs while drag is active.
+            isLeftMouseButtonDown: isLeftMouseButtonDown
+        ) else { return }
+        requestClearSoon(reason: "mouse_up_failsafe")
+    }
+
+    private func requestClearSoon(reason: String) {
+        guard pendingClearWorkItem == nil else { return }
+#if DEBUG
+        dlog("sidebar.dragFailsafe.schedule reason=\(reason)")
+#endif
+        let workItem = DispatchWorkItem { [weak self] in
+#if DEBUG
+            dlog("sidebar.dragFailsafe.fire reason=\(reason)")
+#endif
+            self?.pendingClearWorkItem = nil
+            self?.onRequestClear?(reason)
+        }
+        pendingClearWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarDragFailsafePolicy.clearDelay, execute: workItem)
+    }
+}
+
 private struct SidebarExternalDropOverlay: View {
     let draggedTabId: UUID?
-    @State private var isTargeted = false
 
     var body: some View {
         Color.clear
             .contentShape(Rectangle())
             .allowsHitTesting(draggedTabId != nil)
-            .onDrop(of: [SidebarTabDragPayload.typeIdentifier], isTargeted: $isTargeted) { providers in
-                let hasSidebarPayload = providers.contains { provider in
-                    provider.hasItemConformingToTypeIdentifier(SidebarTabDragPayload.typeIdentifier)
-                }
-                guard SidebarOutsideDropResetPolicy.shouldResetDrag(
-                    draggedTabId: draggedTabId,
-                    hasSidebarDragPayload: hasSidebarPayload
-                ) else { return false }
+            .onDrop(
+                of: [SidebarTabDragPayload.typeIdentifier],
+                delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
+            )
+    }
+}
+
+private struct SidebarExternalDropDelegate: DropDelegate {
+    let draggedTabId: UUID?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
+        let shouldReset = SidebarOutsideDropResetPolicy.shouldResetDrag(
+            draggedTabId: draggedTabId,
+            hasSidebarDragPayload: hasSidebarPayload
+        )
 #if DEBUG
-                dlog(
-                    "sidebar.dropOutside tab=\(debugShortSidebarTabId(draggedTabId)) " +
-                    "providers=\(providers.count)"
-                )
+        dlog(
+            "sidebar.dropOutside.validate tab=\(debugShortSidebarTabId(draggedTabId)) " +
+            "hasType=\(hasSidebarPayload) allowed=\(shouldReset)"
+        )
 #endif
-                SidebarDragLifecycleNotification.postClearRequest(reason: "outside_sidebar_drop")
-                return true
-            }
-            .onChange(of: isTargeted) { targeted in
+        return shouldReset
+    }
+
+    func dropEntered(info: DropInfo) {
 #if DEBUG
-                guard draggedTabId != nil else { return }
-                dlog(
-                    "sidebar.dropOutside.targeted tab=\(debugShortSidebarTabId(draggedTabId)) " +
-                    "targeted=\(targeted ? 1 : 0)"
-                )
+        dlog("sidebar.dropOutside.entered tab=\(debugShortSidebarTabId(draggedTabId))")
 #endif
-            }
+    }
+
+    func dropExited(info: DropInfo) {
+#if DEBUG
+        dlog("sidebar.dropOutside.exited tab=\(debugShortSidebarTabId(draggedTabId))")
+#endif
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else { return nil }
+#if DEBUG
+        dlog("sidebar.dropOutside.updated tab=\(debugShortSidebarTabId(draggedTabId)) op=move")
+#endif
+        // Explicit move proposal avoids AppKit showing a copy (+) cursor.
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info) else { return false }
+#if DEBUG
+        dlog("sidebar.dropOutside.perform tab=\(debugShortSidebarTabId(draggedTabId))")
+#endif
+        SidebarDragLifecycleNotification.postClearRequest(reason: "outside_sidebar_drop")
+        return true
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {

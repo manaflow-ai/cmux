@@ -806,6 +806,29 @@ final class SidebarOutsideDropResetPolicyTests: XCTestCase {
     }
 }
 
+final class SidebarDragFailsafePolicyTests: XCTestCase {
+    func testRequestsClearOnlyWhenDragIsActiveAndMouseIsUp() {
+        XCTAssertTrue(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: false,
+                isLeftMouseButtonDown: false
+            )
+        )
+    }
+}
+
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {
         let topPlan = SidebarDragAutoScrollPlanner.plan(distanceToTop: 4, distanceToBottom: 96, edgeInset: 44, minStep: 2, maxStep: 12)
