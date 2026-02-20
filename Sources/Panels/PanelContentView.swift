@@ -10,7 +10,7 @@ struct PanelContentView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
-    let notificationStore: TerminalNotificationStore
+    let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onTriggerFlash: () -> Void
@@ -26,7 +26,7 @@ struct PanelContentView: View {
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
-                    notificationStore: notificationStore,
+                    hasUnreadNotification: hasUnreadNotification,
                     onFocus: onFocus,
                     onTriggerFlash: onTriggerFlash
                 )
