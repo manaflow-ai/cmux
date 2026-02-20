@@ -1,5 +1,6 @@
 import XCTest
 import Foundation
+import AppKit
 @testable import cmux_DEV
 
 /// Regression test: ensures UpdatePill is never gated behind #if DEBUG in production code paths.
@@ -143,5 +144,42 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
         let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+    }
+
+    func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
+        let suiteName = "BrowserInsecureHTTPSettingsTests.Persist.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
+        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+
+        BrowserInsecureHTTPSettings.addAllowedHost("persist-me.test", defaults: defaults)
+        let persisted = defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
+        XCTAssertNotNil(persisted)
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
+    }
+
+    func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
+        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertFirstButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertSecondButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertThirdButtonReturn,
+            suppressionEnabled: true
+        ))
+        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: .alertSecondButtonReturn,
+            suppressionEnabled: false
+        ))
     }
 }

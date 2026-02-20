@@ -217,6 +217,14 @@ func browserShouldBlockInsecureHTTPURL(
     return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
 }
 
+func browserShouldPersistInsecureHTTPAllowlistSelection(
+    response: NSApplication.ModalResponse,
+    suppressionEnabled: Bool
+) -> Bool {
+    guard suppressionEnabled else { return false }
+    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
+}
+
 @MainActor
 enum BrowserInsecureHTTPRuntimeAllowlist {
     private static var hosts = Set<String>()
@@ -1465,14 +1473,17 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.suppressionButton?.title = "Always allow this host in cmux"
 
         let response = alert.runModal()
+        if browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: response,
+            suppressionEnabled: alert.suppressionButton?.state == .on
+        ) {
+            BrowserInsecureHTTPSettings.addAllowedHost(host)
+        }
         switch response {
         case .alertFirstButtonReturn:
             NSWorkspace.shared.open(url)
         case .alertSecondButtonReturn:
             BrowserInsecureHTTPRuntimeAllowlist.allow(host)
-            if alert.suppressionButton?.state == .on {
-                BrowserInsecureHTTPSettings.addAllowedHost(host)
-            }
             switch intent {
             case .currentTab:
                 navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
