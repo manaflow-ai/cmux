@@ -38,6 +38,42 @@ enum UpdateChannelSettings {
             currentShortVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
     }
+
+    struct SemanticVersion: Comparable {
+        let major: Int
+        let minor: Int
+        let patch: Int
+
+        static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
+            if lhs.major != rhs.major { return lhs.major < rhs.major }
+            if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+            return lhs.patch < rhs.patch
+        }
+    }
+
+    static func semanticVersion(from versionString: String?) -> SemanticVersion? {
+        guard let versionString, !versionString.isEmpty else { return nil }
+        guard let range = versionString.range(of: #"\d+\.\d+\.\d+"#, options: .regularExpression) else {
+            return nil
+        }
+        let components = versionString[range].split(separator: ".")
+        guard components.count == 3,
+              let major = Int(components[0]),
+              let minor = Int(components[1]),
+              let patch = Int(components[2]) else {
+            return nil
+        }
+        return SemanticVersion(major: major, minor: minor, patch: patch)
+    }
+
+    static func shouldOfferNightlyCandidate(
+        currentShortVersion: String?,
+        candidateDisplayVersion: String?
+    ) -> Bool {
+        guard let currentSemanticVersion = semanticVersion(from: currentShortVersion) else { return true }
+        guard let candidateSemanticVersion = semanticVersion(from: candidateDisplayVersion) else { return false }
+        return candidateSemanticVersion >= currentSemanticVersion
+    }
 }
 
 extension UpdateDriver: SPUUpdaterDelegate {
@@ -106,16 +142,48 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func bestValidUpdate(in appcast: SUAppcast, for updater: SPUUpdater) -> SUAppcastItem? {
-        guard UpdateChannelSettings.shouldOfferStableDowngrade() else { return nil }
-        guard let latestStableItem = appcast.items.first else { return nil }
+        let defaults = UserDefaults.standard
+        let includeNightlyBuilds = defaults.bool(forKey: UpdateChannelSettings.includeNightlyBuildsKey)
+        let currentShortVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
 
-        let version = latestStableItem.displayVersionString
-        if version.isEmpty {
-            UpdateLogStore.shared.append("stable channel override: selecting latest stable item")
-        } else {
-            UpdateLogStore.shared.append("stable channel override: selecting \(version) so nightly users can return to stable")
+        if UpdateChannelSettings.shouldOfferStableDowngrade(
+            includeNightlyBuilds: includeNightlyBuilds,
+            currentShortVersion: currentShortVersion
+        ) {
+            guard let latestStableItem = appcast.items.first else { return nil }
+            let version = latestStableItem.displayVersionString
+            if version.isEmpty {
+                UpdateLogStore.shared.append("stable channel override: selecting latest stable item")
+            } else {
+                UpdateLogStore.shared.append("stable channel override: selecting \(version) so nightly users can return to stable")
+            }
+            return latestStableItem
         }
-        return latestStableItem
+
+        guard includeNightlyBuilds else { return nil }
+        let currentSemanticVersion = UpdateChannelSettings.semanticVersion(from: currentShortVersion)
+        if let selectedNightlyItem = appcast.items.first(where: { item in
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: currentShortVersion,
+                candidateDisplayVersion: item.displayVersionString
+            )
+        }) {
+            if let firstItem = appcast.items.first, selectedNightlyItem !== firstItem {
+                let version = selectedNightlyItem.displayVersionString
+                if version.isEmpty {
+                    UpdateLogStore.shared.append("nightly channel override: skipped older nightly candidates")
+                } else {
+                    UpdateLogStore.shared.append("nightly channel override: selecting \(version) (skipped older nightly candidates)")
+                }
+            }
+            return selectedNightlyItem
+        }
+
+        if currentSemanticVersion != nil {
+            UpdateLogStore.shared.append("nightly channel override: no nightly semantic version >= current build")
+            return SUAppcastItem.empty()
+        }
+        return nil
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

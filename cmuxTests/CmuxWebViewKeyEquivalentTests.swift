@@ -443,6 +443,33 @@ final class UpdateChannelSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testShouldOfferNightlyCandidateWhenSemanticVersionMatches() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.58.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldOfferNightlyCandidateWhenSemanticVersionIsNewer() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.59.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldNotOfferNightlyCandidateWhenSemanticVersionIsOlder() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.56.0-nightly.20260220"
+            )
+        )
+    }
 }
 
 final class WorkspaceReorderTests: XCTestCase {
