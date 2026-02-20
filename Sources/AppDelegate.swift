@@ -2118,6 +2118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Matches macOS ANSI key codes. This is intentionally limited to keys we
         // support in StoredShortcut/ghostty trigger translation.
         switch key {
+        case "←": return 123 // kVK_LeftArrow
+        case "→": return 124 // kVK_RightArrow
+        case "↓": return 125 // kVK_DownArrow
+        case "↑": return 126 // kVK_UpArrow
         case "a": return 0   // kVK_ANSI_A
         case "s": return 1   // kVK_ANSI_S
         case "d": return 2   // kVK_ANSI_D
