@@ -168,9 +168,54 @@ final class SidebarState: ObservableObject {
 ///
 /// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
 /// scrolls, and other interactions pass through normally.
+enum FileDropOverlayHitTestPolicy {
+    private static let dragMouseEventTypes: Set<NSEvent.EventType> = [
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged
+    ]
+
+    static func shouldParticipate(
+        hasFileURLType: Bool,
+        eventType: NSEvent.EventType?,
+        appIsActive: Bool,
+        eventWindowNumber: Int?,
+        overlayWindowNumber: Int?,
+        hasActiveDragSession: Bool
+    ) -> Bool {
+        if hasActiveDragSession {
+            return true
+        }
+
+        guard hasFileURLType, let eventType, dragMouseEventTypes.contains(eventType) else {
+            return false
+        }
+
+        // The drag pasteboard can retain `public.file-url` after a finished drag
+        // (for example right after dragging cmux from a DMG). Avoid intercepting
+        // normal in-app left-drag gestures like terminal text selection.
+        if !appIsActive {
+            return true
+        }
+
+        if let eventWindowNumber, eventWindowNumber == 0 {
+            return true
+        }
+
+        if let eventWindowNumber,
+           let overlayWindowNumber,
+           eventWindowNumber != overlayWindowNumber {
+            return true
+        }
+
+        return false
+    }
+}
+
 final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
+    private var hasActiveFileDragSession = false
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -188,15 +233,17 @@ final class FileDropOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        guard let types = pb.types, types.contains(.fileURL) else { return nil }
-
-        // The drag pasteboard can retain stale file types after a completed drag.
-        // Only participate during active drag-motion events.
-        let eventType = NSApp.currentEvent?.type
-        let isDragMouseEvent = eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-        guard isDragMouseEvent else { return nil }
+        let types = pb.types ?? []
+        let event = NSApp.currentEvent
+        let shouldParticipate = FileDropOverlayHitTestPolicy.shouldParticipate(
+            hasFileURLType: types.contains(.fileURL),
+            eventType: event?.type,
+            appIsActive: NSApp.isActive,
+            eventWindowNumber: event?.windowNumber,
+            overlayWindowNumber: window?.windowNumber,
+            hasActiveDragSession: hasActiveFileDragSession
+        )
+        guard shouldParticipate else { return nil }
 
         return super.hitTest(point)
     }
@@ -207,6 +254,9 @@ final class FileDropOverlayView: NSView {
     // window.sendEvent(), which caches the mouse target and causes infinite recursion.
 
     private func forwardEvent(_ event: NSEvent) {
+        // During a real external file-drag session we want to stay in drag-destination mode,
+        // not synthesize in-app mouse routing.
+        guard !hasActiveFileDragSession else { return }
         guard let window, let contentView = window.contentView else { return }
         isHidden = true
         let point = contentView.convert(event.locationInWindow, from: nil)
@@ -243,14 +293,27 @@ final class FileDropOverlayView: NSView {
     // MARK: NSDraggingDestination – only accept file drops over terminal views.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        let operation = dragOperationForSender(sender)
+        hasActiveFileDragSession = !operation.isEmpty
+        return operation
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        let operation = dragOperationForSender(sender)
+        hasActiveFileDragSession = !operation.isEmpty
+        return operation
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        hasActiveFileDragSession = false
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        hasActiveFileDragSession = false
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        defer { hasActiveFileDragSession = false }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }

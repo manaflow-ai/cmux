@@ -2156,3 +2156,57 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 }
+
+final class FileDropOverlayHitTestPolicyTests: XCTestCase {
+    func testStaleFileURLPasteboardInActiveAppDoesNotInterceptInAppDrag() {
+        XCTAssertFalse(
+            FileDropOverlayHitTestPolicy.shouldParticipate(
+                hasFileURLType: true,
+                eventType: .leftMouseDragged,
+                appIsActive: true,
+                eventWindowNumber: 42,
+                overlayWindowNumber: 42,
+                hasActiveDragSession: false
+            )
+        )
+    }
+
+    func testInactiveAppWithFileURLDragParticipates() {
+        XCTAssertTrue(
+            FileDropOverlayHitTestPolicy.shouldParticipate(
+                hasFileURLType: true,
+                eventType: .leftMouseDragged,
+                appIsActive: false,
+                eventWindowNumber: nil,
+                overlayWindowNumber: 42,
+                hasActiveDragSession: false
+            )
+        )
+    }
+
+    func testActiveDragSessionAlwaysParticipates() {
+        XCTAssertTrue(
+            FileDropOverlayHitTestPolicy.shouldParticipate(
+                hasFileURLType: false,
+                eventType: nil,
+                appIsActive: true,
+                eventWindowNumber: 42,
+                overlayWindowNumber: 42,
+                hasActiveDragSession: true
+            )
+        )
+    }
+
+    func testNonDragEventDoesNotParticipate() {
+        XCTAssertFalse(
+            FileDropOverlayHitTestPolicy.shouldParticipate(
+                hasFileURLType: true,
+                eventType: .leftMouseDown,
+                appIsActive: false,
+                eventWindowNumber: nil,
+                overlayWindowNumber: nil,
+                hasActiveDragSession: false
+            )
+        )
+    }
+}
