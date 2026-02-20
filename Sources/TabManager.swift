@@ -378,56 +378,109 @@ class TabManager: ObservableObject {
     @discardableResult
     func startSearch() -> Bool {
         if let panel = selectedTerminalPanel {
+            findDebugLog(
+                "tabManager.startSearch terminal workspace=\(panel.workspaceId.uuidString) panel=\(panel.id.uuidString) existingSearchState=\(panel.searchState != nil)"
+            )
+            logFindDebugSnapshot(
+                label: "tabManager.startSearch.terminal.pre",
+                window: panel.hostedView.window ?? NSApp.keyWindow,
+                focusView: panel.hostedView
+            )
+
             if panel.searchState == nil {
                 panel.searchState = TerminalSurface.SearchState()
             }
             NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
             NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("start_search")
+            let bindingHandled = panel.performBindingAction("start_search")
+            findDebugLog("tabManager.startSearch terminal bindingHandled=\(bindingHandled)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                Task { @MainActor in
+                    logFindDebugSnapshot(
+                        label: "tabManager.startSearch.terminal.post",
+                        window: panel.hostedView.window ?? NSApp.keyWindow,
+                        focusView: panel.hostedView
+                    )
+                }
+            }
             return true
         }
 
-        return focusedBrowserPanel?.showFindInterface() ?? false
+        if let browserPanel = focusedBrowserPanel {
+            findDebugLog("tabManager.startSearch browser workspace=\(browserPanel.workspaceId.uuidString) panel=\(browserPanel.id.uuidString)")
+            return browserPanel.showFindInterface()
+        }
+        findDebugLog("tabManager.startSearch no focused terminal/browser panel")
+        return false
     }
 
     @discardableResult
     func searchSelection() -> Bool {
         if let panel = selectedTerminalPanel {
+            findDebugLog(
+                "tabManager.searchSelection terminal workspace=\(panel.workspaceId.uuidString) panel=\(panel.id.uuidString) existingSearchState=\(panel.searchState != nil)"
+            )
             if panel.searchState == nil {
                 panel.searchState = TerminalSurface.SearchState()
             }
             NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
             NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("search_selection")
+            let bindingHandled = panel.performBindingAction("search_selection")
+            findDebugLog("tabManager.searchSelection terminal bindingHandled=\(bindingHandled)")
             return true
         }
 
-        return focusedBrowserPanel?.useSelectionForFind() ?? false
+        if let browserPanel = focusedBrowserPanel {
+            findDebugLog("tabManager.searchSelection browser workspace=\(browserPanel.workspaceId.uuidString) panel=\(browserPanel.id.uuidString)")
+            return browserPanel.useSelectionForFind()
+        }
+        findDebugLog("tabManager.searchSelection no focused terminal/browser panel")
+        return false
     }
 
     @discardableResult
     func findNext() -> Bool {
         if let panel = selectedTerminalPanel {
-            return panel.performBindingAction("search:next")
+            let handled = panel.performBindingAction("search:next")
+            findDebugLog("tabManager.findNext terminal workspace=\(panel.workspaceId.uuidString) panel=\(panel.id.uuidString) handled=\(handled)")
+            return handled
         }
-        return focusedBrowserPanel?.findNextMatch() ?? false
+        if let browserPanel = focusedBrowserPanel {
+            findDebugLog("tabManager.findNext browser workspace=\(browserPanel.workspaceId.uuidString) panel=\(browserPanel.id.uuidString)")
+            return browserPanel.findNextMatch()
+        }
+        findDebugLog("tabManager.findNext no focused terminal/browser panel")
+        return false
     }
 
     @discardableResult
     func findPrevious() -> Bool {
         if let panel = selectedTerminalPanel {
-            return panel.performBindingAction("search:previous")
+            let handled = panel.performBindingAction("search:previous")
+            findDebugLog("tabManager.findPrevious terminal workspace=\(panel.workspaceId.uuidString) panel=\(panel.id.uuidString) handled=\(handled)")
+            return handled
         }
-        return focusedBrowserPanel?.findPreviousMatch() ?? false
+        if let browserPanel = focusedBrowserPanel {
+            findDebugLog("tabManager.findPrevious browser workspace=\(browserPanel.workspaceId.uuidString) panel=\(browserPanel.id.uuidString)")
+            return browserPanel.findPreviousMatch()
+        }
+        findDebugLog("tabManager.findPrevious no focused terminal/browser panel")
+        return false
     }
 
     @discardableResult
     func hideFind() -> Bool {
         if let panel = selectedTerminalPanel {
             panel.searchState = nil
+            findDebugLog("tabManager.hideFind terminal workspace=\(panel.workspaceId.uuidString) panel=\(panel.id.uuidString)")
             return true
         }
-        return focusedBrowserPanel?.hideFindInterface() ?? false
+        if let browserPanel = focusedBrowserPanel {
+            findDebugLog("tabManager.hideFind browser workspace=\(browserPanel.workspaceId.uuidString) panel=\(browserPanel.id.uuidString)")
+            return browserPanel.hideFindInterface()
+        }
+        findDebugLog("tabManager.hideFind no focused terminal/browser panel")
+        return false
     }
 
     @discardableResult

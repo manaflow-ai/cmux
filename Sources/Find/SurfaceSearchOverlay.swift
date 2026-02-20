@@ -1,5 +1,6 @@
 import Bonsplit
 import SwiftUI
+import AppKit
 
 struct SurfaceSearchOverlay: View {
     let surface: TerminalSurface
@@ -94,20 +95,55 @@ struct SurfaceSearchOverlay: View {
             .shadow(radius: 4)
             .onAppear {
                 NSLog("Find: overlay appear tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+                findDebugLog(
+                    "terminal.overlay.appear tab=\(surface.tabId.uuidString) surface=\(surface.id.uuidString) container=\(Int(geo.size.width))x\(Int(geo.size.height))"
+                )
+                logFindDebugSnapshot(
+                    label: "terminal.overlay.appear",
+                    window: surface.hostedView.window ?? NSApp.keyWindow,
+                    focusView: surface.hostedView
+                )
                 isSearchFieldFocused = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
                 guard notification.object as? TerminalSurface === surface else { return }
                 NSLog("Find: overlay focus tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+                findDebugLog(
+                    "terminal.overlay.focus tab=\(surface.tabId.uuidString) surface=\(surface.id.uuidString) container=\(Int(geo.size.width))x\(Int(geo.size.height))"
+                )
+                logFindDebugSnapshot(
+                    label: "terminal.overlay.focus.pre",
+                    window: surface.hostedView.window ?? NSApp.keyWindow,
+                    focusView: surface.hostedView
+                )
                 DispatchQueue.main.async {
                     isSearchFieldFocused = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    Task { @MainActor in
+                        logFindDebugSnapshot(
+                            label: "terminal.overlay.focus.post",
+                            window: surface.hostedView.window ?? NSApp.keyWindow,
+                            focusView: surface.hostedView
+                        )
+                    }
                 }
             }
             .background(
                 GeometryReader { barGeo in
-                    Color.clear.onAppear {
-                        barSize = barGeo.size
-                    }
+                    Color.clear
+                        .onAppear {
+                            barSize = barGeo.size
+                            findDebugLog(
+                                "terminal.overlay.barSize.appear tab=\(surface.tabId.uuidString) surface=\(surface.id.uuidString) bar=\(Int(barGeo.size.width))x\(Int(barGeo.size.height))"
+                            )
+                        }
+                        .onChange(of: barGeo.size) { _, newSize in
+                            barSize = newSize
+                            findDebugLog(
+                                "terminal.overlay.barSize.change tab=\(surface.tabId.uuidString) surface=\(surface.id.uuidString) bar=\(Int(newSize.width))x\(Int(newSize.height))"
+                            )
+                        }
                 }
             )
             .padding(padding)
@@ -208,4 +244,182 @@ struct SearchButtonStyle: ButtonStyle {
         }
         return Color.clear
     }
+}
+
+private let findDebugEnvKey = "CMUX_DEBUG_FIND_LAYERING"
+private let findDebugDefaultsKey = "cmuxDebugFindLayering"
+
+@MainActor
+func isFindDebugLayeringEnabled() -> Bool {
+    if let envOverride = findDebugEnvOverride() {
+        return envOverride
+    }
+    return UserDefaults.standard.bool(forKey: findDebugDefaultsKey)
+}
+
+@MainActor
+func findDebugLog(_ message: @autoclosure () -> String) {
+    guard isFindDebugLayeringEnabled() else { return }
+    NSLog("FindDebug: %@", message())
+}
+
+@MainActor
+func logFindDebugSnapshot(
+    label: String,
+    window: NSWindow?,
+    focusView: NSView? = nil,
+    maxDepth: Int = 6
+) {
+    guard isFindDebugLayeringEnabled() else { return }
+    guard let window else {
+        findDebugLog("\(label) window=nil")
+        return
+    }
+
+    findDebugLog(
+        "\(label) window=\(window.windowNumber) key=\(NSApp.keyWindow === window ? 1 : 0) firstResponder=\(describeResponder(window.firstResponder))"
+    )
+
+    if let focusView {
+        findDebugLog("\(label) focusView=\(describeView(focusView))")
+        var chain: [String] = []
+        var current: NSView? = focusView
+        var hops = 0
+        while let view = current, hops < 24 {
+            chain.append(describeView(view))
+            current = view.superview
+            hops += 1
+        }
+        if !chain.isEmpty {
+            findDebugLog("\(label) focusSuperviewChain=\(chain.joined(separator: " -> "))")
+        }
+    }
+
+    if let themeFrame = window.contentView?.superview {
+        findDebugLog("\(label) themeFrameSubviews=\(themeFrame.subviews.count)")
+        for (index, subview) in themeFrame.subviews.enumerated() {
+            findDebugLog("\(label) theme[\(index)] \(describeView(subview))")
+        }
+    }
+
+    guard let root = window.contentView?.superview ?? window.contentView else {
+        findDebugLog("\(label) window has no content view")
+        return
+    }
+
+    var lines: [String] = []
+    collectFindDebugLines(
+        root,
+        depth: 0,
+        maxDepth: maxDepth,
+        focusView: focusView,
+        verbose: findDebugVerboseModeEnabled(),
+        output: &lines
+    )
+
+    if lines.isEmpty {
+        findDebugLog("\(label) no matching views under root \(describeView(root))")
+        return
+    }
+
+    let lineLimit = 120
+    for line in lines.prefix(lineLimit) {
+        findDebugLog("\(label) \(line)")
+    }
+    if lines.count > lineLimit {
+        findDebugLog("\(label) ... truncated \(lines.count - lineLimit) more lines")
+    }
+}
+
+private func findDebugEnvOverride() -> Bool? {
+    guard let raw = ProcessInfo.processInfo.environment[findDebugEnvKey]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased(),
+          !raw.isEmpty else {
+        return nil
+    }
+
+    switch raw {
+    case "1", "true", "yes", "on", "all":
+        return true
+    case "0", "false", "no", "off":
+        return false
+    default:
+        return nil
+    }
+}
+
+private func findDebugVerboseModeEnabled() -> Bool {
+    guard let raw = ProcessInfo.processInfo.environment[findDebugEnvKey]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() else {
+        return false
+    }
+    return raw == "all"
+}
+
+private func collectFindDebugLines(
+    _ view: NSView,
+    depth: Int,
+    maxDepth: Int,
+    focusView: NSView?,
+    verbose: Bool,
+    output: inout [String]
+) {
+    if shouldIncludeFindDebugView(view, focusView: focusView, verbose: verbose) {
+        let indent = String(repeating: "  ", count: depth)
+        output.append("\(indent)\(describeView(view))")
+    }
+
+    guard depth < maxDepth else { return }
+    for subview in view.subviews {
+        collectFindDebugLines(
+            subview,
+            depth: depth + 1,
+            maxDepth: maxDepth,
+            focusView: focusView,
+            verbose: verbose,
+            output: &output
+        )
+    }
+}
+
+private func shouldIncludeFindDebugView(_ view: NSView, focusView: NSView?, verbose: Bool) -> Bool {
+    if verbose { return true }
+
+    let name = String(describing: type(of: view)).lowercased()
+    let looksFindRelated = name.contains("find")
+        || name.contains("search")
+        || name.contains("overlay")
+        || name.contains("ghostty")
+        || name.contains("wk")
+
+    let isFocusRelated: Bool
+    if let focusView {
+        isFocusRelated = view === focusView
+            || view.isDescendant(of: focusView)
+            || focusView.isDescendant(of: view)
+    } else {
+        isFocusRelated = false
+    }
+
+    return looksFindRelated || isFocusRelated
+}
+
+private func describeResponder(_ responder: NSResponder?) -> String {
+    guard let responder else { return "nil" }
+    if let view = responder as? NSView {
+        return describeView(view)
+    }
+    return String(describing: type(of: responder))
+}
+
+private func describeView(_ view: NSView) -> String {
+    let className = String(describing: type(of: view))
+    let frame = NSStringFromRect(view.frame)
+    let bounds = NSStringFromRect(view.bounds)
+    let hidden = view.isHidden ? "1" : "0"
+    let alpha = String(format: "%.2f", view.alphaValue)
+    let zPosition = view.layer.map { String(format: "%.1f", $0.zPosition) } ?? "nil"
+    return "\(className) frame=\(frame) bounds=\(bounds) hidden=\(hidden) alpha=\(alpha) z=\(zPosition) subviews=\(view.subviews.count)"
 }

@@ -1737,7 +1737,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // SwiftUI/AppKit key-equivalent dispatch can consume Cmd+F without
         // invoking our Find command when focus temporarily drifts.
         if flags == [.command], chars == "f" {
-            return tabManager?.startSearch() ?? false
+            findDebugLog("shortcut cmd+f keyCode=\(event.keyCode) addrBarPanel=\(browserAddressBarFocusedPanelId?.uuidString ?? "nil")")
+            logFindDebugSnapshot(
+                label: "shortcut.cmdf.pre",
+                window: NSApp.keyWindow,
+                focusView: NSApp.keyWindow?.firstResponder as? NSView
+            )
+
+            let handled = tabManager?.startSearch() ?? false
+            findDebugLog("shortcut cmd+f handled=\(handled)")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                Task { @MainActor in
+                    logFindDebugSnapshot(
+                        label: "shortcut.cmdf.post",
+                        window: NSApp.keyWindow,
+                        focusView: NSApp.keyWindow?.firstResponder as? NSView
+                    )
+                }
+            }
+            return handled
         }
 
         // Primary UI shortcuts
