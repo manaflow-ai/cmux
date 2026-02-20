@@ -587,11 +587,16 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         url: URL? = nil,
         focus: Bool? = nil,
-        insertAtEnd: Bool = false
+        insertAtEnd: Bool = false,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            initialURL: url,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
         panels[browserPanel.id] = browserPanel
 
         guard let newTabId = bonsplitController.createTab(
