@@ -2882,6 +2882,18 @@ struct WebViewRepresentable: NSViewRepresentable {
             if nsView.window == nil {
                 // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
                 // can create containers that are never inserted into the window.
+                if panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
+                    panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "attach.defer.offWindow")
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "attach.defer.requestRefresh",
+                        generation: context.coordinator.attachGeneration,
+                        retryCount: context.coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView)
+                    )
+                    #endif
+                }
                 #if DEBUG
                 Self.logDevToolsState(
                     panel,
@@ -2926,7 +2938,19 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachRetryCount = 0
             context.coordinator.attachGeneration += 1
-            panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            if panel.hasPendingDeveloperToolsRefreshAfterAttach() {
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "attach.alreadyAttached.deferPendingRefresh",
+                    generation: context.coordinator.attachGeneration,
+                    retryCount: context.coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
+                )
+                #endif
+            } else {
+                panel.restoreDeveloperToolsAfterAttachIfNeeded()
+            }
             #if DEBUG
             Self.logDevToolsState(
                 panel,

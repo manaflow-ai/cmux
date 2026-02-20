@@ -318,6 +318,19 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
+        let (panel, _) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
     func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
 

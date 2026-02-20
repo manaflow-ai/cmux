@@ -1469,6 +1469,10 @@ extension BrowserPanel {
         #endif
     }
 
+    func hasPendingDeveloperToolsRefreshAfterAttach() -> Bool {
+        forceDeveloperToolsRefreshOnNextAttach
+    }
+
     @discardableResult
     func zoomIn() -> Bool {
         applyPageZoom(webView.pageZoom + pageZoomStep)
