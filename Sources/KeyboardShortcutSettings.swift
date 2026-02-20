@@ -26,6 +26,8 @@ enum KeyboardShortcutSettings {
         case focusDown
         case splitRight
         case splitDown
+        case splitBrowserRight
+        case splitBrowserDown
 
         // Panels
         case openBrowser
@@ -51,6 +53,8 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "Focus Pane Down"
             case .splitRight: return "Split Right"
             case .splitDown: return "Split Down"
+            case .splitBrowserRight: return "Split Browser Right"
+            case .splitBrowserDown: return "Split Browser Down"
             case .openBrowser: return "Open Browser"
             }
         }
@@ -71,6 +75,8 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "shortcut.focusDown"
             case .splitRight: return "shortcut.splitRight"
             case .splitDown: return "shortcut.splitDown"
+            case .splitBrowserRight: return "shortcut.splitBrowserRight"
+            case .splitBrowserDown: return "shortcut.splitBrowserDown"
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
@@ -108,6 +114,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown:
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .splitBrowserRight:
+                return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
+            case .splitBrowserDown:
+                return StoredShortcut(key: "d", command: true, shift: true, option: true, control: false)
             case .nextSurface:
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
@@ -176,6 +186,8 @@ enum KeyboardShortcutSettings {
 
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
+    static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
+    static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }

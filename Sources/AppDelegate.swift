@@ -96,6 +96,13 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -187,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var shortcutDefaultsObserver: NSObjectProtocol?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -336,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installWindowKeyEquivalentSwizzle()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
+        installShortcutDefaultsObserver()
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1460,6 +1469,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installShortcutDefaultsObserver() {
+        guard shortcutDefaultsObserver == nil else { return }
+        shortcutDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshSplitButtonTooltipsAcrossWorkspaces()
+        }
+    }
+
+    private func refreshSplitButtonTooltipsAcrossWorkspaces() {
+        var refreshedManagers: Set<ObjectIdentifier> = []
+        if let manager = tabManager {
+            manager.refreshSplitButtonTooltips()
+            refreshedManagers.insert(ObjectIdentifier(manager))
+        }
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            let identifier = ObjectIdentifier(manager)
+            guard refreshedManagers.insert(identifier).inserted else { continue }
+            manager.refreshSplitButtonTooltips()
+        }
+    }
+
     private func installGhosttyConfigObserver() {
         guard ghosttyConfigObserver == nil else { return }
         ghosttyConfigObserver = NotificationCenter.default.addObserver(
@@ -1861,6 +1895,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+            _ = performBrowserSplitShortcut(direction: .right)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+            _ = performBrowserSplitShortcut(direction: .down)
+            return true
+        }
+
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
@@ -2038,6 +2082,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
+        return true
+    }
+
+    @discardableResult
+    func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
 
