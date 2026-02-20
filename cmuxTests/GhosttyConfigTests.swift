@@ -126,6 +126,42 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: 0,
+                legacyConfigFileSize: 42
+            )
+        )
+    }
+
+    func testLegacyConfigFallbackSkipsWhenNewFileMissingOrLegacyEmpty() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: nil,
+                legacyConfigFileSize: 42
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: 10,
+                legacyConfigFileSize: 42
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: 0,
+                legacyConfigFileSize: 0
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadLegacyGhosttyConfig(
+                newConfigFileSize: 0,
+                legacyConfigFileSize: nil
+            )
+        )
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
