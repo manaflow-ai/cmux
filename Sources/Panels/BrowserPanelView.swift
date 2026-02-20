@@ -2605,6 +2605,38 @@ struct WebViewRepresentable: NSViewRepresentable {
         return false
     }
 
+    private static func isLikelyInspectorResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        let responderType = String(describing: type(of: responder))
+        if responderType.contains("WKInspector") {
+            return true
+        }
+        guard let view = responder as? NSView else { return false }
+        var node: NSView? = view
+        var hops = 0
+        while let current = node, hops < 64 {
+            if String(describing: type(of: current)).contains("WKInspector") {
+                return true
+            }
+            node = current.superview
+            hops += 1
+        }
+        return false
+    }
+
+    private static func firstResponderResignState(
+        _ responder: NSResponder?,
+        webView: WKWebView
+    ) -> (needsResign: Bool, flags: String) {
+        let inWebViewChain = responderChainContains(responder, target: webView)
+        let inspectorResponder = isLikelyInspectorResponder(responder)
+        let needsResign = inWebViewChain || inspectorResponder
+        return (
+            needsResign: needsResign,
+            flags: "frInWebChain=\(inWebViewChain ? 1 : 0) frIsInspector=\(inspectorResponder ? 1 : 0)"
+        )
+    }
+
     func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator()
         coordinator.panel = panel
@@ -2620,9 +2652,20 @@ struct WebViewRepresentable: NSViewRepresentable {
     private static func attachWebView(_ webView: WKWebView, to host: NSView) {
         // WebKit can crash if a WKWebView (or an internal first-responder object) stays first responder
         // while being detached/reparented during bonsplit/SwiftUI structural updates.
-        if let window = webView.window,
-           responderChainContains(window.firstResponder, target: webView) {
-            window.makeFirstResponder(nil)
+        if let window = webView.window {
+            let state = firstResponderResignState(window.firstResponder, webView: webView)
+            if state.needsResign {
+                window.makeFirstResponder(nil)
+            }
+        }
+
+        // The target host can already be in-window while the source host is tearing down.
+        // Re-check against the target window too (it can differ during split churn).
+        if let window = host.window {
+            let state = firstResponderResignState(window.firstResponder, webView: webView)
+            if state.needsResign {
+                window.makeFirstResponder(nil)
+            }
         }
 
         // Detach from any previous host (bonsplit/SwiftUI may rearrange views).
@@ -2773,9 +2816,20 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachGeneration += 1
 
             // Resign focus if WebKit currently owns first responder.
-            if let window = webView.window,
-               Self.responderChainContains(window.firstResponder, target: webView) {
-                window.makeFirstResponder(nil)
+            if let window = webView.window ?? nsView.window {
+                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
+                if state.needsResign {
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "detach.resignFirstResponder",
+                        generation: context.coordinator.attachGeneration,
+                        retryCount: context.coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
+                    )
+                    #endif
+                    window.makeFirstResponder(nil)
+                }
             }
 
             if webView.superview != nil {
@@ -2799,6 +2853,31 @@ struct WebViewRepresentable: NSViewRepresentable {
             context.coordinator.attachRetryWorkItem?.cancel()
             context.coordinator.attachRetryWorkItem = nil
             context.coordinator.attachGeneration += 1
+
+            if let window = webView.window ?? nsView.window {
+                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
+                if state.needsResign {
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "attach.reparent.resignFirstResponder.begin",
+                        generation: context.coordinator.attachGeneration,
+                        retryCount: context.coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
+                    )
+                    #endif
+                    let resigned = window.makeFirstResponder(nil)
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "attach.reparent.resignFirstResponder.end",
+                        generation: context.coordinator.attachGeneration,
+                        retryCount: context.coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags + " resigned=\(resigned ? 1 : 0)"
+                    )
+                    #endif
+                }
+            }
 
             if nsView.window == nil {
                 // Avoid attaching to off-window containers; during bonsplit structural updates SwiftUI
@@ -2891,8 +2970,22 @@ struct WebViewRepresentable: NSViewRepresentable {
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.
         let window = webView.window ?? nsView.window
-        if let window, responderChainContains(window.firstResponder, target: webView) {
-            window.makeFirstResponder(nil)
+        if let window {
+            let state = firstResponderResignState(window.firstResponder, webView: webView)
+            if state.needsResign {
+                #if DEBUG
+                if let panel {
+                    logDevToolsState(
+                        panel,
+                        event: "dismantle.resignFirstResponder",
+                        generation: coordinator.attachGeneration,
+                        retryCount: coordinator.attachRetryCount,
+                        details: attachContext(webView: webView, host: nsView) + " " + state.flags
+                    )
+                }
+                #endif
+                window.makeFirstResponder(nil)
+            }
         }
 
         // During split/layout churn, SwiftUI may tear down a host view while a new one is still

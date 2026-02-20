@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
+import Bonsplit
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
@@ -827,6 +828,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let pageZoomStep: CGFloat = 0.1
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     private var preferredDeveloperToolsVisible: Bool = false
+    private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
@@ -1322,6 +1324,7 @@ extension BrowserPanel {
             developerToolsRestoreRetryAttempt = 0
         } else {
             cancelDeveloperToolsRestoreRetry()
+            forceDeveloperToolsRefreshOnNextAttach = false
         }
         return true
     }
@@ -1384,22 +1387,42 @@ extension BrowserPanel {
     func restoreDeveloperToolsAfterAttachIfNeeded() {
         guard preferredDeveloperToolsVisible else {
             cancelDeveloperToolsRestoreRetry()
+            forceDeveloperToolsRefreshOnNextAttach = false
             return
         }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
+
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        forceDeveloperToolsRefreshOnNextAttach = false
+
+        let closeSelector = NSSelectorFromString("close")
+        if shouldForceRefresh,
+           inspector.responds(to: closeSelector) {
+            #if DEBUG
+            dlog("browser.devtools refresh.forceClose panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+            #endif
+            inspector.cmuxCallVoid(selector: closeSelector)
+        }
+
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
-        guard !visible else {
+        if visible && !shouldForceRefresh {
             cancelDeveloperToolsRestoreRetry()
             return
         }
+
         let selector = NSSelectorFromString("show")
         guard inspector.responds(to: selector) else {
             cancelDeveloperToolsRestoreRetry()
             return
         }
+        #if DEBUG
+        if shouldForceRefresh {
+            dlog("browser.devtools refresh.forceShow panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+        }
+        #endif
         inspector.cmuxCallVoid(selector: selector)
         preferredDeveloperToolsVisible = true
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
@@ -1426,6 +1449,7 @@ extension BrowserPanel {
             inspector.cmuxCallVoid(selector: selector)
         }
         preferredDeveloperToolsVisible = false
+        forceDeveloperToolsRefreshOnNextAttach = false
         cancelDeveloperToolsRestoreRetry()
         return true
     }
@@ -1435,6 +1459,14 @@ extension BrowserPanel {
     /// DevTools is intended to remain open, because detach/reattach can blank inspector content.
     func shouldPreserveWebViewAttachmentDuringTransientHide() -> Bool {
         preferredDeveloperToolsVisible
+    }
+
+    func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {
+        guard preferredDeveloperToolsVisible else { return }
+        forceDeveloperToolsRefreshOnNextAttach = true
+        #if DEBUG
+        dlog("browser.devtools refresh.request panel=\(id.uuidString.prefix(5)) reason=\(reason) \(debugDeveloperToolsStateSummary())")
+        #endif
     }
 
     @discardableResult
@@ -1576,7 +1608,8 @@ extension BrowserPanel {
         let inspector = webView.cmuxInspectorObject() == nil ? 0 : 1
         let attached = webView.superview == nil ? 0 : 1
         let inWindow = webView.window == nil ? 0 : 1
-        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt)"
+        let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh)"
     }
 }
 #endif

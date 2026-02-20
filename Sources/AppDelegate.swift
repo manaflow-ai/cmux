@@ -2040,9 +2040,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func isLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        let responderType = String(describing: type(of: responder))
+        if responderType.contains("WKInspector") {
+            return true
+        }
+        guard let view = responder as? NSView else { return false }
+        var node: NSView? = view
+        var hops = 0
+        while let current = node, hops < 64 {
+            if String(describing: type(of: current)).contains("WKInspector") {
+                return true
+            }
+            node = current.superview
+            hops += 1
+        }
+        return false
+    }
+
+    private func prepareFocusedBrowserDevToolsForSplit(directionLabel: String) {
+        guard let browser = tabManager?.focusedBrowserPanel else { return }
+        guard browser.shouldPreserveWebViewAttachmentDuringTransientHide() else { return }
+        guard let keyWindow = NSApp.keyWindow else { return }
+        guard isLikelyWebInspectorResponder(keyWindow.firstResponder) else { return }
+
+        let beforeResponder = keyWindow.firstResponder
+        let movedToWebView = keyWindow.makeFirstResponder(browser.webView)
+        let movedToNil = movedToWebView ? false : keyWindow.makeFirstResponder(nil)
+        browser.requestDeveloperToolsRefreshAfterNextAttach(reason: "split.\(directionLabel).inspectorFirstResponder")
+
+        #if DEBUG
+        let beforeType = beforeResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let beforePtr = beforeResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        let afterResponder = keyWindow.firstResponder
+        let afterType = afterResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterPtr = afterResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        dlog(
+            "split.shortcut inspector.preflight dir=\(directionLabel) panel=\(browser.id.uuidString.prefix(5)) " +
+            "before=\(beforeType)@\(beforePtr) after=\(afterType)@\(afterPtr) " +
+            "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
+        )
+        #endif
+    }
+
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
-        #if DEBUG
         let directionLabel: String
         switch direction {
         case .left: directionLabel = "left"
@@ -2050,6 +2093,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .up: directionLabel = "up"
         case .down: directionLabel = "down"
         }
+
+        #if DEBUG
         let keyWindow = NSApp.keyWindow
         let firstResponder = keyWindow?.firstResponder
         let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -2073,6 +2118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         #endif
 
+        prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         tabManager?.createSplit(direction: direction)
 #if DEBUG
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
