@@ -1980,6 +1980,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let fr = window?.firstResponder as? NSView,
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
+
+        // If the IME is composing (marked text present), don't intercept key
+        // events for bindings — let them flow through to keyDown so the input
+        // method can process them normally.
+        if hasMarkedText() {
+            return false
+        }
+
 #if DEBUG
         recordKeyLatency(path: "performKeyEquivalent", event: event)
 #endif
@@ -2186,8 +2194,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyTextAccumulator = []
         defer { keyTextAccumulator = nil }
 
+        // Track whether we had marked text (IME preedit) before this event,
+        // so we can detect when composition ends.
+        let markedTextBefore = markedText.length > 0
+
         // Let the input system handle the event (for IME, dead keys, etc.)
         interpretKeyEvents([translationEvent])
+
+        // Sync the preedit state with Ghostty so it can render the IME
+        // composition overlay (e.g. for Korean, Japanese, Chinese input).
+        syncPreedit(clearIfNeeded: markedTextBefore)
 
         // Build the key event
         var keyEvent = ghostty_input_key_s()
@@ -2196,11 +2212,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.mods = modsFromEvent(event)
         // Control and Command never contribute to text translation
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
-        keyEvent.composing = markedText.length > 0
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
+
+        // We're composing if we have preedit (the obvious case). But we're also
+        // composing if we don't have preedit and we had marked text before,
+        // because this input probably just reset the preedit state. It shouldn't
+        // be encoded. Example: Japanese begin composing, then press backspace.
+        // This should only cancel the composing state but not actually delete
+        // the prior input characters (prior to the composing).
+        keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
         if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
+            // Accumulated text comes from insertText (IME composition result).
+            // These never have "composing" set to true because these are the
+            // result of a composition.
+            keyEvent.composing = false
             for text in accumulated {
                 if shouldSendText(text) {
                     text.withCString { ptr in
@@ -3795,10 +3822,42 @@ extension GhosttyNSView: NSTextInputClient {
         default:
             break
         }
+
+        // If we're not in a keyDown event, sync preedit immediately.
+        // This can happen due to external events like changing keyboard layouts
+        // while composing.
+        if keyTextAccumulator == nil {
+            syncPreedit()
+        }
     }
 
     func unmarkText() {
-        markedText.mutableString.setString("")
+        if markedText.length > 0 {
+            markedText.mutableString.setString("")
+            syncPreedit()
+        }
+    }
+
+    /// Sync the preedit state based on the markedText value to libghostty.
+    /// This tells Ghostty about IME composition text so it can render the
+    /// preedit overlay (e.g. for Korean, Japanese, Chinese input).
+    private func syncPreedit(clearIfNeeded: Bool = true) {
+        guard let surface = surface else { return }
+
+        if markedText.length > 0 {
+            let str = markedText.string
+            let len = str.utf8CString.count
+            if len > 0 {
+                str.withCString { ptr in
+                    // Subtract 1 for the null terminator
+                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                }
+            }
+        } else if clearIfNeeded {
+            // If we had marked text before but don't now, we're no longer
+            // in a preedit state so we can clear it.
+            ghostty_surface_preedit(surface, nil, 0)
+        }
     }
 
     func validAttributesForMarkedText() -> [NSAttributedString.Key] {
@@ -3817,7 +3876,23 @@ extension GhosttyNSView: NSTextInputClient {
         guard let window = self.window else {
             return NSRect(x: frame.origin.x, y: frame.origin.y, width: 0, height: 0)
         }
-        let viewRect = NSRect(x: 0, y: 0, width: 0, height: 0)
+
+        // Use Ghostty's IME point API for accurate cursor position if available.
+        var x: Double = 0
+        var y: Double = 0
+        var w: Double = 0
+        var h: Double = 0
+        if let surface = surface {
+            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        }
+
+        // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
+        let viewRect = NSRect(
+            x: x,
+            y: frame.size.height - y,
+            width: 0,
+            height: max(h, cellSize.height)
+        )
         let winRect = convert(viewRect, to: nil)
         return window.convertToScreen(winRect)
     }
