@@ -180,6 +180,14 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
 
+## Nightly Builds
+
+Want the latest features before they hit a stable release? Download **cmux NIGHTLY** — a separate app that can run alongside the stable version.
+
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+
+Nightly builds are published automatically from the latest `main` branch commit. They auto-update via their own Sparkle feed.
+
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
