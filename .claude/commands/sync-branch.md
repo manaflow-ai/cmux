@@ -1,6 +1,8 @@
 # Sync Branch
 
-Get the current branch ready: update all submodules to their latest remote main, merge from main, and push.
+Get the current branch ready: update all submodules to their latest remote main, merge from main, and rebase.
+
+**Important: Never push automatically. Always ask the user before any push.**
 
 ## Steps
 
@@ -10,21 +12,20 @@ Get the current branch ready: update all submodules to their latest remote main,
      - `git fetch origin`
      - Check if behind: `git rev-list HEAD..origin/main --count`
      - If behind, merge: `git merge origin/main --no-edit`
-   - For ghostty specifically, push the merge to the fork: `git push origin HEAD:main`
-     - Verify with: `git merge-base --is-ancestor HEAD origin/main`
+   - Do NOT push submodules. We only land submodule changes via PRs.
    - Go back to repo root
 
 2. **Commit submodule updates on main**
    - `git checkout main && git pull origin main`
    - Check if any submodules changed: `git diff --name-only` (look for submodule paths)
    - If changed, stage and commit: `git add ghostty homebrew-cmux vendor/bonsplit && git commit -m "Update submodules: <brief description>"`
-   - Push main: `git push origin main`
+   - **Do not push.** Ask the user if they want to push.
 
 3. **Rebase current branch on main**
    - `git checkout <original-branch>`
    - `git rebase main`
    - If conflicts, resolve them and continue
-   - Force push if branch was already pushed: `git push --force-with-lease origin <branch>`
+   - **Do not push.** Ask the user if they want to force-push the rebased branch.
 
 4. **Report status**
    - Show what submodules were updated and by how many commits
