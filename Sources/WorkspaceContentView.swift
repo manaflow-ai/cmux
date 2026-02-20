@@ -81,12 +81,15 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
+            workspace.applyGhosttyChrome(from: config)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            config = GhosttyConfig.load()
+            let next = GhosttyConfig.load()
+            config = next
+            workspace.applyGhosttyChrome(from: next)
         }
     }
 

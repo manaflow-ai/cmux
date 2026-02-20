@@ -101,6 +101,21 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
+    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
+            enableAnimations: false,
+            chromeColors: .init(backgroundHex: config.backgroundColor.hexString())
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        let nextHex = config.backgroundColor.hexString()
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+            return
+        }
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
     init(title: String = "Terminal", workingDirectory: String? = nil) {
         self.id = UUID()
         self.processTitle = title
@@ -115,9 +130,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
-        let appearance = BonsplitConfiguration.Appearance(
-            enableAnimations: false
-        )
+        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
