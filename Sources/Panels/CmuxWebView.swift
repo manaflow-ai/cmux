@@ -7,6 +7,13 @@ import WebKit
 /// the first responder.
 final class CmuxWebView: WKWebView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
+        // route it through app/menu key equivalents, which can trigger unintended actions.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command), event.keyCode == 36 || event.keyCode == 76 {
+            return false
+        }
+
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true

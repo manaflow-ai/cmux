@@ -1970,6 +1970,8 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 parent.onMoveSelection(-1)
                 return true
             case #selector(NSResponder.insertNewline(_:)):
+                let currentFlags = NSApp.currentEvent?.modifierFlags ?? []
+                guard browserOmnibarShouldSubmitOnReturn(flags: currentFlags) else { return false }
                 parent.onSubmit()
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
@@ -2080,6 +2082,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
             switch keyCode {
             case 36, 76: // Return / keypad Enter
+                guard browserOmnibarShouldSubmitOnReturn(flags: event.modifierFlags) else { return false }
                 parent.onSubmit()
                 return true
             case 53: // Escape
