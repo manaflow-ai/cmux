@@ -55,7 +55,7 @@ brew install --cask cmux`}</CodeBlock>
         it works automatically. To use the CLI from outside cmux, create a
         symlink:
       </p>
-      <CodeBlock lang="bash">{`sudo ln -sf "/Applications/cmux.app/Contents/MacOS/cmux" /usr/local/bin/cmux`}</CodeBlock>
+      <CodeBlock lang="bash">{`sudo ln -sf "/Applications/cmux.app/Contents/Resources/bin/cmux" /usr/local/bin/cmux`}</CodeBlock>
       <p>Then you can run commands like:</p>
       <CodeBlock lang="bash">{`cmux list-workspaces
 cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
