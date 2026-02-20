@@ -4,12 +4,12 @@ import Darwin
 
 @main
 struct cmuxApp: App {
-    @StateObject private var tabManager = TabManager()
+    @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     private let primaryWindowId = UUID()
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -18,7 +18,11 @@ struct cmuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        configureGhosttyEnvironment()
+        Self.configureGhosttyEnvironment()
+
+        let startupAppearance = AppearanceSettings.resolvedMode()
+        Self.applyAppearance(startupAppearance)
+        _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -37,7 +41,7 @@ struct cmuxApp: App {
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
     }
 
-    private func configureGhosttyEnvironment() {
+    private static func configureGhosttyEnvironment() {
         let fileManager = FileManager.default
         let ghosttyAppResources = "/Applications/Ghostty.app/Contents/Resources/ghostty"
         let bundledGhosttyURL = Bundle.main.resourceURL?.appendingPathComponent("ghostty")
@@ -82,7 +86,7 @@ struct cmuxApp: App {
         }
     }
 
-    private func appendEnvPathIfMissing(_ key: String, path: String, defaultValue: String? = nil) {
+    private static func appendEnvPathIfMissing(_ key: String, path: String, defaultValue: String? = nil) {
         if path.isEmpty { return }
         var current = getenv(key).flatMap { String(cString: $0) } ?? ""
         if current.isEmpty, let defaultValue {
@@ -496,18 +500,23 @@ struct cmuxApp: App {
     }
 
     private func applyAppearance() {
-        guard let mode = AppearanceMode(rawValue: appearanceMode) else { return }
+        let mode = AppearanceSettings.mode(for: appearanceMode)
+        if appearanceMode != mode.rawValue {
+            appearanceMode = mode.rawValue
+        }
+        Self.applyAppearance(mode)
+    }
+
+    private static func applyAppearance(_ mode: AppearanceMode) {
         switch mode {
         case .system:
-            NSApp.appearance = nil
+            NSApplication.shared.appearance = nil
         case .light:
-            NSApp.appearance = NSAppearance(named: .aqua)
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
-            NSApp.appearance = NSAppearance(named: .darkAqua)
+            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         case .auto:
-            // Legacy value; treat like system and migrate.
-            NSApp.appearance = nil
-            appearanceMode = AppearanceMode.system.rawValue
+            NSApplication.shared.appearance = nil
         }
     }
 
@@ -2229,11 +2238,36 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppearanceSettings {
+    static let appearanceModeKey = "appearanceMode"
+    static let defaultMode: AppearanceMode = .system
+
+    static func mode(for rawValue: String?) -> AppearanceMode {
+        guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        if mode == .auto {
+            return .system
+        }
+        return mode
+    }
+
+    @discardableResult
+    static func resolvedMode(defaults: UserDefaults = .standard) -> AppearanceMode {
+        let stored = defaults.string(forKey: appearanceModeKey)
+        let resolved = mode(for: stored)
+        if stored != resolved.rawValue {
+            defaults.set(resolved.rawValue, forKey: appearanceModeKey)
+        }
+        return resolved
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2545,7 +2579,7 @@ struct SettingsView: View {
     }
 
     private func resetAllSettings() {
-        appearanceMode = AppearanceMode.dark.rawValue
+        appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
