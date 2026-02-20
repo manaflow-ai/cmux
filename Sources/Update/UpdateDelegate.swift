@@ -1,23 +1,14 @@
 import Sparkle
 import Cocoa
 
-enum UpdateChannelSettings {
-    static let includeNightlyBuildsKey = "cmux.includeNightlyBuilds"
-    static let defaultIncludeNightlyBuilds = false
+enum UpdateFeedResolver {
+    static let fallbackFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
 
-    static let stableFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-    static let nightlyFeedURL = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
-
-    static func resolvedFeedURLString(
-        infoFeedURL: String?,
-        defaults: UserDefaults = .standard
-    ) -> (url: String, isNightly: Bool, usedFallback: Bool) {
-        let stableURL = (infoFeedURL?.isEmpty == false) ? infoFeedURL! : stableFeedURL
-        let includeNightlyBuilds = defaults.bool(forKey: includeNightlyBuildsKey)
-        if includeNightlyBuilds {
-            return (url: nightlyFeedURL, isNightly: true, usedFallback: false)
+    static func resolvedFeedURLString(infoFeedURL: String?) -> (url: String, isNightly: Bool, usedFallback: Bool) {
+        guard let infoFeedURL, !infoFeedURL.isEmpty else {
+            return (fallbackFeedURL, false, true)
         }
-        return (url: stableURL, isNightly: false, usedFallback: stableURL == stableFeedURL)
+        return (infoFeedURL, infoFeedURL.contains("/nightly/"), false)
     }
 }
 
@@ -31,11 +22,14 @@ extension UpdateDriver: SPUUpdaterDelegate {
             return override
         }
 #endif
-        let infoURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoURL)
+        // The feed URL is baked into Info.plist at build time:
+        // - Stable releases use the stable appcast URL
+        // - cmux NIGHTLY has the nightly appcast URL injected by CI
+        let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeedURL)
         UpdateLogStore.shared.append("update channel: \(resolved.isNightly ? "nightly" : "stable")")
         recordFeedURLString(resolved.url, usedFallback: resolved.usedFallback)
-        return resolved.url
+        return infoFeedURL
     }
 
     /// Called when an update is scheduled to install silently,

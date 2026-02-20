@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import AppKit
 import Bonsplit
 
 /// View that renders a Workspace's content using BonsplitView
@@ -9,6 +10,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
     @State private var config = GhosttyConfig.load()
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
     var body: some View {
@@ -40,6 +42,7 @@ struct WorkspaceContentView: View {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
                 let isVisibleInUI = isWorkspaceVisible && isSelectedInPane
+                let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id)
                 PanelContentView(
                     panel: panel,
                     isFocused: isFocused,
@@ -48,7 +51,7 @@ struct WorkspaceContentView: View {
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
-                    notificationStore: notificationStore,
+                    hasUnreadNotification: hasUnreadNotification,
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -81,12 +84,24 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
+            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            config = GhosttyConfig.load()
+            refreshGhosttyAppearanceConfig()
+        }
+        .onChange(of: colorScheme) { _, _ in
+            // Keep split overlay color/opacity in sync with light/dark theme transitions.
+            refreshGhosttyAppearanceConfig()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
+                workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
+            } else {
+                workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            }
         }
     }
 
@@ -106,6 +121,12 @@ struct WorkspaceContentView: View {
                 }
             }
         }
+    }
+
+    private func refreshGhosttyAppearanceConfig() {
+        let next = GhosttyConfig.load()
+        config = next
+        workspace.applyGhosttyChrome(from: next)
     }
 }
 

@@ -183,6 +183,12 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
 
+## Nightly Builds
+
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+
+cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).

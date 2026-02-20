@@ -2,6 +2,11 @@ import Foundation
 import AppKit
 
 struct GhosttyConfig {
+    enum ColorSchemePreference {
+        case light
+        case dark
+    }
+
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
     var theme: String?
@@ -145,22 +150,212 @@ struct GhosttyConfig {
     }
 
     mutating func loadTheme(_ name: String) {
-        let bundleThemePath = Bundle.main.resourceURL?
-            .appendingPathComponent("ghostty/themes/\(name)")
-            .path
+        loadTheme(
+            name,
+            environment: ProcessInfo.processInfo.environment,
+            bundleResourceURL: Bundle.main.resourceURL
+        )
+    }
 
-        let themePaths = [
-            bundleThemePath,
-            "/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(name)",
-            NSString(string: "~/.config/ghostty/themes/\(name)").expandingTildeInPath,
-        ].compactMap { $0 }
-
-        for path in themePaths {
-            if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
-                parse(contents)
-                return
+    mutating func loadTheme(
+        _ name: String,
+        environment: [String: String],
+        bundleResourceURL: URL?,
+        preferredColorScheme: ColorSchemePreference? = nil
+    ) {
+        let resolvedThemeName = Self.resolveThemeName(
+            from: name,
+            preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
+        )
+        for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
+            for path in Self.themeSearchPaths(
+                forThemeName: candidateName,
+                environment: environment,
+                bundleResourceURL: bundleResourceURL
+            ) {
+                if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                    parse(contents)
+                    return
+                }
             }
         }
+    }
+
+    static func currentColorSchemePreference(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> ColorSchemePreference {
+        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+        return bestMatch == .darkAqua ? .dark : .light
+    }
+
+    static func resolveThemeName(
+        from rawThemeValue: String,
+        preferredColorScheme: ColorSchemePreference
+    ) -> String {
+        var fallbackTheme: String?
+        var lightTheme: String?
+        var darkTheme: String?
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count != 2 {
+                if fallbackTheme == nil {
+                    fallbackTheme = entry
+                }
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil {
+                    lightTheme = value
+                }
+            case "dark":
+                if darkTheme == nil {
+                    darkTheme = value
+                }
+            default:
+                if fallbackTheme == nil {
+                    fallbackTheme = value
+                }
+            }
+        }
+
+        switch preferredColorScheme {
+        case .light:
+            if let lightTheme {
+                return lightTheme
+            }
+        case .dark:
+            if let darkTheme {
+                return darkTheme
+            }
+        }
+
+        if let fallbackTheme {
+            return fallbackTheme
+        }
+        if let darkTheme {
+            return darkTheme
+        }
+        if let lightTheme {
+            return lightTheme
+        }
+        return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func themeNameCandidates(from rawName: String) -> [String] {
+        var candidates: [String] = []
+        let compatibilityAliases: [String: [String]] = [
+            "solarized light": ["iTerm2 Solarized Light"],
+            "solarized dark": ["iTerm2 Solarized Dark"],
+        ]
+
+        func appendCandidate(_ value: String) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if !candidates.contains(trimmed) {
+                candidates.append(trimmed)
+            }
+
+            if let aliases = compatibilityAliases[trimmed.lowercased()] {
+                for alias in aliases {
+                    if !candidates.contains(alias) {
+                        candidates.append(alias)
+                    }
+                }
+            }
+        }
+
+        var queue: [String] = [rawName]
+        while let current = queue.popLast() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            appendCandidate(trimmed)
+
+            let lower = trimmed.lowercased()
+            if lower.hasPrefix("builtin ") {
+                let stripped = String(trimmed.dropFirst("builtin ".count))
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+
+            if let range = trimmed.range(
+                of: #"\s*\(builtin\)\s*$"#,
+                options: [.regularExpression, .caseInsensitive]
+            ) {
+                let stripped = String(trimmed[..<range.lowerBound])
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+        }
+
+        return candidates
+    }
+
+    static func themeSearchPaths(
+        forThemeName themeName: String,
+        environment: [String: String],
+        bundleResourceURL: URL?
+    ) -> [String] {
+        var paths: [String] = []
+
+        func appendUniquePath(_ path: String?) {
+            guard let path else { return }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            if !paths.contains(expanded) {
+                paths.append(expanded)
+            }
+        }
+
+        func appendThemePath(in resourcesRoot: String?) {
+            guard let resourcesRoot else { return }
+            let expanded = NSString(string: resourcesRoot).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            appendUniquePath(
+                URL(fileURLWithPath: expanded)
+                    .appendingPathComponent("themes/\(themeName)")
+                    .path
+            )
+        }
+
+        // 1) Explicit resources dir used by the running Ghostty embedding.
+        appendThemePath(in: environment["GHOSTTY_RESOURCES_DIR"])
+
+        // 2) App bundle resources.
+        appendUniquePath(
+            bundleResourceURL?
+                .appendingPathComponent("ghostty/themes/\(themeName)")
+                .path
+        )
+
+        // 3) Data dirs (Ghostty installs themes under share/ghostty/themes).
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                guard !dataDir.isEmpty else { continue }
+                appendUniquePath(
+                    URL(fileURLWithPath: dataDir)
+                        .appendingPathComponent("ghostty/themes/\(themeName)")
+                        .path
+                )
+            }
+        }
+
+        // 4) Common system/user fallback locations.
+        appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
+        appendUniquePath("~/.config/ghostty/themes/\(themeName)")
+        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
+
+        return paths
     }
 
     private static func readConfigFile(at path: String) -> String? {

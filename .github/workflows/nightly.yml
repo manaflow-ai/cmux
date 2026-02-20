@@ -2,8 +2,8 @@ name: Nightly macOS build
 
 on:
   schedule:
-    # 09:30 UTC daily
-    - cron: "30 9 * * *"
+    # Every hour at :30. The 'decide' job skips if main has no new commits.
+    - cron: "30 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -149,32 +149,53 @@ jobs:
 
       - name: Build app (Release)
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
-      - name: Inject Sparkle keys and nightly metadata
+      - name: Inject nightly identity and metadata
         run: |
           set -euo pipefail
-          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+          APP_DIR="build/Build/Products/Release"
+          APP_PLIST="${APP_DIR}/cmux.app/Contents/Info.plist"
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
 
+          # --- Separate app identity: "cmux NIGHTLY" with its own bundle ID ---
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName cmux NIGHTLY" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName cmux NIGHTLY" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.cmuxterm.app.nightly" "$APP_PLIST"
+
+          # Rename the .app bundle to match the display name
+          mv "${APP_DIR}/cmux.app" "${APP_DIR}/cmux NIGHTLY.app"
+
+          # Update plist path after rename
+          APP_PLIST="${APP_DIR}/cmux NIGHTLY.app/Contents/Info.plist"
+
+          # --- Sparkle: point at the nightly appcast ---
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$APP_PLIST"
-          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml" "$APP_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :SUFeedURL string https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml" "$APP_PLIST"
 
           # Marketing version: append -nightly.YYYYMMDD so users can identify the channel and date
           BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
           NIGHTLY_DATE=$(date -u +%Y%m%d)
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" "$APP_PLIST"
 
-          # Build number: monotonic YYYYMMDDNN integer for clean Sparkle comparisons
-          NIGHTLY_BUILD="${NIGHTLY_DATE}01"
+          # Build number: unique/monotonic per workflow run attempt so same-day
+          # nightlies and reruns still compare as newer in Sparkle.
+          if [ -n "${GITHUB_RUN_ID:-}" ]; then
+            RUN_ATTEMPT="$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+            NIGHTLY_BUILD="${GITHUB_RUN_ID}${RUN_ATTEMPT}"
+          else
+            NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
+          fi
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
           # Embed commit SHA for bug reports
           /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
 
+          echo "Nightly app name: cmux NIGHTLY"
+          echo "Nightly bundle ID: com.cmuxterm.app.nightly"
           echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
           echo "Commit SHA: ${SHORT_SHA}"
@@ -210,7 +231,7 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
+          APP_PATH="build/Build/Products/Release/cmux NIGHTLY.app"
           ENTITLEMENTS="cmux.entitlements"
           CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
           if [ -f "$CLI_PATH" ]; then
@@ -230,9 +251,9 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
+          APP_PATH="build/Build/Products/Release/cmux NIGHTLY.app"
           ZIP_SUBMIT="cmux-nightly-notary.zip"
-          DMG_RELEASE="cmux-macos.dmg"
+          DMG_RELEASE="cmux-nightly-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
           APP_SUBMIT_JSON="$(xcrun notarytool submit "$ZIP_SUBMIT" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           APP_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$APP_SUBMIT_JSON")"
@@ -250,7 +271,7 @@ jobs:
             --identity="$APPLE_SIGNING_IDENTITY" \
             "$APP_PATH" \
             ./
-          mv ./cmux*.dmg "$DMG_RELEASE"
+          mv ./"cmux NIGHTLY"*.dmg "$DMG_RELEASE" 2>/dev/null || mv ./cmux*.dmg "$DMG_RELEASE"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"
@@ -270,7 +291,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg nightly appcast.xml
+          ./scripts/sparkle_generate_appcast.sh cmux-nightly-macos.dmg nightly appcast.xml
 
       - name: Move nightly tag to built commit
         run: |
@@ -289,8 +310,12 @@ jobs:
           make_latest: false
           body: |
             Automated nightly build for `${{ needs.decide.outputs.short_sha }}`.
+
+            **cmux NIGHTLY** is a separate app (bundle ID `com.cmuxterm.app.nightly`) that can be installed alongside the stable release. It receives nightly updates automatically via its own Sparkle feed.
+
+            [Download cmux-nightly-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
           files: |
-            cmux-macos.dmg
+            cmux-nightly-macos.dmg
             appcast.xml
           overwrite_files: true
 

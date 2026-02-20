@@ -4,12 +4,12 @@ import Darwin
 
 @main
 struct cmuxApp: App {
-    @StateObject private var tabManager = TabManager()
+    @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     private let primaryWindowId = UUID()
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -19,10 +19,16 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        configureGhosttyEnvironment()
+        Self.configureGhosttyEnvironment()
+
+        let startupAppearance = AppearanceSettings.resolvedMode()
+        Self.applyAppearance(startupAppearance)
+        _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -41,7 +47,7 @@ struct cmuxApp: App {
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
     }
 
-    private func configureGhosttyEnvironment() {
+    private static func configureGhosttyEnvironment() {
         let fileManager = FileManager.default
         let ghosttyAppResources = "/Applications/Ghostty.app/Contents/Resources/ghostty"
         let bundledGhosttyURL = Bundle.main.resourceURL?.appendingPathComponent("ghostty")
@@ -86,7 +92,7 @@ struct cmuxApp: App {
         }
     }
 
-    private func appendEnvPathIfMissing(_ key: String, path: String, defaultValue: String? = nil) {
+    private static func appendEnvPathIfMissing(_ key: String, path: String, defaultValue: String? = nil) {
         if path.isEmpty { return }
         var current = getenv(key).flatMap { String(cString: $0) } ?? ""
         if current.isEmpty, let defaultValue {
@@ -477,11 +483,19 @@ struct cmuxApp: App {
                     performSplitFromMenu(direction: .down)
                 }
 
+                splitCommandButton(title: "Split Browser Right", shortcut: splitBrowserRightMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
+
+                splitCommandButton(title: "Split Browser Down", shortcut: splitBrowserDownMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .down)
+                }
+
                 Divider()
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    Button("Tab \(number)") {
+                    Button("Workspace \(number)") {
                         let manager = (AppDelegate.shared?.tabManager ?? tabManager)
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
@@ -514,18 +528,23 @@ struct cmuxApp: App {
     }
 
     private func applyAppearance() {
-        guard let mode = AppearanceMode(rawValue: appearanceMode) else { return }
+        let mode = AppearanceSettings.mode(for: appearanceMode)
+        if appearanceMode != mode.rawValue {
+            appearanceMode = mode.rawValue
+        }
+        Self.applyAppearance(mode)
+    }
+
+    private static func applyAppearance(_ mode: AppearanceMode) {
         switch mode {
         case .system:
-            NSApp.appearance = nil
+            NSApplication.shared.appearance = nil
         case .light:
-            NSApp.appearance = NSAppearance(named: .aqua)
+            NSApplication.shared.appearance = NSAppearance(named: .aqua)
         case .dark:
-            NSApp.appearance = NSAppearance(named: .darkAqua)
+            NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
         case .auto:
-            // Legacy value; treat like system and migrate.
-            NSApp.appearance = nil
-            appearanceMode = AppearanceMode.system.rawValue
+            NSApplication.shared.appearance = nil
         }
     }
 
@@ -568,6 +587,20 @@ struct cmuxApp: App {
         )
     }
 
+    private var splitBrowserRightMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserRightShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserRight.defaultShortcut
+        )
+    }
+
+    private var splitBrowserDownMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserDownShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
@@ -598,6 +631,13 @@ struct cmuxApp: App {
             return
         }
         tabManager.createSplit(direction: direction)
+    }
+
+    private func performBrowserSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performBrowserSplitShortcut(direction: direction) == true {
+            return
+        }
+        _ = tabManager.createBrowserSplit(direction: direction)
     }
 
     @ViewBuilder
@@ -2333,17 +2373,45 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppearanceSettings {
+    static let appearanceModeKey = "appearanceMode"
+    static let defaultMode: AppearanceMode = .system
+
+    static func mode(for rawValue: String?) -> AppearanceMode {
+        guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        if mode == .auto {
+            return .system
+        }
+        return mode
+    }
+
+    @discardableResult
+    static func resolvedMode(defaults: UserDefaults = .standard) -> AppearanceMode {
+        let stored = defaults.string(forKey: appearanceModeKey)
+        let resolved = mode(for: stored)
+        if stored != resolved.rawValue {
+            defaults.set(resolved.rawValue, forKey: appearanceModeKey)
+        }
+        return resolved
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
-    @AppStorage("appearanceMode") private var appearanceMode = AppearanceMode.dark.rawValue
+    @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
+    @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
+    @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    @AppStorage(UpdateChannelSettings.includeNightlyBuildsKey) private var includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -2351,6 +2419,7 @@ struct SettingsView: View {
     @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2369,6 +2438,10 @@ struct SettingsView: View {
         default:
             return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
         }
+    }
+
+    private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
+        browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
@@ -2421,25 +2494,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: "Updates")
-                    SettingsCard {
-                        SettingsCardRow(
-                            "Receive Nightly Builds",
-                            subtitle: includeNightlyBuilds
-                                ? "Using nightly update channel. Builds may be less stable."
-                                : "Using stable update channel."
-                        ) {
-                            Toggle("", isOn: $includeNightlyBuilds)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsIncludeNightlyBuildsToggle")
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote("Nightly builds are published from the latest main branch commit when available.")
-                    }
-
                     SettingsSectionHeader(title: "Automation")
                     SettingsCard {
                         SettingsCardRow(
@@ -2481,6 +2535,26 @@ struct SettingsView: View {
                         SettingsCardNote("When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")
                     }
 
+                    SettingsCard {
+                        SettingsCardRow("Port Base", subtitle: "Starting port for CMUX_PORT env var.", controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortBase, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Port Range Size", subtitle: "Number of ports per workspace.", controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortRange, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values.")
+                    }
+
                     SettingsSectionHeader(title: "Browser")
                     SettingsCard {
                         SettingsCardRow(
@@ -2504,6 +2578,80 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Terminal Links in cmux Browser",
+                            subtitle: "When off, links clicked in terminal output open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("HTTP Host Allowlist")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            Text("HTTP loads outside this list show a warning prompt with options to open externally or proceed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            TextEditor(text: $browserInsecureHTTPAllowlistDraft)
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .frame(minHeight: 86)
+                                .padding(6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(nsColor: .textBackgroundColor))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                )
+                                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
+
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .center, spacing: 10) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+
+                                    Spacer(minLength: 0)
+
+                                    Button("Save") {
+                                        saveBrowserInsecureHTTPAllowlist()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                    .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    HStack {
+                                        Spacer(minLength: 0)
+                                        Button("Save") {
+                                            saveBrowserInsecureHTTPAllowlist()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
                         SettingsCardDivider()
 
@@ -2630,6 +2778,13 @@ struct SettingsView: View {
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+        }
+        .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
+            // Keep draft in sync with external changes unless the user has local unsaved edits.
+            if browserInsecureHTTPAllowlistDraft == oldValue {
+                browserInsecureHTTPAllowlistDraft = newValue
+            }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
@@ -2649,16 +2804,22 @@ struct SettingsView: View {
     }
 
     private func resetAllSettings() {
-        appearanceMode = AppearanceMode.dark.rawValue
+        appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+        browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-        includeNightlyBuilds = UpdateChannelSettings.defaultIncludeNightlyBuilds
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
+    }
+
+    private func saveBrowserInsecureHTTPAllowlist() {
+        browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
     }
 }
 

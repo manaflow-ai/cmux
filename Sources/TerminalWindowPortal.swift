@@ -209,6 +209,29 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Hide a portal entry without detaching it. Updates visibleInUI to false and
+    /// sets isHidden = true so subsequent synchronizeHostedView calls keep it hidden.
+    /// Used when a workspace is permanently unmounted (vs. transient bonsplit dismantles).
+    func hideEntry(forHostedId hostedId: ObjectIdentifier) {
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        guard entry.visibleInUI else { return }
+        entry.visibleInUI = false
+        entriesByHostedId[hostedId] = entry
+        entry.hostedView?.isHidden = true
+#if DEBUG
+        dlog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
+#endif
+    }
+
+    /// Update the visibleInUI flag on an existing entry without rebinding.
+    /// Used when a deferred bind is pending — this ensures synchronizeHostedView
+    /// won't hide a view that updateNSView has already marked as visible.
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
+        guard var entry = entriesByHostedId[hostedId] else { return }
+        entry.visibleInUI = visibleInUI
+        entriesByHostedId[hostedId] = entry
+    }
+
     func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
@@ -329,12 +352,17 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
+            // Only hide if the entry is not marked visibleInUI. When a workspace is
+            // remounting, updateNSView sets visibleInUI=true before the deferred bind
+            // provides an anchor — hiding here would race with that and cause a flash.
+            if !entry.visibleInUI {
 #if DEBUG
-            if !hostedView.isHidden {
-                dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
-            }
+                if !hostedView.isHidden {
+                    dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
+                }
 #endif
-            hostedView.isHidden = true
+                hostedView.isHidden = true
+            }
             return
         }
         guard anchorView.window === window else {
@@ -585,6 +613,23 @@ enum TerminalWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.hideEntry(forHostedId: hostedId)
+    }
+
+    /// Update the visibleInUI flag on an existing portal entry without rebinding.
+    /// Called when a bind is deferred (host not yet in window) to prevent stale
+    /// portal syncs from hiding a view that is about to become visible.
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {

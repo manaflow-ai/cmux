@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Bonsplit
 import Combine
 
@@ -45,6 +46,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
     @Published var currentDirectory: String
+
+    /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
+    var portOrdinal: Int = 0
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
@@ -101,8 +105,42 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
-    init(title: String = "Terminal", workingDirectory: String? = nil) {
+    private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
+        BonsplitConfiguration.SplitButtonTooltips(
+            newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
+            newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
+            splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
+            splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
+        )
+    }
+
+    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(from: config.backgroundColor)
+    }
+
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
+            splitButtonTooltips: Self.currentSplitButtonTooltips(),
+            enableAnimations: false,
+            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor) {
+        let nextHex = backgroundColor.hexString()
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+            return
+        }
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
+    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
         self.id = UUID()
+        self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
@@ -115,9 +153,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
-        let appearance = BonsplitConfiguration.Appearance(
-            enableAnimations: false
-        )
+        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
@@ -138,7 +174,8 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+            portOrdinal: portOrdinal
         )
         panels[terminalPanel.id] = terminalPanel
 
@@ -179,6 +216,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+    }
+
+    func refreshSplitButtonTooltips() {
+        var configuration = bonsplitController.configuration
+        configuration.appearance.splitButtonTooltips = Self.currentSplitButtonTooltips()
+        bonsplitController.configuration = configuration
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -382,7 +425,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -447,7 +491,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -542,11 +587,16 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         url: URL? = nil,
         focus: Bool? = nil,
-        insertAtEnd: Bool = false
+        insertAtEnd: Bool = false,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            initialURL: url,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
         panels[browserPanel.id] = browserPanel
 
         guard let newTabId = bonsplitController.createTab(
@@ -966,6 +1016,19 @@ final class Workspace: Identifiable, ObservableObject {
         triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: true)
     }
 
+    // MARK: - Portal Lifecycle
+
+    /// Hide all terminal portal views for this workspace.
+    /// Called before the workspace is unmounted to prevent portal-hosted terminal
+    /// views from covering browser panes in the newly selected workspace.
+    func hideAllTerminalPortalViews() {
+        for panel in panels.values {
+            guard let terminal = panel as? TerminalPanel else { continue }
+            terminal.hostedView.setVisibleInUI(false)
+            TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+        }
+    }
+
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)
@@ -974,7 +1037,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: nil
+            configTemplate: nil,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -1439,7 +1503,8 @@ extension Workspace: BonsplitDelegate {
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                        configTemplate: inheritedConfig
+                        configTemplate: inheritedConfig,
+                        portOrdinal: portOrdinal
                     )
                     panels[replacementPanel.id] = replacementPanel
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
@@ -1497,7 +1562,8 @@ extension Workspace: BonsplitDelegate {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 

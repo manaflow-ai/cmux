@@ -7,6 +7,13 @@ import WebKit
 /// the first responder.
 final class CmuxWebView: WKWebView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
+        // route it through app/menu key equivalents, which can trigger unintended actions.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command), event.keyCode == 36 || event.keyCode == 76 {
+            return false
+        }
+
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true
@@ -41,6 +48,65 @@ final class CmuxWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
         super.mouseDown(with: event)
+    }
+
+    // MARK: - Mouse back/forward buttons & middle-click
+
+    override func otherMouseDown(with event: NSEvent) {
+        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
+        // Consume the event so WebKit doesn't handle it.
+        switch event.buttonNumber {
+        case 3:
+            goBack()
+            return
+        case 4:
+            goForward()
+            return
+        default:
+            break
+        }
+        super.otherMouseDown(with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        // Middle-click (button 2) on a link opens it in a new tab.
+        if event.buttonNumber == 2 {
+            let point = convert(event.locationInWindow, from: nil)
+            findLinkAtPoint(point) { [weak self] url in
+                guard let self, let url else { return }
+                NotificationCenter.default.post(
+                    name: .webViewMiddleClickedLink,
+                    object: self,
+                    userInfo: ["url": url]
+                )
+            }
+            return
+        }
+        super.otherMouseUp(with: event)
+    }
+
+    /// Use JavaScript to find the nearest anchor element at the given view-local point.
+    private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
+        // WKWebView's coordinate system is flipped (origin top-left for web content).
+        let flippedY = bounds.height - point.y
+        let js = """
+        (() => {
+            let el = document.elementFromPoint(\(point.x), \(flippedY));
+            while (el) {
+                if (el.tagName === 'A' && el.href) return el.href;
+                el = el.parentElement;
+            }
+            return '';
+        })();
+        """
+        evaluateJavaScript(js) { result, _ in
+            guard let href = result as? String, !href.isEmpty,
+                  let url = URL(string: href) else {
+                completion(nil)
+                return
+            }
+            completion(url)
+        }
     }
 
     // MARK: - Drag-and-drop passthrough

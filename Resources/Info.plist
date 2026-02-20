@@ -92,6 +92,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
+	</dict>
 	<key>SUFeedURL</key>
 	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
