@@ -104,6 +104,34 @@ up?.post(tap: .cghidEventTap)
     )
 
 
+def post_scroll_with_cgevent(x: float, y: float, delta_y: int = 3) -> None:
+    ix = int(round(x))
+    iy = int(round(y))
+    code = f"""
+import CoreGraphics
+let p = CGPoint(x: {ix}, y: {iy})
+let source = CGEventSource(stateID: .hidSystemState)
+if let scroll = CGEvent(
+    scrollWheelEvent2Source: source,
+    units: .line,
+    wheelCount: 1,
+    wheel1: Int32({delta_y}),
+    wheel2: 0,
+    wheel3: 0
+) {{
+    scroll.location = p
+    scroll.post(tap: .cghidEventTap)
+}}
+"""
+    subprocess.run(
+        ["swift", "-e", code],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
 def pick_top_bottom_terminal_panels(layout: dict) -> tuple[dict, dict]:
     candidates = []
     for panel in layout.get("selectedPanels", []):
@@ -282,7 +310,14 @@ def main() -> int:
                 print("FAIL: real right click disrupted terminal focus routing")
                 return 1
 
-            print("PASS: stale file-drag overlay forwards real left/right clicks")
+            for _ in range(6):
+                post_scroll_with_cgevent(click_x, click_y, delta_y=2)
+            time.sleep(0.25)
+            if not client.is_terminal_focused(bottom_id):
+                print("FAIL: real scroll wheel disrupted terminal focus routing")
+                return 1
+
+            print("PASS: stale file-drag overlay forwards real left/right clicks and scroll")
             print(f"  focused_panel={bottom_id}")
             return 0
         finally:

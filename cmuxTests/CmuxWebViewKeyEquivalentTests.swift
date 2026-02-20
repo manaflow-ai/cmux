@@ -225,6 +225,74 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
     }
 }
 
+final class KeyboardShortcutSettingsTests: XCTestCase {
+    func testBrowserSplitShortcutDefaults() {
+        let keys = [
+            KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey,
+            KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey
+        ]
+        let defaults = UserDefaults.standard
+        let previousValues = keys.map { key in (key, defaults.data(forKey: key)) }
+        defer {
+            for (key, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+        keys.forEach { defaults.removeObject(forKey: $0) }
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .splitBrowserRight).displayString, "⌥⌘D")
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .splitBrowserDown).displayString, "⌥⇧⌘D")
+    }
+
+    @MainActor
+    func testWorkspaceConfiguresSplitButtonTooltipsWithEffectiveShortcuts() throws {
+        let keys = [
+            KeyboardShortcutSettings.Action.newSurface.defaultsKey,
+            KeyboardShortcutSettings.Action.openBrowser.defaultsKey,
+            KeyboardShortcutSettings.Action.splitRight.defaultsKey,
+            KeyboardShortcutSettings.Action.splitDown.defaultsKey
+        ]
+        let defaults = UserDefaults.standard
+        let previousValues = keys.map { key in (key, defaults.data(forKey: key)) }
+        defer {
+            for (key, value) in previousValues {
+                if let value {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        let customPairs: [(KeyboardShortcutSettings.Action, StoredShortcut)] = [
+            (.newSurface, StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)),
+            (.openBrowser, StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)),
+            (.splitRight, StoredShortcut(key: "3", command: true, shift: false, option: false, control: false)),
+            (.splitDown, StoredShortcut(key: "4", command: true, shift: false, option: false, control: false)),
+        ]
+
+        for (action, shortcut) in customPairs {
+            guard let data = try? JSONEncoder().encode(shortcut) else {
+                XCTFail("Failed to encode shortcut for \(action.rawValue)")
+                return
+            }
+            defaults.set(data, forKey: action.defaultsKey)
+        }
+
+        let workspace = Workspace(title: "Tooltip Test")
+        let tooltips = workspace.bonsplitController.configuration.appearance.splitButtonTooltips
+
+        XCTAssertEqual(tooltips.newTerminal, "New Terminal (⌘1)")
+        XCTAssertEqual(tooltips.newBrowser, "New Browser (⌘2)")
+        XCTAssertEqual(tooltips.splitRight, "Split Right (⌘3)")
+        XCTAssertEqual(tooltips.splitDown, "Split Down (⌘4)")
+    }
+}
+
 final class ShortcutHintLanePlannerTests: XCTestCase {
     func testAssignLanesKeepsSeparatedIntervalsOnSingleLane() {
         let intervals: [ClosedRange<CGFloat>] = [0...20, 28...40, 48...64]
@@ -390,75 +458,26 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
-// Compatibility shim for update-channel tests while feed selection is sourced from Info.plist.
-private enum UpdateChannelSettings {
-    static let includeNightlyBuildsKey = "includeNightlyBuilds"
-    static let defaultIncludeNightlyBuilds = false
-    static let stableFeedURL = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml"
-    static let nightlyFeedURL = "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
-
-    static func resolvedFeedURLString(infoFeedURL: String?, defaults: UserDefaults) -> (url: String, isNightly: Bool, usedFallback: Bool) {
-        let includeNightlyBuilds = defaults.object(forKey: includeNightlyBuildsKey) as? Bool ?? defaultIncludeNightlyBuilds
-        if includeNightlyBuilds {
-            return (nightlyFeedURL, true, false)
-        }
-
-        if let infoFeedURL, !infoFeedURL.isEmpty {
-            return (infoFeedURL, false, false)
-        }
-
-        return (stableFeedURL, false, true)
-    }
-}
-
-final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
-    }
-
+final class UpdateFeedResolverTests: XCTestCase {
     func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
-        )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+    func testResolvedFeedDetectsNightlyChannelFromInfoFeed() {
+        let infoFeed = "https://example.com/nightly/appcast.xml"
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -797,6 +816,54 @@ final class SidebarDropPlannerTests: XCTestCase {
                 tabIds: tabIds,
                 pointerY: 38,
                 targetHeight: 40
+            )
+        )
+    }
+}
+
+final class SidebarOutsideDropResetPolicyTests: XCTestCase {
+    func testOutsideDropResetsOnlyWhenDragIsActiveAndPayloadMatches() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: nil,
+                hasSidebarDragPayload: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarOutsideDropResetPolicy.shouldResetDrag(
+                draggedTabId: tabId,
+                hasSidebarDragPayload: false
+            )
+        )
+    }
+}
+
+final class SidebarDragFailsafePolicyTests: XCTestCase {
+    func testRequestsClearOnlyWhenDragIsActiveAndMouseIsUp() {
+        XCTAssertTrue(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: false
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: true,
+                isLeftMouseButtonDown: true
+            )
+        )
+        XCTAssertFalse(
+            SidebarDragFailsafePolicy.shouldRequestClear(
+                isDragActive: false,
+                isLeftMouseButtonDown: false
             )
         )
     }
