@@ -596,8 +596,10 @@ struct CMUXCLI {
             let response = try client.send(command: "new_workspace")
             print(response)
             if let commandText = commandOpt {
-                // Extract workspace ID from "OK <uuid>" response
-                let wsId = response.hasPrefix("OK ") ? String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines) : response.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard response.hasPrefix("OK ") else {
+                    throw CLIError(message: "new-workspace failed, cannot run --command")
+                }
+                let wsId = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
                 // Wait for shell to initialize
                 Thread.sleep(forTimeInterval: 0.5)
                 let text = unescapeSendText(commandText + "\\n")
