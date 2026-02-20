@@ -35,7 +35,7 @@ enum KeyboardShortcutSettings {
         var label: String {
             switch self {
             case .toggleSidebar: return "Toggle Sidebar"
-            case .newTab: return "New Tab"
+            case .newTab: return "New Workspace"
             case .newWindow: return "New Window"
             case .showNotifications: return "Show Notifications"
             case .jumpToUnread: return "Jump to Latest Unread"
