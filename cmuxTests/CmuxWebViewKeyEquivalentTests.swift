@@ -433,6 +433,43 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class WorkspaceAutoReorderSettingsTests: XCTestCase {
+    func testDefaultIsEnabled() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+
+    func testDisabledWhenSetToFalse() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Disabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: WorkspaceAutoReorderSettings.key)
+        XCTAssertFalse(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+
+    func testEnabledWhenSetToTrue() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Enabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+}
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
