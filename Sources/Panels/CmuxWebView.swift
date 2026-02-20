@@ -7,6 +7,25 @@ import WebKit
 /// the first responder.
 final class CmuxWebView: WKWebView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let keyModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if keyModifiers.contains(.command),
+           keyModifiers.contains(.option),
+           event.charactersIgnoringModifiers?.lowercased() == "i" {
+            if #available(macOS 13.3, *) {
+                self.isInspectable = true
+            }
+            if NSApp.sendAction(Selector(("showWebInspector:")), to: nil, from: self) {
+                return true
+            }
+            for selectorName in ["_showWebInspector", "_inspector"] {
+                let selector = Selector(selectorName)
+                if self.responds(to: selector) {
+                    _ = self.perform(selector)
+                    return true
+                }
+            }
+        }
+
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true

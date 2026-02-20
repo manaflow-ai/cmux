@@ -64,10 +64,31 @@ enum BrowserSearchSettings {
 }
 
 enum BrowserUserAgentSettings {
-    // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
-    // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
-    // fallback/old UIs or trigger bot checks.
-    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+    /// Optional per-install override for troubleshooting UA-specific site issues.
+    /// If unset, we leave WKWebView on its native default UA for best Safari parity.
+    static let overrideUserAgentDefaultsKey = "browserUserAgentOverride"
+    static let overrideUserAgentEnvironmentKey = "CMUX_BROWSER_USER_AGENT"
+
+    static func userAgentOverride(
+        defaults: UserDefaults = .standard,
+        processInfo: ProcessInfo = .processInfo
+    ) -> String? {
+        if let env = processInfo.environment[overrideUserAgentEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !env.isEmpty {
+            return env
+        }
+        if let value = defaults.string(forKey: overrideUserAgentDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty {
+            return value
+        }
+        return nil
+    }
+
+    static func apply(to webView: WKWebView) {
+        webView.customUserAgent = userAgentOverride()
+    }
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -695,7 +716,9 @@ actor BrowserSearchSuggestionService {
         var req = URLRequest(url: url)
         req.timeoutInterval = 0.65
         req.cachePolicy = .returnCacheDataElseLoad
-        req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+        if let userAgent = BrowserUserAgentSettings.userAgentOverride() {
+            req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         req.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
 
         let data: Data
@@ -869,8 +892,13 @@ final class BrowserPanel: Panel, ObservableObject {
         // don't flash white before content loads.
         webView.underPageBackgroundColor = .windowBackgroundColor
 
-        // Always present as Safari.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        // Keep native WebKit UA by default for best compatibility with Safari.
+        // A manual override can be provided via CMUX_BROWSER_USER_AGENT/UserDefaults.
+        BrowserUserAgentSettings.apply(to: webView)
+
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
 
         self.webView = webView
 
@@ -1080,7 +1108,9 @@ final class BrowserPanel: Panel, ObservableObject {
             var req = URLRequest(url: iconURL)
             req.timeoutInterval = 2.0
             req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+            if let userAgent = BrowserUserAgentSettings.userAgentOverride() {
+                req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+            }
 
             let data: Data
             let response: URLResponse
@@ -1197,8 +1227,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Navigate to a URL
     func navigate(to url: URL) {
-        // Some installs can end up with a legacy Chrome UA override; keep this pinned.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserUserAgentSettings.apply(to: webView)
         navigationDelegate?.lastAttemptedURL = url
         var request = URLRequest(url: url)
         // Behave like a normal browser (respect HTTP caching). Reload is handled separately.
@@ -1287,8 +1316,30 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserUserAgentSettings.apply(to: webView)
         webView.reload()
+    }
+
+    func openDeveloperTools() {
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+        if let window = webView.window {
+            window.makeFirstResponder(webView)
+        }
+
+        if NSApp.sendAction(Selector(("showWebInspector:")), to: nil, from: webView) {
+            return
+        }
+
+        // Fallback selectors observed across WebKit builds.
+        for selectorName in ["_showWebInspector", "_inspector"] {
+            let selector = Selector(selectorName)
+            if webView.responds(to: selector) {
+                _ = webView.perform(selector)
+                return
+            }
+        }
     }
 
     /// Stop loading
@@ -1554,8 +1605,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     ) {
         // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
-           let url = navigationAction.request.url {
-            webView.load(URLRequest(url: url))
+           navigationAction.request.url != nil {
+            webView.load(navigationAction.request)
             decisionHandler(.cancel)
             return
         }
@@ -1586,11 +1637,13 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url {
+        if navigationAction.request.url != nil {
             if navigationAction.modifierFlags.contains(.command) {
-                openInNewTab?(url)
+                if let url = navigationAction.request.url {
+                    openInNewTab?(url)
+                }
             } else {
-                webView.load(URLRequest(url: url))
+                webView.load(navigationAction.request)
             }
         }
         return nil

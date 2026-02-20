@@ -376,12 +376,6 @@ struct BrowserPanelView: View {
                 }
             })
             .zIndex(0)
-            .contextMenu {
-                Button("Open Developer Tools") {
-                    openDevTools()
-                }
-                .keyboardShortcut("i", modifiers: [.command, .option])
-            }
     }
 
     private func triggerFocusFlashAnimation() {
@@ -442,14 +436,6 @@ struct BrowserPanelView: View {
         guard !panel.webView.isLoading else { return }
         guard isWebViewBlank() else { return }
         addressBarFocused = true
-    }
-
-    private func openDevTools() {
-        // WKWebView with developerExtrasEnabled allows right-click > Inspect Element
-        // We can also trigger via JavaScript
-        Task {
-            try? await panel.evaluateJavaScript("window.webkit?.messageHandlers?.devTools?.postMessage('open')")
-        }
     }
 
     private func handleOmnibarTap() {
