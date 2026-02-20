@@ -1511,13 +1511,16 @@ class TabManager: ObservableObject {
                 var readyTerminal: TerminalPanel?
                 let readyDeadline = Date().addingTimeInterval(6.0)
                 while Date() < readyDeadline {
-                    if let terminal = tab.focusedTerminalPanel,
-                       terminal.hostedView.window != nil,
-                       terminal.surface.surface != nil {
-                        let size = terminal.hostedView.bounds.size
-                        if size.width >= 5, size.height >= 5 {
-                            readyTerminal = terminal
-                            break
+                    if let terminal = tab.focusedTerminalPanel
+                        ?? tab.panels.values.compactMap({ $0 as? TerminalPanel }).first {
+                        tab.focusPanel(terminal.id)
+                        if terminal.hostedView.window != nil,
+                           terminal.surface.surface != nil {
+                            let size = terminal.hostedView.bounds.size
+                            if size.width >= 5, size.height >= 5 {
+                                readyTerminal = terminal
+                                break
+                            }
                         }
                     }
 
