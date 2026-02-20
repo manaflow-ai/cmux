@@ -202,6 +202,8 @@ struct StoredShortcut: Codable, Equatable {
         switch key {
         case "\t":
             keyText = "TAB"
+        case "\r", "\n":
+            keyText = "RETURN"
         default:
             keyText = key.uppercased()
         }
@@ -248,6 +250,7 @@ struct StoredShortcut: Codable, Equatable {
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
         case 48: return "\t" // tab
+        case 36, 76: return "\r" // return / keypad enter
         case 33: return "["  // kVK_ANSI_LeftBracket
         case 30: return "]"  // kVK_ANSI_RightBracket
         case 27: return "-"  // kVK_ANSI_Minus

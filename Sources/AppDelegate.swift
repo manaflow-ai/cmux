@@ -131,6 +131,74 @@ func browserZoomShortcutAction(
     return nil
 }
 
+func appShortcutKeyCode(for key: String) -> UInt16? {
+    // Matches macOS ANSI key codes. This is intentionally limited to keys we
+    // support in StoredShortcut/ghostty trigger translation.
+    switch key {
+    case "a": return 0   // kVK_ANSI_A
+    case "s": return 1   // kVK_ANSI_S
+    case "d": return 2   // kVK_ANSI_D
+    case "f": return 3   // kVK_ANSI_F
+    case "h": return 4   // kVK_ANSI_H
+    case "g": return 5   // kVK_ANSI_G
+    case "z": return 6   // kVK_ANSI_Z
+    case "x": return 7   // kVK_ANSI_X
+    case "c": return 8   // kVK_ANSI_C
+    case "v": return 9   // kVK_ANSI_V
+    case "b": return 11  // kVK_ANSI_B
+    case "q": return 12  // kVK_ANSI_Q
+    case "w": return 13  // kVK_ANSI_W
+    case "e": return 14  // kVK_ANSI_E
+    case "r": return 15  // kVK_ANSI_R
+    case "y": return 16  // kVK_ANSI_Y
+    case "t": return 17  // kVK_ANSI_T
+    case "1": return 18  // kVK_ANSI_1
+    case "2": return 19  // kVK_ANSI_2
+    case "3": return 20  // kVK_ANSI_3
+    case "4": return 21  // kVK_ANSI_4
+    case "6": return 22  // kVK_ANSI_6
+    case "5": return 23  // kVK_ANSI_5
+    case "=": return 24  // kVK_ANSI_Equal
+    case "9": return 25  // kVK_ANSI_9
+    case "7": return 26  // kVK_ANSI_7
+    case "-": return 27  // kVK_ANSI_Minus
+    case "8": return 28  // kVK_ANSI_8
+    case "0": return 29  // kVK_ANSI_0
+    case "o": return 31  // kVK_ANSI_O
+    case "u": return 32  // kVK_ANSI_U
+    case "i": return 34  // kVK_ANSI_I
+    case "p": return 35  // kVK_ANSI_P
+    case "l": return 37  // kVK_ANSI_L
+    case "j": return 38  // kVK_ANSI_J
+    case "'": return 39  // kVK_ANSI_Quote
+    case "k": return 40  // kVK_ANSI_K
+    case ";": return 41  // kVK_ANSI_Semicolon
+    case "\\": return 42 // kVK_ANSI_Backslash
+    case ",": return 43  // kVK_ANSI_Comma
+    case "/": return 44  // kVK_ANSI_Slash
+    case "n": return 45  // kVK_ANSI_N
+    case "m": return 46  // kVK_ANSI_M
+    case ".": return 47  // kVK_ANSI_Period
+    case "`": return 50  // kVK_ANSI_Grave
+    default:
+        return nil
+    }
+}
+
+func shortcutKeyMatchesEventKeyCode(shortcutKey: String, eventKeyCode: UInt16) -> Bool {
+    let normalizedKey = shortcutKey.lowercased()
+
+    // Treat Return aliases as equivalent. WebKit can emit key events where
+    // `charactersIgnoringModifiers` is empty, so shortcut matching must fall
+    // back to keyCode for Cmd+Return/Cmd+Enter on browser surfaces.
+    if normalizedKey == "\r" || normalizedKey == "\n" || normalizedKey == "return" || normalizedKey == "enter" {
+        return eventKeyCode == 36 || eventKeyCode == 76 // Return / Keypad Enter
+    }
+
+    guard let expectedKeyCode = appShortcutKeyCode(for: normalizedKey) else { return false }
+    return eventKeyCode == expectedKeyCode
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -2108,64 +2176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
-            return event.keyCode == expectedKeyCode
-        }
-        return false
-    }
-
-    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        // Matches macOS ANSI key codes. This is intentionally limited to keys we
-        // support in StoredShortcut/ghostty trigger translation.
-        switch key {
-        case "a": return 0   // kVK_ANSI_A
-        case "s": return 1   // kVK_ANSI_S
-        case "d": return 2   // kVK_ANSI_D
-        case "f": return 3   // kVK_ANSI_F
-        case "h": return 4   // kVK_ANSI_H
-        case "g": return 5   // kVK_ANSI_G
-        case "z": return 6   // kVK_ANSI_Z
-        case "x": return 7   // kVK_ANSI_X
-        case "c": return 8   // kVK_ANSI_C
-        case "v": return 9   // kVK_ANSI_V
-        case "b": return 11  // kVK_ANSI_B
-        case "q": return 12  // kVK_ANSI_Q
-        case "w": return 13  // kVK_ANSI_W
-        case "e": return 14  // kVK_ANSI_E
-        case "r": return 15  // kVK_ANSI_R
-        case "y": return 16  // kVK_ANSI_Y
-        case "t": return 17  // kVK_ANSI_T
-        case "1": return 18  // kVK_ANSI_1
-        case "2": return 19  // kVK_ANSI_2
-        case "3": return 20  // kVK_ANSI_3
-        case "4": return 21  // kVK_ANSI_4
-        case "6": return 22  // kVK_ANSI_6
-        case "5": return 23  // kVK_ANSI_5
-        case "=": return 24  // kVK_ANSI_Equal
-        case "9": return 25  // kVK_ANSI_9
-        case "7": return 26  // kVK_ANSI_7
-        case "-": return 27  // kVK_ANSI_Minus
-        case "8": return 28  // kVK_ANSI_8
-        case "0": return 29  // kVK_ANSI_0
-        case "o": return 31  // kVK_ANSI_O
-        case "u": return 32  // kVK_ANSI_U
-        case "i": return 34  // kVK_ANSI_I
-        case "p": return 35  // kVK_ANSI_P
-        case "l": return 37  // kVK_ANSI_L
-        case "j": return 38  // kVK_ANSI_J
-        case "'": return 39  // kVK_ANSI_Quote
-        case "k": return 40  // kVK_ANSI_K
-        case ";": return 41  // kVK_ANSI_Semicolon
-        case "\\": return 42 // kVK_ANSI_Backslash
-        case ",": return 43  // kVK_ANSI_Comma
-        case "/": return 44  // kVK_ANSI_Slash
-        case "n": return 45  // kVK_ANSI_N
-        case "m": return 46  // kVK_ANSI_M
-        case ".": return 47  // kVK_ANSI_Period
-        case "`": return 50  // kVK_ANSI_Grave
-        default:
-            return nil
-        }
+        return shortcutKeyMatchesEventKeyCode(shortcutKey: shortcutKey, eventKeyCode: event.keyCode)
     }
 
     /// Match arrow key shortcuts using keyCode

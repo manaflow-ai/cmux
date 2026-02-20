@@ -192,6 +192,34 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     }
 }
 
+final class BrowserShortcutKeyMatchingTests: XCTestCase {
+    func testReturnShortcutKeyCodeMatchingSupportsMainAndKeypadEnter() {
+        XCTAssertTrue(shortcutKeyMatchesEventKeyCode(shortcutKey: "\r", eventKeyCode: 36))
+        XCTAssertTrue(shortcutKeyMatchesEventKeyCode(shortcutKey: "\r", eventKeyCode: 76))
+        XCTAssertTrue(shortcutKeyMatchesEventKeyCode(shortcutKey: "enter", eventKeyCode: 36))
+        XCTAssertTrue(shortcutKeyMatchesEventKeyCode(shortcutKey: "return", eventKeyCode: 76))
+        XCTAssertFalse(shortcutKeyMatchesEventKeyCode(shortcutKey: "\r", eventKeyCode: 13))
+    }
+
+    func testStoredShortcutFromRecordsCommandReturn() {
+        let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        )
+
+        XCTAssertNotNil(event)
+        XCTAssertEqual(StoredShortcut.from(event: event!), StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false))
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
