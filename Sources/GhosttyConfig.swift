@@ -145,22 +145,125 @@ struct GhosttyConfig {
     }
 
     mutating func loadTheme(_ name: String) {
-        let bundleThemePath = Bundle.main.resourceURL?
-            .appendingPathComponent("ghostty/themes/\(name)")
-            .path
+        loadTheme(
+            name,
+            environment: ProcessInfo.processInfo.environment,
+            bundleResourceURL: Bundle.main.resourceURL
+        )
+    }
 
-        let themePaths = [
-            bundleThemePath,
-            "/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(name)",
-            NSString(string: "~/.config/ghostty/themes/\(name)").expandingTildeInPath,
-        ].compactMap { $0 }
-
-        for path in themePaths {
-            if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
-                parse(contents)
-                return
+    mutating func loadTheme(
+        _ name: String,
+        environment: [String: String],
+        bundleResourceURL: URL?
+    ) {
+        for candidateName in Self.themeNameCandidates(from: name) {
+            for path in Self.themeSearchPaths(
+                forThemeName: candidateName,
+                environment: environment,
+                bundleResourceURL: bundleResourceURL
+            ) {
+                if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
+                    parse(contents)
+                    return
+                }
             }
         }
+    }
+
+    static func themeNameCandidates(from rawName: String) -> [String] {
+        var candidates: [String] = []
+
+        func appendCandidate(_ value: String) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if !candidates.contains(trimmed) {
+                candidates.append(trimmed)
+            }
+        }
+
+        var queue: [String] = [rawName]
+        while let current = queue.popLast() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            appendCandidate(trimmed)
+
+            let lower = trimmed.lowercased()
+            if lower.hasPrefix("builtin ") {
+                let stripped = String(trimmed.dropFirst("builtin ".count))
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+
+            if let range = trimmed.range(
+                of: #"\s*\(builtin\)\s*$"#,
+                options: [.regularExpression, .caseInsensitive]
+            ) {
+                let stripped = String(trimmed[..<range.lowerBound])
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+        }
+
+        return candidates
+    }
+
+    static func themeSearchPaths(
+        forThemeName themeName: String,
+        environment: [String: String],
+        bundleResourceURL: URL?
+    ) -> [String] {
+        var paths: [String] = []
+
+        func appendUniquePath(_ path: String?) {
+            guard let path else { return }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            if !paths.contains(expanded) {
+                paths.append(expanded)
+            }
+        }
+
+        func appendThemePath(in resourcesRoot: String?) {
+            guard let resourcesRoot else { return }
+            let expanded = NSString(string: resourcesRoot).expandingTildeInPath
+            guard !expanded.isEmpty else { return }
+            appendUniquePath(
+                URL(fileURLWithPath: expanded)
+                    .appendingPathComponent("themes/\(themeName)")
+                    .path
+            )
+        }
+
+        // 1) Explicit resources dir used by the running Ghostty embedding.
+        appendThemePath(in: environment["GHOSTTY_RESOURCES_DIR"])
+
+        // 2) App bundle resources.
+        appendUniquePath(
+            bundleResourceURL?
+                .appendingPathComponent("ghostty/themes/\(themeName)")
+                .path
+        )
+
+        // 3) Data dirs (Ghostty installs themes under share/ghostty/themes).
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                guard !dataDir.isEmpty else { continue }
+                appendUniquePath(
+                    URL(fileURLWithPath: dataDir)
+                        .appendingPathComponent("ghostty/themes/\(themeName)")
+                        .path
+                )
+            }
+        }
+
+        // 4) Common system/user fallback locations.
+        appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
+        appendUniquePath("~/.config/ghostty/themes/\(themeName)")
+        appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
+
+        return paths
     }
 
     private static func readConfigFile(at path: String) -> String? {
