@@ -5,7 +5,7 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
 ## Steps
 
 1. **Determine the new version number**
-   - Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
+   - Get the current version from `cmux.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
    - Bump the minor version unless the user specifies otherwise (e.g., 0.12.0 → 0.13.0)
 
 2. **Create a release branch**
@@ -25,11 +25,11 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
    - If there are no user-facing changes, ask the user if they still want to release
 
 5. **Bump the version in Xcode project**
-   - Update all occurrences of `MARKETING_VERSION` in `GhosttyTabs.xcodeproj/project.pbxproj`
+   - Update all occurrences of `MARKETING_VERSION` in `cmux.xcodeproj/project.pbxproj`
    - There are typically 4 occurrences (Debug/Release for main app and CLI)
 
 6. **Commit and push the release branch**
-   - Stage: `CHANGELOG.md`, `docs-site/content/docs/changelog.mdx`, `GhosttyTabs.xcodeproj/project.pbxproj`
+   - Stage: `CHANGELOG.md`, `docs-site/content/docs/changelog.mdx`, `cmux.xcodeproj/project.pbxproj`
    - Commit message: `Bump version to X.Y.Z`
    - Push: `git push -u origin release/vX.Y.Z`
 

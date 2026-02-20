@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux import cmux, cmuxError
@@ -99,6 +100,21 @@ def _launch_cmux(app_path: str, socket_path: str, mode: str = None):
     if not _wait_for_socket(socket_path):
         raise RuntimeError(f"Socket {socket_path} not created after launch")
     time.sleep(8)
+
+
+def _external_ping_response(socket_path: str) -> Optional[str]:
+    try:
+        sock = _raw_connect(socket_path, timeout=2.0)
+        try:
+            return _raw_send(sock, "ping", timeout=2.0)
+        finally:
+            sock.close()
+    except Exception:
+        return None
+
+
+def _is_external_allowed(socket_path: str) -> bool:
+    return _external_ping_response(socket_path) == "PONG"
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +357,16 @@ def run_tests():
     print(f"Socket: {socket_path}")
     print()
 
+    # Preserve caller intent when provided, otherwise detect current behavior
+    # so this test doesn't leak socket mode changes into subsequent tests.
+    env_socket_mode = os.environ.get("CMUX_SOCKET_MODE", "").strip()
+    if env_socket_mode == "allowAll":
+        restore_mode = "allowAll"
+    else:
+        restore_mode = "allowAll" if _is_external_allowed(socket_path) else None
+    print(f"Restore mode after test: {restore_mode or 'cmuxOnly'}")
+    print()
+
     results = []
 
     def run_test(test_fn, *args):
@@ -380,9 +406,24 @@ def run_tests():
     run_test(test_allowall_mode_works, socket_path, app_path)
     print()
 
-    # ── Cleanup: leave cmux in cmuxOnly mode ──
+    # ── Cleanup: restore detected mode for downstream tests ──
     _kill_cmux()
-    _launch_cmux(app_path, socket_path)
+    _launch_cmux(app_path, socket_path, mode=restore_mode)
+
+    restore_result = TestResult("Socket mode restored after test")
+    final_response = _external_ping_response(socket_path)
+    expected_allow = restore_mode == "allowAll"
+    if final_response is None:
+        restore_result.failure("No response while validating restored socket mode")
+    elif expected_allow and final_response == "PONG":
+        restore_result.success("Restored to allowAll")
+    elif not expected_allow and "Access denied" in final_response:
+        restore_result.success("Restored to cmuxOnly")
+    else:
+        restore_result.failure(
+            f"Unexpected post-restore response {final_response!r} for mode {restore_mode or 'cmuxOnly'}"
+        )
+    results.append(restore_result)
 
     # ── Summary ──
     print("=" * 60)

@@ -60,7 +60,7 @@ jobs:
       - name: Clear SPM cache
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
 
       - name: Configure SwiftPM cache
         run: |

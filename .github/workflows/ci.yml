@@ -25,11 +25,12 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  ui-tests:
+  macos-tests:
     runs-on: self-hosted
     concurrency:
       group: self-hosted-build
       cancel-in-progress: false
+    timeout-minutes: 360
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +70,7 @@ jobs:
               exit 1
             fi
           fi
-          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false)
+          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast)
           rm -rf GhosttyKit.xcframework
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
           test -d GhosttyKit.xcframework
@@ -77,10 +78,38 @@ jobs:
       - name: Clean DerivedData
         run: |
           # Remove stale build cache to avoid incremental build errors
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-tests-v1
+          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-tests-v2
 
-      - name: Run UI tests
+      - name: Run Unit Tests
         run: |
           set -euo pipefail
-          # Run directly on the self-hosted macOS runner.
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
+          ./scripts/test-unit.sh test
+
+      - name: Run UI Tests
+        run: |
+          set -euo pipefail
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test
+
+      - name: Run Python E2E Tests (v1)
+        env:
+          CMUX_TEST_ALLOW_ANY_USER: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/run-tests-v1.sh
+
+      - name: Run Python E2E Tests (v2)
+        env:
+          CMUX_TEST_ALLOW_ANY_USER: "1"
+        run: |
+          set -euo pipefail
+          ./scripts/run-tests-v2.sh
+
+      - name: Run Interactive Test Entry Points (expect skip in CI)
+        run: |
+          set -euo pipefail
+          python3 tests/test_ctrl_interactive.py
+          python3 tests_v2/test_ctrl_interactive.py
+          bash tests/test_ctrl_signals.sh
+          bash tests/test_app_keystrokes.sh

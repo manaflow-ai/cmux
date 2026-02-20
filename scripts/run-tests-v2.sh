@@ -3,9 +3,10 @@ set -euo pipefail
 
 # This runner is intended for the UTM macOS VM (ssh cmux-vm).
 # It is intentionally guarded so we don't accidentally kill the host user's cmux instances.
-if [ "$(id -un)" != "cmux" ]; then
+if [ "$(id -un)" != "cmux" ] && [ "${CMUX_TEST_ALLOW_ANY_USER:-0}" != "1" ]; then
   echo "ERROR: This script is intended to be run on the cmux-vm (user: cmux)." >&2
-  echo "Run via: ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v2.sh'" >&2
+  echo "Run via: ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v2.sh'" >&2
+  echo "If this is an isolated CI runner, set CMUX_TEST_ALLOW_ANY_USER=1." >&2
   exit 2
 fi
 
@@ -20,7 +21,7 @@ echo "== build =="
 # module file ... was built".
 rm -rf "$DERIVED_DATA_PATH/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" || true
 xcodebuild \
-  -project GhosttyTabs.xcodeproj \
+  -project cmux.xcodeproj \
   -scheme cmux \
   -configuration Debug \
   -destination "platform=macOS" \

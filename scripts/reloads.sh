@@ -111,7 +111,7 @@ if [[ -n "$TAG" ]]; then
 fi
 
 XCODEBUILD_ARGS=(
-  -project GhosttyTabs.xcodeproj
+  -project cmux.xcodeproj
   -scheme cmux
   -configuration Release
   -destination 'platform=macOS'

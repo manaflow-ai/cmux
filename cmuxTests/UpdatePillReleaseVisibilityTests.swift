@@ -51,15 +51,23 @@ final class UpdatePillReleaseVisibilityTests: XCTestCase {
     }
 
     private func findProjectRoot() -> URL {
-        // Walk up from the test bundle to find the project root (contains GhosttyTabs.xcodeproj).
+        // Walk up from the test bundle to find the project root.
+        // Prefer the canonical project name, then any *.xcodeproj marker.
         var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
         for _ in 0..<10 {
-            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
-            if FileManager.default.fileExists(atPath: marker.path) {
+            let newMarker = dir.appendingPathComponent("cmux.xcodeproj")
+            if FileManager.default.fileExists(atPath: newMarker.path) {
                 return dir
             }
+
+            if let entries = try? FileManager.default.contentsOfDirectory(atPath: dir.path),
+               entries.contains(where: { $0.hasSuffix(".xcodeproj") }) {
+                return dir
+            }
+
             dir = dir.deletingLastPathComponent()
         }
+
         // Fallback: assume CWD is project root.
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }

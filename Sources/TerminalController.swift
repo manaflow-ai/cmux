@@ -3143,7 +3143,15 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
-            browserPanel.navigateSmart(url)
+            guard let targetURL = v2ResolveBrowserNavigateURL(url) else {
+                result = .err(
+                    code: "invalid_params",
+                    message: "Invalid url",
+                    data: ["url": url]
+                )
+                return
+            }
+            browserPanel.navigate(to: targetURL)
             var payload: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
@@ -3156,6 +3164,27 @@ class TerminalController {
             result = .ok(payload)
         }
         return result
+    }
+
+    private func v2ResolveBrowserNavigateURL(_ input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        // Keep localhost ergonomics for inputs without explicit scheme.
+        let lower = trimmed.lowercased()
+        if !trimmed.contains("://"),
+           lower.hasPrefix("localhost") || lower.hasPrefix("127.0.0.1") || lower.hasPrefix("[::1]") {
+            return URL(string: "http://\(trimmed)")
+        }
+
+        // Browser API should honor fully-qualified scheme URLs (data:, about:,
+        // file:, http:, https:, etc.) verbatim instead of treating them as queries.
+        if let parsed = URL(string: trimmed), let scheme = parsed.scheme, !scheme.isEmpty {
+            return parsed
+        }
+
+        // Preserve convenience for scheme-less host/path inputs.
+        return resolveBrowserNavigableURL(trimmed)
     }
 
     private func v2BrowserBack(params: [String: Any]) -> V2CallResult {

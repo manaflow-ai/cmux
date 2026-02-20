@@ -1072,15 +1072,17 @@ struct VerticalTabsSidebar: View {
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
             }
+            VStack(alignment: .leading, spacing: 6) {
+                UpdatePill(model: updateViewModel)
 #if DEBUG
-            SidebarDevFooter(updateViewModel: updateViewModel)
-                .frame(maxWidth: .infinity, alignment: .leading)
-#else
-            UpdatePill(model: updateViewModel)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Text("THIS IS A DEV BUILD")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.red)
 #endif
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
@@ -1222,23 +1224,6 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
         }
     }
 }
-
-#if DEBUG
-private struct SidebarDevFooter: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            UpdatePill(model: updateViewModel)
-            Text("THIS IS A DEV BUILD")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(.red)
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 10)
-    }
-}
-#endif
 
 private struct SidebarTopScrim: View {
     let height: CGFloat

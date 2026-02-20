@@ -68,12 +68,20 @@ def _value(res: dict, key: str = "value"):
 def _wait_with_fallback(c: cmux, surface_id: str, params: dict, pred, timeout_s: float, label: str) -> None:
     call_params = dict(params)
     call_params["surface_id"] = surface_id
-    try:
-        c._call("browser.wait", call_params)
-        return
-    except cmuxError as exc:
-        if "timeout" not in str(exc):
-            raise
+    timeout_error = None
+    for _ in range(3):
+        try:
+            c._call("browser.wait", call_params)
+            return
+        except cmuxError as exc:
+            if "timeout" not in str(exc):
+                raise
+            timeout_error = exc
+        if pred():
+            return
+        time.sleep(0.2)
+    if timeout_error is None:
+        raise cmuxError(f"Timed out waiting for {label}")
     _wait_until(pred, timeout_s=timeout_s, label=f"{label} fallback")
 
 

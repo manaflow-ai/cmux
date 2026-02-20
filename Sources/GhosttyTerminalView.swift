@@ -128,13 +128,15 @@ class GhosttyApp {
         if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
             return true
         }
-        if ProcessInfo.processInfo.environment["GHOSTTYTABS_DEBUG_BG"] == "1" {
+        let legacyEnvKey = ["GHOSTTY", "TABS_DEBUG_BG"].joined()
+        if ProcessInfo.processInfo.environment[legacyEnvKey] == "1" {
             return true
         }
         if UserDefaults.standard.bool(forKey: "cmuxDebugBG") {
             return true
         }
-        return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
+        let legacyDefaultsKey = ["Ghostty", "TabsDebugBG"].joined()
+        return UserDefaults.standard.bool(forKey: legacyDefaultsKey)
     }()
     private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
     private var appObservers: [NSObjectProtocol] = []

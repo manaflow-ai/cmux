@@ -6,7 +6,7 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 
 ### 1. Determine the new version number
 
-- Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
+- Get the current version from `cmux.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
 - Bump the minor version unless the user specifies otherwise (e.g., 0.54.0 → 0.55.0)
 
 ### 2. Gather changes since the last release
@@ -30,7 +30,7 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 
 ### 5. Commit, tag, and push
 
-- Stage: `CHANGELOG.md`, `GhosttyTabs.xcodeproj/project.pbxproj`
+- Stage: `CHANGELOG.md`, `cmux.xcodeproj/project.pbxproj`
 - Commit message: `Bump version to X.Y.Z`
 - Create tag: `git tag vX.Y.Z`
 - Push: `git push origin main && git push origin vX.Y.Z`

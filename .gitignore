@@ -20,7 +20,7 @@ GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
 # Release artifacts
-GhosttyTabs-*.zip
+cmux-*.zip
 cmux-macos.dmg
 appcast.xml
 
