@@ -2163,6 +2163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "m": return 46  // kVK_ANSI_M
         case ".": return 47  // kVK_ANSI_Period
         case "`": return 50  // kVK_ANSI_Grave
+        case "←": return 123 // kVK_LeftArrow
+        case "→": return 124 // kVK_RightArrow
+        case "↓": return 125 // kVK_DownArrow
+        case "↑": return 126 // kVK_UpArrow
         default:
             return nil
         }
