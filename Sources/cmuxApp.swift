@@ -2479,20 +2479,41 @@ struct SettingsView: View {
                                 )
                                 .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
 
-                            HStack {
-                                Spacer(minLength: 0)
-                                Button("Save") {
-                                    saveBrowserInsecureHTTPAllowlist()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
-                                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
-                            }
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .center, spacing: 10) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
 
-                            Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                    Spacer(minLength: 0)
+
+                                    Button("Save") {
+                                        saveBrowserInsecureHTTPAllowlist()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                    .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    HStack {
+                                        Spacer(minLength: 0)
+                                        Button("Save") {
+                                            saveBrowserInsecureHTTPAllowlist()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                    }
+                                }
+                            }
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
