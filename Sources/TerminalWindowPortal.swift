@@ -359,7 +359,11 @@ final class WindowTerminalPortal: NSObject {
             frameInHost.size.height.isFinite
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = frameInHost.width <= 1 || frameInHost.height <= 1
-        let outsideHostBounds = !frameInHost.intersects(hostView.bounds)
+        // During early bind/layout churn hostView can still be zero-sized even though anchors
+        // already report valid window coordinates. Treating that as "outside" hides terminals
+        // and breaks hit-testing/z-order until a later sync.
+        let hasUsableHostBounds = hostView.bounds.width > 1 && hostView.bounds.height > 1
+        let outsideHostBounds = hasUsableHostBounds && !frameInHost.intersects(hostView.bounds)
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
