@@ -112,6 +112,42 @@ private enum GhosttyPasteboardHelper {
     }
 }
 
+enum TerminalOpenURLTarget: Equatable {
+    case embeddedBrowser(URL)
+    case external(URL)
+
+    var url: URL {
+        switch self {
+        case let .embeddedBrowser(url), let .external(url):
+            return url
+        }
+    }
+}
+
+func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        return .external(URL(fileURLWithPath: trimmed))
+    }
+
+    if let parsed = URL(string: trimmed),
+       let scheme = parsed.scheme?.lowercased() {
+        if scheme == "http" || scheme == "https" {
+            return .embeddedBrowser(parsed)
+        }
+        return .external(parsed)
+    }
+
+    if let webURL = resolveBrowserNavigableURL(trimmed) {
+        return .embeddedBrowser(webURL)
+    }
+
+    guard let fallback = URL(string: trimmed) else { return nil }
+    return .external(fallback)
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -920,19 +956,31 @@ class GhosttyApp {
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
             let urlString = String(cString: cstr)
-            guard let url = URL(string: urlString) else { return false }
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return false }
-            return performOnMain {
-                guard let app = AppDelegate.shared,
-                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                    return false
+            guard let target = resolveTerminalOpenURLTarget(urlString) else { return false }
+            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                return performOnMain {
+                    NSWorkspace.shared.open(target.url)
                 }
-                if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
-                    return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-                } else {
-                    return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+            }
+            switch target {
+            case let .external(url):
+                return performOnMain {
+                    NSWorkspace.shared.open(url)
+                }
+            case let .embeddedBrowser(url):
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = surfaceView.terminalSurface?.id else { return false }
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                          let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                        return false
+                    }
+                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                        return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                    } else {
+                        return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                    }
                 }
             }
         default:
@@ -1035,6 +1083,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
+    /// Port ordinal for CMUX_PORT range assignment
+    var portOrdinal: Int = 0
+    /// Snapshotted once per app session so all workspaces use consistent values
+    private static let sessionPortBase: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
+        return val > 0 ? val : 9100
+    }()
+    private static let sessionPortRangeSize: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
+        return val > 0 ? val : 10
+    }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1273,6 +1332,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+
+        // Port range for this workspace (base/range snapshotted once per app session)
+        do {
+            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
+            env["CMUX_PORT"] = String(startPort)
+            env["CMUX_PORT_END"] = String(startPort + Self.sessionPortRangeSize - 1)
+            env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
+        }
 
         let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
         if !claudeHooksEnabled {

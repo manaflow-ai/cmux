@@ -47,6 +47,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var isPinned: Bool = false
     @Published var currentDirectory: String
 
+    /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
+    var portOrdinal: Int = 0
+
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
@@ -125,8 +128,9 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
     }
 
-    init(title: String = "Terminal", workingDirectory: String? = nil) {
+    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
         self.id = UUID()
+        self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
@@ -160,7 +164,8 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+            portOrdinal: portOrdinal
         )
         panels[terminalPanel.id] = terminalPanel
 
@@ -404,7 +409,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -469,7 +475,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -1009,7 +1016,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: nil
+            configTemplate: nil,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -1474,7 +1482,8 @@ extension Workspace: BonsplitDelegate {
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                        configTemplate: inheritedConfig
+                        configTemplate: inheritedConfig,
+                        portOrdinal: portOrdinal
                     )
                     panels[replacementPanel.id] = replacementPanel
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
@@ -1532,7 +1541,8 @@ extension Workspace: BonsplitDelegate {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 

@@ -2270,8 +2270,11 @@ struct SettingsView: View {
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
+    @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
+    @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
@@ -2391,6 +2394,26 @@ struct SettingsView: View {
                         SettingsCardNote("When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")
                     }
 
+                    SettingsCard {
+                        SettingsCardRow("Port Base", subtitle: "Starting port for CMUX_PORT env var.", controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortBase, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow("Port Range Size", subtitle: "Number of ports per workspace.", controlWidth: pickerColumnWidth) {
+                            TextField("", value: $cmuxPortRange, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values.")
+                    }
+
                     SettingsSectionHeader(title: "Browser")
                     SettingsCard {
                         SettingsCardRow(
@@ -2411,6 +2434,17 @@ struct SettingsView: View {
 
                         SettingsCardRow("Show Search Suggestions") {
                             Toggle("", isOn: $browserSearchSuggestionsEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Terminal Links in cmux Browser",
+                            subtitle: "When off, links clicked in terminal output open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -2564,6 +2598,7 @@ struct SettingsView: View {
         claudeCodeHooksEnabled = true
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         KeyboardShortcutSettings.resetAll()
