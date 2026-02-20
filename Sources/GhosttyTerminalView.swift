@@ -1009,9 +1009,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment
     var portOrdinal: Int = 0
-    /// Snapshotted at surface creation time so mid-session settings changes don't cause inconsistency
-    var portBase: Int = 0
-    var portRangeSize: Int = 0
+    /// Snapshotted once per app session so all workspaces use consistent values
+    private static let sessionPortBase: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
+        return val > 0 ? val : 9100
+    }()
+    private static let sessionPortRangeSize: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
+        return val > 0 ? val : 10
+    }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1251,14 +1257,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
 
-        // Port range for this workspace (values snapshotted at surface init)
+        // Port range for this workspace (base/range snapshotted once per app session)
         do {
-            let effectiveBase = portBase > 0 ? portBase : 9100
-            let effectiveRange = portRangeSize > 0 ? portRangeSize : 10
-            let startPort = effectiveBase + portOrdinal * effectiveRange
+            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
             env["CMUX_PORT"] = String(startPort)
-            env["CMUX_PORT_END"] = String(startPort + effectiveRange - 1)
-            env["CMUX_PORT_RANGE"] = String(effectiveRange)
+            env["CMUX_PORT_END"] = String(startPort + Self.sessionPortRangeSize - 1)
+            env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
         }
 
         let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
