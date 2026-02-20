@@ -182,11 +182,9 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 
 ## Nightly Builds
 
-Want the latest features before they hit a stable release? Download **cmux NIGHTLY** — a separate app that can run alongside the stable version.
-
 [Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
-Nightly builds are published automatically from the latest `main` branch commit. They auto-update via their own Sparkle feed.
+cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
 ## License
 
