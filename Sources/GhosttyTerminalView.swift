@@ -1354,7 +1354,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
         }
 
-        let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
+        let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         if !claudeHooksEnabled {
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         }

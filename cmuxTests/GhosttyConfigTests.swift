@@ -162,6 +162,37 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testClaudeCodeIntegrationDefaultsToDisabledWhenUnset() {
+        let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
+    func testClaudeCodeIntegrationRespectsStoredPreference() {
+        let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
