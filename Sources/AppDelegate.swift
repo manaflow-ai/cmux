@@ -1631,6 +1631,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
+        // input), don't intercept key events — let them flow through to the input method.
+        if let ghosttyView = NSApp.keyWindow?.firstResponder as? GhosttyNSView,
+           ghosttyView.hasMarkedText() {
+            return false
+        }
+
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true
@@ -3351,6 +3358,12 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         if let ghosttyView = self.firstResponder as? GhosttyNSView {
+            // If the IME is composing, don't intercept key events — let them flow
+            // through normal AppKit event dispatch so the input method can process them.
+            if ghosttyView.hasMarkedText() {
+                return cmux_performKeyEquivalent(with: event)
+            }
+
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if !flags.contains(.command) {
                 let result = ghosttyView.performKeyEquivalent(with: event)

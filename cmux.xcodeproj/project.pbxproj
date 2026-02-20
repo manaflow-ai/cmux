@@ -72,6 +72,7 @@
 					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 				F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */; };
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
+				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -191,6 +192,7 @@
 					E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 			F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyEquivalentTests.swift; sourceTree = "<group>"; };
 			F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
+			F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 		/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -393,6 +395,7 @@
 			children = (
 				F1000001A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift */,
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */,
+				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -590,6 +593,7 @@
 			files = (
 				F1000000A1B2C3D4E5F60718 /* CmuxWebViewKeyEquivalentTests.swift in Sources */,
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
