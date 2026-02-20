@@ -53,6 +53,18 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testCmdReturnBypassesMenuRoutingWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36) // kVK_Return
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
@@ -189,6 +201,20 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
             ),
             1
         )
+    }
+}
+
+final class BrowserOmnibarReturnSubmitPolicyTests: XCTestCase {
+    func testReturnSubmitAllowsPlainAndShiftOnly() {
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: []))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift]))
+    }
+
+    func testReturnSubmitRejectsCommandControlAndOption() {
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.control]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.option]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command, .shift]))
     }
 }
 
