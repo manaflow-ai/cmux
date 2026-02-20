@@ -88,9 +88,16 @@ _cmux_prompt_command() {
 
     # Git branch/dirty can change without a directory change (e.g. `git checkout`),
     # so update on every prompt (still async + de-duped by the running-job check).
+    # When pwd changes (cd into a different repo), kill the old probe and start fresh
+    # so the sidebar picks up the new branch immediately.
     if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
-        :
-    else
+        if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]]; then
+            kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
+            _CMUX_GIT_JOB_PID=""
+        fi
+    fi
+
+    if [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
         {

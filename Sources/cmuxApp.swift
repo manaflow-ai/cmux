@@ -15,6 +15,8 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -463,11 +465,19 @@ struct cmuxApp: App {
                     performSplitFromMenu(direction: .down)
                 }
 
+                splitCommandButton(title: "Split Browser Right", shortcut: splitBrowserRightMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
+
+                splitCommandButton(title: "Split Browser Down", shortcut: splitBrowserDownMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .down)
+                }
+
                 Divider()
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    Button("Tab \(number)") {
+                    Button("Workspace \(number)") {
                         let manager = (AppDelegate.shared?.tabManager ?? tabManager)
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
@@ -545,6 +555,20 @@ struct cmuxApp: App {
         decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
     }
 
+    private var splitBrowserRightMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserRightShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserRight.defaultShortcut
+        )
+    }
+
+    private var splitBrowserDownMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserDownShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
@@ -575,6 +599,13 @@ struct cmuxApp: App {
             return
         }
         tabManager.createSplit(direction: direction)
+    }
+
+    private func performBrowserSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performBrowserSplitShortcut(direction: direction) == true {
+            return
+        }
+        _ = tabManager.createBrowserSplit(direction: direction)
     }
 
     @ViewBuilder
