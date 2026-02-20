@@ -365,11 +365,19 @@ final class SocketClient {
         }
 
         let raw = try send(command: requestLine)
+
+        // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
+        // before the JSON protocol starts. Surface these directly instead of letting
+        // JSONSerialization throw a confusing parse error.
+        if raw.hasPrefix("ERROR:") {
+            throw CLIError(message: raw)
+        }
+
         guard let responseData = raw.data(using: .utf8) else {
             throw CLIError(message: "Invalid UTF-8 v2 response")
         }
         guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-            throw CLIError(message: "Invalid v2 response")
+            throw CLIError(message: "Invalid v2 response: \(raw)")
         }
 
         if let ok = response["ok"] as? Bool, ok {
