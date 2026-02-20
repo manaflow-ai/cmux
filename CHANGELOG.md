@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [0.59.0] - 2026-02-19
+
+### Fixed
+- Fix panel resize hitbox being too narrow and stale portal frame after panel resize
+
 ## [0.58.0] - 2026-02-19
 
 ### Fixed
