@@ -1083,6 +1083,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
+    /// Port ordinal for CMUX_PORT range assignment
+    var portOrdinal: Int = 0
+    /// Snapshotted once per app session so all workspaces use consistent values
+    private static let sessionPortBase: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
+        return val > 0 ? val : 9100
+    }()
+    private static let sessionPortRangeSize: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
+        return val > 0 ? val : 10
+    }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1321,6 +1332,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+
+        // Port range for this workspace (base/range snapshotted once per app session)
+        do {
+            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
+            env["CMUX_PORT"] = String(startPort)
+            env["CMUX_PORT_END"] = String(startPort + Self.sessionPortRangeSize - 1)
+            env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
+        }
 
         let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
         if !claudeHooksEnabled {

@@ -95,15 +95,17 @@ working-directory = ~/Projects`}</CodeBlock>
           <strong>Off</strong> — no socket control (most secure)
         </li>
         <li>
-          <strong>Notifications only</strong> — only allow notification commands
+          <strong>cmux processes only</strong> — only allow processes started
+          inside cmux terminals to connect
         </li>
         <li>
-          <strong>Full control</strong> — allow all socket commands
+          <strong>allowAll</strong> — allow any local process to connect (
+          <code>CMUX_SOCKET_MODE=allowAll</code>, env override only)
         </li>
       </ul>
       <Callout type="warn">
-        On shared machines, consider using &ldquo;Notifications only&rdquo; mode
-        to prevent other processes from controlling your terminals.
+        On shared machines, consider using &ldquo;Off&rdquo; or
+        &ldquo;cmux processes only&rdquo; mode.
       </Callout>
 
       <h2>Example config</h2>
