@@ -56,7 +56,8 @@ export function SiteFooter() {
         >
           GitHub
         </a>
-        <a href="https://twitter.com/manaflowai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Twitter</a>
+        <a href="https://twitter.com/manaflowai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">X / Twitter</a>
+        <a href="https://www.linkedin.com/company/manaflow-ai/" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">LinkedIn</a>
         <a href="https://discord.com/invite/QRxkhZgY" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Discord</a>
         <Link href="/privacy-policy" className="hover:text-foreground transition-colors">Privacy</Link>
         <Link href="/terms-of-service" className="hover:text-foreground transition-colors">Terms</Link>
