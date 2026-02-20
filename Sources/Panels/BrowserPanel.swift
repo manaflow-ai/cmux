@@ -63,6 +63,18 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserLinkOpenSettings {
+    static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
+    static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
+
+    static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
+            return defaultOpenTerminalLinksInCmuxBrowser
+        }
+        return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
