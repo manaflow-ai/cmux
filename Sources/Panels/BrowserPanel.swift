@@ -827,6 +827,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private let pageZoomStep: CGFloat = 0.1
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     private var preferredDeveloperToolsVisible: Bool = false
+    private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
+    private var developerToolsRestoreRetryAttempt: Int = 0
+    private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
+    private let developerToolsRestoreRetryMaxAttempts: Int = 40
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1236,6 +1240,8 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     deinit {
+        developerToolsRestoreRetryWorkItem?.cancel()
+        developerToolsRestoreRetryWorkItem = nil
         webViewObservers.removeAll()
     }
 }
@@ -1312,6 +1318,11 @@ extension BrowserPanel {
         guard inspector.responds(to: selector) else { return false }
         inspector.cmuxCallVoid(selector: selector)
         preferredDeveloperToolsVisible = targetVisible
+        if targetVisible {
+            developerToolsRestoreRetryAttempt = 0
+        } else {
+            cancelDeveloperToolsRestoreRetry()
+        }
         return true
     }
 
@@ -1325,6 +1336,11 @@ extension BrowserPanel {
             inspector.cmuxCallVoid(selector: showSelector)
         }
         preferredDeveloperToolsVisible = true
+        if (inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false) {
+            cancelDeveloperToolsRestoreRetry()
+        } else {
+            scheduleDeveloperToolsRestoreRetry()
+        }
         return true
     }
 
@@ -1349,23 +1365,49 @@ extension BrowserPanel {
     }
 
     /// Called before WKWebView detaches so manual inspector closes are respected.
-    func syncDeveloperToolsPreferenceFromInspector() {
+    func syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: Bool = false) {
         guard let inspector = webView.cmuxInspectorObject() else { return }
-        if let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) {
-            preferredDeveloperToolsVisible = visible
+        guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
+        if visible {
+            preferredDeveloperToolsVisible = true
+            cancelDeveloperToolsRestoreRetry()
+            return
         }
+        if preserveVisibleIntent && preferredDeveloperToolsVisible {
+            return
+        }
+        preferredDeveloperToolsVisible = false
+        cancelDeveloperToolsRestoreRetry()
     }
 
     /// Called after WKWebView reattaches to keep inspector stable across split/layout churn.
     func restoreDeveloperToolsAfterAttachIfNeeded() {
-        guard preferredDeveloperToolsVisible else { return }
-        guard let inspector = webView.cmuxInspectorObject() else { return }
+        guard preferredDeveloperToolsVisible else {
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
+        guard let inspector = webView.cmuxInspectorObject() else {
+            scheduleDeveloperToolsRestoreRetry()
+            return
+        }
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
-        guard !visible else { return }
+        guard !visible else {
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
         let selector = NSSelectorFromString("show")
-        guard inspector.responds(to: selector) else { return }
+        guard inspector.responds(to: selector) else {
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
         inspector.cmuxCallVoid(selector: selector)
         preferredDeveloperToolsVisible = true
+        let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if visibleAfterShow {
+            cancelDeveloperToolsRestoreRetry()
+        } else {
+            scheduleDeveloperToolsRestoreRetry()
+        }
     }
 
     @discardableResult
@@ -1384,6 +1426,7 @@ extension BrowserPanel {
             inspector.cmuxCallVoid(selector: selector)
         }
         preferredDeveloperToolsVisible = false
+        cancelDeveloperToolsRestoreRetry()
         return true
     }
 
@@ -1494,6 +1537,42 @@ extension BrowserPanel {
     }
 
 }
+
+private extension BrowserPanel {
+    func scheduleDeveloperToolsRestoreRetry() {
+        guard preferredDeveloperToolsVisible else { return }
+        guard developerToolsRestoreRetryWorkItem == nil else { return }
+        guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
+
+        developerToolsRestoreRetryAttempt += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.developerToolsRestoreRetryWorkItem = nil
+            self.restoreDeveloperToolsAfterAttachIfNeeded()
+        }
+        developerToolsRestoreRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + developerToolsRestoreRetryDelay, execute: work)
+    }
+
+    func cancelDeveloperToolsRestoreRetry() {
+        developerToolsRestoreRetryWorkItem?.cancel()
+        developerToolsRestoreRetryWorkItem = nil
+        developerToolsRestoreRetryAttempt = 0
+    }
+}
+
+#if DEBUG
+extension BrowserPanel {
+    func debugDeveloperToolsStateSummary() -> String {
+        let preferred = preferredDeveloperToolsVisible ? 1 : 0
+        let visible = isDeveloperToolsVisible() ? 1 : 0
+        let inspector = webView.cmuxInspectorObject() == nil ? 0 : 1
+        let attached = webView.superview == nil ? 0 : 1
+        let inWindow = webView.window == nil ? 0 : 1
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt)"
+    }
+}
+#endif
 
 private extension BrowserPanel {
     @discardableResult

@@ -2042,8 +2042,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
+        #if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        if let browser = tabManager?.focusedBrowserPanel {
+            dlog("split.shortcut dir=\(directionLabel) pre panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary())")
+        } else {
+            dlog("split.shortcut dir=\(directionLabel) pre panel=nil")
+        }
+        #endif
+
         tabManager?.createSplit(direction: direction)
 #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            if let browser = self?.tabManager?.focusedBrowserPanel {
+                dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary())")
+            } else {
+                dlog("split.shortcut dir=\(directionLabel) post panel=nil")
+            }
+        }
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
         return true
