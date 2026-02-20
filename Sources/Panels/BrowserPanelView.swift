@@ -2554,6 +2554,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let isPanelFocused: Bool
 
     final class Coordinator {
+        weak var panel: BrowserPanel?
         weak var webView: WKWebView?
         var attachRetryWorkItem: DispatchWorkItem?
         var attachRetryCount: Int = 0
@@ -2585,7 +2586,9 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        let coordinator = Coordinator()
+        coordinator.panel = panel
+        return coordinator
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -2685,12 +2688,29 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
+        context.coordinator.panel = panel
         context.coordinator.webView = webView
 
         // Bonsplit keepAllAlive keeps hidden tabs alive (opacity 0). WKWebView is fragile when left
         // in the window hierarchy while hidden and rapidly switching focus between tabs. To reduce
         // WebKit crashes, detach the WKWebView when this surface is not the selected tab in its pane.
         if !shouldAttachWebView {
+            // Split/layout churn can briefly create an off-window phase while DevTools is open.
+            // Detaching here can blank inspector content even when visibility preference stays true.
+            if nsView.window == nil,
+               webView.superview != nil,
+               panel.shouldPreserveWebViewAttachmentDuringTransientHide() {
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "detach.skipped.offWindowDevTools",
+                    generation: context.coordinator.attachGeneration,
+                    retryCount: context.coordinator.attachRetryCount
+                )
+                #endif
+                return
+            }
+
             #if DEBUG
             Self.logDevToolsState(
                 panel,
@@ -2814,6 +2834,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.attachGeneration += 1
 
         guard let webView = coordinator.webView else { return }
+        let panel = coordinator.panel
 
         // If we're being torn down while the WKWebView (or one of its subviews) is first responder,
         // resign it before detaching.
@@ -2821,8 +2842,35 @@ struct WebViewRepresentable: NSViewRepresentable {
         if let window, responderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
+
+        // During split/layout churn, SwiftUI may tear down a host view while a new one is still
+        // coming online. When DevTools is intended open, avoid eagerly detaching here.
+        if let panel,
+           panel.shouldPreserveWebViewAttachmentDuringTransientHide(),
+           webView.superview === nsView {
+            #if DEBUG
+            logDevToolsState(
+                panel,
+                event: "dismantle.skipDetach.devTools",
+                generation: coordinator.attachGeneration,
+                retryCount: coordinator.attachRetryCount
+            )
+            #endif
+            return
+        }
+
         if webView.superview === nsView {
             webView.removeFromSuperview()
+            #if DEBUG
+            if let panel {
+                logDevToolsState(
+                    panel,
+                    event: "dismantle.detached",
+                    generation: coordinator.attachGeneration,
+                    retryCount: coordinator.attachRetryCount
+                )
+            }
+            #endif
         }
     }
 }

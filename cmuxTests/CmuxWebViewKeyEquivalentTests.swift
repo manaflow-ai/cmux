@@ -296,6 +296,56 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 2)
     }
+
+    func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
+        let (panel, _) = makePanelWithInspector()
+
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+    }
+
+    func testWebViewDismantleSkipsDetachWhenDeveloperToolsIntentIsVisible() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        host.addSubview(panel.webView)
+
+        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+
+        XCTAssertTrue(panel.webView.superview === host)
+    }
+
+    func testWebViewDismantleDetachesWhenDeveloperToolsIntentIsHidden() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        host.addSubview(panel.webView)
+
+        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+
+        XCTAssertNil(panel.webView.superview)
+    }
 }
 
 final class WorkspaceShortcutMapperTests: XCTestCase {
