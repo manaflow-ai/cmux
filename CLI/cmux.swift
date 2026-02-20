@@ -442,6 +442,14 @@ struct CMUXCLI {
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
 
+        // Check for --help/-h on subcommands before connecting to the socket,
+        // so help text is available even when cmux is not running.
+        if commandArgs.contains("--help") || commandArgs.contains("-h") {
+            if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
+                return
+            }
+        }
+
         let client = SocketClient(path: socketPath)
         try client.connect()
         defer { client.close() }
@@ -2565,6 +2573,360 @@ struct CMUXCLI {
         }
 
         throw CLIError(message: "Unable to resolve surface ID")
+    }
+
+    /// Return the help/usage text for a subcommand, or nil if the command has no
+    /// dedicated help (e.g. simple no-arg commands like `ping`).
+    private func subcommandUsage(_ command: String) -> String? {
+        switch command {
+        case "focus-window":
+            return """
+            Usage: cmux focus-window --window <id|ref|index>
+
+            Focus (bring to front) the specified window.
+
+            Flags:
+              --window <id|ref|index>   Window to focus (required)
+
+            Example:
+              cmux focus-window --window 0
+              cmux focus-window --window window:1
+            """
+        case "close-window":
+            return """
+            Usage: cmux close-window --window <id|ref|index>
+
+            Close the specified window.
+
+            Flags:
+              --window <id|ref|index>   Window to close (required)
+
+            Example:
+              cmux close-window --window 0
+              cmux close-window --window window:1
+            """
+        case "move-workspace-to-window":
+            return """
+            Usage: cmux move-workspace-to-window --workspace <id|ref> --window <id|ref>
+
+            Move a workspace to a different window.
+
+            Flags:
+              --workspace <id|ref>   Workspace to move (required)
+              --window <id|ref>      Target window (required)
+
+            Example:
+              cmux move-workspace-to-window --workspace workspace:2 --window window:1
+            """
+        case "move-surface":
+            return """
+            Usage: cmux move-surface --surface <id|ref|index> [flags]
+
+            Move a surface to a different pane, workspace, or window.
+
+            Flags:
+              --surface <id|ref|index>   Surface to move (required)
+              --pane <id|ref|index>      Target pane
+              --workspace <id|ref|index> Target workspace
+              --window <id|ref|index>    Target window
+              --before <id|ref|index>    Place before this surface
+              --after <id|ref|index>     Place after this surface
+              --index <n>                Place at this index
+              --focus <true|false>       Focus the surface after moving
+
+            Example:
+              cmux move-surface --surface surface:1 --workspace workspace:2
+              cmux move-surface --surface 0 --pane pane:2 --index 0
+            """
+        case "reorder-surface":
+            return """
+            Usage: cmux reorder-surface --surface <id|ref|index> [flags]
+
+            Reorder a surface within its pane.
+
+            Flags:
+              --surface <id|ref|index>   Surface to reorder (required)
+              --before <id|ref|index>    Place before this surface
+              --after <id|ref|index>     Place after this surface
+              --index <n>                Place at this index
+
+            Example:
+              cmux reorder-surface --surface surface:1 --index 0
+              cmux reorder-surface --surface surface:3 --after surface:1
+            """
+        case "reorder-workspace":
+            return """
+            Usage: cmux reorder-workspace --workspace <id|ref|index> [flags]
+
+            Reorder a workspace within its window.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to reorder (required)
+              --index <n>                  Place at this index
+              --before <id|ref|index>      Place before this workspace
+              --after <id|ref|index>       Place after this workspace
+              --window <id|ref|index>      Window context
+
+            Example:
+              cmux reorder-workspace --workspace workspace:2 --index 0
+              cmux reorder-workspace --workspace workspace:3 --after workspace:1
+            """
+        case "new-workspace":
+            return """
+            Usage: cmux new-workspace
+
+            Create a new workspace in the current window.
+
+            Example:
+              cmux new-workspace
+            """
+        case "new-split":
+            return """
+            Usage: cmux new-split <left|right|up|down> [flags]
+
+            Split the current pane in the given direction.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface to split from (default: $CMUX_SURFACE_ID)
+              --panel <id|ref>       Alias for --surface
+
+            Example:
+              cmux new-split right
+              cmux new-split down --workspace workspace:1
+            """
+        case "focus-pane":
+            return """
+            Usage: cmux focus-pane --pane <id|ref> [flags]
+
+            Focus the specified pane.
+
+            Flags:
+              --pane <id|ref>          Pane to focus (required)
+              --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux focus-pane --pane pane:2
+              cmux focus-pane --pane pane:1 --workspace workspace:2
+            """
+        case "new-pane":
+            return """
+            Usage: cmux new-pane [flags]
+
+            Create a new pane in the workspace.
+
+            Flags:
+              --type <terminal|browser>           Pane type (default: terminal)
+              --direction <left|right|up|down>    Split direction (default: right)
+              --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
+              --url <url>                         URL for browser panes
+
+            Example:
+              cmux new-pane
+              cmux new-pane --type browser --direction down --url https://example.com
+            """
+        case "new-surface":
+            return """
+            Usage: cmux new-surface [flags]
+
+            Create a new surface (tab) in a pane.
+
+            Flags:
+              --type <terminal|browser>   Surface type (default: terminal)
+              --pane <id|ref>             Target pane
+              --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
+              --url <url>                 URL for browser surfaces
+
+            Example:
+              cmux new-surface
+              cmux new-surface --type browser --pane pane:1 --url https://example.com
+            """
+        case "close-surface":
+            return """
+            Usage: cmux close-surface [flags]
+
+            Close a surface. Defaults to the focused surface if none specified.
+
+            Flags:
+              --surface <id|ref>     Surface to close (default: $CMUX_SURFACE_ID)
+              --panel <id|ref>       Alias for --surface
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux close-surface
+              cmux close-surface --surface surface:3
+            """
+        case "drag-surface-to-split":
+            return """
+            Usage: cmux drag-surface-to-split --surface <id|ref> <left|right|up|down>
+
+            Drag a surface into a new split in the given direction.
+
+            Flags:
+              --surface <id|ref>   Surface to drag (required)
+              --panel <id|ref>     Alias for --surface
+
+            Example:
+              cmux drag-surface-to-split --surface surface:1 right
+              cmux drag-surface-to-split --panel surface:2 down
+            """
+        case "close-workspace":
+            return """
+            Usage: cmux close-workspace --workspace <id|ref>
+
+            Close the specified workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace to close (required)
+
+            Example:
+              cmux close-workspace --workspace workspace:2
+            """
+        case "select-workspace":
+            return """
+            Usage: cmux select-workspace --workspace <id|ref>
+
+            Select (switch to) the specified workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace to select (required)
+
+            Example:
+              cmux select-workspace --workspace workspace:2
+              cmux select-workspace --workspace 0
+            """
+        case "send":
+            return """
+            Usage: cmux send [flags] [--] <text>
+
+            Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              cmux send "echo hello"
+              cmux send --surface surface:2 "ls -la\\n"
+            """
+        case "send-key":
+            return """
+            Usage: cmux send-key [flags] [--] <key>
+
+            Send a key event to a terminal surface.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              cmux send-key enter
+              cmux send-key --surface surface:2 ctrl+c
+            """
+        case "send-panel":
+            return """
+            Usage: cmux send-panel --panel <id|ref> [flags] [--] <text>
+
+            Send text to a specific panel (surface). Escape sequences: \\n and \\r send Enter, \\t sends Tab.
+
+            Flags:
+              --panel <id|ref>       Target panel (required)
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux send-panel --panel surface:2 "echo hello\\n"
+            """
+        case "send-key-panel":
+            return """
+            Usage: cmux send-key-panel --panel <id|ref> [flags] [--] <key>
+
+            Send a key event to a specific panel (surface).
+
+            Flags:
+              --panel <id|ref>       Target panel (required)
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux send-key-panel --panel surface:2 enter
+              cmux send-key-panel --panel surface:2 ctrl+c
+            """
+        case "notify":
+            return """
+            Usage: cmux notify [flags]
+
+            Send a notification to a workspace/surface.
+
+            Flags:
+              --title <text>         Notification title (default: "Notification")
+              --subtitle <text>      Notification subtitle
+              --body <text>          Notification body
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              cmux notify --title "Build done" --body "All tests passed"
+              cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+            """
+        case "claude-hook":
+            return """
+            Usage: cmux claude-hook <session-start|stop|notification> [flags]
+
+            Hook for Claude Code integration. Reads JSON from stdin.
+
+            Subcommands:
+              session-start   Signal that a Claude session has started
+              stop            Signal that a Claude session has stopped
+              notification    Forward a Claude notification
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              echo '{"session_id":"abc"}' | cmux claude-hook session-start
+              echo '{}' | cmux claude-hook stop
+            """
+        case "browser":
+            return """
+            Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
+
+            Browser automation commands. Most subcommands require a surface handle.
+
+            Subcommands:
+              open [url]                     Create browser split (or navigate if surface given)
+              open-split [url]               Create browser in a new split
+              goto|navigate <url>            Navigate to URL [--snapshot-after]
+              back|forward|reload            History navigation [--snapshot-after]
+              url|get-url                    Get current URL
+              snapshot                       Get DOM snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
+              eval <script>                  Evaluate JavaScript
+              wait                           Wait for condition [--selector] [--text] [--url-contains] [--timeout-ms]
+              click|dblclick|hover <sel>     Mouse actions [--snapshot-after]
+              type <selector> <text>         Type text [--snapshot-after]
+              fill <selector> [text]         Fill input [--snapshot-after]
+              press|keydown|keyup <key>      Keyboard actions [--snapshot-after]
+              get <property> [selector]      Get page properties (url|title|text|html|value|attr|count|box|styles)
+              find <strategy> <query>        Find elements (role|text|label|placeholder|testid|first|last|nth)
+              identify                       Identify browser surface
+
+            Example:
+              cmux browser open https://example.com
+              cmux browser surface:1 navigate https://google.com
+              cmux browser --surface surface:1 snapshot --interactive
+            """
+        default:
+            return nil
+        }
+    }
+
+    /// Dispatch help for a subcommand. Returns true if help was printed.
+    private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
+        guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        guard let text = subcommandUsage(command) else { return false }
+        print("cmux \(command)")
+        print("")
+        print(text)
+        return true
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
