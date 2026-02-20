@@ -10,7 +10,7 @@ struct TerminalPanelView: View {
     let portalPriority: Int
     let isSplit: Bool
     let appearance: PanelAppearance
-    let notificationStore: TerminalNotificationStore
+    let hasUnreadNotification: Bool
     let onFocus: () -> Void
     let onTriggerFlash: () -> Void
 
@@ -22,6 +22,7 @@ struct TerminalPanelView: View {
                 isVisibleInUI: isVisibleInUI,
                 portalZPriority: portalPriority,
                 showsInactiveOverlay: isSplit && !isFocused,
+                showsUnreadNotificationRing: hasUnreadNotification,
                 inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                 inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
                 reattachToken: panel.viewReattachToken,
@@ -32,15 +33,6 @@ struct TerminalPanelView: View {
             // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
             .id(panel.id)
             .background(Color.clear)
-
-            // Unread notification indicator
-            if notificationStore.hasUnreadNotification(forTabId: panel.workspaceId, surfaceId: panel.id) {
-                Rectangle()
-                    .stroke(Color(nsColor: .systemBlue), lineWidth: 2.5)
-                    .shadow(color: Color(nsColor: .systemBlue).opacity(0.35), radius: 3)
-                    .padding(2)
-                    .allowsHitTesting(false)
-            }
 
             // Search overlay
             if let searchState = panel.searchState {

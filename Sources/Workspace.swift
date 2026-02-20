@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Bonsplit
 import Combine
 
@@ -45,6 +46,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
     @Published var currentDirectory: String
+
+    /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
+    var portOrdinal: Int = 0
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
@@ -110,8 +114,33 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    init(title: String = "Terminal", workingDirectory: String? = nil) {
+    private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
+        bonsplitAppearance(from: config.backgroundColor)
+    }
+
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
+            splitButtonTooltips: Self.currentSplitButtonTooltips(),
+            enableAnimations: false,
+            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+        )
+    }
+
+    func applyGhosttyChrome(from config: GhosttyConfig) {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor) {
+        let nextHex = backgroundColor.hexString()
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+            return
+        }
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
+    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
         self.id = UUID()
+        self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
         self.customTitle = nil
@@ -124,10 +153,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
-        let appearance = BonsplitConfiguration.Appearance(
-            splitButtonTooltips: Self.currentSplitButtonTooltips(),
-            enableAnimations: false
-        )
+        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
@@ -148,7 +174,8 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil
+            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+            portOrdinal: portOrdinal
         )
         panels[terminalPanel.id] = terminalPanel
 
@@ -398,7 +425,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -463,7 +491,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -1003,7 +1032,8 @@ final class Workspace: Identifiable, ObservableObject {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: nil
+            configTemplate: nil,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 
@@ -1468,7 +1498,8 @@ extension Workspace: BonsplitDelegate {
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-                        configTemplate: inheritedConfig
+                        configTemplate: inheritedConfig,
+                        portOrdinal: portOrdinal
                     )
                     panels[replacementPanel.id] = replacementPanel
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
@@ -1526,7 +1557,8 @@ extension Workspace: BonsplitDelegate {
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
 

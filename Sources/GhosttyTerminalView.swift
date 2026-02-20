@@ -112,6 +112,42 @@ private enum GhosttyPasteboardHelper {
     }
 }
 
+enum TerminalOpenURLTarget: Equatable {
+    case embeddedBrowser(URL)
+    case external(URL)
+
+    var url: URL {
+        switch self {
+        case let .embeddedBrowser(url), let .external(url):
+            return url
+        }
+    }
+}
+
+func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    if NSString(string: trimmed).isAbsolutePath {
+        return .external(URL(fileURLWithPath: trimmed))
+    }
+
+    if let parsed = URL(string: trimmed),
+       let scheme = parsed.scheme?.lowercased() {
+        if scheme == "http" || scheme == "https" {
+            return .embeddedBrowser(parsed)
+        }
+        return .external(parsed)
+    }
+
+    if let webURL = resolveBrowserNavigableURL(trimmed) {
+        return .embeddedBrowser(webURL)
+    }
+
+    guard let fallback = URL(string: trimmed) else { return nil }
+    return .external(fallback)
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -418,6 +454,7 @@ class GhosttyApp {
             guard let app = self?.app else { return }
             ghostty_app_set_focus(app, false)
         })
+
         #endif
     }
 
@@ -523,6 +560,8 @@ class GhosttyApp {
 
     private func updateDefaultBackground(from config: ghostty_config_t?) {
         guard let config else { return }
+        let previousHex = defaultBackgroundColor.hexString()
+        let previousOpacity = defaultBackgroundOpacity
 
         var color = ghostty_config_color_s()
         let bgKey = "background"
@@ -539,8 +578,32 @@ class GhosttyApp {
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
         defaultBackgroundOpacity = opacity
+        let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
+            abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
+        if hasChanged {
+            notifyDefaultBackgroundDidChange()
+        }
         if backgroundLogEnabled {
             logBackground("default background updated color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
+        }
+    }
+
+    private func notifyDefaultBackgroundDidChange() {
+        let userInfo: [AnyHashable: Any] = [
+            GhosttyNotificationKey.backgroundColor: defaultBackgroundColor,
+            GhosttyNotificationKey.backgroundOpacity: defaultBackgroundOpacity
+        ]
+        let post = {
+            NotificationCenter.default.post(
+                name: .ghosttyDefaultBackgroundDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+        if Thread.isMainThread {
+            post()
+        } else {
+            DispatchQueue.main.async(execute: post)
         }
     }
 
@@ -635,6 +698,7 @@ class GhosttyApp {
                 if backgroundLogEnabled {
                     logBackground("OSC background change (app target) color=\(defaultBackgroundColor)")
                 }
+                notifyDefaultBackgroundDidChange()
                 DispatchQueue.main.async {
                     GhosttyApp.shared.applyBackgroundToKeyWindow()
                 }
@@ -892,19 +956,31 @@ class GhosttyApp {
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
             let urlString = String(cString: cstr)
-            guard let url = URL(string: urlString) else { return false }
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else { return false }
-            return performOnMain {
-                guard let app = AppDelegate.shared,
-                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                    return false
+            guard let target = resolveTerminalOpenURLTarget(urlString) else { return false }
+            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                return performOnMain {
+                    NSWorkspace.shared.open(target.url)
                 }
-                if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
-                    return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
-                } else {
-                    return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+            }
+            switch target {
+            case let .external(url):
+                return performOnMain {
+                    NSWorkspace.shared.open(url)
+                }
+            case let .embeddedBrowser(url):
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = surfaceView.terminalSurface?.id else { return false }
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                          let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                        return false
+                    }
+                    if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                        return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+                    } else {
+                        return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
+                    }
                 }
             }
         default:
@@ -1007,6 +1083,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
     var isViewInWindow: Bool { hostedView.window != nil }
     let id: UUID
     private(set) var tabId: UUID
+    /// Port ordinal for CMUX_PORT range assignment
+    var portOrdinal: Int = 0
+    /// Snapshotted once per app session so all workspaces use consistent values
+    private static let sessionPortBase: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
+        return val > 0 ? val : 9100
+    }()
+    private static let sessionPortRangeSize: Int = {
+        let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
+        return val > 0 ? val : 10
+    }()
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -1245,6 +1332,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+
+        // Port range for this workspace (base/range snapshotted once per app session)
+        do {
+            let startPort = Self.sessionPortBase + portOrdinal * Self.sessionPortRangeSize
+            env["CMUX_PORT"] = String(startPort)
+            env["CMUX_PORT_END"] = String(startPort + Self.sessionPortRangeSize - 1)
+            env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
+        }
 
         let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
         if !claudeHooksEnabled {
@@ -1537,6 +1632,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
+    private var appliedColorScheme: ghostty_color_scheme_e?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
 #if DEBUG
@@ -1647,11 +1743,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func attachSurface(_ surface: TerminalSurface) {
+        appliedColorScheme = nil
         terminalSurface = surface
         tabId = surface.tabId
         surface.attachToView(self)
         updateSurfaceSize()
         applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
     }
 
     override func viewDidMoveToWindow() {
@@ -1698,7 +1796,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }()
         updateSurfaceSize(size: targetSize)
         applySurfaceBackground()
+        applySurfaceColorScheme(force: true)
         applyWindowBackgroundIfActive()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applySurfaceColorScheme()
     }
 
     fileprivate func updateOcclusionState() {
@@ -1833,6 +1937,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    private func applySurfaceColorScheme(force: Bool = false) {
+        guard let surface else { return }
+        let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+        let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua
+            ? GHOSTTY_COLOR_SCHEME_DARK
+            : GHOSTTY_COLOR_SCHEME_LIGHT
+        if !force, appliedColorScheme == scheme {
+            return
+        }
+        ghostty_surface_set_color_scheme(surface, scheme)
+        appliedColorScheme = scheme
+    }
+
     @discardableResult
     private func ensureSurfaceReadyForInput() -> ghostty_surface_t? {
         if let surface = surface {
@@ -1841,6 +1958,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard window != nil else { return nil }
         terminalSurface?.attachToView(self)
         updateSurfaceSize(size: bounds.size)
+        applySurfaceColorScheme(force: true)
         return surface
     }
 
@@ -2732,6 +2850,8 @@ enum GhosttyNotificationKey {
     static let tabId = "ghostty.tabId"
     static let surfaceId = "ghostty.surfaceId"
     static let title = "ghostty.title"
+    static let backgroundColor = "ghostty.backgroundColor"
+    static let backgroundOpacity = "ghostty.backgroundOpacity"
 }
 
 extension Notification.Name {
@@ -2739,6 +2859,7 @@ extension Notification.Name {
     static let ghosttyDidUpdateCellSize = Notification.Name("ghosttyDidUpdateCellSize")
     static let ghosttySearchFocus = Notification.Name("ghosttySearchFocus")
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
+    static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)
@@ -2781,6 +2902,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let surfaceView: GhosttyNSView
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
+    private let notificationRingOverlayView: GhosttyFlashOverlayView
+    private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var observers: [NSObjectProtocol] = []
@@ -2871,6 +2994,8 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView = GhosttyScrollView()
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
+        notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         scrollView.hasVerticalScroller = true
@@ -2909,6 +3034,23 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
         addSubview(dropZoneOverlayView)
+        notificationRingOverlayView.wantsLayer = true
+        notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        notificationRingOverlayView.layer?.masksToBounds = false
+        notificationRingOverlayView.autoresizingMask = [.width, .height]
+        notificationRingLayer.fillColor = NSColor.clear.cgColor
+        notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.lineWidth = 2.5
+        notificationRingLayer.lineJoin = .round
+        notificationRingLayer.lineCap = .round
+        notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.shadowOpacity = 0.35
+        notificationRingLayer.shadowRadius = 3
+        notificationRingLayer.shadowOffset = .zero
+        notificationRingLayer.opacity = 0
+        notificationRingOverlayView.layer?.addSublayer(notificationRingLayer)
+        notificationRingOverlayView.isHidden = true
+        addSubview(notificationRingOverlayView)
         flashOverlayView.wantsLayer = true
         flashOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         flashOverlayView.layer?.masksToBounds = false
@@ -3025,7 +3167,9 @@ final class GhosttySurfaceScrollView: NSView {
         if let zone = activeDropZone {
             dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
         }
+        notificationRingOverlayView.frame = bounds
         flashOverlayView.frame = bounds
+        updateNotificationRingPath()
         updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
@@ -3080,6 +3224,21 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         inactiveOverlayView.layer?.backgroundColor = color.withAlphaComponent(clampedOpacity).cgColor
         inactiveOverlayView.isHidden = !(visible && clampedOpacity > 0.0001)
+        CATransaction.commit()
+    }
+
+    func setNotificationRing(visible: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setNotificationRing(visible: visible)
+            }
+            return
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        notificationRingOverlayView.isHidden = !visible
+        notificationRingLayer.opacity = visible ? 1 : 0
         CATransaction.commit()
     }
 
@@ -3292,6 +3451,13 @@ final class GhosttySurfaceScrollView: NSView {
         (
             inactiveOverlayView.isHidden,
             inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        )
+    }
+
+    func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
+        (
+            notificationRingOverlayView.isHidden,
+            notificationRingLayer.opacity
         )
     }
 
@@ -3717,17 +3883,24 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
+    private func updateNotificationRingPath() {
+        updateOverlayRingPath(layer: notificationRingLayer, bounds: notificationRingOverlayView.bounds)
+    }
+
     private func updateFlashPath() {
+        updateOverlayRingPath(layer: flashLayer, bounds: flashOverlayView.bounds)
+    }
+
+    private func updateOverlayRingPath(layer: CAShapeLayer, bounds: CGRect) {
         let inset: CGFloat = 2
         let radius: CGFloat = 6
-        let bounds = flashOverlayView.bounds
-        flashLayer.frame = bounds
+        layer.frame = bounds
         guard bounds.width > inset * 2, bounds.height > inset * 2 else {
-            flashLayer.path = nil
+            layer.path = nil
             return
         }
         let rect = bounds.insetBy(dx: inset, dy: inset)
-        flashLayer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
     private func synchronizeScrollView() {
@@ -3945,6 +4118,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var isVisibleInUI: Bool = true
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
+    var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
     var reattachToken: UInt64 = 0
@@ -3987,6 +4161,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         // Track the latest desired state so attach retries can re-apply focus after re-parenting.
         var desiredIsActive: Bool = true
         var desiredIsVisibleInUI: Bool = true
+        var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
         weak var hostedView: GhosttySurfaceScrollView?
@@ -4009,9 +4184,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let previousDesiredIsActive = coordinator.desiredIsActive
 #endif
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
+        let previousDesiredShowsUnreadNotificationRing = coordinator.desiredShowsUnreadNotificationRing
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
+        coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
@@ -4043,6 +4220,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             opacity: CGFloat(inactiveOverlayOpacity),
             visible: showsInactiveOverlay
         )
+        hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         hostedView.setDropZoneOverlay(zone: paneDropZone)
@@ -4064,6 +4242,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
                 hostedView.setActive(coordinator.desiredIsActive)
+                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
             host.onGeometryChanged = { [weak host, weak coordinator] in
                 guard let host, let coordinator else { return }
@@ -4078,6 +4257,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId != hostId ||
                     hostedView.superview == nil ||
                     previousDesiredIsVisibleInUI != isVisibleInUI ||
+                    previousDesiredShowsUnreadNotificationRing != showsUnreadNotificationRing ||
                     previousDesiredPortalZPriority != portalZPriority
                 if shouldBindNow {
                     TerminalWindowPortalRegistry.bind(
@@ -4105,6 +4285,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         coordinator.desiredIsActive = false
         coordinator.desiredIsVisibleInUI = false
+        coordinator.desiredShowsUnreadNotificationRing = false
         coordinator.desiredPortalZPriority = 0
         coordinator.lastBoundHostId = nil
         let hostedView = coordinator.hostedView
