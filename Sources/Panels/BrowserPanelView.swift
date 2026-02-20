@@ -2566,11 +2566,31 @@ struct WebViewRepresentable: NSViewRepresentable {
         _ panel: BrowserPanel,
         event: String,
         generation: Int,
-        retryCount: Int
+        retryCount: Int,
+        details: String? = nil
     ) {
-        dlog(
-            "browser.devtools event=\(event) panel=\(panel.id.uuidString.prefix(5)) generation=\(generation) retry=\(retryCount) \(panel.debugDeveloperToolsStateSummary())"
-        )
+        var line = "browser.devtools event=\(event) panel=\(panel.id.uuidString.prefix(5)) generation=\(generation) retry=\(retryCount) \(panel.debugDeveloperToolsStateSummary())"
+        if let details, !details.isEmpty {
+            line += " \(details)"
+        }
+        dlog(line)
+    }
+
+    private static func objectID(_ object: AnyObject?) -> String {
+        guard let object else { return "nil" }
+        return String(describing: Unmanaged.passUnretained(object).toOpaque())
+    }
+
+    private static func responderDescription(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        return "\(type(of: responder))@\(objectID(responder))"
+    }
+
+    private static func attachContext(webView: WKWebView, host: NSView) -> String {
+        let hostWindow = host.window?.windowNumber ?? -1
+        let webWindow = webView.window?.windowNumber ?? -1
+        let firstResponder = (webView.window ?? host.window)?.firstResponder
+        return "host=\(objectID(host)) hostWin=\(hostWindow) hostInWin=\(host.window == nil ? 0 : 1) oldSuper=\(objectID(webView.superview)) webWin=\(webWindow) webInWin=\(webView.window == nil ? 0 : 1) fr=\(responderDescription(firstResponder))"
     }
     #endif
 
@@ -2654,7 +2674,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                         panel,
                         event: "retry.waitingForWindow",
                         generation: generation,
-                        retryCount: coordinator.attachRetryCount
+                        retryCount: coordinator.attachRetryCount,
+                        details: attachContext(webView: webView, host: host)
                     )
                 }
                 #endif
@@ -2675,10 +2696,25 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             coordinator.attachRetryCount = 0
+            #if DEBUG
+            logDevToolsState(
+                panel,
+                event: "retry.attach.begin",
+                generation: generation,
+                retryCount: 0,
+                details: attachContext(webView: webView, host: host)
+            )
+            #endif
             attachWebView(webView, to: host)
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
             #if DEBUG
-            logDevToolsState(panel, event: "retry.attached", generation: generation, retryCount: 0)
+            logDevToolsState(
+                panel,
+                event: "retry.attached",
+                generation: generation,
+                retryCount: 0,
+                details: attachContext(webView: webView, host: host)
+            )
             #endif
         }
 
@@ -2705,7 +2741,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     panel,
                     event: "detach.skipped.offWindowDevTools",
                     generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount
+                    retryCount: context.coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
                 )
                 #endif
                 return
@@ -2716,7 +2753,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel,
                 event: "detach.beforeSync",
                 generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount
+                retryCount: context.coordinator.attachRetryCount,
+                details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
             panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
@@ -2725,7 +2763,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel,
                 event: "detach.afterSync",
                 generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount
+                retryCount: context.coordinator.attachRetryCount,
+                details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
             context.coordinator.attachRetryWorkItem?.cancel()
@@ -2748,7 +2787,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel,
                 event: "detach.done",
                 generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount
+                retryCount: context.coordinator.attachRetryCount,
+                details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
             return
@@ -2768,7 +2808,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     panel,
                     event: "attach.defer.offWindow",
                     generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount
+                    retryCount: context.coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
                 )
                 #endif
                 Self.scheduleAttachRetry(
@@ -2779,6 +2820,15 @@ struct WebViewRepresentable: NSViewRepresentable {
                     generation: context.coordinator.attachGeneration
                 )
             } else {
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "attach.immediate.begin",
+                    generation: context.coordinator.attachGeneration,
+                    retryCount: context.coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
+                )
+                #endif
                 Self.attachWebView(webView, to: nsView)
                 panel.restoreDeveloperToolsAfterAttachIfNeeded()
                 #if DEBUG
@@ -2786,7 +2836,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     panel,
                     event: "attach.immediate",
                     generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount
+                    retryCount: context.coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
                 )
                 #endif
             }
@@ -2802,7 +2853,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel,
                 event: "attach.alreadyAttached",
                 generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount
+                retryCount: context.coordinator.attachRetryCount,
+                details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
         }
@@ -2853,7 +2905,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 panel,
                 event: "dismantle.skipDetach.devTools",
                 generation: coordinator.attachGeneration,
-                retryCount: coordinator.attachRetryCount
+                retryCount: coordinator.attachRetryCount,
+                details: attachContext(webView: webView, host: nsView)
             )
             #endif
             return
@@ -2867,7 +2920,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     panel,
                     event: "dismantle.detached",
                     generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount
+                    retryCount: coordinator.attachRetryCount,
+                    details: attachContext(webView: webView, host: nsView)
                 )
             }
             #endif
