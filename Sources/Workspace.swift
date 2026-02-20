@@ -101,6 +101,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
+    private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
+        BonsplitConfiguration.SplitButtonTooltips(
+            newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
+            newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
+            splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
+            splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
+        )
+    }
+
     init(title: String = "Terminal", workingDirectory: String? = nil) {
         self.id = UUID()
         self.processTitle = title
@@ -116,6 +125,7 @@ final class Workspace: Identifiable, ObservableObject {
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // Disable split animations for instant response
         let appearance = BonsplitConfiguration.Appearance(
+            splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false
         )
         let config = BonsplitConfiguration(
@@ -179,6 +189,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+    }
+
+    func refreshSplitButtonTooltips() {
+        var configuration = bonsplitController.configuration
+        configuration.appearance.splitButtonTooltips = Self.currentSplitButtonTooltips()
+        bonsplitController.configuration = configuration
     }
 
     // MARK: - Surface ID to Panel ID Mapping

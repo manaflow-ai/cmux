@@ -1247,6 +1247,28 @@ class TabManager: ObservableObject {
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
 
+    /// Create a new browser split from the currently focused panel.
+    @discardableResult
+    func createBrowserSplit(direction: SplitDirection, url: URL? = nil) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        return newBrowserSplit(
+            tabId: selectedTabId,
+            fromPanelId: focusedPanelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            url: url
+        )
+    }
+
+    /// Refresh Bonsplit right-side action button tooltips for all workspaces.
+    func refreshSplitButtonTooltips() {
+        for workspace in tabs {
+            workspace.refreshSplitButtonTooltips()
+        }
+    }
+
     // MARK: - Pane Focus Navigation
 
     /// Move focus to an adjacent pane in the specified direction
@@ -1387,9 +1409,20 @@ class TabManager: ObservableObject {
     // MARK: - Browser Panel Operations
 
     /// Create a new browser panel in a split
-    func newBrowserSplit(tabId: UUID, fromPanelId: UUID, orientation: SplitOrientation, url: URL? = nil) -> UUID? {
+    func newBrowserSplit(
+        tabId: UUID,
+        fromPanelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        url: URL? = nil
+    ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newBrowserSplit(from: fromPanelId, orientation: orientation, url: url)?.id
+        return tab.newBrowserSplit(
+            from: fromPanelId,
+            orientation: orientation,
+            insertFirst: insertFirst,
+            url: url
+        )?.id
     }
 
     /// Create a new browser surface in a pane
