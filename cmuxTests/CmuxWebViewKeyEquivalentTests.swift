@@ -339,6 +339,40 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class WorkspaceNotificationReorderSettingsTests: XCTestCase {
+    func testAutoReorderDefaultsToEnabledWhenUnset() {
+        let suiteName = "WorkspaceNotificationReorderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(
+            WorkspaceNotificationReorderSettings.isAutoReorderOnNotificationEnabled(defaults: defaults)
+        )
+    }
+
+    func testAutoReorderReadsStoredBooleanValue() {
+        let suiteName = "WorkspaceNotificationReorderSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey)
+        XCTAssertFalse(
+            WorkspaceNotificationReorderSettings.isAutoReorderOnNotificationEnabled(defaults: defaults)
+        )
+
+        defaults.set(true, forKey: WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey)
+        XCTAssertTrue(
+            WorkspaceNotificationReorderSettings.isAutoReorderOnNotificationEnabled(defaults: defaults)
+        )
+    }
+}
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
@@ -446,6 +480,63 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+}
+
+@MainActor
+final class TabManagerNotificationReorderTests: XCTestCase {
+    func testMoveTabToTopForNotificationMovesWhenSettingEnabled() {
+        let suiteName = "TabManagerNotificationReorderTests.Enabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey)
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        _ = manager.addWorkspace()
+
+        XCTAssertEqual(manager.tabs.first?.id, first.id)
+        manager.moveTabToTopForNotification(second.id, defaults: defaults)
+        XCTAssertEqual(manager.tabs.first?.id, second.id)
+    }
+
+    func testMoveTabToTopForNotificationSkipsWhenSettingDisabled() {
+        let suiteName = "TabManagerNotificationReorderTests.Disabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey)
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        _ = manager.addWorkspace()
+
+        manager.moveTabToTopForNotification(second.id, defaults: defaults)
+        XCTAssertEqual(manager.tabs.first?.id, first.id)
+    }
+
+    func testMoveTabToTopManualPathStillReordersWhenSettingDisabled() {
+        let suiteName = "TabManagerNotificationReorderTests.Manual.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(false, forKey: WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey)
+
+        let manager = TabManager()
+        let second = manager.addWorkspace()
+        _ = manager.addWorkspace()
+
+        manager.moveTabToTop(second.id)
+        XCTAssertEqual(manager.tabs.first?.id, second.id)
     }
 }
 

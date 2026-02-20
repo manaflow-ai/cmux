@@ -80,6 +80,18 @@ enum WorkspacePlacementSettings {
     }
 }
 
+enum WorkspaceNotificationReorderSettings {
+    static let autoReorderOnNotificationKey = "workspaceAutoReorderOnNotification"
+    static let defaultAutoReorderOnNotification = true
+
+    static func isAutoReorderOnNotificationEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: autoReorderOnNotificationKey) == nil {
+            return defaultAutoReorderOnNotification
+        }
+        return defaults.bool(forKey: autoReorderOnNotificationKey)
+    }
+}
+
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -470,6 +482,13 @@ class TabManager: ObservableObject {
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let insertIndex = tab.isPinned ? 0 : pinnedCount
         tabs.insert(tab, at: insertIndex)
+    }
+
+    func moveTabToTopForNotification(_ tabId: UUID, defaults: UserDefaults = .standard) {
+        guard WorkspaceNotificationReorderSettings.isAutoReorderOnNotificationEnabled(defaults: defaults) else {
+            return
+        }
+        moveTabToTop(tabId)
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {

@@ -2277,6 +2277,7 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceNotificationReorderSettings.autoReorderOnNotificationKey) private var workspaceAutoReorderOnNotification = WorkspaceNotificationReorderSettings.defaultAutoReorderOnNotification
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2339,6 +2340,20 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Reorder Workspaces for Notifications",
+                            subtitle: workspaceAutoReorderOnNotification
+                                ? "Newest notifications move their workspace to the top (shortcut positions may change)."
+                                : "Workspace order stays fixed so Cmd+1 through Cmd+9 remains predictable."
+                        ) {
+                            Toggle("", isOn: $workspaceAutoReorderOnNotification)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsWorkspaceNotificationReorderToggle")
                         }
 
                         SettingsCardDivider()
@@ -2601,6 +2616,7 @@ struct SettingsView: View {
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceAutoReorderOnNotification = WorkspaceNotificationReorderSettings.defaultAutoReorderOnNotification
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }
