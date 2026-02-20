@@ -1961,6 +1961,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastPerformKeyEvent: TimeInterval?
 
 #if DEBUG
+    // Test-only accessors for keyTextAccumulator to verify CJK IME composition behavior.
+    func setKeyTextAccumulatorForTesting(_ value: [String]?) {
+        keyTextAccumulator = value
+    }
+    var keyTextAccumulatorForTesting: [String]? {
+        keyTextAccumulator
+    }
+#endif
+
+#if DEBUG
     private func recordKeyLatency(path: String, event: NSEvent) {
         guard Self.keyLatencyProbeEnabled else { return }
         guard event.timestamp > 0 else { return }
