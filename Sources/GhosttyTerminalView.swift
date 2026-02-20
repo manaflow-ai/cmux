@@ -4089,6 +4089,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     coordinator.lastBoundHostId = hostId
                 }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
+            } else {
+                // Bind is deferred until host moves into a window. Update the
+                // existing portal entry's visibleInUI now so that any portal sync
+                // that runs before the deferred bind completes won't hide the view.
+                TerminalWindowPortalRegistry.updateEntryVisibility(
+                    for: hostedView,
+                    visibleInUI: coordinator.desiredIsVisibleInUI
+                )
             }
         }
     }
