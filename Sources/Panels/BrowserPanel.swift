@@ -997,6 +997,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingGeneration: Int = 0
 
     private var faviconTask: Task<Void, Never>?
+    private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
@@ -1228,9 +1229,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let pageURL = webView.url else { return }
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        faviconRefreshGeneration &+= 1
+        let refreshGeneration = faviconRefreshGeneration
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -1264,6 +1268,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     discoveredURL = u
                 }
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
@@ -1288,6 +1293,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
                 return
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
@@ -1299,6 +1305,11 @@ final class BrowserPanel: Panel, ObservableObject {
             // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
             faviconPNGData = png
         }
+    }
+
+    private func isCurrentFaviconRefresh(generation: Int) -> Bool {
+        guard !Task.isCancelled else { return false }
+        return generation == faviconRefreshGeneration
     }
 
     @MainActor
@@ -1359,6 +1370,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
         if newValue {
+            // Any new load invalidates older favicon fetches, even for same-URL reloads.
+            faviconRefreshGeneration &+= 1
+            faviconTask?.cancel()
+            faviconTask = nil
+            lastFaviconURLString = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
