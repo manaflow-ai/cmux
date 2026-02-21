@@ -184,7 +184,10 @@ enum DragOverlayRoutingPolicy {
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool
     ) -> Bool {
-        guard !hasLocalDraggingSource else { return false }
+        // Local file drags (e.g. in-app draggable folder views) are valid drop
+        // inputs; rely on explicit non-file drag types below to avoid hijacking
+        // Bonsplit/sidebar drags.
+        _ = hasLocalDraggingSource
         guard hasFileURL(pasteboardTypes) else { return false }
 
         // Prefer explicit non-file drag types so stale fileURL entries cannot hijack
@@ -251,6 +254,11 @@ enum DragOverlayRoutingPolicy {
         guard let eventType else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            // During tab drags AppKit can still query hit-test routing with mouse
+            // down/up events. If we reject these, terminal portal layers may steal
+            // the initial drop routing path and suppress pane drop indicators.
             return true
         case .flagsChanged:
             // Real tab drags can briefly report flagsChanged while modifiers

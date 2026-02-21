@@ -511,6 +511,9 @@ class TerminalController {
         case "sidebar_overlay_gate":
             return sidebarOverlayGate(args)
 
+        case "terminal_drop_overlay_probe":
+            return terminalDropOverlayProbe(args)
+
         case "activate_app":
             return activateApp()
 
@@ -7147,6 +7150,7 @@ class TerminalController {
           overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
           portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to SwiftUI drag targets (test-only)
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
+          terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -7512,6 +7516,52 @@ class TerminalController {
             )
         }
         return shouldCapture ? "true" : "false"
+    }
+
+    private func terminalDropOverlayProbe(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let useDeferredPath: Bool
+        switch token {
+        case "", "deferred":
+            useDeferredPath = true
+        case "direct":
+            useDeferredPath = false
+        default:
+            return "ERROR: Usage: terminal_drop_overlay_probe [deferred|direct]"
+        }
+
+        var result = "ERROR: No selected workspace"
+        DispatchQueue.main.sync {
+            guard let selectedId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+                return
+            }
+
+            let terminalPanel = workspace.focusedTerminalPanel
+                ?? orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }.first
+            guard let terminalPanel else {
+                result = "ERROR: No terminal panel available"
+                return
+            }
+
+            let probe = terminalPanel.hostedView.debugProbeDropOverlayAnimation(
+                useDeferredPath: useDeferredPath
+            )
+            let animated = probe.after > probe.before
+            let mode = useDeferredPath ? "deferred" : "direct"
+            result = String(
+                format: "OK mode=%@ animated=%d before=%d after=%d bounds=%.1fx%.1f",
+                mode,
+                animated ? 1 : 0,
+                probe.before,
+                probe.after,
+                probe.bounds.width,
+                probe.bounds.height
+            )
+        }
+        return result
     }
 
     private func parseOverlayEventType(_ token: String) -> (isKnown: Bool, eventType: NSEvent.EventType?) {

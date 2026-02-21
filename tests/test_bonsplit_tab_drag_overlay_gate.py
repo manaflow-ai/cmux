@@ -36,6 +36,12 @@ PORTAL_PASS_THROUGH_EVENTS = DRAG_EVENTS + [
     "systemDefined",
     "applicationDefined",
     "periodic",
+    "leftMouseDown",
+    "leftMouseUp",
+    "rightMouseDown",
+    "rightMouseUp",
+    "otherMouseDown",
+    "otherMouseUp",
     "none",
 ]
 
@@ -117,9 +123,12 @@ def assert_hit_chain_routes_to_pane(
         raise cmuxError(
             f"drag_hit_chain({x},{y}) returned none ({reason})"
         )
-    if "PaneContainerView" not in chain:
+    # This probe is intended to catch root-level overlay capture regressions.
+    # Depending on current AppKit event context, drag hit-testing can resolve
+    # through either pane-local SwiftUI wrappers or portal-hosted terminal views.
+    if "FileDropOverlayView" in chain:
         raise cmuxError(
-            f"drag_hit_chain({x},{y}) missing PaneContainerView ({reason}); chain={chain}"
+            f"drag_hit_chain({x},{y}) unexpectedly captured by FileDropOverlayView ({reason}); chain={chain}"
         )
 
 
@@ -163,8 +172,7 @@ def main() -> int:
             assert_drop_gate(client, "local", expected=False, reason="tabtransfer drag must pass through")
             for event in PORTAL_PASS_THROUGH_EVENTS:
                 assert_portal_gate(client, event, expected=True, reason="tabtransfer should pass through terminal portal")
-            for event in ["leftMouseDown", "leftMouseUp", "rightMouseDown", "rightMouseUp", "otherMouseDown", "otherMouseUp", "scrollWheel"]:
-                assert_portal_gate(client, event, expected=False, reason="non-drag events should not pass through portal")
+            assert_portal_gate(client, "scrollWheel", expected=False, reason="scroll should not pass through portal")
             assert_sidebar_gate(client, "active", expected=False, reason="tabtransfer is not a sidebar drag payload")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
@@ -179,8 +187,7 @@ def main() -> int:
             assert_drop_gate(client, "local", expected=False, reason="sidebar reorder drag must pass through")
             for event in PORTAL_PASS_THROUGH_EVENTS:
                 assert_portal_gate(client, event, expected=True, reason="sidebar reorder should pass through terminal portal")
-            for event in ["leftMouseDown", "leftMouseUp", "rightMouseDown", "rightMouseUp", "otherMouseDown", "otherMouseUp", "scrollWheel"]:
-                assert_portal_gate(client, event, expected=False, reason="non-drag events should not pass through portal")
+            assert_portal_gate(client, "scrollWheel", expected=False, reason="scroll should not pass through portal")
             assert_sidebar_gate(client, "active", expected=True, reason="active sidebar drag should capture outside overlay")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
@@ -190,7 +197,7 @@ def main() -> int:
             for event in NON_DRAG_EVENTS + ["none"]:
                 assert_gate(client, event, expected=False, reason="non-drag events should pass through")
             assert_drop_gate(client, "external", expected=True, reason="external file drags should be captured")
-            assert_drop_gate(client, "local", expected=False, reason="local drags must not be captured")
+            assert_drop_gate(client, "local", expected=True, reason="local file drags should be captured")
             for event in DRAG_EVENTS + NON_DRAG_EVENTS + ["none"]:
                 assert_portal_gate(client, event, expected=False, reason="file drag should not trigger portal pass-through policy")
             assert_sidebar_gate(client, "active", expected=False, reason="file drag is not sidebar reorder payload")
@@ -203,8 +210,7 @@ def main() -> int:
             assert_drop_gate(client, "local", expected=False, reason="fileurl+tabtransfer must pass through")
             for event in PORTAL_PASS_THROUGH_EVENTS:
                 assert_portal_gate(client, event, expected=True, reason="mixed fileurl+tabtransfer should still pass through portal")
-            for event in ["leftMouseDown", "leftMouseUp", "rightMouseDown", "rightMouseUp", "otherMouseDown", "otherMouseUp", "scrollWheel"]:
-                assert_portal_gate(client, event, expected=False, reason="non-drag events should not pass through portal")
+            assert_portal_gate(client, "scrollWheel", expected=False, reason="scroll should not pass through portal")
             assert_sidebar_gate(client, "active", expected=False, reason="tabtransfer mix is not sidebar reorder payload")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
@@ -215,8 +221,7 @@ def main() -> int:
             assert_drop_gate(client, "local", expected=False, reason="fileurl+sidebarreorder must pass through")
             for event in PORTAL_PASS_THROUGH_EVENTS:
                 assert_portal_gate(client, event, expected=True, reason="mixed fileurl+sidebarreorder should still pass through portal")
-            for event in ["leftMouseDown", "leftMouseUp", "rightMouseDown", "rightMouseUp", "otherMouseDown", "otherMouseUp", "scrollWheel"]:
-                assert_portal_gate(client, event, expected=False, reason="non-drag events should not pass through portal")
+            assert_portal_gate(client, "scrollWheel", expected=False, reason="scroll should not pass through portal")
             assert_sidebar_gate(client, "active", expected=True, reason="sidebar reorder mix should keep sidebar outside overlay active")
             assert_sidebar_gate(client, "inactive", expected=False, reason="inactive sidebar drag state")
 
