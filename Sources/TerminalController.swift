@@ -693,6 +693,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.action":
+            return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "workspace.next":
             return v2Result(id: id, self.v2WorkspaceNext(params: params))
         case "workspace.previous":
@@ -718,6 +720,10 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceMove(params: params))
         case "surface.reorder":
             return v2Result(id: id, self.v2SurfaceReorder(params: params))
+        case "surface.action":
+            return v2Result(id: id, self.v2TabAction(params: params))
+        case "tab.action":
+            return v2Result(id: id, self.v2TabAction(params: params))
         case "surface.drag_to_split":
             return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
         case "surface.refresh":
@@ -1007,6 +1013,7 @@ class TerminalController {
             "workspace.move_to_window",
             "workspace.reorder",
             "workspace.rename",
+            "workspace.action",
             "workspace.next",
             "workspace.previous",
             "workspace.last",
@@ -1019,6 +1026,8 @@ class TerminalController {
             "surface.drag_to_split",
             "surface.move",
             "surface.reorder",
+            "surface.action",
+            "tab.action",
             "surface.refresh",
             "surface.health",
             "surface.send_text",
@@ -1357,6 +1366,11 @@ class TerminalController {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
+        guard let action = v2String(params, key) else { return nil }
+        return action.lowercased().replacingOccurrences(of: "-", with: "_")
     }
 
     private func v2RawString(_ params: [String: Any], _ key: String) -> String? {
@@ -1848,6 +1862,409 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
         }
+        return result
+    }
+
+    private func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let action = v2ActionKey(params) else {
+            return .err(code: "invalid_params", message: "Missing action", data: nil)
+        }
+
+        let supportedActions = [
+            "pin", "unpin", "rename", "clear_name",
+            "move_up", "move_down", "move_top",
+            "close_others", "close_above", "close_below",
+            "mark_read", "mark_unread"
+        ]
+
+        var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
+            "action": action,
+            "supported_actions": supportedActions
+        ])
+
+        v2MainSync {
+            let requestedWorkspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
+            guard let workspaceId = requestedWorkspaceId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+
+            @MainActor
+            func closeWorkspaces(_ workspaces: [Workspace]) -> Int {
+                var closed = 0
+                for candidate in workspaces where candidate.id != workspace.id {
+                    let existedBefore = tabManager.tabs.contains(where: { $0.id == candidate.id })
+                    guard existedBefore else { continue }
+                    tabManager.closeWorkspace(candidate)
+                    if !tabManager.tabs.contains(where: { $0.id == candidate.id }) {
+                        closed += 1
+                    }
+                }
+                return closed
+            }
+
+            @MainActor
+            func finish(_ extras: [String: Any] = [:]) {
+                var payload: [String: Any] = [
+                    "action": action,
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ]
+                for (key, value) in extras {
+                    payload[key] = value
+                }
+                result = .ok(payload)
+            }
+
+            switch action {
+            case "pin":
+                tabManager.setPinned(workspace, pinned: true)
+                finish(["pinned": true])
+
+            case "unpin":
+                tabManager.setPinned(workspace, pinned: false)
+                finish(["pinned": false])
+
+            case "rename":
+                guard let titleRaw = v2String(params, "title"),
+                      !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+                    return
+                }
+                let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                tabManager.setCustomTitle(tabId: workspace.id, title: title)
+                finish(["title": title])
+
+            case "clear_name":
+                tabManager.clearCustomTitle(tabId: workspace.id)
+                finish(["title": workspace.title])
+
+            case "move_up":
+                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: max(currentIndex - 1, 0))
+                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+
+            case "move_down":
+                guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                _ = tabManager.reorderWorkspace(tabId: workspace.id, toIndex: min(currentIndex + 1, tabManager.tabs.count - 1))
+                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+
+            case "move_top":
+                tabManager.moveTabToTop(workspace.id)
+                finish(["index": v2OrNull(tabManager.tabs.firstIndex(where: { $0.id == workspace.id }))])
+
+            case "close_others":
+                let candidates = tabManager.tabs.filter { $0.id != workspace.id && !$0.isPinned }
+                let closed = closeWorkspaces(candidates)
+                finish(["closed": closed])
+
+            case "close_above":
+                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let candidates = Array(tabManager.tabs.prefix(index)).filter { !$0.isPinned }
+                let closed = closeWorkspaces(candidates)
+                finish(["closed": closed])
+
+            case "close_below":
+                guard let index = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                let candidates: [Workspace]
+                if index + 1 < tabManager.tabs.count {
+                    candidates = Array(tabManager.tabs.suffix(from: index + 1)).filter { !$0.isPinned }
+                } else {
+                    candidates = []
+                }
+                let closed = closeWorkspaces(candidates)
+                finish(["closed": closed])
+
+            case "mark_read":
+                AppDelegate.shared?.notificationStore?.markRead(forTabId: workspace.id)
+                finish()
+
+            case "mark_unread":
+                AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
+                finish()
+
+            default:
+                result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
+                    "action": action,
+                    "supported_actions": supportedActions
+                ])
+            }
+        }
+
+        return result
+    }
+
+    private func v2TabAction(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let action = v2ActionKey(params) else {
+            return .err(code: "invalid_params", message: "Missing action", data: nil)
+        }
+
+        let supportedActions = [
+            "rename", "clear_name",
+            "close_left", "close_right", "close_others",
+            "new_terminal_right", "new_browser_right",
+            "reload", "duplicate",
+            "pin", "unpin", "mark_unread"
+        ]
+
+        var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
+            "action": action,
+            "supported_actions": supportedActions
+        ])
+
+        v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? workspace.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused tab", data: nil)
+                return
+            }
+            guard workspace.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Tab not found", data: [
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                ])
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+
+            @MainActor
+            func finish(_ extras: [String: Any] = [:]) {
+                var payload: [String: Any] = [
+                    "action": action,
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                ]
+                if let paneId = workspace.paneId(forPanelId: surfaceId)?.id {
+                    payload["pane_id"] = paneId.uuidString
+                    payload["pane_ref"] = v2Ref(kind: .pane, uuid: paneId)
+                } else {
+                    payload["pane_id"] = NSNull()
+                    payload["pane_ref"] = NSNull()
+                }
+                for (key, value) in extras {
+                    payload[key] = value
+                }
+                result = .ok(payload)
+            }
+
+            @MainActor
+            func insertionIndexToRight(anchorTabId: TabID, inPane paneId: PaneID) -> Int {
+                let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+                guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
+                let pinnedCount = tabs.reduce(into: 0) { count, tab in
+                    if let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                       workspace.isPanelPinned(panelId) {
+                        count += 1
+                    }
+                }
+                let rawTarget = min(anchorIndex + 1, tabs.count)
+                return max(rawTarget, pinnedCount)
+            }
+
+            @MainActor
+            func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
+                var closed = 0
+                var skippedPinned = 0
+                for tabId in tabIds {
+                    guard let panelId = workspace.panelIdFromSurfaceId(tabId) else { continue }
+                    if workspace.isPanelPinned(panelId) {
+                        skippedPinned += 1
+                        continue
+                    }
+                    if workspace.panels.count <= 1 {
+                        break
+                    }
+                    if workspace.closePanel(panelId, force: true) {
+                        closed += 1
+                    }
+                }
+                return (closed, skippedPinned)
+            }
+
+            switch action {
+            case "rename":
+                guard let titleRaw = v2String(params, "title"),
+                      !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+                    return
+                }
+                let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                workspace.setPanelCustomTitle(panelId: surfaceId, title: title)
+                finish(["title": title])
+
+            case "clear_name":
+                workspace.setPanelCustomTitle(panelId: surfaceId, title: nil)
+                finish()
+
+            case "pin":
+                workspace.setPanelPinned(panelId: surfaceId, pinned: true)
+                finish(["pinned": true])
+
+            case "unpin":
+                workspace.setPanelPinned(panelId: surfaceId, pinned: false)
+                finish(["pinned": false])
+
+            case "mark_unread", "mark_as_unread":
+                workspace.markPanelUnread(surfaceId)
+                finish()
+
+            case "reload", "reload_tab":
+                guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
+                    result = .err(code: "invalid_state", message: "Reload is only available for browser tabs", data: nil)
+                    return
+                }
+                browserPanel.reload()
+                finish()
+
+            case "duplicate", "duplicate_tab":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId),
+                      let browserPanel = workspace.browserPanel(for: surfaceId) else {
+                    result = .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
+                    return
+                }
+
+                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
+                guard let newPanel = workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: browserPanel.currentURL,
+                    focus: true
+                ) else {
+                    result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
+                    return
+                }
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                finish([
+                    "created_surface_id": newPanel.id.uuidString,
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                ])
+
+            case "new_terminal_right", "new_terminal_to_right", "new_terminal_tab_to_right":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    result = .err(code: "not_found", message: "Tab pane not found", data: nil)
+                    return
+                }
+
+                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
+                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+                    result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
+                    return
+                }
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                finish([
+                    "created_surface_id": newPanel.id.uuidString,
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                ])
+
+            case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    result = .err(code: "not_found", message: "Tab pane not found", data: nil)
+                    return
+                }
+
+                let urlRaw = v2String(params, "url")
+                let url = urlRaw.flatMap { URL(string: $0) }
+                if urlRaw != nil && url == nil {
+                    result = .err(code: "invalid_params", message: "Invalid URL", data: ["url": v2OrNull(urlRaw)])
+                    return
+                }
+
+                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
+                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: true) else {
+                    result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
+                    return
+                }
+                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+                finish([
+                    "created_surface_id": newPanel.id.uuidString,
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                ])
+
+            case "close_left", "close_to_left":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    result = .err(code: "not_found", message: "Tab pane not found", data: nil)
+                    return
+                }
+                let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+                guard let index = tabs.firstIndex(where: { $0.id == anchorTabId }) else {
+                    result = .err(code: "not_found", message: "Tab not found in pane", data: nil)
+                    return
+                }
+                let targetIds = Array(tabs.prefix(index).map(\.id))
+                let closeResult = closeTabs(targetIds)
+                finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
+
+            case "close_right", "close_to_right":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    result = .err(code: "not_found", message: "Tab pane not found", data: nil)
+                    return
+                }
+                let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+                guard let index = tabs.firstIndex(where: { $0.id == anchorTabId }) else {
+                    result = .err(code: "not_found", message: "Tab not found in pane", data: nil)
+                    return
+                }
+                let targetIds = (index + 1 < tabs.count) ? Array(tabs.suffix(from: index + 1).map(\.id)) : []
+                let closeResult = closeTabs(targetIds)
+                finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
+
+            case "close_others", "close_other_tabs":
+                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
+                      let paneId = workspace.paneId(forPanelId: surfaceId) else {
+                    result = .err(code: "not_found", message: "Tab pane not found", data: nil)
+                    return
+                }
+                let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
+                    .map(\.id)
+                    .filter { $0 != anchorTabId }
+                let closeResult = closeTabs(targetIds)
+                finish(["closed": closeResult.closed, "skipped_pinned": closeResult.skippedPinned])
+
+            default:
+                result = .err(code: "invalid_params", message: "Unknown tab action", data: [
+                    "action": action,
+                    "supported_actions": supportedActions
+                ])
+            }
+        }
+
         return result
     }
 

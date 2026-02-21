@@ -583,6 +583,12 @@ struct CMUXCLI {
         case "reorder-workspace":
             try runReorderWorkspace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "workspace-action":
+            try runWorkspaceAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
+        case "tab-action":
+            try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
         case "list-workspaces":
             let payload = try client.sendV2(method: "workspace.list")
             if jsonOutput {
@@ -1490,6 +1496,144 @@ struct CMUXCLI {
         let payload = try client.sendV2(method: "workspace.reorder", params: params)
         let summary = "OK workspace=\(formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? "unknown") window=\(formatHandle(payload, kind: "window", idFormat: idFormat) ?? "unknown") index=\(payload["index"] ?? "?")"
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summary)
+    }
+
+    private func runWorkspaceAction(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (actionOpt, rem1) = parseOption(rem0, name: "--action")
+        let (titleOpt, rem2) = parseOption(rem1, name: "--title")
+
+        var positional = rem2
+        let actionRaw: String
+        if let actionOpt {
+            actionRaw = actionOpt
+        } else if let first = positional.first {
+            actionRaw = first
+            positional.removeFirst()
+        } else {
+            throw CLIError(message: "workspace-action requires --action <name>")
+        }
+
+        if let unknown = positional.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "workspace-action: unknown flag '\(unknown)'")
+        }
+
+        let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
+        let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
+
+        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if action == "rename", (title?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
+        }
+
+        var params: [String: Any] = ["action": action]
+        if let workspaceId {
+            params["workspace_id"] = workspaceId
+        }
+        if let title, !title.isEmpty {
+            params["title"] = title
+        }
+
+        let payload = try client.sendV2(method: "workspace.action", params: params)
+        var summaryParts = ["OK", "action=\(action)"]
+        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            summaryParts.append("workspace=\(workspaceHandle)")
+        }
+        if let windowHandle = formatHandle(payload, kind: "window", idFormat: idFormat) {
+            summaryParts.append("window=\(windowHandle)")
+        }
+        if let closed = payload["closed"] {
+            summaryParts.append("closed=\(closed)")
+        }
+        if let index = payload["index"] {
+            summaryParts.append("index=\(index)")
+        }
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
+    }
+
+    private func runTabAction(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (tabOpt, rem1) = parseOption(rem0, name: "--tab")
+        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
+        let (actionOpt, rem3) = parseOption(rem2, name: "--action")
+        let (titleOpt, rem4) = parseOption(rem3, name: "--title")
+        let (urlOpt, rem5) = parseOption(rem4, name: "--url")
+
+        var positional = rem5
+        let actionRaw: String
+        if let actionOpt {
+            actionRaw = actionOpt
+        } else if let first = positional.first {
+            actionRaw = first
+            positional.removeFirst()
+        } else {
+            throw CLIError(message: "tab-action requires --action <name>")
+        }
+
+        if let unknown = positional.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "tab-action: unknown flag '\(unknown)'")
+        }
+
+        let action = actionRaw.lowercased().replacingOccurrences(of: "-", with: "_")
+        let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let tabArg = tabOpt ?? surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+
+        let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
+        let surfaceId = try normalizeSurfaceHandle(tabArg, client: client, workspaceHandle: workspaceId, allowFocused: true)
+
+        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if action == "rename", (title?.isEmpty ?? true) {
+            throw CLIError(message: "tab-action rename requires --title <text> (or a trailing title)")
+        }
+
+        var params: [String: Any] = ["action": action]
+        if let workspaceId {
+            params["workspace_id"] = workspaceId
+        }
+        if let surfaceId {
+            params["surface_id"] = surfaceId
+        }
+        if let title, !title.isEmpty {
+            params["title"] = title
+        }
+        if let urlOpt, !urlOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["url"] = urlOpt.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let payload = try client.sendV2(method: "tab.action", params: params)
+        var summaryParts = ["OK", "action=\(action)"]
+        if let tabHandle = formatHandle(payload, kind: "surface", idFormat: idFormat) {
+            summaryParts.append("tab=\(tabHandle)")
+        }
+        if let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) {
+            summaryParts.append("workspace=\(workspaceHandle)")
+        }
+        if let closed = payload["closed"] {
+            summaryParts.append("closed=\(closed)")
+        }
+        if let created = payload["created_surface_ref"] as? String {
+            summaryParts.append("created=\(created)")
+        } else if let createdId = payload["created_surface_id"] as? String {
+            summaryParts.append("created=\(createdId)")
+        }
+        printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
 
     private func runBrowserCommand(
@@ -2761,6 +2905,56 @@ struct CMUXCLI {
               cmux reorder-workspace --workspace workspace:2 --index 0
               cmux reorder-workspace --workspace workspace:3 --after workspace:1
             """
+        case "workspace-action":
+            return """
+            Usage: cmux workspace-action --action <name> [flags]
+
+            Perform workspace context-menu actions from CLI/socket.
+
+            Actions:
+              pin | unpin
+              rename | clear-name
+              move-up | move-down | move-top
+              close-others | close-above | close-below
+              mark-read | mark-unread
+
+            Flags:
+              --action <name>              Action name (required if not positional)
+              --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
+              --title <text>               Title for rename
+
+            Example:
+              cmux workspace-action --workspace workspace:2 --action pin
+              cmux workspace-action --action rename --title "infra"
+              cmux workspace-action close-others
+            """
+        case "tab-action":
+            return """
+            Usage: cmux tab-action --action <name> [flags]
+
+            Perform horizontal tab context-menu actions from CLI/socket.
+
+            Actions:
+              rename | clear-name
+              close-left | close-right | close-others
+              new-terminal-right | new-browser-right
+              reload | duplicate
+              pin | unpin
+              mark-unread
+
+            Flags:
+              --action <name>              Action name (required if not positional)
+              --tab <id|ref|index>         Target tab (alias: --surface)
+              --surface <id|ref|index>     Alias for --tab
+              --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --title <text>               Title for rename
+              --url <url>                  Optional URL for new-browser-right
+
+            Example:
+              cmux tab-action --tab surface:3 --action pin
+              cmux tab-action --action close-right
+              cmux tab-action --tab surface:2 --action rename --title "build logs"
+            """
         case "new-workspace":
             return """
             Usage: cmux new-workspace
@@ -4021,6 +4215,7 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
           new-workspace [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
@@ -4032,6 +4227,7 @@ struct CMUXCLI {
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
+          tab-action --action <name> [--tab <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces
           surface-health [--workspace <id|ref>]
