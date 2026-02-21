@@ -2773,6 +2773,15 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        } else {
+            // Bind is deferred until host moves into a window. Keep the current
+            // portal entry's desired state in sync so stale callbacks cannot keep
+            // the previous anchor visible while this host is temporarily off-window.
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: webView,
+                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                zPriority: coordinator.desiredPortalZPriority
+            )
         }
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
