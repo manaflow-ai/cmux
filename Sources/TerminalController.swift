@@ -3165,6 +3165,7 @@ class TerminalController {
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
                 terminalPanel.sendText(text)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
                 queued = true
             }
             #if DEBUG
@@ -9981,6 +9982,7 @@ class TerminalController {
                 sendSocketText(unescaped, surface: surface)
             } else {
                 terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -10009,6 +10011,7 @@ class TerminalController {
                 sendSocketText(unescaped, surface: surface)
             } else {
                 terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
