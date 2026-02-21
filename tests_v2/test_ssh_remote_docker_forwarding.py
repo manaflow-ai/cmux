@@ -21,6 +21,7 @@ from cmux import cmux, cmuxError
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_REMOTE_HTTP_PORT", "43173"))
+MAX_REMOTE_DAEMON_SIZE_BYTES = int(os.environ.get("CMUX_SSH_TEST_MAX_DAEMON_SIZE_BYTES", "15000000"))
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -88,6 +89,57 @@ def _http_get(url: str, timeout: float = 2.0) -> str:
         return resp.read().decode("utf-8", errors="replace")
 
 
+def _shell_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            "ssh",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=5",
+            "-p",
+            str(host_port),
+            "-i",
+            str(key_path),
+            host,
+            f"sh -lc {_shell_single_quote(script)}",
+        ],
+        check=check,
+    )
+
+
+def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        probe = _ssh_run(host, host_port, key_path, "echo ready", check=False)
+        if probe.returncode == 0 and "ready" in probe.stdout:
+            return
+        time.sleep(0.5)
+    raise cmuxError("Timed out waiting for SSH server in docker fixture to become ready")
+
+
+def _remote_binary_size_bytes(host: str, host_port: int, key_path: Path, remote_path: str) -> int:
+    script = f"""
+set -eu
+p={_shell_single_quote(remote_path)}
+case "$p" in
+  /*) full="$p" ;;
+  *) full="$HOME/$p" ;;
+esac
+test -x "$full"
+wc -c < "$full"
+"""
+    proc = _ssh_run(host, host_port, key_path, script, check=True)
+    text = proc.stdout.strip().splitlines()[-1].strip()
+    return int(text)
+
+
 def main() -> int:
     if not _docker_available():
         print("SKIP: docker is not available")
@@ -121,13 +173,24 @@ def main() -> int:
 
         port_info = _run(["docker", "port", container_name, "22/tcp"]).stdout
         host_ssh_port = _parse_host_port(port_info)
+        host = "root@127.0.0.1"
+        _wait_for_ssh(host, host_ssh_port, key_path)
+
+        fresh_check = _ssh_run(
+            host,
+            host_ssh_port,
+            key_path,
+            "test ! -e \"$HOME/.cmux/bin/cmuxd-remote\" && echo fresh",
+            check=True,
+        )
+        _must("fresh" in fresh_check.stdout, "Fresh container should not have preinstalled cmuxd-remote")
 
         with cmux(SOCKET_PATH) as client:
             payload = _run_cli_json(
                 cli,
                 [
                     "ssh",
-                    "root@127.0.0.1",
+                    host,
                     "--name", "docker-ssh-forward",
                     "--port", str(host_ssh_port),
                     "--identity", str(key_path),
@@ -162,6 +225,15 @@ def main() -> int:
             _must(str(daemon.get("state") or "") == "ready", f"daemon should be ready in connected state: {last_status}")
             capabilities = daemon.get("capabilities") or []
             _must("session.basic" in capabilities, f"daemon hello capabilities missing session.basic: {daemon}")
+            remote_path = str(daemon.get("remote_path") or "").strip()
+            _must(bool(remote_path), f"daemon ready state should include remote_path: {daemon}")
+
+            binary_size_bytes = _remote_binary_size_bytes(host, host_ssh_port, key_path, remote_path)
+            _must(binary_size_bytes > 0, f"uploaded daemon binary should be non-empty: {binary_size_bytes}")
+            _must(
+                binary_size_bytes <= MAX_REMOTE_DAEMON_SIZE_BYTES,
+                f"uploaded daemon binary too large: {binary_size_bytes} bytes > {MAX_REMOTE_DAEMON_SIZE_BYTES}",
+            )
 
             body = ""
             deadline_http = time.time() + 15.0
@@ -183,7 +255,10 @@ def main() -> int:
                 pass
             workspace_id = ""
 
-        print("PASS: docker SSH remote port is auto-detected and reachable through local forwarding")
+        print(
+            "PASS: docker SSH remote port is auto-detected and reachable through local forwarding; "
+            f"uploaded cmuxd-remote size={binary_size_bytes} bytes"
+        )
         return 0
 
     finally:

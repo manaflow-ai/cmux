@@ -58,3 +58,44 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 		t.Fatalf("second response should be ok=true: %v", second)
 	}
 }
+
+func TestRunStdioInvalidJSONAndUnknownMethod(t *testing.T) {
+	input := strings.NewReader(
+		`{"id":1,"method":"hello","params":{}` + "\n" +
+			`{"id":2,"method":"unknown","params":{}}` + "\n",
+	)
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d response lines, want 2: %q", len(lines), out.String())
+	}
+
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("failed to decode first response: %v", err)
+	}
+	if ok, _ := first["ok"].(bool); ok {
+		t.Fatalf("first response should be ok=false for invalid JSON: %v", first)
+	}
+	firstError, _ := first["error"].(map[string]any)
+	if got := firstError["code"]; got != "invalid_request" {
+		t.Fatalf("invalid JSON should return invalid_request; got=%v payload=%v", got, first)
+	}
+
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("failed to decode second response: %v", err)
+	}
+	if ok, _ := second["ok"].(bool); ok {
+		t.Fatalf("second response should be ok=false for unknown method: %v", second)
+	}
+	secondError, _ := second["error"].(map[string]any)
+	if got := secondError["code"]; got != "method_not_found" {
+		t.Fatalf("unknown method should return method_not_found; got=%v payload=%v", got, second)
+	}
+}

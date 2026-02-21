@@ -134,6 +134,34 @@ def main() -> int:
                 str(daemon.get("state") or "") in {"unavailable", "bootstrapping", "ready", "error"},
                 f"workspace.remote.status should include daemon state metadata: {status_remote}",
             )
+            # Fail-fast regression: unreachable SSH target should surface bootstrap error explicitly.
+            deadline_daemon = time.time() + 12.0
+            last_status = status
+            while time.time() < deadline_daemon:
+                last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+                last_remote = last_status.get("remote") or {}
+                last_daemon = last_remote.get("daemon") or {}
+                if str(last_daemon.get("state") or "") == "error":
+                    break
+                time.sleep(0.2)
+            else:
+                raise cmuxError(f"unreachable host should drive daemon state to error: {last_status}")
+
+            last_remote = last_status.get("remote") or {}
+            last_daemon = last_remote.get("daemon") or {}
+            detail = str(last_daemon.get("detail") or "")
+            _must("bootstrap failed" in detail.lower(), f"daemon error should mention bootstrap failure: {last_status}")
+
+            # Lifecycle regression: disconnect with clear should reset remote/daemon metadata.
+            disconnected = client._call(
+                "workspace.remote.disconnect",
+                {"workspace_id": workspace_id, "clear": True},
+            ) or {}
+            disconnected_remote = disconnected.get("remote") or {}
+            disconnected_daemon = disconnected_remote.get("daemon") or {}
+            _must(bool(disconnected_remote.get("enabled")) is False, f"remote config should be cleared: {disconnected}")
+            _must(str(disconnected_remote.get("state") or "") == "disconnected", f"remote state should be disconnected: {disconnected}")
+            _must(str(disconnected_daemon.get("state") or "") == "unavailable", f"daemon state should reset to unavailable: {disconnected}")
 
             # Regression: --name is optional.
             payload2 = _run_cli_json(
