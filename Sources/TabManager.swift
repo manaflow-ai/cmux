@@ -625,6 +625,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownRemoteConnection()
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
