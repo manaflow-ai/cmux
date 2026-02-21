@@ -1909,9 +1909,31 @@ struct CMUXCLI {
         parts.append(options.destination)
         parts.append(contentsOf: options.extraArguments)
         let sshCommand = parts.map(shellQuote).joined(separator: " ")
-        // Scope Ghostty SSH niceties to `cmux ssh ...` launches only.
-        let shellFeatures = "GHOSTTY_SHELL_FEATURES=${GHOSTTY_SHELL_FEATURES:+$GHOSTTY_SHELL_FEATURES,}ssh-env,ssh-terminfo"
-        return shellFeatures + " " + sshCommand
+        // Scope Ghostty SSH niceties to `cmux ssh ...` launches only using shell-agnostic env invocation.
+        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
+        return "env GHOSTTY_SHELL_FEATURES=\(shellQuote(shellFeaturesValue)) " + sshCommand
+    }
+
+    private func scopedGhosttyShellFeaturesValue() -> String {
+        let rawExisting = ProcessInfo.processInfo.environment["GHOSTTY_SHELL_FEATURES"] ?? ""
+        var seen: Set<String> = []
+        var merged: [String] = []
+
+        for token in rawExisting.split(separator: ",") {
+            let feature = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !feature.isEmpty else { continue }
+            if seen.insert(feature).inserted {
+                merged.append(feature)
+            }
+        }
+
+        for required in ["ssh-env", "ssh-terminfo"] {
+            if seen.insert(required).inserted {
+                merged.append(required)
+            }
+        }
+
+        return merged.joined(separator: ",")
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
