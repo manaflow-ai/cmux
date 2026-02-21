@@ -860,6 +860,19 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.select", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
+        case "rename-workspace", "rename-window":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let titleArgs = rem0.dropFirst(rem0.first == "--" ? 1 : 0)
+            let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else {
+                throw CLIError(message: "\(command) requires a title")
+            }
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let params: [String: Any] = ["title": title, "workspace_id": wsId]
+            let payload = try client.sendV2(method: "workspace.rename", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
         case "current-workspace":
             let response = try client.send(command: "current_workspace")
             if jsonOutput {
@@ -2840,6 +2853,20 @@ struct CMUXCLI {
               cmux select-workspace --workspace workspace:2
               cmux select-workspace --workspace 0
             """
+        case "rename-workspace", "rename-window":
+            return """
+            Usage: cmux rename-workspace [--workspace <id|ref>] [--] <title>
+
+            Rename a workspace. Defaults to the current workspace.
+            tmux-compatible alias: rename-window
+
+            Flags:
+              --workspace <id|ref>   Workspace to rename (default: current workspace)
+
+            Example:
+              cmux rename-workspace "backend logs"
+              cmux rename-window --workspace workspace:2 "agent run"
+            """
         case "read-screen":
             return """
             Usage: cmux read-screen [flags]
@@ -3515,6 +3542,8 @@ struct CMUXCLI {
           focus-panel --panel <id|ref> [--workspace <id|ref>]
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
+          rename-workspace [--workspace <id|ref>] <title>
+          rename-window [--workspace <id|ref>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>

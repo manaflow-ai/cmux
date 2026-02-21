@@ -398,6 +398,16 @@ class cmux:
         wsid = self._resolve_workspace_id(workspace)
         self._call("workspace.select", {"workspace_id": wsid})
 
+    def rename_workspace(self, title: str, workspace: Union[str, int, None] = None) -> None:
+        renamed = str(title).strip()
+        if not renamed:
+            raise cmuxError("rename_workspace requires a non-empty title")
+        wsid = self._resolve_workspace_id(workspace)
+        params: Dict[str, Any] = {"title": renamed}
+        if wsid:
+            params["workspace_id"] = wsid
+        self._call("workspace.rename", params)
+
     def current_workspace(self) -> str:
         wsid = self._resolve_workspace_id(None)
         if not wsid:
