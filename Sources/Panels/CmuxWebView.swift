@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import WebKit
 
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
@@ -6,6 +7,18 @@ import WebKit
 /// key equivalents first so app-level shortcuts continue to work when WebKit is
 /// the first responder.
 final class CmuxWebView: WKWebView {
+    private final class ContextMenuFallbackBox: NSObject {
+        weak var target: AnyObject?
+        let action: Selector?
+
+        init(target: AnyObject?, action: Selector?) {
+            self.target = target
+            self.action = action
+        }
+    }
+
+    private static var contextMenuFallbackKey: UInt8 = 0
+
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -131,6 +144,33 @@ final class CmuxWebView: WKWebView {
         guard target === self else { return false }
         return action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:))
+    }
+
+    private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
+        let target = item.target as AnyObject?
+        let action = item.action
+        if isOurDownloadMenuAction(target: target, action: action) {
+            return
+        }
+        let box = ContextMenuFallbackBox(target: target, action: action)
+        objc_setAssociatedObject(
+            item,
+            &Self.contextMenuFallbackKey,
+            box,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func fallbackFromSender(
+        _ sender: Any?,
+        defaultAction: Selector?,
+        defaultTarget: AnyObject?
+    ) -> (action: Selector?, target: AnyObject?) {
+        if let item = sender as? NSMenuItem,
+           let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+            return (box.action, box.target)
+        }
+        return (defaultAction, defaultTarget)
     }
 
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
@@ -395,10 +435,12 @@ final class CmuxWebView: WKWebView {
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadImage"
                 || item.title == "Download Image" {
                 NSLog("CmuxWebView context menu hook: download image")
-                // Preserve WebKit's original action/target only when not already hooked.
-                // Some menu instances are reused; blindly re-capturing can overwrite the
-                // native fallback with our own selector and break every other invocation.
-                if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                captureFallbackForMenuItemIfNeeded(item)
+                // Keep global fallback as a secondary safety net.
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackDownloadImageTarget = box.target
+                    fallbackDownloadImageAction = box.action
+                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadImageTarget = item.target as AnyObject?
                     fallbackDownloadImageAction = item.action
                 }
@@ -409,8 +451,12 @@ final class CmuxWebView: WKWebView {
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile"
                 || item.title == "Download Linked File" {
                 NSLog("CmuxWebView context menu hook: download linked file")
-                // Preserve WebKit's original action/target only when not already hooked.
-                if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                captureFallbackForMenuItemIfNeeded(item)
+                // Keep global fallback as a secondary safety net.
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackDownloadLinkedFileTarget = box.target
+                    fallbackDownloadLinkedFileAction = box.action
+                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadLinkedFileTarget = item.target as AnyObject?
                     fallbackDownloadLinkedFileAction = item.action
                 }
@@ -421,7 +467,13 @@ final class CmuxWebView: WKWebView {
     }
 
     @objc private func contextMenuDownloadImage(_ sender: Any?) {
-        findImageURLAtPoint(lastContextMenuPoint) { [weak self] url in
+        let point = lastContextMenuPoint
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackDownloadImageAction,
+            defaultTarget: fallbackDownloadImageTarget
+        )
+        findImageURLAtPoint(point) { [weak self] url in
             guard let self else { return }
             if let url {
                 let scheme = url.scheme?.lowercased() ?? ""
@@ -430,8 +482,8 @@ final class CmuxWebView: WKWebView {
                     self.startContextMenuDownload(
                         url,
                         sender: sender,
-                        fallbackAction: self.fallbackDownloadImageAction,
-                        fallbackTarget: self.fallbackDownloadImageTarget
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target
                     )
                     return
                 }
@@ -439,12 +491,12 @@ final class CmuxWebView: WKWebView {
 
             // Google Images and similar sites often expose blob:/data: image URLs.
             // If image URL is not directly downloadable, fall back to the nearby link URL.
-            self.findLinkURLAtPoint(self.lastContextMenuPoint) { linkURL in
+            self.findLinkURLAtPoint(point) { linkURL in
                 guard let linkURL else {
                     NSLog("CmuxWebView context download image: no downloadable image/link URL, using fallback action")
                     self.runContextMenuFallback(
-                        action: self.fallbackDownloadImageAction,
-                        target: self.fallbackDownloadImageTarget,
+                        action: fallback.action,
+                        target: fallback.target,
                         sender: sender
                     )
                     return
@@ -453,8 +505,8 @@ final class CmuxWebView: WKWebView {
                 guard linkScheme == "http" || linkScheme == "https" || linkScheme == "file" else {
                     NSLog("CmuxWebView context download image: link URL not downloadable (%@), using fallback action", linkURL.absoluteString)
                     self.runContextMenuFallback(
-                        action: self.fallbackDownloadImageAction,
-                        target: self.fallbackDownloadImageTarget,
+                        action: fallback.action,
+                        target: fallback.target,
                         sender: sender
                     )
                     return
@@ -464,34 +516,40 @@ final class CmuxWebView: WKWebView {
                 self.startContextMenuDownload(
                     linkURL,
                     sender: sender,
-                    fallbackAction: self.fallbackDownloadImageAction,
-                    fallbackTarget: self.fallbackDownloadImageTarget
+                    fallbackAction: fallback.action,
+                    fallbackTarget: fallback.target
                 )
             }
         }
     }
 
     @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
-        findLinkURLAtPoint(lastContextMenuPoint) { [weak self] url in
+        let point = lastContextMenuPoint
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackDownloadLinkedFileAction,
+            defaultTarget: fallbackDownloadLinkedFileTarget
+        )
+        findLinkURLAtPoint(point) { [weak self] url in
             guard let self else { return }
             if let url, self.isDownloadableScheme(url) {
                 NSLog("CmuxWebView context download linked file URL: %@", url.absoluteString)
                 self.startContextMenuDownload(
                     url,
                     sender: sender,
-                    fallbackAction: self.fallbackDownloadLinkedFileAction,
-                    fallbackTarget: self.fallbackDownloadLinkedFileTarget
+                    fallbackAction: fallback.action,
+                    fallbackTarget: fallback.target
                 )
                 return
             }
 
             // Secondary fallback: simpler nearest-anchor lookup.
-            self.findLinkAtPoint(self.lastContextMenuPoint) { fallbackURL in
+            self.findLinkAtPoint(point) { fallbackURL in
                 guard let fallbackURL, self.isDownloadableScheme(fallbackURL) else {
                     NSLog("CmuxWebView context download linked file: URL nil/unsupported, using fallback action")
                     self.runContextMenuFallback(
-                        action: self.fallbackDownloadLinkedFileAction,
-                        target: self.fallbackDownloadLinkedFileTarget,
+                        action: fallback.action,
+                        target: fallback.target,
                         sender: sender
                     )
                     return
@@ -500,8 +558,8 @@ final class CmuxWebView: WKWebView {
                 self.startContextMenuDownload(
                     fallbackURL,
                     sender: sender,
-                    fallbackAction: self.fallbackDownloadLinkedFileAction,
-                    fallbackTarget: self.fallbackDownloadLinkedFileTarget
+                    fallbackAction: fallback.action,
+                    fallbackTarget: fallback.target
                 )
             }
         }
