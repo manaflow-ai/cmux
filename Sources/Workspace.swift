@@ -103,6 +103,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    private var manualUnreadMarkedAt: [UUID: Date] = [:]
+    nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
+    nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
@@ -388,7 +391,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        let shouldShowUnread = manualUnreadPanelIds.contains(panelId) || hasUnreadNotification(panelId: panelId)
+        let shouldShowUnread = Self.shouldShowUnreadIndicator(
+            hasUnreadNotification: hasUnreadNotification(panelId: panelId),
+            isManuallyUnread: manualUnreadPanelIds.contains(panelId)
+        )
         if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
             return
         }
@@ -481,12 +487,43 @@ final class Workspace: Identifiable, ObservableObject {
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         guard manualUnreadPanelIds.insert(panelId).inserted else { return }
+        manualUnreadMarkedAt[panelId] = Date()
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func markPanelRead(_ panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        clearManualUnread(panelId: panelId)
+    }
+
     func clearManualUnread(panelId: UUID) {
-        guard manualUnreadPanelIds.remove(panelId) != nil else { return }
+        let didRemoveUnread = manualUnreadPanelIds.remove(panelId) != nil
+        manualUnreadMarkedAt.removeValue(forKey: panelId)
+        guard didRemoveUnread else { return }
         syncUnreadBadgeStateForPanel(panelId)
+    }
+
+    static func shouldClearManualUnread(
+        previousFocusedPanelId: UUID?,
+        nextFocusedPanelId: UUID,
+        isManuallyUnread: Bool,
+        markedAt: Date?,
+        now: Date = Date(),
+        sameTabGraceInterval: TimeInterval = manualUnreadFocusGraceInterval
+    ) -> Bool {
+        guard isManuallyUnread else { return false }
+
+        if let previousFocusedPanelId, previousFocusedPanelId != nextFocusedPanelId {
+            return true
+        }
+
+        guard let markedAt else { return true }
+        return now.timeIntervalSince(markedAt) >= sameTabGraceInterval
+    }
+
+    static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
+        hasUnreadNotification || isManuallyUnread
     }
 
     // MARK: - Title Management
@@ -571,6 +608,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
@@ -1157,8 +1195,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         if detached.manuallyUnread {
             manualUnreadPanelIds.insert(detached.panelId)
+            manualUnreadMarkedAt[detached.panelId] = .distantPast
         } else {
             manualUnreadPanelIds.remove(detached.panelId)
+            manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
         }
 
         guard let newTabId = bonsplitController.createTab(
@@ -1178,6 +1218,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
+            manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             return nil
         }
@@ -1611,6 +1652,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func applyTabSelectionNow(tabId: TabID, inPane pane: PaneID) {
+        let previousFocusedPanelId = focusedPanelId
         if bonsplitController.allPaneIds.contains(pane) {
             if bonsplitController.focusedPaneId != pane {
                 bonsplitController.focusPane(pane)
@@ -1650,7 +1692,24 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
-        clearManualUnread(panelId: panelId)
+        let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
+        let markedAt = manualUnreadMarkedAt[panelId]
+        if Self.shouldClearManualUnread(
+            previousFocusedPanelId: previousFocusedPanelId,
+            nextFocusedPanelId: panelId,
+            isManuallyUnread: isManuallyUnread,
+            markedAt: markedAt
+        ) {
+            triggerFocusFlash(panelId: panelId)
+            let clearDelay = Self.manualUnreadClearDelayAfterFocusFlash
+            if clearDelay <= 0 {
+                clearManualUnread(panelId: panelId)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + clearDelay) { [weak self] in
+                    self?.clearManualUnread(panelId: panelId)
+                }
+            }
+        }
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
@@ -1803,6 +1862,7 @@ extension Workspace: BonsplitDelegate {
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
+        manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -2118,6 +2178,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            markPanelRead(panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
