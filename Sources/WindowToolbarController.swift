@@ -10,6 +10,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
+    private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     override init() {
         super.init()
@@ -25,7 +26,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         self.tabManager = tabManager
         attachToExistingWindows()
         installObservers()
-        updateFocusedCommandText()
+        scheduleFocusedCommandTextUpdate()
     }
 
     private func installObservers() {
@@ -35,7 +36,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.updateFocusedCommandText()
+            Task { @MainActor [weak self] in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
         })
 
         observers.append(center.addObserver(
@@ -43,7 +46,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.updateFocusedCommandText()
+            Task { @MainActor [weak self] in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
         })
 
         observers.append(center.addObserver(
@@ -78,6 +83,12 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         window.titleVisibility = .hidden
     }
 
+    private func scheduleFocusedCommandTextUpdate() {
+        focusedCommandUpdateCoalescer.signal { [weak self] in
+            self?.updateFocusedCommandText()
+        }
+    }
+
     private func updateFocusedCommandText() {
         guard let tabManager else { return }
         let text: String
@@ -90,7 +101,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
 
         for label in commandLabels.values {
-            label.stringValue = text
+            if label.stringValue != text {
+                label.stringValue = text
+            }
         }
     }
 
@@ -114,7 +127,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
             item.view = label
             commandLabels[ObjectIdentifier(toolbar)] = label
-            updateFocusedCommandText()
+            scheduleFocusedCommandTextUpdate()
             return item
         }
 

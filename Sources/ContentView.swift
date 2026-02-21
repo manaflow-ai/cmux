@@ -476,6 +476,8 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
+    @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    @State private var titlebarThemeUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -691,11 +693,27 @@ struct ContentView: View {
     private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            titlebarText = ""
+            if !titlebarText.isEmpty {
+                titlebarText = ""
+            }
             return
         }
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        titlebarText = title
+        if titlebarText != title {
+            titlebarText = title
+        }
+    }
+
+    private func scheduleTitlebarTextRefresh() {
+        titlebarTextUpdateCoalescer.signal {
+            updateTitlebarText()
+        }
+    }
+
+    private func scheduleTitlebarThemeRefresh() {
+        titlebarThemeUpdateCoalescer.signal {
+            titlebarThemeGeneration &+= 1
+        }
     }
 
     private var focusedDirectory: String? {
@@ -798,23 +816,23 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            titlebarThemeGeneration &+= 1
+            scheduleTitlebarThemeRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            titlebarThemeGeneration &+= 1
+            scheduleTitlebarThemeRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
