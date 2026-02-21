@@ -43,27 +43,3 @@ export function NavLinks() {
   );
 }
 
-export function SiteFooter() {
-  return (
-    <footer className="py-8 flex justify-center">
-      <div className="flex flex-wrap justify-center items-center gap-4 text-sm text-muted px-6">
-        <a
-          href="https://github.com/manaflow-ai/cmux"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "footer" })}
-          className="hover:text-foreground transition-colors"
-        >
-          GitHub
-        </a>
-        <a href="https://twitter.com/manaflowai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Twitter</a>
-        <a href="https://discord.gg/xsgFEVrWCZ" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Discord</a>
-        <Link href="/docs/changelog" className="hover:text-foreground transition-colors">Changelog</Link>
-        <Link href="/privacy-policy" className="hover:text-foreground transition-colors">Privacy</Link>
-        <Link href="/terms-of-service" className="hover:text-foreground transition-colors">Terms</Link>
-        <Link href="/eula" className="hover:text-foreground transition-colors">EULA</Link>
-        <a href="mailto:founders@manaflow.com" className="hover:text-foreground transition-colors">Contact</a>
-      </div>
-    </footer>
-  );
-}
