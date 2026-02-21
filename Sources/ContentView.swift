@@ -248,25 +248,11 @@ enum DragOverlayRoutingPolicy {
     }
 
     private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
-        // NSDraggingDestination hit-testing can occur with no current NSEvent.
-        // Treat nil as drag-routing context so portal-hosted terminals do not
-        // swallow Bonsplit/sidebar drag payloads.
-        guard let eventType else { return true }
+        // Restrict portal pass-through to explicit drag-motion events so stale
+        // NSPasteboard(name: .drag) types cannot hijack normal pointer input.
+        guard let eventType else { return false }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
-            return true
-        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
-            // During tab drags AppKit can still query hit-test routing with mouse
-            // down/up events. If we reject these, terminal portal layers may steal
-            // the initial drop routing path and suppress pane drop indicators.
-            return true
-        case .flagsChanged:
-            // Real tab drags can briefly report flagsChanged while modifiers
-            // are sampled; still treat as drag-routing context.
-            return true
-        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate:
-            return true
-        case .appKitDefined, .systemDefined, .applicationDefined, .periodic:
             return true
         default:
             return false
