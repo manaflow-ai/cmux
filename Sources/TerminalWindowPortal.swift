@@ -21,11 +21,16 @@ private func portalDebugFrame(_ rect: NSRect) -> String {
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
+    private var cachedSidebarDividerX: CGFloat?
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if shouldPassThroughToSidebarResizer(at: point) {
+            return nil
+        }
+
         if shouldPassThroughToSplitDivider(at: point) {
             return nil
         }
@@ -58,6 +63,32 @@ final class WindowTerminalHostView: NSView {
         )
 #endif
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        // The sidebar resizer handle is implemented in SwiftUI. When terminals
+        // are portal-hosted, this AppKit host can otherwise sit above the handle
+        // and steal hover/mouse events.
+        let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+            .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
+
+        // Ignore transient 0-origin hosts while layouts churn (e.g. workspace
+        // creation/switching). They can temporarily report minX=0 and would
+        // otherwise clear divider pass-through, causing hover flicker.
+        let dividerCandidates = visibleHostedViews
+            .map(\.frame.minX)
+            .filter { $0 > 1 }
+        if let leftMostEdge = dividerCandidates.min() {
+            cachedSidebarDividerX = leftMostEdge
+        }
+
+        guard let dividerX = cachedSidebarDividerX else {
+            return false
+        }
+
+        let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
+        let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
+        return point.x >= regionMinX && point.x <= regionMaxX
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
@@ -178,10 +209,103 @@ final class WindowTerminalHostView: NSView {
 #endif
 }
 
+private final class SplitDividerOverlayView: NSView {
+    private struct DividerSegment {
+        let rect: NSRect
+        let color: NSColor
+    }
+
+    override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let window, let rootView = window.contentView else { return }
+
+        var dividerSegments: [DividerSegment] = []
+        collectDividerSegments(in: rootView, into: &dividerSegments)
+        guard !dividerSegments.isEmpty else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        // Keep separators visible above portal-hosted surfaces while matching each split view's
+        // native divider color (avoids visible color shifts at tiny pane sizes).
+        for segment in dividerSegments where segment.rect.intersects(dirtyRect) {
+            segment.color.setFill()
+            let rect = segment.rect
+            let pixelAligned = NSRect(
+                x: floor(rect.origin.x),
+                y: floor(rect.origin.y),
+                width: max(1, round(rect.size.width)),
+                height: max(1, round(rect.size.height))
+            )
+            NSBezierPath(rect: pixelAligned).fill()
+        }
+    }
+
+    private func collectDividerSegments(in view: NSView, into result: inout [DividerSegment]) {
+        guard !view.isHidden else { return }
+
+        if let splitView = view as? NSSplitView {
+            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+            let dividerColor = overlayDividerColor(for: splitView)
+            for dividerIndex in 0..<dividerCount {
+                let first = splitView.arrangedSubviews[dividerIndex].frame
+                let thickness = max(splitView.dividerThickness, 1)
+                let dividerRectInSplit: NSRect
+                if splitView.isVertical {
+                    dividerRectInSplit = NSRect(
+                        x: first.maxX,
+                        y: 0,
+                        width: thickness,
+                        height: splitView.bounds.height
+                    )
+                } else {
+                    dividerRectInSplit = NSRect(
+                        x: 0,
+                        y: first.maxY,
+                        width: splitView.bounds.width,
+                        height: thickness
+                    )
+                }
+
+                let dividerRectInWindow = splitView.convert(dividerRectInSplit, to: nil)
+                let dividerRectInOverlay = convert(dividerRectInWindow, from: nil)
+                if dividerRectInOverlay.intersects(bounds) {
+                    result.append(DividerSegment(rect: dividerRectInOverlay, color: dividerColor))
+                }
+            }
+        }
+
+        for subview in view.subviews {
+            collectDividerSegments(in: subview, into: &result)
+        }
+    }
+
+    private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {
+        let divider = splitView.dividerColor.usingColorSpace(.deviceRGB) ?? splitView.dividerColor
+        let alpha = divider.alphaComponent
+        guard alpha < 0.999 else { return divider }
+
+        guard let bgColor = splitView.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)),
+              let bgRGB = bgColor.usingColorSpace(.deviceRGB) else {
+            return divider
+        }
+
+        let opaqueBG = bgRGB.withAlphaComponent(1)
+        let opaqueDivider = divider.withAlphaComponent(1)
+        return opaqueBG.blended(withFraction: alpha, of: opaqueDivider) ?? divider
+    }
+}
+
 @MainActor
 final class WindowTerminalPortal: NSObject {
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
+    private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
@@ -202,7 +326,23 @@ final class WindowTerminalPortal: NSObject {
         super.init()
         hostView.wantsLayer = false
         hostView.translatesAutoresizingMaskIntoConstraints = false
+        dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
+        dividerOverlayView.autoresizingMask = [.width, .height]
         _ = ensureInstalled()
+    }
+
+    private func ensureDividerOverlayOnTop() {
+        if dividerOverlayView.superview !== hostView {
+            dividerOverlayView.frame = hostView.bounds
+            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+        } else if hostView.subviews.last !== dividerOverlayView {
+            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+        }
+
+        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
+            dividerOverlayView.frame = hostView.bounds
+        }
+        dividerOverlayView.needsDisplay = true
     }
 
     @discardableResult
@@ -238,6 +378,8 @@ final class WindowTerminalPortal: NSObject {
            !Self.isView(overlay, above: hostView, in: container) {
             container.addSubview(overlay, positioned: .above, relativeTo: hostView)
         }
+
+        ensureDividerOverlayOnTop()
 
         return true
     }
@@ -394,6 +536,8 @@ final class WindowTerminalPortal: NSObject {
             hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
         }
 
+        ensureDividerOverlayOnTop()
+
         synchronizeHostedView(withId: hostedId)
         pruneDeadEntries()
     }
@@ -523,6 +667,8 @@ final class WindowTerminalPortal: NSObject {
 #endif
             hostedView.isHidden = shouldHide
         }
+
+        ensureDividerOverlayOnTop()
     }
 
     private func pruneDeadEntries() {
