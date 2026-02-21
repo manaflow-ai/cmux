@@ -2,10 +2,50 @@
 set -euo pipefail
 
 # Build, sign, notarize, create DMG, generate appcast, and upload to GitHub release.
-# Usage: ./scripts/build-sign-upload.sh <tag>
+# Usage: ./scripts/build-sign-upload.sh <tag> [--allow-overwrite]
 # Requires: source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
 
-TAG="${1:?Usage: $0 <tag>}"
+usage() {
+  cat <<'EOF'
+Usage: ./scripts/build-sign-upload.sh <tag> [--allow-overwrite]
+
+Options:
+  --allow-overwrite   Permit replacing existing release assets for the same tag.
+                      Use only for emergency rerolls.
+EOF
+}
+
+ALLOW_OVERWRITE="false"
+POSITIONAL=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --allow-overwrite)
+      ALLOW_OVERWRITE="true"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
+
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
 ENTITLEMENTS="cmux.entitlements"
 APP_PATH="build/Build/Products/Release/cmux.app"
@@ -81,8 +121,29 @@ echo "Generating appcast..."
 
 # --- Create GitHub release (if needed) and upload ---
 if gh release view "$TAG" >/dev/null 2>&1; then
-  echo "Uploading to existing release $TAG..."
-  gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
+  echo "Release $TAG already exists"
+  EXISTING_ASSETS="$(gh release view "$TAG" --json assets --jq '.assets[].name' || true)"
+  HAS_CONFLICTING_ASSET="false"
+  for asset in cmux-macos.dmg appcast.xml; do
+    if printf '%s\n' "$EXISTING_ASSETS" | grep -Fxq "$asset"; then
+      HAS_CONFLICTING_ASSET="true"
+      break
+    fi
+  done
+
+  if [[ "$HAS_CONFLICTING_ASSET" == "true" && "$ALLOW_OVERWRITE" != "true" ]]; then
+    echo "ERROR: Refusing to overwrite signed release assets for existing tag $TAG." >&2
+    echo "Use a new tag, or rerun with --allow-overwrite for an emergency reroll." >&2
+    exit 1
+  fi
+
+  if [[ "$ALLOW_OVERWRITE" == "true" ]]; then
+    echo "Uploading with overwrite enabled for existing release $TAG..."
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml --clobber
+  else
+    echo "Uploading to existing release $TAG..."
+    gh release upload "$TAG" cmux-macos.dmg appcast.xml
+  fi
 else
   echo "Creating release $TAG and uploading..."
   gh release create "$TAG" cmux-macos.dmg appcast.xml --title "$TAG" --notes "See CHANGELOG.md for details"
