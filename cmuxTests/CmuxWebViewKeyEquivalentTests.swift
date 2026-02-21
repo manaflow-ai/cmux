@@ -3596,3 +3596,36 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         )
     }
 }
+
+final class TerminalControllerSocketTextChunkTests: XCTestCase {
+    func testSocketTextChunksReturnsSingleChunkForPlainText() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("echo hello"),
+            [.text("echo hello")]
+        )
+    }
+
+    func testSocketTextChunksSplitsControlScalars() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("abc\rdef\tghi"),
+            [
+                .text("abc"),
+                .control("\r".unicodeScalars.first!),
+                .text("def"),
+                .control("\t".unicodeScalars.first!),
+                .text("ghi")
+            ]
+        )
+    }
+
+    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("\r\n\t"),
+            [
+                .control("\r".unicodeScalars.first!),
+                .control("\n".unicodeScalars.first!),
+                .control("\t".unicodeScalars.first!)
+            ]
+        )
+    }
+}
