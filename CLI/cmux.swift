@@ -868,6 +868,43 @@ struct CMUXCLI {
                 print(response)
             }
 
+        case "read-screen":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (sfArg, rem1) = parseOption(rem0, name: "--surface")
+            let (linesArg, rem2) = parseOption(rem1, name: "--lines")
+            let trailing = rem2.filter { $0 != "--scrollback" }
+            if !trailing.isEmpty {
+                throw CLIError(message: "read-screen: unexpected arguments: \(trailing.joined(separator: " "))")
+            }
+
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            if let sfId { params["surface_id"] = sfId }
+
+            let includeScrollback = rem2.contains("--scrollback")
+            if includeScrollback {
+                params["scrollback"] = true
+            }
+            if let linesArg {
+                guard let lineCount = Int(linesArg), lineCount > 0 else {
+                    throw CLIError(message: "--lines must be greater than 0")
+                }
+                params["lines"] = lineCount
+                params["scrollback"] = true
+            }
+
+            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print((payload["text"] as? String) ?? "")
+            }
+
         case "send":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
@@ -2803,6 +2840,22 @@ struct CMUXCLI {
               cmux select-workspace --workspace workspace:2
               cmux select-workspace --workspace 0
             """
+        case "read-screen":
+            return """
+            Usage: cmux read-screen [flags]
+
+            Read terminal text from a surface as plain text.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --scrollback           Include scrollback (not just visible viewport)
+              --lines <n>            Limit to the last n lines (implies --scrollback)
+
+            Example:
+              cmux read-screen
+              cmux read-screen --surface surface:2 --scrollback --lines 200
+            """
         case "send":
             return """
             Usage: cmux send [flags] [--] <text>
@@ -3463,6 +3516,7 @@ struct CMUXCLI {
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
           current-workspace
+          read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
           send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
