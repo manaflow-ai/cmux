@@ -3,9 +3,28 @@ import Link from "next/link";
 import { StaticTweet } from "../../components/static-tweet";
 
 export const metadata: Metadata = {
-  title: "cmux Show HN Launch",
+  title: "Launching cmux on Show HN",
   description:
-    "How cmux launched on Hacker News, went viral in Japan, and shipped 18 releases in 48 hours.",
+    "cmux launched on Hacker News, hit the front page, went viral in Japan, and shipped 18 releases in 48 hours. Here's what happened.",
+  keywords: [
+    "cmux",
+    "Show HN",
+    "Hacker News",
+    "terminal",
+    "macOS",
+    "Ghostty",
+    "libghostty",
+    "AI coding agents",
+    "Claude Code",
+    "launch",
+  ],
+  openGraph: {
+    title: "Launching cmux on Show HN",
+    description:
+      "cmux launched on Hacker News, hit the front page, went viral in Japan, and shipped 18 releases in 48 hours.",
+    type: "article",
+    publishedTime: "2026-02-21T00:00:00Z",
+  },
 };
 
 export default function ShowHNLaunchPage() {
@@ -20,33 +39,29 @@ export default function ShowHNLaunchPage() {
         </Link>
       </div>
 
-      <h1>cmux Show HN Launch</h1>
+      <h1>Launching cmux on Show HN</h1>
       <time className="text-sm text-muted">February 21, 2026</time>
 
       <p className="mt-6">
-        We launched cmux on{" "}
-        <a href="https://news.ycombinator.com/item?id=47079718">Show HN</a>{" "}
-        on February 20, 2026. Here&apos;s what happened.
-      </p>
-
-      <h2>The problem</h2>
-      <p>
         I was running 5+ Claude Code sessions in parallel and kept losing
         track of which ones needed attention. Terminal tabs all looked the
-        same. Notifications were generic. Switching between agents meant
-        hunting through identical-looking tabs.
-      </p>
-      <p>
-        So I built cmux: a native macOS terminal that puts agent state front
-        and center. Vertical sidebar tabs show git branch, working directory,
-        listening ports, and the latest notification text for each workspace.
-        When an agent needs input, the tab flashes with a colored ring.
+        same. Switching between agents meant hunting through identical windows.
       </p>
 
-      <h2>Launch day</h2>
       <p>
-        The Show HN post hit the front page. Within hours, Mitchell
-        Hashimoto (creator of Ghostty, Vagrant, Terraform) shared it:
+        So I built{" "}
+        <a href="https://github.com/manaflow-ai/cmux">cmux</a>: a native
+        macOS terminal on top of{" "}
+        <a href="https://github.com/ghostty-org/ghostty">libghostty</a> that
+        puts agent state front and center. Vertical sidebar tabs show git
+        branch, working directory, and listening ports. When an agent needs
+        input, the tab flashes with a colored ring.
+      </p>
+
+      <p>
+        We posted it on{" "}
+        <a href="https://news.ycombinator.com/item?id=47079718">Show HN</a>{" "}
+        and it hit the front page. Mitchell Hashimoto shared it:
       </p>
 
       <StaticTweet
@@ -59,18 +74,17 @@ export default function ShowHNLaunchPage() {
       />
 
       <p>
-        The HN discussion was exactly the kind of feedback you hope for.
-        People asked about Ghostty&apos;s relationship to cmux (it uses
-        libghostty as a library, not a fork), requested features like pane
-        zoom and keyboard customization, and reported bugs. We shipped 18
-        releases in the first 48 hours fixing everything we could.
+        The HN thread was good feedback. People asked about the Ghostty
+        relationship (cmux uses libghostty as a library, not a fork),
+        requested features, and reported bugs. We shipped 18 releases in 48
+        hours fixing everything we could.
       </p>
 
-      <h2>Viral in Japan</h2>
       <p>
-        Something unexpected happened. catnose99, a well-known Japanese
-        developer (creator of Zenn and sizu.me), tweeted about cmux and it
-        took off in Japan. The tweet got 39K+ views and 800+ likes:
+        Then something unexpected happened.{" "}
+        <a href="https://x.com/catnose99">catnose99</a>, creator of Zenn and
+        sizu.me, tweeted about cmux and it took off in Japan. 39K+ views,
+        800+ likes:
       </p>
 
       <StaticTweet
@@ -83,25 +97,24 @@ export default function ShowHNLaunchPage() {
       />
 
       <p>
-        Rough translation: &quot;This looks good. A Ghostty-based terminal
-        app. It&apos;s designed so you don&apos;t easily get lost even when
-        running multiple CLI tools like Claude Code in parallel. The
-        waiting-for-input panel gets highlighted with a blue frame, and it
-        has its own custom notification system.&quot;
+        Translation: &quot;This looks good. A Ghostty-based terminal app
+        designed so you don&apos;t get lost running multiple CLIs like Claude
+        Code in parallel. The waiting-for-input panel gets a blue frame, and
+        it has its own notification system.&quot;
       </p>
 
       <p>
-        We didn&apos;t expect international adoption this early. It was a
-        reminder that the problem of managing multiple AI agents is universal,
-        not just an English-speaking developer thing.
+        We didn&apos;t expect international adoption this early. Turns out
+        managing parallel AI agents is a universal pain point.
       </p>
 
-      <h2>The socket API in action</h2>
       <p>
-        One of the most exciting things to come out of launch was seeing
-        people build on top of the cmux socket API. sasha built a pi
-        (personal intelligence) extension that hooks into cmux to show
-        model info, token usage, and agent state directly in the sidebar:
+        The most exciting thing was seeing people build on top of the socket
+        API. sasha built a{" "}
+        <a href="https://x.com/sasha_computer/status/2024978414822916358">
+          pi-cmux extension
+        </a>{" "}
+        that shows model info, token usage, and agent state in the sidebar:
       </p>
 
       <StaticTweet
@@ -113,42 +126,26 @@ export default function ShowHNLaunchPage() {
       />
 
       <p>
-        This is exactly what we hoped for when building the socket API.
         cmux exposes everything over a Unix socket: creating workspaces,
         sending keystrokes, controlling the browser, reading notifications.
-        Any tool that can talk to a socket can extend cmux.
+        Any tool that can talk to a socket can extend it. That&apos;s the
+        whole point.
       </p>
 
-      <h2>What we learned</h2>
-      <ul>
-        <li>
-          <strong>Ship the socket API early.</strong> The best feedback came
-          from people who could actually script cmux and build on top of it.
-        </li>
-        <li>
-          <strong>Fix bugs in public.</strong> Shipping 18 releases in 48
-          hours sounds chaotic, but every fix was a direct response to a user
-          report. People respected the speed.
-        </li>
-        <li>
-          <strong>The problem is global.</strong> Managing parallel AI agents
-          is a pain point everywhere, not just in Silicon Valley.
-        </li>
-        <li>
-          <strong>Use libghostty, not fork Ghostty.</strong> Many people
-          assumed cmux was a Ghostty fork. It&apos;s not. It uses libghostty
-          as a rendering library, the same way apps use WebKit for web views.
-          This distinction matters for trust and for contributing back upstream.
-        </li>
-      </ul>
-
-      <h2>What&apos;s next</h2>
       <p>
-        We&apos;re working on better SSH support for remote containers,
-        tmux compatibility layers, and more ways to customize the sidebar.
+        Three things I&apos;d tell someone doing a Show HN. Ship the
+        programmable API early, because the best feedback comes from people
+        who can actually build on your thing. Fix bugs in public, because 18
+        releases in 48 hours sounds chaotic but people respect the speed. And
+        don&apos;t assume your problem is local. We built cmux for our own
+        workflow and it resonated in Tokyo the same day it resonated in San
+        Francisco.
+      </p>
+
+      <p>
         If you&apos;re running multiple coding agents and want a terminal
         that keeps up,{" "}
-        <a href="https://github.com/manaflow-ai/cmux">give cmux a try</a>.
+        <a href="https://github.com/manaflow-ai/cmux">try cmux</a>.
       </p>
     </>
   );
