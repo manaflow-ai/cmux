@@ -2926,7 +2926,11 @@ private extension BrowserPanel {
               typeof Range !== "undefined"
             );
           }
-          const canUseCustomHighlights = supportsCustomHighlights();
+          // WKWebView currently reports custom-highlight support but can fail to paint
+          // highlights reliably in embedded browser surfaces. Keep the code path for
+          // future re-enable, but force span fallback for deterministic visibility.
+          const customHighlightEnabled = false;
+          const canUseCustomHighlights = customHighlightEnabled && supportsCustomHighlights();
 
           function clearMarks() {
             const marks = Array.from(document.querySelectorAll("span." + markClass));

@@ -1486,6 +1486,7 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
 
         let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
         XCTAssertTrue(highlightScript.contains("supportsCustomHighlights"))
+        XCTAssertTrue(highlightScript.contains("const customHighlightEnabled = false"))
         XCTAssertTrue(highlightScript.contains("CSS.highlights.set(allHighlightName"))
         XCTAssertTrue(highlightScript.contains("::highlight("))
         XCTAssertTrue(highlightScript.contains("applySpanFallback"))
