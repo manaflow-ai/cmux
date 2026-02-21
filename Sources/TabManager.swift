@@ -51,6 +51,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarBranchLayoutSettings {
+    static let key = "sidebarBranchVerticalLayout"
+    static let defaultVerticalLayout = true
+
+    static func usesVerticalLayout(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultVerticalLayout
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
