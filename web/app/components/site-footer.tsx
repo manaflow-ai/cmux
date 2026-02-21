@@ -42,7 +42,7 @@ export function SiteFooter() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-border mt-16">
+    <footer className="mt-16">
       <div className="max-w-2xl mx-auto px-6 py-12">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
           {columns.map((col) => (
