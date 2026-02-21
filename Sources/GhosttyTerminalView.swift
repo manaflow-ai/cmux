@@ -2115,6 +2115,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
     }
+
+    // Test-only IME point override so firstRect behavior can be regression tested.
+    private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
+
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
+        imePointOverrideForTesting = (x, y, width, height)
+    }
+
+    func clearIMEPointForTesting() {
+        imePointOverrideForTesting = nil
+    }
 #endif
 
 #if DEBUG
@@ -4204,17 +4215,28 @@ extension GhosttyNSView: NSTextInputClient {
         // Use Ghostty's IME point API for accurate cursor position if available.
         var x: Double = 0
         var y: Double = 0
-        var w: Double = 0
-        var h: Double = 0
+        var w: Double = cellSize.width
+        var h: Double = cellSize.height
+#if DEBUG
+        if let override = imePointOverrideForTesting {
+            x = override.x
+            y = override.y
+            w = override.width
+            h = override.height
+        } else if let surface = surface {
+            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        }
+#else
         if let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
+#endif
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
         let viewRect = NSRect(
             x: x,
             y: frame.size.height - y,
-            width: 0,
+            width: w,
             height: max(h, cellSize.height)
         )
         let winRect = convert(viewRect, to: nil)
