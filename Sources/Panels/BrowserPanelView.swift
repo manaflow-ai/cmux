@@ -135,6 +135,8 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+    @AppStorage(BrowserForcedDarkModeSettings.enabledKey) private var forcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
+    @AppStorage(BrowserForcedDarkModeSettings.opacityKey) private var forcedDarkModeOpacity = BrowserForcedDarkModeSettings.defaultOpacity
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -182,6 +184,10 @@ struct BrowserPanelView: View {
 
     private var devToolsColorOption: BrowserDevToolsIconColorOption {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
+
+    private var normalizedForcedDarkModeOpacity: Double {
+        BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
     }
 
     var body: some View {
@@ -240,7 +246,13 @@ struct BrowserPanelView: View {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                BrowserForcedDarkModeSettings.enabledKey: BrowserForcedDarkModeSettings.defaultEnabled,
+                BrowserForcedDarkModeSettings.opacityKey: BrowserForcedDarkModeSettings.defaultOpacity,
             ])
+            panel.setForcedDarkMode(
+                enabled: forcedDarkModeEnabled,
+                opacity: normalizedForcedDarkModeOpacity
+            )
             applyPendingAddressBarFocusRequestIfNeeded()
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
@@ -261,6 +273,22 @@ struct BrowserPanelView: View {
                !isWebViewBlank() {
                 addressBarFocused = false
             }
+        }
+        .onChange(of: forcedDarkModeEnabled) { _ in
+            panel.setForcedDarkMode(
+                enabled: forcedDarkModeEnabled,
+                opacity: normalizedForcedDarkModeOpacity
+            )
+        }
+        .onChange(of: forcedDarkModeOpacity) { _ in
+            let normalized = BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
+            if abs(normalized - forcedDarkModeOpacity) > 0.0001 {
+                forcedDarkModeOpacity = normalized
+            }
+            panel.setForcedDarkMode(
+                enabled: forcedDarkModeEnabled,
+                opacity: normalized
+            )
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
@@ -332,6 +360,7 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
+            forcedDarkModeButton
             developerToolsButton
         }
         .padding(.horizontal, 8)
@@ -423,6 +452,29 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .help("Toggle Developer Tools")
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    private var forcedDarkModeButton: some View {
+        Button(action: {
+            forcedDarkModeEnabled.toggle()
+            panel.setForcedDarkMode(
+                enabled: forcedDarkModeEnabled,
+                opacity: normalizedForcedDarkModeOpacity
+            )
+        }) {
+            Image(systemName: forcedDarkModeEnabled ? "moon.fill" : "moon")
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(
+                    forcedDarkModeEnabled
+                    ? Color.orange
+                    : Color(nsColor: .secondaryLabelColor)
+                )
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(.plain)
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .help(forcedDarkModeEnabled ? "Forced Dark Mode On" : "Forced Dark Mode Off")
+        .accessibilityIdentifier("BrowserForcedDarkModeButton")
     }
 
     private var omnibarField: some View {
