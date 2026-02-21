@@ -54,6 +54,8 @@ private final class WorkspaceRemoteSessionController {
     private var daemonReady = false
     private var daemonBootstrapVersion: String?
     private var daemonRemotePath: String?
+    private var reconnectRetryCount = 0
+    private var reconnectWorkItem: DispatchWorkItem?
 
     init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
         self.workspace = workspace
@@ -76,6 +78,9 @@ private final class WorkspaceRemoteSessionController {
 
     private func stopAllLocked() {
         isStopping = true
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        reconnectRetryCount = 0
 
         if let probeProcess {
             probeStdoutPipe?.fileHandleForReading.readabilityHandler = nil
@@ -107,8 +112,18 @@ private final class WorkspaceRemoteSessionController {
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
-        publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
-        publishDaemonStatus(.bootstrapping, detail: "Bootstrapping remote daemon on \(configuration.displayTarget)")
+        reconnectWorkItem = nil
+        let connectDetail: String
+        let bootstrapDetail: String
+        if reconnectRetryCount > 0 {
+            connectDetail = "Reconnecting to \(configuration.displayTarget) (retry \(reconnectRetryCount))"
+            bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget) (retry \(reconnectRetryCount))"
+        } else {
+            connectDetail = "Connecting to \(configuration.displayTarget)"
+            bootstrapDetail = "Bootstrapping remote daemon on \(configuration.displayTarget)"
+        }
+        publishState(.connecting, detail: connectDetail)
+        publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello = try bootstrapDaemonLocked()
             daemonReady = true
@@ -127,10 +142,11 @@ private final class WorkspaceRemoteSessionController {
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
-            let detail = "Remote daemon bootstrap failed: \(error.localizedDescription)"
+            let nextRetry = scheduleProbeRestartLocked(delay: 4.0)
+            let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 4.0)
+            let detail = "Remote daemon bootstrap failed: \(error.localizedDescription)\(retrySuffix)"
             publishDaemonStatus(.error, detail: detail)
             publishState(.error, detail: detail)
-            scheduleProbeRestartLocked(delay: 4.0)
         }
     }
 
@@ -183,8 +199,9 @@ private final class WorkspaceRemoteSessionController {
             probeStdoutPipe = stdoutPipe
             probeStderrPipe = stderrPipe
         } catch {
-            publishState(.error, detail: "Failed to start SSH probe: \(error.localizedDescription)")
-            scheduleProbeRestartLocked(delay: 3.0)
+            let nextRetry = scheduleProbeRestartLocked(delay: 3.0)
+            let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 3.0)
+            publishState(.error, detail: "Failed to start SSH probe: \(error.localizedDescription)\(retrySuffix)")
         }
     }
 
@@ -209,18 +226,27 @@ private final class WorkspaceRemoteSessionController {
         let statusCode = process.terminationStatus
         let rawDetail = Self.bestErrorLine(stderr: probeStderrBuffer, stdout: probeStdoutBuffer)
         let detail = rawDetail ?? "SSH probe exited with status \(statusCode)"
-        publishState(.error, detail: "SSH probe to \(configuration.displayTarget) failed: \(detail)")
-        scheduleProbeRestartLocked(delay: 3.0)
+        let nextRetry = scheduleProbeRestartLocked(delay: 3.0)
+        let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 3.0)
+        publishState(.error, detail: "SSH probe to \(configuration.displayTarget) failed: \(detail)\(retrySuffix)")
     }
 
-    private func scheduleProbeRestartLocked(delay: TimeInterval) {
-        guard !isStopping else { return }
-        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+    @discardableResult
+    private func scheduleProbeRestartLocked(delay: TimeInterval) -> Int {
+        guard !isStopping else { return reconnectRetryCount }
+        reconnectWorkItem?.cancel()
+        reconnectRetryCount += 1
+        let retryNumber = reconnectRetryCount
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            self.reconnectWorkItem = nil
             guard !self.isStopping else { return }
             guard self.probeProcess == nil else { return }
             self.beginConnectionAttemptLocked()
         }
+        reconnectWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + delay, execute: workItem)
+        return retryNumber
     }
 
     private func consumeProbeStdoutData(_ data: Data) {
@@ -248,6 +274,9 @@ private final class WorkspaceRemoteSessionController {
         let ports = Self.parseRemotePorts(line: line)
         desiredRemotePorts = Set(ports)
         portConflicts = portConflicts.intersection(desiredRemotePorts)
+        reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        reconnectRetryCount = 0
         publishState(.connected, detail: "Connected to \(configuration.displayTarget)")
         reconcileForwardsLocked()
     }
@@ -883,6 +912,11 @@ private final class WorkspaceRemoteSessionController {
         if lowered.hasPrefix("openbsd_") { return true }
         if lowered.contains("pseudo-terminal will not be allocated") { return true }
         return false
+    }
+
+    private static func retrySuffix(retry: Int, delay: TimeInterval) -> String {
+        let seconds = max(1, Int(delay.rounded()))
+        return " (retry \(retry) in \(seconds)s)"
     }
 
     private static func isLoopbackPortAvailable(port: Int) -> Bool {
