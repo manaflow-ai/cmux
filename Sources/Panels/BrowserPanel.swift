@@ -2052,6 +2052,18 @@ extension BrowserPanel {
 }
 #endif
 
+#if DEBUG
+extension BrowserPanel {
+    func debugInPageFindHighlightScript(payloadJSON: String) -> String {
+        inPageFindHighlightScript(payloadJSON: payloadJSON)
+    }
+
+    func debugClearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
+        clearInPageFindHighlightScript(requestSequence: requestSequence)
+    }
+}
+#endif
+
 private extension BrowserPanel {
     @discardableResult
     func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
@@ -2169,12 +2181,13 @@ private extension BrowserPanel {
     func hideInPageFindFallback() -> Bool {
         guard isInPageFindVisible else { return false }
         inPageFindRequestSequence &+= 1
+        let requestSequence = inPageFindRequestSequence
         isInPageFindVisible = false
         inPageFindMatchFound = nil
         inPageFindMatchCount = 0
         inPageFindCurrentMatchIndex = 0
         inPageFindLastQuery = ""
-        clearInPageFindHighlightsInWebView()
+        clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
         browserFindDebugLog("browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\"")
         return true
     }
@@ -2213,7 +2226,8 @@ private extension BrowserPanel {
             inPageFindCurrentMatchIndex = 0
             inPageFindLastQuery = ""
             inPageFindRequestSequence &+= 1
-            clearInPageFindHighlightsInWebView()
+            let requestSequence = inPageFindRequestSequence
+            clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
             return true
         }
 
@@ -2246,6 +2260,7 @@ private extension BrowserPanel {
             "query": query,
             "direction": direction,
             "queryChanged": queryChanged,
+            "requestSequence": requestSequence,
             "allBackground": colors.allBackground,
             "allForeground": colors.allForeground,
             "activeBackground": colors.activeBackground,
@@ -2352,8 +2367,8 @@ private extension BrowserPanel {
         return nil
     }
 
-    private func clearInPageFindHighlightsInWebView() {
-        webView.evaluateJavaScript(clearInPageFindHighlightScript()) { [weak self] _, error in
+    private func clearInPageFindHighlightsInWebView(requestSequence: Int? = nil) {
+        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] _, error in
             guard let error else { return }
             Task { @MainActor in
                 guard let self else { return }
@@ -2364,44 +2379,27 @@ private extension BrowserPanel {
         }
     }
 
-    private func clearInPageFindHighlightScript() -> String {
-        """
+    private func clearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
+        let requestSequenceJSON = requestSequence.map(String.init) ?? "null"
+        return """
         (function() {
+          const requestSequence = \(requestSequenceJSON);
           const markClass = "cmux-inpage-find-hit";
           const styleId = "cmux-inpage-find-style";
           const stateKey = "__cmuxInPageFindState";
-          const marks = Array.from(document.querySelectorAll("span." + markClass));
-          const parents = new Set();
-          for (const mark of marks) {
-            const parent = mark.parentNode;
-            if (parent) {
-              parents.add(parent);
-            }
-            mark.replaceWith(document.createTextNode(mark.textContent || ""));
-          }
-          parents.forEach((parent) => {
-            if (parent && parent.normalize) {
-              parent.normalize();
-            }
-          });
-          const style = document.getElementById(styleId);
-          if (style && style.parentNode) {
-            style.parentNode.removeChild(style);
-          }
-          window[stateKey] = { query: "", activeIndex: 0 };
-          return true;
-        })();
-        """
-    }
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+          const normalizedRequestSequence = Number(requestSequence);
+          const hasRequestSequence = Number.isFinite(normalizedRequestSequence) && normalizedRequestSequence > 0;
 
-    private func inPageFindHighlightScript(payloadJSON: String) -> String {
-        """
-        (function() {
-          const payload = \(payloadJSON);
-          const markClass = "cmux-inpage-find-hit";
-          const activeClass = "cmux-inpage-find-active";
-          const styleId = "cmux-inpage-find-style";
-          const stateKey = "__cmuxInPageFindState";
+          if (hasRequestSequence) {
+            const latestSequence = Number(window[sequenceKey] || 0);
+            if (normalizedRequestSequence < latestSequence) {
+              return { stale: true };
+            }
+            window[sequenceKey] = normalizedRequestSequence;
+          }
 
           function clearMarks() {
             const marks = Array.from(document.querySelectorAll("span." + markClass));
@@ -2420,12 +2418,102 @@ private extension BrowserPanel {
             });
           }
 
+          function clearCustomHighlights() {
+            if (typeof CSS === "undefined" || !CSS.highlights) return;
+            try { CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
+          }
+
+          clearMarks();
+          clearCustomHighlights();
+
+          const style = document.getElementById(styleId);
+          if (style && style.parentNode) {
+            style.parentNode.removeChild(style);
+          }
+          window[stateKey] = { query: "", activeIndex: 0 };
+          if (hasRequestSequence) {
+            window[sequenceKey] = normalizedRequestSequence;
+          }
+          return true;
+        })();
+        """
+    }
+
+    private func inPageFindHighlightScript(payloadJSON: String) -> String {
+        """
+        (function() {
+          const payload = \(payloadJSON);
+          const markClass = "cmux-inpage-find-hit";
+          const activeClass = "cmux-inpage-find-active";
+          const styleId = "cmux-inpage-find-style";
+          const stateKey = "__cmuxInPageFindState";
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+          const requestSequence = Number(payload.requestSequence || 0);
+          const hasRequestSequence = Number.isFinite(requestSequence) && requestSequence > 0;
+
+          if (hasRequestSequence) {
+            const latestSequence = Number(window[sequenceKey] || 0);
+            if (requestSequence < latestSequence) {
+              return { matchFound: false, current: 0, total: 0, stale: true };
+            }
+            window[sequenceKey] = requestSequence;
+          }
+
+          function supportsCustomHighlights() {
+            return (
+              typeof CSS !== "undefined" &&
+              CSS.highlights &&
+              typeof Highlight !== "undefined" &&
+              typeof Range !== "undefined"
+            );
+          }
+          const canUseCustomHighlights = supportsCustomHighlights();
+
+          function clearMarks() {
+            const marks = Array.from(document.querySelectorAll("span." + markClass));
+            const parents = new Set();
+            for (const mark of marks) {
+              const parent = mark.parentNode;
+              if (parent) {
+                parents.add(parent);
+              }
+              mark.replaceWith(document.createTextNode(mark.textContent || ""));
+            }
+            parents.forEach((parent) => {
+              if (parent && parent.normalize) {
+                parent.normalize();
+              }
+            });
+          }
+
+          function clearCustomHighlights() {
+            if (!canUseCustomHighlights) return;
+            try { CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
+          }
+
           function ensureStyle() {
             let style = document.getElementById(styleId);
             if (!style) {
               style = document.createElement("style");
               style.id = styleId;
               (document.head || document.documentElement).appendChild(style);
+            }
+            if (canUseCustomHighlights) {
+              style.textContent = `
+                ::highlight(${allHighlightName}) {
+                  background: ${payload.allBackground};
+                  color: ${payload.allForeground};
+                }
+                ::highlight(${activeHighlightName}) {
+                  background: ${payload.activeBackground};
+                  color: ${payload.activeForeground};
+                }
+              `;
+              return;
             }
             style.textContent = `
               span.${markClass} {
@@ -2479,15 +2567,7 @@ private extension BrowserPanel {
             return nodes;
           }
 
-          try {
-            const query = (payload.query || "").trim();
-            clearMarks();
-            if (!query) {
-              window[stateKey] = { query: "", activeIndex: 0 };
-              return { matchFound: false, current: 0, total: 0 };
-            }
-
-            ensureStyle();
+          function collectMatches(query) {
             const lowerQuery = query.toLocaleLowerCase();
             const queryLength = query.length;
             const matches = [];
@@ -2497,33 +2577,21 @@ private extension BrowserPanel {
               const lower = original.toLocaleLowerCase();
               let cursor = 0;
               let index = lower.indexOf(lowerQuery, cursor);
-              if (index === -1) continue;
-
-              const fragment = document.createDocumentFragment();
               while (index !== -1) {
-                if (index > cursor) {
-                  fragment.appendChild(document.createTextNode(original.slice(cursor, index)));
-                }
-                const matchText = original.slice(index, index + queryLength);
-                const mark = document.createElement("span");
-                mark.className = markClass;
-                mark.textContent = matchText;
-                fragment.appendChild(mark);
-                matches.push(mark);
+                matches.push({
+                  node: textNode,
+                  start: index,
+                  end: index + queryLength,
+                });
                 cursor = index + queryLength;
                 index = lower.indexOf(lowerQuery, cursor);
               }
-              if (cursor < original.length) {
-                fragment.appendChild(document.createTextNode(original.slice(cursor)));
-              }
-              textNode.replaceWith(fragment);
             }
 
-            if (matches.length === 0) {
-              window[stateKey] = { query, activeIndex: 0 };
-              return { matchFound: false, current: 0, total: 0 };
-            }
+            return matches;
+          }
 
+          function resolveActiveIndex(query, total) {
             const previous = window[stateKey] || { query: "", activeIndex: 0 };
             let activeIndex = 0;
             if (!payload.queryChanged && previous.query === query) {
@@ -2534,20 +2602,142 @@ private extension BrowserPanel {
                 activeIndex -= 1;
               }
             }
-            activeIndex = ((activeIndex % matches.length) + matches.length) % matches.length;
+            return ((activeIndex % total) + total) % total;
+          }
 
-            for (let idx = 0; idx < matches.length; idx += 1) {
+          function scrollMatchIntoView(match) {
+            if (!match) return;
+            if (!canUseCustomHighlights) {
+              if (match.scrollIntoView) {
+                match.scrollIntoView({ block: "center", inline: "nearest" });
+              }
+              return;
+            }
+
+            const range = document.createRange();
+            range.setStart(match.node, match.start);
+            range.setEnd(match.node, match.end);
+            const rect = range.getBoundingClientRect();
+
+            if (!rect || (rect.width === 0 && rect.height === 0)) {
+              const anchor = match.node.parentElement;
+              if (anchor && anchor.scrollIntoView) {
+                anchor.scrollIntoView({ block: "center", inline: "nearest" });
+              }
+              return;
+            }
+
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const nextTop = rect.top + window.scrollY - Math.max(0, (viewportHeight - rect.height) / 2);
+            const nextLeft = rect.left + window.scrollX - Math.max(0, (viewportWidth - rect.width) / 2);
+            window.scrollTo({
+              top: Math.max(0, nextTop),
+              left: Math.max(0, nextLeft),
+              behavior: "auto",
+            });
+          }
+
+          function applyCustomHighlights(matches, activeIndex) {
+            clearCustomHighlights();
+
+            const allHighlight = new Highlight();
+            for (const match of matches) {
+              const range = document.createRange();
+              range.setStart(match.node, match.start);
+              range.setEnd(match.node, match.end);
+              allHighlight.add(range);
+            }
+            CSS.highlights.set(allHighlightName, allHighlight);
+
+            const activeHighlight = new Highlight();
+            const activeMatch = matches[activeIndex];
+            if (activeMatch) {
+              const activeRange = document.createRange();
+              activeRange.setStart(activeMatch.node, activeMatch.start);
+              activeRange.setEnd(activeMatch.node, activeMatch.end);
+              activeHighlight.add(activeRange);
+            }
+            CSS.highlights.set(activeHighlightName, activeHighlight);
+            return activeMatch || null;
+          }
+
+          function applySpanFallback(matches, activeIndex) {
+            const marksByNode = new Map();
+            for (const match of matches) {
+              const nodeMatches = marksByNode.get(match.node) || [];
+              nodeMatches.push(match);
+              marksByNode.set(match.node, nodeMatches);
+            }
+
+            const marks = [];
+            for (const textNode of collectTextNodes()) {
+              const nodeMatches = marksByNode.get(textNode);
+              if (!nodeMatches || nodeMatches.length === 0) continue;
+
+              const original = textNode.nodeValue || "";
+              let cursor = 0;
+              const fragment = document.createDocumentFragment();
+              for (const match of nodeMatches) {
+                const start = match.start;
+                const end = match.end;
+                if (start > cursor) {
+                  fragment.appendChild(document.createTextNode(original.slice(cursor, start)));
+                }
+                const mark = document.createElement("span");
+                mark.className = markClass;
+                mark.textContent = original.slice(start, end);
+                fragment.appendChild(mark);
+                marks.push(mark);
+                cursor = end;
+              }
+              if (cursor < original.length) {
+                fragment.appendChild(document.createTextNode(original.slice(cursor)));
+              }
+              textNode.replaceWith(fragment);
+            }
+
+            for (let idx = 0; idx < marks.length; idx += 1) {
               if (idx === activeIndex) {
-                matches[idx].classList.add(activeClass);
+                marks[idx].classList.add(activeClass);
               } else {
-                matches[idx].classList.remove(activeClass);
+                marks[idx].classList.remove(activeClass);
               }
             }
 
-            const active = matches[activeIndex];
-            if (active && active.scrollIntoView) {
-              active.scrollIntoView({ block: "center", inline: "nearest" });
+            return marks[activeIndex] || null;
+          }
+
+          try {
+            const query = (payload.query || "").trim();
+            clearMarks();
+            clearCustomHighlights();
+            if (!query) {
+              window[stateKey] = { query: "", activeIndex: 0 };
+              return { matchFound: false, current: 0, total: 0 };
             }
+
+            ensureStyle();
+            const matches = collectMatches(query);
+
+            if (matches.length === 0) {
+              window[stateKey] = { query, activeIndex: 0 };
+              return { matchFound: false, current: 0, total: 0 };
+            }
+
+            const activeIndex = resolveActiveIndex(query, matches.length);
+
+            var activeTarget = null;
+            if (canUseCustomHighlights) {
+              try {
+                activeTarget = applyCustomHighlights(matches, activeIndex);
+              } catch (_) {
+                activeTarget = applySpanFallback(matches, activeIndex);
+              }
+            } else {
+              activeTarget = applySpanFallback(matches, activeIndex);
+            }
+            scrollMatchIntoView(activeTarget);
 
             window[stateKey] = { query, activeIndex };
             return { matchFound: true, current: activeIndex + 1, total: matches.length };

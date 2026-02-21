@@ -1744,7 +1744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 focusView: NSApp.keyWindow?.firstResponder as? NSView
             )
 
-            let handled = tabManager?.startSearch() ?? false
+            let handled = handleFindShortcutViaStateMachine()
             findDebugLog("shortcut cmd+f handled=\(handled)")
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
@@ -2040,6 +2040,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = panel.requestAddressBarFocus()
         browserAddressBarFocusedPanelId = panel.id
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+    }
+
+    private enum FindShortcutRoutingState {
+        case browserAddressBar(panelId: UUID, panel: BrowserPanel)
+        case browserPanel(BrowserPanel)
+        case fallback
+    }
+
+    private func resolveFindShortcutRoutingState() -> FindShortcutRoutingState {
+        if let panelId = browserAddressBarFocusedPanelId {
+            if let panel = browserPanel(for: panelId) {
+                return .browserAddressBar(panelId: panelId, panel: panel)
+            }
+            // Recover from stale state when the address bar focus event outlives panel lifecycle.
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+        }
+
+        if let panel = tabManager?.focusedBrowserPanel {
+            return .browserPanel(panel)
+        }
+
+        return .fallback
+    }
+
+    private func transitionAddressBarFocusToFind(panelId: UUID) {
+        browserAddressBarFocusedPanelId = nil
+        stopBrowserOmnibarSelectionRepeat()
+        browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+    }
+
+    private func handleFindShortcutViaStateMachine() -> Bool {
+        switch resolveFindShortcutRoutingState() {
+        case .browserAddressBar(let panelId, let panel):
+            tabManager?.selectedWorkspace?.focusPanel(panel.id)
+            transitionAddressBarFocusToFind(panelId: panelId)
+            let handled = panel.showFindInterface()
+            findDebugLog("shortcut cmd+f route=addressBar panel=\(panel.id.uuidString) handled=\(handled)")
+            return handled
+        case .browserPanel(let panel):
+            let handled = panel.showFindInterface()
+            findDebugLog("shortcut cmd+f route=browser panel=\(panel.id.uuidString) handled=\(handled)")
+            return handled
+        case .fallback:
+            let handled = tabManager?.startSearch() ?? false
+            findDebugLog("shortcut cmd+f route=fallback handled=\(handled)")
+            return handled
+        }
     }
 
     private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
