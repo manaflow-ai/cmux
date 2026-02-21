@@ -23,6 +23,10 @@ struct GhosttyConfig {
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
     var selectionBackground: NSColor = NSColor(hex: "#57584f")!
     var selectionForeground: NSColor = NSColor(hex: "#fdfff1")!
+    var searchBackground: NSColor = NSColor(hex: "#FFE082")!
+    var searchForeground: NSColor = NSColor(hex: "#000000")!
+    var searchSelectedBackground: NSColor = NSColor(hex: "#F2A57E")!
+    var searchSelectedForeground: NSColor = NSColor(hex: "#000000")!
 
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
@@ -121,6 +125,22 @@ struct GhosttyConfig {
                 case "selection-foreground":
                     if let color = NSColor(hex: value) {
                         selectionForeground = color
+                    }
+                case "search-background":
+                    if let color = NSColor(hex: value) {
+                        searchBackground = color
+                    }
+                case "search-foreground":
+                    if let color = NSColor(hex: value) {
+                        searchForeground = color
+                    }
+                case "search-selected-background":
+                    if let color = NSColor(hex: value) {
+                        searchSelectedBackground = color
+                    }
+                case "search-selected-foreground":
+                    if let color = NSColor(hex: value) {
+                        searchSelectedForeground = color
                     }
                 case "palette":
                     // Parse palette entries like "0=#272822"

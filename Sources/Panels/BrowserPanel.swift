@@ -2205,9 +2205,10 @@ private extension BrowserPanel {
             "query": query,
             "direction": direction,
             "queryChanged": queryChanged,
-            "allColor": colors.all,
-            "activeColor": colors.active,
-            "activeOutlineColor": colors.activeOutline,
+            "allBackground": colors.allBackground,
+            "allForeground": colors.allForeground,
+            "activeBackground": colors.activeBackground,
+            "activeForeground": colors.activeForeground,
         ]
         guard let payloadData = try? JSONSerialization.data(withJSONObject: payload, options: []),
               let payloadJSON = String(data: payloadData, encoding: .utf8) else {
@@ -2251,31 +2252,37 @@ private extension BrowserPanel {
         return true
     }
 
-    private func inPageFindHighlightPalette() -> (all: String, active: String, activeOutline: String) {
+    private func inPageFindHighlightPalette() -> (
+        allBackground: String,
+        allForeground: String,
+        activeBackground: String,
+        activeForeground: String
+    ) {
         let config = GhosttyConfig.load()
-        let allColor = config.palette[3] ?? config.palette[11] ?? NSColor(hex: "#e6db74") ?? .systemYellow
-        let activeColor = config.palette[11] ?? config.palette[3] ?? NSColor(hex: "#ffd666") ?? .systemYellow
+        let allBackground = config.searchBackground
+        let allForeground = config.searchForeground
+        let activeBackground = config.searchSelectedBackground
+        let activeForeground = config.searchSelectedForeground
         return (
-            all: cssRGBAString(for: allColor, alpha: 0.36),
-            active: cssRGBAString(for: activeColor, alpha: 0.78),
-            activeOutline: cssRGBAString(for: activeColor, alpha: 0.98)
+            allBackground: cssRGBString(for: allBackground),
+            allForeground: cssRGBString(for: allForeground),
+            activeBackground: cssRGBString(for: activeBackground),
+            activeForeground: cssRGBString(for: activeForeground)
         )
     }
 
-    private func cssRGBAString(for color: NSColor, alpha: CGFloat) -> String {
+    private func cssRGBString(for color: NSColor) -> String {
         let srgb = color.usingColorSpace(.sRGB) ?? color
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var componentAlpha: CGFloat = 0
         srgb.getRed(&red, green: &green, blue: &blue, alpha: &componentAlpha)
-        let safeAlpha = max(0, min(1, alpha))
         return String(
-            format: "rgba(%d,%d,%d,%.3f)",
+            format: "rgb(%d,%d,%d)",
             Int(max(0, min(255, round(red * 255)))),
             Int(max(0, min(255, round(green * 255)))),
-            Int(max(0, min(255, round(blue * 255)))),
-            safeAlpha
+            Int(max(0, min(255, round(blue * 255))))
         )
     }
 
@@ -2381,15 +2388,16 @@ private extension BrowserPanel {
             }
             style.textContent = `
               span.${markClass} {
-                background: ${payload.allColor};
-                color: inherit !important;
+                background: ${payload.allBackground};
+                color: ${payload.allForeground} !important;
                 border-radius: 2px;
                 box-decoration-break: clone;
                 -webkit-box-decoration-break: clone;
               }
               span.${markClass}.${activeClass} {
-                background: ${payload.activeColor};
-                box-shadow: 0 0 0 1px ${payload.activeOutlineColor} inset;
+                background: ${payload.activeBackground};
+                color: ${payload.activeForeground} !important;
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
               }
             `;
           }

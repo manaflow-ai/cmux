@@ -344,9 +344,7 @@ struct BrowserPanelView: View {
     }
 
     private var inPageFindPopover: some View {
-        let accent = ghosttyFindYellowColor
-
-        return HStack(spacing: 6) {
+        return HStack(spacing: 4) {
             let trimmedQuery = panel.inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
             TextField(
@@ -356,19 +354,13 @@ struct BrowserPanelView: View {
                     set: { panel.updateInPageFindQuery($0) }
                 )
             )
-            .frame(width: 220)
-            .padding(.trailing, 2)
             .textFieldStyle(.plain)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(accent.opacity(inPageFindFieldFocused ? 0.45 : 0.25), lineWidth: 1)
-            )
+            .frame(width: 220)
+            .padding(.leading, 8)
+            .padding(.trailing, 50)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.1))
+            .cornerRadius(6)
             .focused($inPageFindFieldFocused)
             .onSubmit {
                 _ = panel.inPageFindNextFromUI()
@@ -380,42 +372,28 @@ struct BrowserPanelView: View {
                 _ = panel.hideInPageFindFromUI()
             }
             .accessibilityIdentifier("BrowserInPageFindField")
-
-            if !trimmedQuery.isEmpty {
-                Text("\(panel.inPageFindCurrentMatchIndex)/\(panel.inPageFindMatchCount)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .monospacedDigit()
+            .overlay(alignment: .trailing) {
+                if !trimmedQuery.isEmpty {
+                    Text("\(panel.inPageFindCurrentMatchIndex)/\(panel.inPageFindMatchCount)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                        .padding(.trailing, 8)
+                }
             }
 
             Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
                 Image(systemName: "chevron.up")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SearchButtonStyle())
             .help("Previous match")
-            .foregroundStyle(accent.opacity(0.82))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(accent.opacity(0.12))
-            )
             .disabled(panel.inPageFindMatchCount == 0)
 
             Button(action: { _ = panel.inPageFindNextFromUI() }) {
                 Image(systemName: "chevron.down")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SearchButtonStyle())
             .help("Next match")
-            .foregroundStyle(accent.opacity(0.82))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(accent.opacity(0.12))
-            )
             .disabled(panel.inPageFindMatchCount == 0)
 
             Button(action: {
@@ -423,32 +401,13 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(SearchButtonStyle())
             .help("Close find")
-            .foregroundStyle(accent.opacity(0.82))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 5)
-            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(accent.opacity(0.12))
-            )
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(accent.opacity(0.40), lineWidth: 1)
-                )
-        )
-        .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+        .padding(8)
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(radius: 4)
         .onAppear {
             browserFindViewDebugLog(
                 "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
@@ -461,20 +420,6 @@ struct BrowserPanelView: View {
             )
         }
         .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
-    private var ghosttyFindYellowColor: Color {
-        let config = GhosttyConfig.load()
-        if let brightYellow = config.palette[11] {
-            return Color(nsColor: brightYellow)
-        }
-        if let yellow = config.palette[3] {
-            return Color(nsColor: yellow)
-        }
-        if let fallback = NSColor(hex: "#e6db74") {
-            return Color(nsColor: fallback)
-        }
-        return .yellow
     }
 
     private var addressBar: some View {
