@@ -66,46 +66,60 @@ def main() -> int:
         methods = set(caps.get("methods") or [])
         _must("surface.read_text" in methods, f"Missing surface.read_text in capabilities: {sorted(methods)[:20]}")
 
-        created = c._call("workspace.create") or {}
-        ws_id = str(created.get("workspace_id") or "")
-        _must(bool(ws_id), f"workspace.create returned no workspace_id: {created}")
-        c._call("workspace.select", {"workspace_id": ws_id})
+        created_target = c._call("workspace.create") or {}
+        ws_target = str(created_target.get("workspace_id") or "")
+        _must(bool(ws_target), f"workspace.create returned no workspace_id: {created_target}")
+        c._call("workspace.select", {"workspace_id": ws_target})
 
-        surfaces_payload = c._call("surface.list", {"workspace_id": ws_id}) or {}
+        surfaces_payload = c._call("surface.list", {"workspace_id": ws_target}) or {}
         surfaces = surfaces_payload.get("surfaces") or []
         _must(bool(surfaces), f"Expected at least one surface in workspace: {surfaces_payload}")
-        surface_id = str(surfaces[0].get("id") or "")
-        _must(bool(surface_id), f"surface.list returned surface without id: {surfaces_payload}")
+        surface_target = str(surfaces[0].get("id") or "")
+        _must(bool(surface_target), f"surface.list returned surface without id: {surfaces_payload}")
+
+        created_other = c._call("workspace.create") or {}
+        ws_other = str(created_other.get("workspace_id") or "")
+        _must(bool(ws_other), f"workspace.create returned no workspace_id: {created_other}")
+        c._call("workspace.select", {"workspace_id": ws_other})
+
+        selected = c._call("workspace.current") or {}
+        _must(str(selected.get("workspace_id") or "") == ws_other, f"Expected selected workspace {ws_other}, got: {selected}")
 
         token = f"CMUX_READ_SCREEN_{int(time.time() * 1000)}"
         c._call("surface.send_text", {
-            "workspace_id": ws_id,
-            "surface_id": surface_id,
+            "workspace_id": ws_target,
+            "surface_id": surface_target,
             "text": f"echo {token}\n",
         })
 
         def has_token() -> bool:
-            payload = c._call("surface.read_text", {"workspace_id": ws_id, "surface_id": surface_id}) or {}
+            payload = c._call("surface.read_text", {"workspace_id": ws_target, "surface_id": surface_target}) or {}
             return token in str(payload.get("text") or "")
 
         _wait_for(has_token, timeout_s=5.0)
 
-        read_payload = c._call("surface.read_text", {"workspace_id": ws_id, "surface_id": surface_id}) or {}
+        read_payload = c._call("surface.read_text", {"workspace_id": ws_target, "surface_id": surface_target}) or {}
         text = str(read_payload.get("text") or "")
         _must(token in text, f"surface.read_text missing token {token!r}: {read_payload}")
 
-        cli_text = _run_cli(cli, ["read-screen", "--workspace", ws_id, "--surface", surface_id])
+        ws_only_payload = c._call("surface.read_text", {"workspace_id": ws_target}) or {}
+        _must(token in str(ws_only_payload.get("text") or ""), f"surface.read_text workspace-only call missing token {token!r}: {ws_only_payload}")
+
+        cli_text = _run_cli(cli, ["read-screen", "--workspace", ws_target, "--surface", surface_target])
         _must(token in cli_text, f"cmux read-screen output missing token {token!r}: {cli_text!r}")
 
-        cli_text_scrollback = _run_cli(cli, ["read-screen", "--workspace", ws_id, "--surface", surface_id, "--scrollback", "--lines", "80"])
+        cli_ws_only = _run_cli(cli, ["read-screen", "--workspace", ws_target])
+        _must(token in cli_ws_only, f"cmux read-screen --workspace output missing token {token!r}: {cli_ws_only!r}")
+
+        cli_text_scrollback = _run_cli(cli, ["read-screen", "--workspace", ws_target, "--surface", surface_target, "--scrollback", "--lines", "80"])
         _must(token in cli_text_scrollback, f"cmux read-screen --scrollback output missing token {token!r}: {cli_text_scrollback!r}")
 
-        cli_json = _run_cli(cli, ["--json", "read-screen", "--workspace", ws_id, "--surface", surface_id])
+        cli_json = _run_cli(cli, ["--json", "read-screen", "--workspace", ws_target, "--surface", surface_target])
         payload = json.loads(cli_json or "{}")
         _must(token in str(payload.get("text") or ""), f"cmux --json read-screen missing token {token!r}: {payload}")
 
         invalid = subprocess.run(
-            [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws_id, "--surface", surface_id, "--lines", "0"],
+            [cli, "--socket", SOCKET_PATH, "read-screen", "--workspace", ws_target, "--surface", surface_target, "--lines", "0"],
             capture_output=True,
             text=True,
             check=False,
