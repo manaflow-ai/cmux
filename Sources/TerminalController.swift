@@ -3152,27 +3152,36 @@ class TerminalController {
                 return
             }
             #if DEBUG
-            let waitStart = ProcessInfo.processInfo.systemUptime
+            let sendStart = ProcessInfo.processInfo.systemUptime
             #endif
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
-                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
-                return
+            let queued: Bool
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(text, surface: surface)
+                // Ensure we present a new frame after injecting input so snapshot-based tests (and
+                // socket-driven agents) can observe the updated terminal without requiring a focus
+                // change to trigger a draw.
+                terminalPanel.surface.forceRefresh()
+                queued = false
+            } else {
+                // Avoid blocking the main actor waiting for view/surface attachment.
+                terminalPanel.sendText(text)
+                queued = true
             }
             #if DEBUG
-            let waitMs = (ProcessInfo.processInfo.systemUptime - waitStart) * 1000.0
-            if waitMs >= 8 {
-                dlog(
-                    "socket.surface.send_text.wait_surface workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) ms=\(String(format: "%.2f", waitMs))"
-                )
-            }
+            let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
+            dlog(
+                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+            )
             #endif
-
-            sendSocketText(text, surface: surface)
-            // Ensure we present a new frame after injecting input so snapshot-based tests (and
-            // socket-driven agents) can observe the updated terminal without requiring a focus
-            // change to trigger a draw.
-            terminalPanel.surface.forceRefresh()
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "queued": queued,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ])
         }
         return result
     }
@@ -3200,7 +3209,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
                 return
             }
@@ -9961,15 +9970,6 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -9977,7 +9977,11 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            sendSocketText(unescaped, surface: surface)
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+            }
             success = true
         }
         if let error { return error }
@@ -9994,14 +9998,18 @@ class TerminalController {
 
         var success = false
         DispatchQueue.main.sync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            sendSocketText(unescaped, surface: surface)
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+            }
             success = true
         }
 
@@ -10021,11 +10029,7 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }
@@ -10047,11 +10051,11 @@ class TerminalController {
         var success = false
         var error: String?
         DispatchQueue.main.sync {
-            guard resolveTerminalPanel(from: target, tabManager: tabManager) != nil else {
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
                 return
             }
-            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }

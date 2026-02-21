@@ -1132,6 +1132,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var pendingTextQueue: [Data] = []
+    private var pendingTextBytes: Int = 0
+    private let maxPendingTextBytes = 1_048_576
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1496,6 +1499,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
+
+        flushPendingTextIfNeeded()
     }
 
     func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
@@ -1603,12 +1608,52 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func sendText(_ text: String) {
-        guard let surface = surface else { return }
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
+        guard let surface = surface else {
+            enqueuePendingText(data)
+            return
+        }
+        writeTextData(data, to: surface)
+    }
+
+    private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
+    }
+
+    private func enqueuePendingText(_ data: Data) {
+        let incomingBytes = data.count
+        while !pendingTextQueue.isEmpty && pendingTextBytes + incomingBytes > maxPendingTextBytes {
+            let dropped = pendingTextQueue.removeFirst()
+            pendingTextBytes -= dropped.count
+        }
+
+        pendingTextQueue.append(data)
+        pendingTextBytes += incomingBytes
+        #if DEBUG
+        dlog(
+            "surface.send_text.queue surface=\(id.uuidString.prefix(8)) chunks=\(pendingTextQueue.count) bytes=\(pendingTextBytes)"
+        )
+        #endif
+    }
+
+    private func flushPendingTextIfNeeded() {
+        guard let surface = surface, !pendingTextQueue.isEmpty else { return }
+        let queued = pendingTextQueue
+        let queuedBytes = pendingTextBytes
+        pendingTextQueue.removeAll(keepingCapacity: false)
+        pendingTextBytes = 0
+
+        for chunk in queued {
+            writeTextData(chunk, to: surface)
+        }
+        #if DEBUG
+        dlog(
+            "surface.send_text.flush surface=\(id.uuidString.prefix(8)) chunks=\(queued.count) bytes=\(queuedBytes)"
+        )
+        #endif
     }
 
     func performBindingAction(_ action: String) -> Bool {
