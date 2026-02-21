@@ -2387,6 +2387,117 @@ final class WindowTerminalHostViewTests: XCTestCase {
         XCTAssertTrue(host.hitTest(NSPoint(x: 25, y: 20)) === child)
         XCTAssertNil(host.hitTest(NSPoint(x: 150, y: 100)))
     }
+
+    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
+        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
+        splitView.addSubview(first)
+        splitView.addSubview(second)
+        contentView.addSubview(splitView)
+        splitView.setPosition(1, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        contentView.addSubview(host)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        XCTAssertLessThanOrEqual(splitView.arrangedSubviews[0].frame.width, 1.5)
+        XCTAssertNil(
+            host.hitTest(dividerPointInHost),
+            "Host view must pass through divider hits even when one pane is nearly collapsed"
+        )
+
+        let contentPointInSplit = NSPoint(x: dividerPointInSplit.x + 40, y: splitView.bounds.midY)
+        let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
+        let contentPointInHost = host.convert(contentPointInWindow, from: nil)
+        XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
+}
+
+@MainActor
+final class WindowBrowserHostViewTests: XCTestCase {
+    private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
+        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
+        splitView.addSubview(first)
+        splitView.addSubview(second)
+        contentView.addSubview(splitView)
+        splitView.setPosition(1, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let host = WindowBrowserHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        contentView.addSubview(host)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        XCTAssertLessThanOrEqual(splitView.arrangedSubviews[0].frame.width, 1.5)
+        XCTAssertNil(
+            host.hitTest(dividerPointInHost),
+            "Browser host must pass through divider hits even when one pane is nearly collapsed"
+        )
+
+        let contentPointInSplit = NSPoint(x: dividerPointInSplit.x + 40, y: splitView.bounds.midY)
+        let contentPointInWindow = splitView.convert(contentPointInSplit, to: nil)
+        let contentPointInHost = host.convert(contentPointInWindow, from: nil)
+        XCTAssertTrue(host.hitTest(contentPointInHost) === child)
+    }
 }
 
 @MainActor

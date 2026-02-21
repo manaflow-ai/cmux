@@ -48,11 +48,11 @@ final class WindowBrowserHostView: NSView {
                 let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
                 for dividerIndex in 0..<dividerCount {
                     let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
                     let thickness = splitView.dividerThickness
                     let dividerRect: NSRect
                     if splitView.isVertical {
-                        guard first.width > 1, second.width > 1 else { continue }
+                        // Keep divider hit-testing active even when one side is nearly collapsed,
+                        // so users can drag the divider back out from the border.
                         let x = max(0, first.maxX)
                         dividerRect = NSRect(
                             x: x,
@@ -61,7 +61,7 @@ final class WindowBrowserHostView: NSView {
                             height: splitView.bounds.height
                         )
                     } else {
-                        guard first.height > 1, second.height > 1 else { continue }
+                        // Same behavior for horizontal splits with a near-zero-height pane.
                         let y = max(0, first.maxY)
                         dividerRect = NSRect(
                             x: 0,
