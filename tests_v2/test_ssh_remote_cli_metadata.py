@@ -87,6 +87,13 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            ssh_command = str(payload.get("ssh_command") or "")
+            _must(bool(ssh_command), f"cmux ssh output missing ssh_command: {payload}")
+            _must(
+                "GHOSTTY_SHELL_FEATURES=${GHOSTTY_SHELL_FEATURES:+$GHOSTTY_SHELL_FEATURES,}ssh-env,ssh-terminfo" in ssh_command,
+                f"cmux ssh should scope ssh niceties to this command: {ssh_command!r}",
+            )
+            _must("ssh -o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
 
             listed_row = None
             deadline = time.time() + 8.0

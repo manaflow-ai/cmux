@@ -1899,7 +1899,10 @@ struct CMUXCLI {
         }
         parts.append(options.destination)
         parts.append(contentsOf: options.extraArguments)
-        return parts.map(shellQuote).joined(separator: " ")
+        let sshCommand = parts.map(shellQuote).joined(separator: " ")
+        // Scope Ghostty SSH niceties to `cmux ssh ...` launches only.
+        let shellFeatures = "GHOSTTY_SHELL_FEATURES=${GHOSTTY_SHELL_FEATURES:+$GHOSTTY_SHELL_FEATURES,}ssh-env,ssh-terminfo"
+        return shellFeatures + " " + sshCommand
     }
 
     private func shellQuote(_ value: String) -> String {
