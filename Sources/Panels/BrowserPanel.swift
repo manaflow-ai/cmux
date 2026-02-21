@@ -3239,18 +3239,12 @@ private extension BrowserPanel {
                 position: absolute;
                 background-color: ${payload.allBackground};
                 border-radius: 2px;
-                opacity: 0.45;
+                opacity: 0.32;
               }
               #${overlayRootId} .${overlayMarkClass}.${overlayActiveClass} {
                 background-color: ${payload.activeBackground} !important;
-                opacity: 0.68;
+                opacity: 0.56;
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
-              }
-              input.${controlMatchClass}, textarea.${controlMatchClass} {
-                box-shadow: 0 0 0 1px ${payload.allBackground} !important;
-              }
-              input.${controlMatchClass}.${controlActiveClass}, textarea.${controlMatchClass}.${controlActiveClass} {
-                box-shadow: 0 0 0 2px ${payload.activeBackground} !important;
               }
             `;
           }
@@ -3711,33 +3705,14 @@ private extension BrowserPanel {
 
           function applyControlHighlights(matches, activeIndex) {
             clearControlHighlights();
-            const matchedControls = new Set();
-            for (const match of matches) {
-              if (match.kind !== "control" || !match.element) continue;
-              matchedControls.add(match.element);
-            }
             const activeMatch = matches[activeIndex] || null;
-            const activeControl =
-              activeMatch && activeMatch.kind === "control" && activeMatch.element
-                ? activeMatch.element
-                : null;
-            for (const control of matchedControls) {
-              if (control === activeControl) {
-                continue;
-              }
-              control.classList.add(controlMatchClass);
-            }
-            if (!activeControl) {
+            if (!activeMatch || activeMatch.kind !== "control" || !activeMatch.element) {
               return;
             }
 
-            const control = activeControl;
-            if (typeof control.focus === "function" && !control.disabled) {
-              try {
-                control.focus({ preventScroll: true });
-              } catch (_) {
-                try { control.focus(); } catch (_) {}
-              }
+            const control = activeMatch.element;
+            if (document.activeElement !== control) {
+              return;
             }
             if (typeof control.setSelectionRange === "function") {
               try {
