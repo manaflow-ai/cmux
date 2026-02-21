@@ -188,7 +188,7 @@ struct BrowserPanelView: View {
         VStack(spacing: 0) {
             addressBar
             if panel.isInPageFindVisible {
-                inPageFindBar
+                inPageFindPopover
             }
             webView
         }
@@ -273,7 +273,7 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.isInPageFindVisible) { visible in
             browserFindViewDebugLog(
-                "browser.findBar.visible panel=\(panel.id.uuidString) visible=\(visible) query=\"\(panel.inPageFindQuery)\""
+                "browser.findPopover.visible panel=\(panel.id.uuidString) visible=\(visible) query=\"\(panel.inPageFindQuery)\""
             )
             if visible {
                 inPageFindFieldFocused = true
@@ -338,7 +338,9 @@ struct BrowserPanelView: View {
         }
     }
 
-    private var inPageFindBar: some View {
+    private var inPageFindPopover: some View {
+        let accent = ghosttyFindYellowColor
+
         HStack(spacing: 0) {
             Spacer(minLength: 0)
 
@@ -352,6 +354,7 @@ struct BrowserPanelView: View {
                 )
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 220)
+                .padding(.trailing, 2)
                 .focused($inPageFindFieldFocused)
                 .onSubmit {
                     _ = panel.inPageFindNextFromUI()
@@ -369,12 +372,14 @@ struct BrowserPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Previous match")
+                .foregroundStyle(accent.opacity(0.95))
 
                 Button(action: { _ = panel.inPageFindNextFromUI() }) {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(.plain)
                 .help("Next match")
+                .foregroundStyle(accent.opacity(0.95))
 
                 Button(action: {
                     _ = panel.hideInPageFindFromUI()
@@ -383,30 +388,54 @@ struct BrowserPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close find")
+                .foregroundStyle(accent.opacity(0.95))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(accent.opacity(0.16))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(accent.opacity(0.90), lineWidth: 1)
+                    )
             )
             .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
             .onAppear {
                 browserFindViewDebugLog(
-                    "browser.findBar.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
+                    "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
                 )
                 inPageFindFieldFocused = true
             }
             .onDisappear {
                 browserFindViewDebugLog(
-                    "browser.findBar.disappear panel=\(panel.id.uuidString)"
+                    "browser.findPopover.disappear panel=\(panel.id.uuidString)"
                 )
             }
         }
         .padding(.horizontal, 10)
-        .padding(.bottom, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+        .transition(.move(edge: .top).combined(with: .opacity))
         .zIndex(2)
+    }
+
+    private var ghosttyFindYellowColor: Color {
+        let config = GhosttyConfig.load()
+        if let brightYellow = config.palette[11] {
+            return Color(nsColor: brightYellow)
+        }
+        if let yellow = config.palette[3] {
+            return Color(nsColor: yellow)
+        }
+        if let fallback = NSColor(hex: "#e6db74") {
+            return Color(nsColor: fallback)
+        }
+        return .yellow
     }
 
     private var addressBar: some View {
