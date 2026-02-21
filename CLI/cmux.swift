@@ -1038,6 +1038,38 @@ struct CMUXCLI {
             let response = try client.send(command: "simulate_app_active")
             print(response)
 
+        case "capture-pane",
+             "resize-pane",
+             "pipe-pane",
+             "wait-for",
+             "swap-pane",
+             "break-pane",
+             "join-pane",
+             "last-window",
+             "last-pane",
+             "next-window",
+             "previous-window",
+             "find-window",
+             "clear-history",
+             "set-hook",
+             "popup",
+             "bind-key",
+             "unbind-key",
+             "copy-mode",
+             "set-buffer",
+             "paste-buffer",
+             "list-buffers",
+             "respawn-pane",
+             "display-message":
+            try runTmuxCompatCommand(
+                command: command,
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "help":
             print(usage())
 
@@ -2867,6 +2899,40 @@ struct CMUXCLI {
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
             """
+        case "capture-pane":
+            return """
+            Usage: cmux capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+
+            tmux-compatible alias for reading terminal text from a pane.
+
+            Example:
+              cmux capture-pane --workspace workspace:2 --surface surface:1 --scrollback --lines 200
+            """
+        case "resize-pane":
+            return """
+            Usage: cmux resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+
+            tmux-compatible pane resize command.
+            Note: currently returns not_supported until programmable divider resize is implemented.
+            """
+        case "pipe-pane":
+            return """
+            Usage: cmux pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
+
+            Capture pane text and pipe it to a shell command via stdin.
+            """
+        case "wait-for":
+            return """
+            Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
+
+            Wait for or signal a named synchronization token.
+            """
+        case "swap-pane", "break-pane", "join-pane", "next-window", "previous-window", "last-window", "last-pane", "find-window", "clear-history", "set-hook", "popup", "bind-key", "unbind-key", "copy-mode", "set-buffer", "paste-buffer", "list-buffers", "respawn-pane", "display-message":
+            return """
+            Usage: cmux \(command) --help
+
+            tmux compatibility command. See `cmux --help` for exact syntax.
+            """
         case "read-screen":
             return """
             Usage: cmux read-screen [flags]
@@ -3103,6 +3169,438 @@ struct CMUXCLI {
             return "{}"
         }
         return output
+    }
+
+    private struct TmuxCompatStore: Codable {
+        var buffers: [String: String] = [:]
+        var hooks: [String: String] = [:]
+    }
+
+    private func tmuxCompatStoreURL() -> URL {
+        let root = NSString(string: "~/.cmuxterm").expandingTildeInPath
+        return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
+    }
+
+    private func loadTmuxCompatStore() -> TmuxCompatStore {
+        let url = tmuxCompatStoreURL()
+        guard let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode(TmuxCompatStore.self, from: data) else {
+            return TmuxCompatStore()
+        }
+        return decoded
+    }
+
+    private func saveTmuxCompatStore(_ store: TmuxCompatStore) throws {
+        let url = tmuxCompatStoreURL()
+        let parent = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        let data = try JSONEncoder().encode(store)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func runShellCommand(_ command: String, stdinText: String) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+        if let data = stdinText.data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(data)
+        }
+        stdinPipe.fileHandleForWriting.closeFile()
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func tmuxWaitForSignalURL(name: String) -> URL {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let sanitized = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
+        return URL(fileURLWithPath: "/tmp/cmux-wait-for-\(String(sanitized)).sig")
+    }
+
+    private func runTmuxCompatCommand(
+        command: String,
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        switch command {
+        case "capture-pane":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let (sfArg, rem1) = parseOption(rem0, name: "--surface")
+            let (linesArg, rem2) = parseOption(rem1, name: "--lines")
+            let workspaceArg = wsArg ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceArg = sfArg ?? (wsArg == nil && windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            if let sfId { params["surface_id"] = sfId }
+
+            let includeScrollback = rem2.contains("--scrollback")
+            if includeScrollback {
+                params["scrollback"] = true
+            }
+            if let linesArg {
+                guard let lineCount = Int(linesArg), lineCount > 0 else {
+                    throw CLIError(message: "--lines must be greater than 0")
+                }
+                params["lines"] = lineCount
+                params["scrollback"] = true
+            }
+
+            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print((payload["text"] as? String) ?? "")
+            }
+
+        case "resize-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let paneArg = optionValue(commandArgs, name: "--pane")
+            let amountArg = optionValue(commandArgs, name: "--amount")
+            let amount = Int(amountArg ?? "1") ?? 1
+            if amount <= 0 {
+                throw CLIError(message: "--amount must be greater than 0")
+            }
+
+            let direction: String = {
+                if commandArgs.contains("-L") { return "left" }
+                if commandArgs.contains("-R") { return "right" }
+                if commandArgs.contains("-U") { return "up" }
+                if commandArgs.contains("-D") { return "down" }
+                return "right"
+            }()
+
+            var params: [String: Any] = ["direction": direction, "amount": amount]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let paneId = try normalizePaneHandle(paneArg, client: client, workspaceHandle: wsId, allowFocused: true)
+            if let paneId { params["pane_id"] = paneId }
+            let payload = try client.sendV2(method: "pane.resize", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"]))
+
+        case "pipe-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            let (cmdOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let commandText: String = {
+                if let cmdOpt { return cmdOpt }
+                let trimmed = rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed
+            }()
+            guard !commandText.isEmpty else {
+                throw CLIError(message: "pipe-pane requires --command <shell-command>")
+            }
+
+            var params: [String: Any] = ["scrollback": true]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
+            if let sfId { params["surface_id"] = sfId }
+            let payload = try client.sendV2(method: "surface.read_text", params: params)
+            let text = (payload["text"] as? String) ?? ""
+            let shell = try runShellCommand(commandText, stdinText: text)
+            if shell.status != 0 {
+                throw CLIError(message: "pipe-pane command failed (\(shell.status)): \(shell.stderr)")
+            }
+            if jsonOutput {
+                print(jsonString([
+                    "ok": true,
+                    "status": shell.status,
+                    "stdout": shell.stdout,
+                    "stderr": shell.stderr
+                ]))
+            } else {
+                if !shell.stdout.isEmpty {
+                    print(shell.stdout, terminator: "")
+                }
+                print("OK")
+            }
+
+        case "wait-for":
+            let signal = commandArgs.contains("-S") || commandArgs.contains("--signal")
+            let timeoutRaw = optionValue(commandArgs, name: "--timeout")
+            let timeout = timeoutRaw.flatMap { Double($0) } ?? 30.0
+            let name = commandArgs.first(where: { !$0.hasPrefix("-") }) ?? ""
+            guard !name.isEmpty else {
+                throw CLIError(message: "wait-for requires a name")
+            }
+            let signalURL = tmuxWaitForSignalURL(name: name)
+            if signal {
+                FileManager.default.createFile(atPath: signalURL.path, contents: Data())
+                print("OK")
+                return
+            }
+            let deadline = Date().addingTimeInterval(timeout)
+            while Date() < deadline {
+                if FileManager.default.fileExists(atPath: signalURL.path) {
+                    try? FileManager.default.removeItem(at: signalURL)
+                    print("OK")
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            throw CLIError(message: "wait-for timed out waiting for '\(name)'")
+
+        case "swap-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            guard let sourcePaneRaw = optionValue(commandArgs, name: "--pane") else {
+                throw CLIError(message: "swap-pane requires --pane")
+            }
+            guard let targetPaneRaw = optionValue(commandArgs, name: "--target-pane") else {
+                throw CLIError(message: "swap-pane requires --target-pane")
+            }
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let sourcePane = try normalizePaneHandle(sourcePaneRaw, client: client, workspaceHandle: wsId)
+            let targetPane = try normalizePaneHandle(targetPaneRaw, client: client, workspaceHandle: wsId)
+            if let sourcePane { params["pane_id"] = sourcePane }
+            if let targetPane { params["target_pane_id"] = targetPane }
+            let payload = try client.sendV2(method: "pane.swap", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "break-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let paneArg = optionValue(commandArgs, name: "--pane")
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            var params: [String: Any] = ["focus": !commandArgs.contains("--no-focus")]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let paneId = try normalizePaneHandle(paneArg, client: client, workspaceHandle: wsId)
+            if let paneId { params["pane_id"] = paneId }
+            let surfaceId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            if let surfaceId { params["surface_id"] = surfaceId }
+            let payload = try client.sendV2(method: "pane.break", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "join-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let sourcePaneArg = optionValue(commandArgs, name: "--pane")
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            guard let targetPaneArg = optionValue(commandArgs, name: "--target-pane") else {
+                throw CLIError(message: "join-pane requires --target-pane")
+            }
+            var params: [String: Any] = ["focus": !commandArgs.contains("--no-focus")]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let sourcePaneId = try normalizePaneHandle(sourcePaneArg, client: client, workspaceHandle: wsId)
+            if let sourcePaneId { params["pane_id"] = sourcePaneId }
+            let targetPaneId = try normalizePaneHandle(targetPaneArg, client: client, workspaceHandle: wsId)
+            if let targetPaneId { params["target_pane_id"] = targetPaneId }
+            let surfaceId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+            if let surfaceId { params["surface_id"] = surfaceId }
+            let payload = try client.sendV2(method: "pane.join", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "last-window":
+            let payload = try client.sendV2(method: "workspace.last")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "next-window":
+            let payload = try client.sendV2(method: "workspace.next")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "previous-window":
+            let payload = try client.sendV2(method: "workspace.previous")
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "last-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let payload = try client.sendV2(method: "pane.last", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"]))
+
+        case "find-window":
+            let includeContent = commandArgs.contains("--content")
+            let shouldSelect = commandArgs.contains("--select")
+            let query = commandArgs
+                .filter { !$0.hasPrefix("-") }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let listPayload = try client.sendV2(method: "workspace.list")
+            let workspaces = listPayload["workspaces"] as? [[String: Any]] ?? []
+
+            var matches: [[String: Any]] = []
+            for ws in workspaces {
+                let title = (ws["title"] as? String) ?? ""
+                let titleMatch = query.isEmpty || title.localizedCaseInsensitiveContains(query)
+                var contentMatch = false
+                if includeContent && !query.isEmpty, let wsId = ws["id"] as? String {
+                    let textPayload = try? client.sendV2(method: "surface.read_text", params: ["workspace_id": wsId])
+                    let text = (textPayload?["text"] as? String) ?? ""
+                    contentMatch = text.localizedCaseInsensitiveContains(query)
+                }
+                if titleMatch || contentMatch {
+                    matches.append(ws)
+                }
+            }
+
+            if shouldSelect, let first = matches.first, let wsId = first["id"] as? String {
+                _ = try client.sendV2(method: "workspace.select", params: ["workspace_id": wsId])
+            }
+
+            if jsonOutput {
+                let formatted = formatIDs(["matches": matches], mode: idFormat) as? [String: Any]
+                print(jsonString(["matches": formatted?["matches"] ?? []]))
+            } else if matches.isEmpty {
+                print("No matches")
+            } else {
+                for item in matches {
+                    let handle = textHandle(item, idFormat: idFormat)
+                    let title = (item["title"] as? String) ?? ""
+                    print("\(handle)  \"\(title)\"")
+                }
+            }
+
+        case "clear-history":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
+            if let sfId { params["surface_id"] = sfId }
+            let payload = try client.sendV2(method: "surface.clear_history", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
+
+        case "set-hook":
+            var store = loadTmuxCompatStore()
+            if commandArgs.contains("--list") {
+                if jsonOutput {
+                    print(jsonString(["hooks": store.hooks]))
+                } else if store.hooks.isEmpty {
+                    print("No hooks configured")
+                } else {
+                    for (event, hookCmd) in store.hooks.sorted(by: { $0.key < $1.key }) {
+                        print("\(event) -> \(hookCmd)")
+                    }
+                }
+                return
+            }
+            if commandArgs.contains("--unset") {
+                guard let event = commandArgs.last else {
+                    throw CLIError(message: "set-hook --unset requires an event name")
+                }
+                store.hooks.removeValue(forKey: event)
+                try saveTmuxCompatStore(store)
+                print("OK")
+                return
+            }
+            guard let event = commandArgs.first(where: { !$0.hasPrefix("-") }) else {
+                throw CLIError(message: "set-hook requires <event> <command>")
+            }
+            let commandText = commandArgs.drop(while: { $0 != event }).dropFirst().joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !commandText.isEmpty else {
+                throw CLIError(message: "set-hook requires <event> <command>")
+            }
+            store.hooks[event] = commandText
+            try saveTmuxCompatStore(store)
+            print("OK")
+
+        case "popup":
+            throw CLIError(message: "popup is not supported yet in cmux CLI parity mode")
+
+        case "bind-key", "unbind-key", "copy-mode":
+            throw CLIError(message: "\(command) is not supported yet in cmux CLI parity mode")
+
+        case "set-buffer":
+            let (nameArg, rem0) = parseOption(commandArgs, name: "--name")
+            let name = (nameArg?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? nameArg! : "default"
+            let content = rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else {
+                throw CLIError(message: "set-buffer requires text")
+            }
+            var store = loadTmuxCompatStore()
+            store.buffers[name] = content
+            try saveTmuxCompatStore(store)
+            print("OK")
+
+        case "list-buffers":
+            let store = loadTmuxCompatStore()
+            if jsonOutput {
+                let payload = store.buffers.map { key, value in ["name": key, "size": value.count] }
+                print(jsonString(["buffers": payload.sorted { ($0["name"] as? String ?? "") < ($1["name"] as? String ?? "") }]))
+            } else if store.buffers.isEmpty {
+                print("No buffers")
+            } else {
+                for key in store.buffers.keys.sorted() {
+                    let size = store.buffers[key]?.count ?? 0
+                    print("\(key)\t\(size)")
+                }
+            }
+
+        case "paste-buffer":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            let name = optionValue(commandArgs, name: "--name") ?? "default"
+            let store = loadTmuxCompatStore()
+            guard let buffer = store.buffers[name] else {
+                throw CLIError(message: "Buffer not found: \(name)")
+            }
+            var params: [String: Any] = ["text": buffer]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
+            if let sfId { params["surface_id"] = sfId }
+            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "respawn-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            let surfaceArg = optionValue(commandArgs, name: "--surface")
+            let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let commandText = (commandOpt ?? rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
+            var params: [String: Any] = ["text": finalCommand + "\n"]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
+            if let wsId { params["workspace_id"] = wsId }
+            let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, allowFocused: true)
+            if let sfId { params["surface_id"] = sfId }
+            let payload = try client.sendV2(method: "surface.send_text", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "display-message":
+            let printOnly = commandArgs.contains("-p") || commandArgs.contains("--print")
+            let message = commandArgs
+                .filter { !$0.hasPrefix("-") }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !message.isEmpty else {
+                throw CLIError(message: "display-message requires text")
+            }
+            if printOnly {
+                print(message)
+                return
+            }
+            let payload = try client.sendV2(method: "notification.create", params: ["title": "cmux", "body": message])
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print(message)
+            }
+
+        default:
+            throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
+        }
     }
 
     private func runClaudeHook(commandArgs: [String], client: SocketClient) throws {
@@ -3556,6 +4054,27 @@ struct CMUXCLI {
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
+
+          # tmux compatibility commands
+          capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+          resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+          pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
+          wait-for [-S|--signal] <name> [--timeout <seconds>]
+          swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
+          break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          next-window | previous-window | last-window
+          last-pane [--workspace <id|ref>]
+          find-window [--content] [--select] <query>
+          clear-history [--workspace <id|ref>] [--surface <id|ref>]
+          set-hook [--list] [--unset <event>] | <event> <command>
+          popup
+          bind-key | unbind-key | copy-mode
+          set-buffer [--name <name>] <text>
+          list-buffers
+          paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+          respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
+          display-message [-p|--print] <text>
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)

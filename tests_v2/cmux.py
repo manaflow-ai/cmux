@@ -414,6 +414,27 @@ class cmux:
             raise cmuxError("No current workspace")
         return wsid
 
+    def next_workspace(self) -> str:
+        res = self._call("workspace.next") or {}
+        wsid = res.get("workspace_id")
+        if not wsid:
+            raise cmuxError(f"workspace.next returned no workspace_id: {res}")
+        return str(wsid)
+
+    def previous_workspace(self) -> str:
+        res = self._call("workspace.previous") or {}
+        wsid = res.get("workspace_id")
+        if not wsid:
+            raise cmuxError(f"workspace.previous returned no workspace_id: {res}")
+        return str(wsid)
+
+    def last_workspace(self) -> str:
+        res = self._call("workspace.last") or {}
+        wsid = res.get("workspace_id")
+        if not wsid:
+            raise cmuxError(f"workspace.last returned no workspace_id: {res}")
+        return str(wsid)
+
     def move_workspace_to_window(self, workspace: Union[str, int], window_id: str, focus: bool = True) -> None:
         wsid = self._resolve_workspace_id(workspace)
         self._call(
@@ -649,6 +670,18 @@ class cmux:
         res = self._call("surface.health", params) or {}
         return list(res.get("surfaces") or [])
 
+    def clear_history(self, surface: Union[str, int, None] = None, workspace: Union[str, int, None] = None) -> None:
+        params: Dict[str, Any] = {}
+        if workspace is not None:
+            wsid = self._resolve_workspace_id(workspace)
+            params["workspace_id"] = wsid
+        if surface is not None:
+            sid = self._resolve_surface_id(surface, workspace_id=params.get("workspace_id"))
+            if not sid:
+                raise cmuxError(f"Invalid surface: {surface!r}")
+            params["surface_id"] = sid
+        self._call("surface.clear_history", params)
+
     # ---------------------------------------------------------------------
     # Pane commands
     # ---------------------------------------------------------------------
@@ -686,6 +719,61 @@ class cmux:
                 bool(row.get("selected", False)),
             ))
         return out
+
+    def swap_pane(self, pane: Union[str, int], target_pane: Union[str, int], focus: bool = True) -> None:
+        source = self._resolve_pane_id(pane)
+        target = self._resolve_pane_id(target_pane)
+        if not source or not target:
+            raise cmuxError(f"Invalid panes: pane={pane!r}, target_pane={target_pane!r}")
+        self._call("pane.swap", {"pane_id": source, "target_pane_id": target, "focus": bool(focus)})
+
+    def break_pane(self, pane: Union[str, int, None] = None, surface: Union[str, int, None] = None, focus: bool = True) -> str:
+        params: Dict[str, Any] = {"focus": bool(focus)}
+        if pane is not None:
+            pid = self._resolve_pane_id(pane)
+            if not pid:
+                raise cmuxError(f"Invalid pane: {pane!r}")
+            params["pane_id"] = pid
+        if surface is not None:
+            sid = self._resolve_surface_id(surface)
+            if not sid:
+                raise cmuxError(f"Invalid surface: {surface!r}")
+            params["surface_id"] = sid
+        res = self._call("pane.break", params) or {}
+        wsid = res.get("workspace_id")
+        if not wsid:
+            raise cmuxError(f"pane.break returned no workspace_id: {res}")
+        return str(wsid)
+
+    def join_pane(
+        self,
+        target_pane: Union[str, int],
+        pane: Union[str, int, None] = None,
+        surface: Union[str, int, None] = None,
+        focus: bool = True,
+    ) -> None:
+        target = self._resolve_pane_id(target_pane)
+        if not target:
+            raise cmuxError(f"Invalid target_pane: {target_pane!r}")
+        params: Dict[str, Any] = {"target_pane_id": target, "focus": bool(focus)}
+        if pane is not None:
+            source = self._resolve_pane_id(pane)
+            if not source:
+                raise cmuxError(f"Invalid pane: {pane!r}")
+            params["pane_id"] = source
+        if surface is not None:
+            sid = self._resolve_surface_id(surface)
+            if not sid:
+                raise cmuxError(f"Invalid surface: {surface!r}")
+            params["surface_id"] = sid
+        self._call("pane.join", params)
+
+    def last_pane(self) -> str:
+        res = self._call("pane.last") or {}
+        pid = res.get("pane_id")
+        if not pid:
+            raise cmuxError(f"pane.last returned no pane_id: {res}")
+        return str(pid)
 
     # ---------------------------------------------------------------------
     # Input
