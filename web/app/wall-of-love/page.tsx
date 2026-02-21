@@ -80,11 +80,21 @@ function PlatformIcon({ platform }: { platform: "x" | "hn" }) {
     <svg
       width="14"
       height="14"
-      viewBox="0 0 24 24"
-      fill="currentColor"
+      viewBox="0 0 256 256"
       className="text-muted"
     >
-      <path d="M0 24V0h24v24H0zM6.951 5.896l4.112 7.708-4.311 4.612h1.162l3.727-3.989 3.01 3.989h3.957l-4.34-8.139 4.009-4.29h-1.163l-3.424 3.664L10.91 5.896H6.951zm1.627.858h1.816l7.028 10.493h-1.816L8.578 6.754z" />
+      <rect width="256" height="256" rx="28" fill="#ff6600" />
+      <text
+        x="128"
+        y="188"
+        fontSize="180"
+        fontWeight="bold"
+        fontFamily="sans-serif"
+        fill="white"
+        textAnchor="middle"
+      >
+        Y
+      </text>
     </svg>
   );
 }
