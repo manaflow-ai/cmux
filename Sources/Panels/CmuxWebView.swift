@@ -1,7 +1,6 @@
 import AppKit
 import ObjectiveC
 import WebKit
-import Bonsplit
 
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
 /// preventing the app menu/SwiftUI Commands from receiving them. Route menu
@@ -21,22 +20,6 @@ final class CmuxWebView: WKWebView {
     private static var contextMenuFallbackKey: UInt8 = 0
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
-
-    private func debugTargetToken(_ target: AnyObject?) -> String {
-        guard let target else { return "nil" }
-        return String(describing: Unmanaged.passUnretained(target).toOpaque())
-    }
-
-    private func debugSelectorName(_ selector: Selector?) -> String {
-        guard let selector else { return "nil" }
-        return NSStringFromSelector(selector)
-    }
-
-    private func debugLog(_ message: String) {
-        #if DEBUG
-        dlog("context.download \(message)")
-        #endif
-    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
@@ -134,11 +117,9 @@ final class CmuxWebView: WKWebView {
         evaluateJavaScript(js) { result, _ in
             guard let href = result as? String, !href.isEmpty,
                   let url = URL(string: href) else {
-                self.debugLog("findLinkAtPoint result=nil point=\(point.x),\(point.y)")
                 completion(nil)
                 return
             }
-            self.debugLog("findLinkAtPoint result=\(url.absoluteString) point=\(point.x),\(point.y)")
             completion(url)
         }
     }
@@ -167,7 +148,7 @@ final class CmuxWebView: WKWebView {
 
     private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
         guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = comps.queryItems else { return nil }
         let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
         let candidates = ["imgurl", "mediaurl", "url", "q"]
@@ -199,7 +180,6 @@ final class CmuxWebView: WKWebView {
         let target = item.target as AnyObject?
         let action = item.action
         if isOurDownloadMenuAction(target: target, action: action) {
-            debugLog("fallback.capture skipped reason=already-our-action")
             return
         }
         let box = ContextMenuFallbackBox(target: target, action: action)
@@ -209,7 +189,6 @@ final class CmuxWebView: WKWebView {
             box,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
-        debugLog("fallback.capture action=\(debugSelectorName(action)) target=\(debugTargetToken(target))")
     }
 
     private func fallbackFromSender(
@@ -219,10 +198,8 @@ final class CmuxWebView: WKWebView {
     ) -> (action: Selector?, target: AnyObject?) {
         if let item = sender as? NSMenuItem,
            let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
-            debugLog("fallback.resolve source=menu-item action=\(debugSelectorName(box.action)) target=\(debugTargetToken(box.target))")
             return (box.action, box.target)
         }
-        debugLog("fallback.resolve source=default action=\(debugSelectorName(defaultAction)) target=\(debugTargetToken(defaultTarget))")
         return (defaultAction, defaultTarget)
     }
 
@@ -279,11 +256,9 @@ final class CmuxWebView: WKWebView {
         evaluateJavaScript(js) { result, _ in
             guard let src = result as? String, !src.isEmpty,
                   let url = URL(string: src) else {
-                self.debugLog("findImageURLAtPoint result=nil point=\(point.x),\(point.y)")
                 completion(nil)
                 return
             }
-            self.debugLog("findImageURLAtPoint result=\(url.absoluteString) point=\(point.x),\(point.y)")
             completion(url)
         }
     }
@@ -320,35 +295,26 @@ final class CmuxWebView: WKWebView {
         evaluateJavaScript(js) { result, _ in
             guard let href = result as? String, !href.isEmpty,
                   let url = URL(string: href) else {
-                self.debugLog("findLinkURLAtPoint result=nil point=\(point.x),\(point.y)")
                 completion(nil)
                 return
             }
-            self.debugLog("findLinkURLAtPoint result=\(url.absoluteString) point=\(point.x),\(point.y)")
             completion(url)
         }
     }
 
-    private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?, contextID: String) {
-        guard let action else {
-            debugLog("id=\(contextID) fallback.skip reason=nil-action")
-            return
-        }
-        debugLog("id=\(contextID) fallback.invoke action=\(debugSelectorName(action)) target=\(debugTargetToken(target))")
+    private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?) {
+        guard let action else { return }
         // Guard against accidental self-recursion if fallback gets overwritten.
         if target === self,
            action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:)) {
             NSLog("CmuxWebView context fallback skipped (recursive self action)")
-            debugLog("id=\(contextID) fallback.skip reason=recursive-self-action")
             return
         }
-        let didSend = NSApp.sendAction(action, to: target, from: sender)
-        debugLog("id=\(contextID) fallback.result didSend=\(didSend ? 1 : 0)")
+        _ = NSApp.sendAction(action, to: target, from: sender)
     }
 
-    private func notifyContextMenuDownloadState(_ downloading: Bool, contextID: String) {
-        debugLog("id=\(contextID) state.notify downloading=\(downloading ? 1 : 0) mainThread=\(Thread.isMainThread ? 1 : 0)")
+    private func notifyContextMenuDownloadState(_ downloading: Bool) {
         if Thread.isMainThread {
             onContextMenuDownloadStateChanged?(downloading)
         } else {
@@ -363,25 +329,19 @@ final class CmuxWebView: WKWebView {
         suggestedFilename: String?,
         sender: Any?,
         fallbackAction: Selector?,
-        fallbackTarget: AnyObject?,
-        contextID: String
+        fallbackTarget: AnyObject?
     ) {
         guard isDownloadableScheme(url) else {
-            debugLog("id=\(contextID) session.reject reason=unsupported-scheme url=\(url.absoluteString)")
-            runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
+            runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender)
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
-        debugLog(
-            "id=\(contextID) session.start url=\(url.absoluteString) scheme=\(scheme) fallbackAction=\(debugSelectorName(fallbackAction)) fallbackTarget=\(debugTargetToken(fallbackTarget))"
-        )
-        notifyContextMenuDownloadState(true, contextID: contextID)
+        notifyContextMenuDownloadState(true)
 
         if scheme == "file" {
             DispatchQueue.main.async {
                 do {
                     let data = try Data(contentsOf: url)
-                    self.debugLog("id=\(contextID) file.read.ok bytes=\(data.count)")
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
                     let savePanel = NSSavePanel()
@@ -389,25 +349,14 @@ final class CmuxWebView: WKWebView {
                     savePanel.canCreateDirectories = true
                     savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
                     // Download is already complete; we're now waiting for user save choice.
-                    self.debugLog("id=\(contextID) file.savePanel.present defaultName=\(saveName)")
-                    self.notifyContextMenuDownloadState(false, contextID: contextID)
+                    self.notifyContextMenuDownloadState(false)
                     savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugLog("id=\(contextID) file.savePanel.cancel")
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugLog("id=\(contextID) file.write.ok path=\(destURL.path) bytes=\(data.count)")
-                        } catch {
-                            self.debugLog("id=\(contextID) file.write.error error=\(error.localizedDescription)")
-                            self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
-                        }
+                        guard result == .OK, let destURL = savePanel.url else { return }
+                        try? data.write(to: destURL, options: .atomic)
                     }
                 } catch {
-                    self.debugLog("id=\(contextID) file.read.error error=\(error.localizedDescription)")
-                    self.notifyContextMenuDownloadState(false, contextID: contextID)
-                    self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
+                    self.notifyContextMenuDownloadState(false)
+                    self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender)
                 }
             }
             return
@@ -427,28 +376,14 @@ final class CmuxWebView: WKWebView {
             if let ua = self.customUserAgent, !ua.isEmpty {
                 request.setValue(ua, forHTTPHeaderField: "User-Agent")
             }
-            self.debugLog(
-                "id=\(contextID) http.request cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") != nil ? 1 : 0) ua=\(request.value(forHTTPHeaderField: "User-Agent") != nil ? 1 : 0)"
-            )
 
             URLSession.shared.dataTask(with: request) { data, response, error in
                 DispatchQueue.main.async {
-                    if let error {
-                        self.debugLog("id=\(contextID) http.response.error error=\(error.localizedDescription)")
-                        self.notifyContextMenuDownloadState(false, contextID: contextID)
-                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
+                    guard let data, error == nil else {
+                        self.notifyContextMenuDownloadState(false)
+                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender)
                         return
                     }
-                    guard let data else {
-                        self.debugLog("id=\(contextID) http.response.error error=nil-data")
-                        self.notifyContextMenuDownloadState(false, contextID: contextID)
-                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
-                        return
-                    }
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-                    self.debugLog(
-                        "id=\(contextID) http.response.ok status=\(statusCode) bytes=\(data.count) mime=\(response?.mimeType ?? "nil") suggested=\(response?.suggestedFilename ?? "nil")"
-                    )
                     let filenameCandidate = suggestedFilename
                         ?? response?.suggestedFilename
                         ?? url.lastPathComponent
@@ -459,24 +394,17 @@ final class CmuxWebView: WKWebView {
                     savePanel.canCreateDirectories = true
                     savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
                     // Download is already complete; we're now waiting for user save choice.
-                    self.debugLog("id=\(contextID) http.savePanel.present defaultName=\(saveName)")
-                    self.notifyContextMenuDownloadState(false, contextID: contextID)
+                    self.notifyContextMenuDownloadState(false)
                     savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugLog("id=\(contextID) http.savePanel.cancel")
-                            return
-                        }
+                        guard result == .OK, let destURL = savePanel.url else { return }
                         do {
                             try data.write(to: destURL, options: .atomic)
-                            self.debugLog("id=\(contextID) http.write.ok path=\(destURL.path) bytes=\(data.count)")
                         } catch {
-                            self.debugLog("id=\(contextID) http.write.error error=\(error.localizedDescription)")
-                            self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, contextID: contextID)
+                            self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender)
                         }
                     }
                 }
             }.resume()
-            self.debugLog("id=\(contextID) http.task.resumed")
         }
     }
 
@@ -484,18 +412,15 @@ final class CmuxWebView: WKWebView {
         _ url: URL,
         sender: Any?,
         fallbackAction: Selector?,
-        fallbackTarget: AnyObject?,
-        contextID: String
+        fallbackTarget: AnyObject?
     ) {
         NSLog("CmuxWebView context download start: %@", url.absoluteString)
-        debugLog("id=\(contextID) startContextMenuDownload url=\(url.absoluteString)")
         downloadURLViaSession(
             url,
             suggestedFilename: nil,
             sender: sender,
             fallbackAction: fallbackAction,
-            fallbackTarget: fallbackTarget,
-            contextID: contextID
+            fallbackTarget: fallbackTarget
         )
     }
 
@@ -527,7 +452,6 @@ final class CmuxWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
-        debugLog("menu.open point=\(lastContextMenuPoint.x),\(lastContextMenuPoint.y)")
 
         for item in menu.items {
             // Rename "Open Link in New Window" to "Open Link in New Tab".
@@ -552,9 +476,6 @@ final class CmuxWebView: WKWebView {
                 }
                 item.target = self
                 item.action = #selector(contextMenuDownloadImage(_:))
-                debugLog(
-                    "menu.hook type=image title=\(item.title) fallbackAction=\(debugSelectorName(fallbackDownloadImageAction)) fallbackTarget=\(debugTargetToken(fallbackDownloadImageTarget))"
-                )
             }
 
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile"
@@ -571,42 +492,32 @@ final class CmuxWebView: WKWebView {
                 }
                 item.target = self
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
-                debugLog(
-                    "menu.hook type=linked title=\(item.title) fallbackAction=\(debugSelectorName(fallbackDownloadLinkedFileAction)) fallbackTarget=\(debugTargetToken(fallbackDownloadLinkedFileTarget))"
-                )
             }
         }
     }
 
     @objc private func contextMenuDownloadImage(_ sender: Any?) {
-        let contextID = "img-\(String(UUID().uuidString.prefix(8)))"
         let point = lastContextMenuPoint
         let fallback = fallbackFromSender(
             sender,
             defaultAction: fallbackDownloadImageAction,
             defaultTarget: fallbackDownloadImageTarget
         )
-        debugLog(
-            "id=\(contextID) action=image point=\(point.x),\(point.y) fallbackAction=\(debugSelectorName(fallback.action)) fallbackTarget=\(debugTargetToken(fallback.target))"
-        )
         findImageURLAtPoint(point) { [weak self] url in
             guard let self else { return }
             if let url {
                 let scheme = url.scheme?.lowercased() ?? ""
-                self.debugLog("id=\(contextID) image.primary url=\(url.absoluteString) scheme=\(scheme)")
                 if scheme == "http" || scheme == "https" || scheme == "file" {
                     NSLog("CmuxWebView context download image URL: %@", url.absoluteString)
                     self.startContextMenuDownload(
                         url,
                         sender: sender,
                         fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        contextID: contextID
+                        fallbackTarget: fallback.target
                     )
                     return
                 }
             }
-            self.debugLog("id=\(contextID) image.primary unavailable=true")
 
             // Google Images and similar sites often expose blob:/data: image URLs.
             // If image URL is not directly downloadable, fall back to the nearby link URL.
@@ -616,20 +527,17 @@ final class CmuxWebView: WKWebView {
                     self.runContextMenuFallback(
                         action: fallback.action,
                         target: fallback.target,
-                        sender: sender,
-                        contextID: contextID
+                        sender: sender
                     )
                     return
                 }
                 let linkScheme = linkURL.scheme?.lowercased() ?? ""
-                self.debugLog("id=\(contextID) image.linkFallback url=\(linkURL.absoluteString) scheme=\(linkScheme)")
                 guard linkScheme == "http" || linkScheme == "https" || linkScheme == "file" else {
                     NSLog("CmuxWebView context download image: link URL not downloadable (%@), using fallback action", linkURL.absoluteString)
                     self.runContextMenuFallback(
                         action: fallback.action,
                         target: fallback.target,
-                        sender: sender,
-                        contextID: contextID
+                        sender: sender
                     )
                     return
                 }
@@ -639,60 +547,47 @@ final class CmuxWebView: WKWebView {
                     linkURL,
                     sender: sender,
                     fallbackAction: fallback.action,
-                    fallbackTarget: fallback.target,
-                    contextID: contextID
+                    fallbackTarget: fallback.target
                 )
             }
         }
     }
 
     @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
-        let contextID = "lnk-\(String(UUID().uuidString.prefix(8)))"
         let point = lastContextMenuPoint
         let fallback = fallbackFromSender(
             sender,
             defaultAction: fallbackDownloadLinkedFileAction,
             defaultTarget: fallbackDownloadLinkedFileTarget
         )
-        debugLog(
-            "id=\(contextID) action=linked point=\(point.x),\(point.y) fallbackAction=\(debugSelectorName(fallback.action)) fallbackTarget=\(debugTargetToken(fallback.target))"
-        )
         findLinkURLAtPoint(point) { [weak self] url in
             guard let self else { return }
             if let url {
                 let normalized = self.normalizedLinkedDownloadURL(url)
-                self.debugLog(
-                    "id=\(contextID) linked.primary url=\(url.absoluteString) normalized=\(normalized.absoluteString) downloadable=\(self.isDownloadableScheme(normalized) ? 1 : 0)"
-                )
                 if self.isDownloadableScheme(normalized) {
                     NSLog("CmuxWebView context download linked file URL: %@ (normalized=%@)", url.absoluteString, normalized.absoluteString)
                     self.startContextMenuDownload(
                         normalized,
                         sender: sender,
                         fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        contextID: contextID
+                        fallbackTarget: fallback.target
                     )
                     return
                 }
             }
-            self.debugLog("id=\(contextID) linked.primary unavailable=true")
 
             // Fallback 1: image URL under cursor (useful on image-heavy result pages).
             self.findImageURLAtPoint(point) { imageURL in
                 if let imageURL, self.isDownloadableScheme(imageURL) {
-                    self.debugLog("id=\(contextID) linked.imageFallback url=\(imageURL.absoluteString)")
                     NSLog("CmuxWebView context download linked file fallback image URL: %@", imageURL.absoluteString)
                     self.startContextMenuDownload(
                         imageURL,
                         sender: sender,
                         fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        contextID: contextID
+                        fallbackTarget: fallback.target
                     )
                     return
                 }
-                self.debugLog("id=\(contextID) linked.imageFallback unavailable=true")
 
                 // Fallback 2: simpler nearest-anchor lookup.
                 self.findLinkAtPoint(point) { fallbackURL in
@@ -701,22 +596,17 @@ final class CmuxWebView: WKWebView {
                         self.runContextMenuFallback(
                             action: fallback.action,
                             target: fallback.target,
-                            sender: sender,
-                            contextID: contextID
+                            sender: sender
                         )
                         return
                     }
                     let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
-                    self.debugLog(
-                        "id=\(contextID) linked.anchorFallback url=\(fallbackURL.absoluteString) normalized=\(normalized.absoluteString) downloadable=\(self.isDownloadableScheme(normalized) ? 1 : 0)"
-                    )
                     guard self.isDownloadableScheme(normalized) else {
                         NSLog("CmuxWebView context download linked file: unsupported URL %@, using fallback action", fallbackURL.absoluteString)
                         self.runContextMenuFallback(
                             action: fallback.action,
                             target: fallback.target,
-                            sender: sender,
-                            contextID: contextID
+                            sender: sender
                         )
                         return
                     }
@@ -725,8 +615,7 @@ final class CmuxWebView: WKWebView {
                         normalized,
                         sender: sender,
                         fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        contextID: contextID
+                        fallbackTarget: fallback.target
                     )
                 }
             }

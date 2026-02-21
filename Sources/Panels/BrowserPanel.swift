@@ -1169,21 +1169,21 @@ final class BrowserPanel: Panel, ObservableObject {
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
         dlDelegate.onDownloadStarted = { [weak self] _ in
-            self?.beginDownloadActivity(reason: "wkdownload.started")
+            self?.beginDownloadActivity()
         }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
-            self?.endDownloadActivity(reason: "wkdownload.readyToSave")
+            self?.endDownloadActivity()
         }
         dlDelegate.onDownloadFailed = { [weak self] _ in
-            self?.endDownloadActivity(reason: "wkdownload.failed")
+            self?.endDownloadActivity()
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
-                self?.beginDownloadActivity(reason: "contextMenu.state.true")
+                self?.beginDownloadActivity()
             } else {
-                self?.endDownloadActivity(reason: "contextMenu.state.false")
+                self?.endDownloadActivity()
             }
         }
         webView.navigationDelegate = navDelegate
@@ -1210,14 +1210,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func beginDownloadActivity(reason: String = "unknown") {
+    private func beginDownloadActivity() {
         let apply = {
-            let before = self.activeDownloadCount
             self.activeDownloadCount += 1
             self.isDownloading = self.activeDownloadCount > 0
-            #if DEBUG
-            dlog("download.activity event=begin reason=\(reason) count=\(before)->\(self.activeDownloadCount)")
-            #endif
         }
         if Thread.isMainThread {
             apply()
@@ -1226,14 +1222,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func endDownloadActivity(reason: String = "unknown") {
+    private func endDownloadActivity() {
         let apply = {
-            let before = self.activeDownloadCount
             self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
             self.isDownloading = self.activeDownloadCount > 0
-            #if DEBUG
-            dlog("download.activity event=end reason=\(reason) count=\(before)->\(self.activeDownloadCount)")
-            #endif
         }
         if Thread.isMainThread {
             apply()
@@ -2181,28 +2173,16 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         return safe.isEmpty ? "download" : safe
     }
 
-    private static func downloadToken(_ download: WKDownload) -> String {
-        String(describing: Unmanaged.passUnretained(download).toOpaque())
-    }
-
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
-        let count = activeDownloads.count
         activeDownloadsLock.unlock()
-        #if DEBUG
-        dlog("download.state event=store token=\(Self.downloadToken(download)) count=\(count) file=\(state.suggestedFilename)")
-        #endif
     }
 
     private func removeState(for download: WKDownload) -> DownloadState? {
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
-        let count = activeDownloads.count
         activeDownloadsLock.unlock()
-        #if DEBUG
-        dlog("download.state event=remove token=\(Self.downloadToken(download)) count=\(count) hadState=\(state == nil ? 0 : 1)")
-        #endif
         return state
     }
 
@@ -2230,7 +2210,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             self?.onDownloadStarted?(safeFilename)
         }
         #if DEBUG
-        dlog("download.decideDestination token=\(Self.downloadToken(download)) file=\(safeFilename) responseURL=\(response.url?.absoluteString ?? "nil")")
+        dlog("download.decideDestination file=\(safeFilename)")
         #endif
         NSLog("BrowserPanel download: temp path=%@", destURL.path)
         completionHandler(destURL)
@@ -2244,7 +2224,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             return
         }
         #if DEBUG
-        dlog("download.finished token=\(Self.downloadToken(download)) file=\(info.suggestedFilename)")
+        dlog("download.finished file=\(info.suggestedFilename)")
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
@@ -2255,15 +2235,9 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             savePanel.nameFieldStringValue = info.suggestedFilename
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            #if DEBUG
-            dlog("download.savePanel.present token=\(Self.downloadToken(download)) file=\(info.suggestedFilename)")
-            #endif
 
             savePanel.begin { result in
                 guard result == .OK, let destURL = savePanel.url else {
-                    #if DEBUG
-                    dlog("download.savePanel.cancel token=\(Self.downloadToken(download))")
-                    #endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                     return
                 }
@@ -2271,14 +2245,8 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     try? FileManager.default.removeItem(at: destURL)
                     try FileManager.default.moveItem(at: info.tempURL, to: destURL)
                     NSLog("BrowserPanel download saved: %@", destURL.path)
-                    #if DEBUG
-                    dlog("download.savePanel.write token=\(Self.downloadToken(download)) path=\(destURL.path)")
-                    #endif
                 } catch {
                     NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
-                    #if DEBUG
-                    dlog("download.savePanel.error token=\(Self.downloadToken(download)) error=\(error.localizedDescription)")
-                    #endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
@@ -2293,7 +2261,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             self?.onDownloadFailed?(error)
         }
         #if DEBUG
-        dlog("download.failed token=\(Self.downloadToken(download)) resumeData=\(resumeData?.count ?? 0) error=\(error.localizedDescription)")
+        dlog("download.failed error=\(error.localizedDescription)")
         #endif
         NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
