@@ -135,12 +135,18 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
+                return .external(parsed)
+            }
             return .embeddedBrowser(parsed)
         }
         return .external(parsed)
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
+        guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
+            return .external(webURL)
+        }
         return .embeddedBrowser(webURL)
     }
 
@@ -979,6 +985,18 @@ class GhosttyApp {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
+                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
+                // If a host whitelist is configured and this host isn't in it, open externally.
+                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 guard let tabId = surfaceView.tabId,
                       let surfaceId = surfaceView.terminalSurface?.id else { return false }
                 return performOnMain {
@@ -1352,7 +1370,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             env["CMUX_PORT_RANGE"] = String(Self.sessionPortRangeSize)
         }
 
-        let claudeHooksEnabled = UserDefaults.standard.object(forKey: "claudeCodeHooksEnabled") as? Bool ?? true
+        let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         if !claudeHooksEnabled {
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         }
@@ -2818,6 +2836,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        #if DEBUG
+        let types = sender.draggingPasteboard.types ?? []
+        dlog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
+        #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
@@ -2923,13 +2945,16 @@ final class GhosttySurfaceScrollView: NSView {
     private var lastSentRow: Int?
     private var isActive = true
     private var activeDropZone: DropZone?
+    private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 #if DEBUG
+    private var lastDropZoneOverlayLogSignature: String?
 	    private static var flashCounts: [UUID: Int] = [:]
 	    private static var drawCounts: [UUID: Int] = [:]
 	    private static var lastDrawTimes: [UUID: CFTimeInterval] = [:]
 	    private static var presentCounts: [UUID: Int] = [:]
+    private static var dropOverlayShowCounts: [UUID: Int] = [:]
     private static var lastPresentTimes: [UUID: CFTimeInterval] = [:]
     private static var lastContentsKeys: [UUID: String] = [:]
 
@@ -2992,6 +3017,38 @@ final class GhosttySurfaceScrollView: NSView {
             lastContentsKeys[surfaceId] = key
         }
         return (presentCounts[surfaceId, default: 0], lastPresentTimes[surfaceId, default: 0], key)
+    }
+
+    private func recordDropOverlayShowAnimation() {
+        guard let surfaceId = surfaceView.terminalSurface?.id else { return }
+        Self.dropOverlayShowCounts[surfaceId, default: 0] += 1
+    }
+
+    func debugProbeDropOverlayAnimation(useDeferredPath: Bool) -> (before: Int, after: Int, bounds: CGSize) {
+        guard let surfaceId = surfaceView.terminalSurface?.id else {
+            return (0, 0, bounds.size)
+        }
+
+        let before = Self.dropOverlayShowCounts[surfaceId, default: 0]
+
+        // Reset to a hidden baseline so each probe exercises an initial-show transition.
+        dropZoneOverlayAnimationGeneration &+= 1
+        activeDropZone = nil
+        pendingDropZone = nil
+        dropZoneOverlayView.layer?.removeAllAnimations()
+        dropZoneOverlayView.isHidden = true
+        dropZoneOverlayView.alphaValue = 1
+
+        if useDeferredPath {
+            pendingDropZone = .left
+            synchronizeGeometryAndContent()
+        } else {
+            setDropZoneOverlay(zone: .left)
+        }
+
+        let after = Self.dropOverlayShowCounts[surfaceId, default: 0]
+        setDropZoneOverlay(zone: nil)
+        return (before, after, bounds.size)
     }
 
     var debugSurfaceId: UUID? {
@@ -3178,6 +3235,18 @@ final class GhosttySurfaceScrollView: NSView {
         if let zone = activeDropZone {
             dropZoneOverlayView.frame = dropZoneOverlayFrame(for: zone, in: bounds.size)
         }
+        if let pending = pendingDropZone,
+           bounds.width > 2,
+           bounds.height > 2 {
+            pendingDropZone = nil
+#if DEBUG
+            let frame = dropZoneOverlayFrame(for: pending, in: bounds.size)
+            logDropZoneOverlay(event: "flushPending", zone: pending, frame: frame)
+#endif
+            // Reuse the normal show/update path so deferred overlays get the
+            // same initial animation as direct drop-zone activation.
+            setDropZoneOverlay(zone: pending)
+        }
         notificationRingOverlayView.frame = bounds
         flashOverlayView.frame = bounds
         updateNotificationRingPath()
@@ -3284,12 +3353,26 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        if let zone, (bounds.width <= 2 || bounds.height <= 2) {
+            pendingDropZone = zone
+#if DEBUG
+            logDropZoneOverlay(event: "deferZeroBounds", zone: zone, frame: nil)
+#endif
+            return
+        }
+
         let previousZone = activeDropZone
         activeDropZone = zone
+        pendingDropZone = nil
 
         let previousFrame = dropZoneOverlayView.frame
 
         if let zone {
+#if DEBUG
+            if window == nil {
+                logDropZoneOverlay(event: "showNoWindow", zone: zone, frame: nil)
+            }
+#endif
             let targetFrame = dropZoneOverlayFrame(for: zone, in: bounds.size)
             let isSameFrame = Self.rectApproximatelyEqual(previousFrame, targetFrame)
             let needsFrameUpdate = !isSameFrame
@@ -3306,15 +3389,32 @@ final class GhosttySurfaceScrollView: NSView {
                 dropZoneOverlayView.frame = targetFrame
                 dropZoneOverlayView.alphaValue = 0
                 dropZoneOverlayView.isHidden = false
+#if DEBUG
+                recordDropOverlayShowAnimation()
+#endif
+#if DEBUG
+                logDropZoneOverlay(event: "show", zone: zone, frame: targetFrame)
+#endif
 
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.18
                     context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                     dropZoneOverlayView.animator().alphaValue = 1
+                } completionHandler: { [weak self] in
+#if DEBUG
+                    guard let self else { return }
+                    guard self.activeDropZone == zone else { return }
+                    self.logDropZoneOverlay(event: "showComplete", zone: zone, frame: targetFrame)
+#endif
                 }
                 return
             }
 
+#if DEBUG
+            if needsFrameUpdate || zoneChanged {
+                logDropZoneOverlay(event: "update", zone: zone, frame: targetFrame)
+            }
+#endif
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -3330,6 +3430,9 @@ final class GhosttySurfaceScrollView: NSView {
             dropZoneOverlayAnimationGeneration &+= 1
             let animationGeneration = dropZoneOverlayAnimationGeneration
             dropZoneOverlayView.layer?.removeAllAnimations()
+#if DEBUG
+            logDropZoneOverlay(event: "hide", zone: nil, frame: nil)
+#endif
 
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.14
@@ -3341,9 +3444,36 @@ final class GhosttySurfaceScrollView: NSView {
                 guard self.activeDropZone == nil else { return }
                 self.dropZoneOverlayView.isHidden = true
                 self.dropZoneOverlayView.alphaValue = 1
+#if DEBUG
+                self.logDropZoneOverlay(event: "hideComplete", zone: nil, frame: nil)
+#endif
             }
         }
     }
+
+#if DEBUG
+    private func logDropZoneOverlay(event: String, zone: DropZone?, frame: CGRect?) {
+        let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let zoneText = zone.map { String(describing: $0) } ?? "none"
+        let boundsText = String(format: "%.1fx%.1f", bounds.width, bounds.height)
+        let frameText: String
+        if let frame {
+            frameText = String(
+                format: "%.1f,%.1f %.1fx%.1f",
+                frame.origin.x, frame.origin.y, frame.width, frame.height
+            )
+        } else {
+            frameText = "-"
+        }
+        let signature = "\(event)|\(surface)|\(zoneText)|\(boundsText)|\(frameText)|\(dropZoneOverlayView.isHidden ? 1 : 0)"
+        guard lastDropZoneOverlayLogSignature != signature else { return }
+        lastDropZoneOverlayLogSignature = signature
+        dlog(
+            "terminal.dropOverlay event=\(event) surface=\(surface) zone=\(zoneText) " +
+            "hidden=\(dropZoneOverlayView.isHidden ? 1 : 0) bounds=\(boundsText) frame=\(frameText)"
+        )
+    }
+#endif
 
     func triggerFlash() {
         DispatchQueue.main.async { [weak self] in
@@ -4175,6 +4305,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         var desiredShowsUnreadNotificationRing: Bool = false
         var desiredPortalZPriority: Int = 0
         var lastBoundHostId: ObjectIdentifier?
+        var lastPaneDropZone: DropZone?
         weak var hostedView: GhosttySurfaceScrollView?
     }
 
@@ -4234,7 +4365,27 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
-        hostedView.setDropZoneOverlay(zone: paneDropZone)
+        let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
+#if DEBUG
+        if coordinator.lastPaneDropZone != paneDropZone {
+            let oldZone = coordinator.lastPaneDropZone.map { String(describing: $0) } ?? "none"
+            let newZone = paneDropZone.map { String(describing: $0) } ?? "none"
+            dlog(
+                "terminal.paneDropZone surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "old=\(oldZone) new=\(newZone) " +
+                "active=\(isActive ? 1 : 0) visible=\(isVisibleInUI ? 1 : 0) " +
+                "inWindow=\(hostedView.window != nil ? 1 : 0)"
+            )
+            coordinator.lastPaneDropZone = paneDropZone
+        }
+        if paneDropZone != nil, !isVisibleInUI {
+            dlog(
+                "terminal.paneDropZone.suppress surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                "requested=\(String(describing: paneDropZone!)) visible=0 active=\(isActive ? 1 : 0)"
+            )
+        }
+#endif
+        hostedView.setDropZoneOverlay(zone: forwardedDropZone)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration

@@ -162,6 +162,37 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testClaudeCodeIntegrationDefaultsToDisabledWhenUnset() {
+        let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
+    func testClaudeCodeIntegrationRespectsStoredPreference() {
+        let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
+        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
@@ -174,5 +205,114 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+}
+
+final class NotificationBurstCoalescerTests: XCTestCase {
+    func testSignalsInSameBurstFlushOnce() {
+        let coalescer = NotificationBurstCoalescer(delay: 0.01)
+        let expectation = expectation(description: "flush once")
+        expectation.expectedFulfillmentCount = 1
+        var flushCount = 0
+
+        DispatchQueue.main.async {
+            for _ in 0..<8 {
+                coalescer.signal {
+                    flushCount += 1
+                    expectation.fulfill()
+                }
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(flushCount, 1)
+    }
+
+    func testLatestActionWinsWithinBurst() {
+        let coalescer = NotificationBurstCoalescer(delay: 0.01)
+        let expectation = expectation(description: "latest action flushed")
+        var value = 0
+
+        DispatchQueue.main.async {
+            coalescer.signal {
+                value = 1
+            }
+            coalescer.signal {
+                value = 2
+                expectation.fulfill()
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(value, 2)
+    }
+
+    func testSignalsAcrossBurstsFlushMultipleTimes() {
+        let coalescer = NotificationBurstCoalescer(delay: 0.01)
+        let expectation = expectation(description: "flush twice")
+        expectation.expectedFulfillmentCount = 2
+        var flushCount = 0
+
+        DispatchQueue.main.async {
+            coalescer.signal {
+                flushCount += 1
+                expectation.fulfill()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                coalescer.signal {
+                    flushCount += 1
+                    expectation.fulfill()
+                }
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(flushCount, 2)
+    }
+}
+
+final class TabManagerNotificationOrderingSourceTests: XCTestCase {
+    func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
+        let projectRoot = findProjectRoot()
+        let tabManagerURL = projectRoot.appendingPathComponent("Sources/TabManager.swift")
+        let source = try String(contentsOf: tabManagerURL, encoding: .utf8)
+
+        guard let titleObserverStart = source.range(of: "forName: .ghosttyDidSetTitle"),
+              let focusObserverStart = source.range(
+                of: "forName: .ghosttyDidFocusSurface",
+                range: titleObserverStart.upperBound..<source.endIndex
+              ) else {
+            XCTFail("Failed to locate TabManager notification observer block in Sources/TabManager.swift")
+            return
+        }
+
+        let block = String(source[titleObserverStart.lowerBound..<focusObserverStart.lowerBound])
+        XCTAssertFalse(
+            block.contains("Task {"),
+            """
+            The .ghosttyDidSetTitle observer must update model state in the notification callback.
+            Using Task can reorder updates and leave titlebar/toolbar one event behind.
+            """
+        )
+        XCTAssertTrue(
+            block.contains("MainActor.assumeIsolated"),
+            "Expected .ghosttyDidSetTitle observer to run synchronously on MainActor."
+        )
+        XCTAssertTrue(
+            block.contains("enqueuePanelTitleUpdate"),
+            "Expected .ghosttyDidSetTitle observer to enqueue panel title updates."
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }

@@ -87,6 +87,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
+    @Published private(set) var panelCustomTitles: [UUID: String] = [:]
+    @Published private(set) var pinnedPanelIds: Set<UUID> = []
+    @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
@@ -102,6 +105,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var processTitle: String
+
+    private enum SurfaceKind {
+        static let terminal = "terminal"
+        static let browser = "browser"
+    }
 
     // MARK: - Initialization
 
@@ -152,7 +160,7 @@ final class Workspace: Identifiable, ObservableObject {
             : FileManager.default.homeDirectoryForCurrentUser.path
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
-        // Disable split animations for instant response
+        // and keep split entry instantaneous.
         let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
@@ -178,13 +186,16 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal
         )
         panels[terminalPanel.id] = terminalPanel
+        panelTitles[terminalPanel.id] = terminalPanel.displayTitle
 
         // Create initial tab in bonsplit and store the mapping
         var initialTabId: TabID?
         if let tabId = bonsplitController.createTab(
             title: title,
             icon: "terminal.fill",
-            isDirty: false
+            kind: SurfaceKind.terminal,
+            isDirty: false,
+            isPinned: false
         ) {
             surfaceIdToPanelId[tabId] = terminalPanel.id
             initialTabId = tabId
@@ -248,6 +259,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
     private var geometryReconcileScheduled = false
+    private var isNormalizingPinnedTabOrder = false
 
     struct DetachedSurfaceTransfer {
         let panelId: UUID
@@ -255,9 +267,13 @@ final class Workspace: Identifiable, ObservableObject {
         let title: String
         let icon: String?
         let iconImageData: Data?
+        let kind: String?
         let isLoading: Bool
+        let isPinned: Bool
         let directory: String?
         let cachedTitle: String?
+        let customTitle: String?
+        let manuallyUnread: Bool
     }
 
     private var detachingTabIds: Set<TabID> = []
@@ -286,7 +302,11 @@ final class Workspace: Identifiable, ObservableObject {
             guard let existing = self.bonsplitController.tab(tabId) else { return }
 
             let nextTitle = browserPanel.displayTitle
-            let titleUpdate: String? = existing.title == nextTitle ? nil : nextTitle
+            if self.panelTitles[browserPanel.id] != nextTitle {
+                self.panelTitles[browserPanel.id] = nextTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: browserPanel.id, fallback: nextTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let faviconUpdate: Data?? = existing.iconImageData == favicon ? nil : .some(favicon)
             let loadingUpdate: Bool? = existing.isLoading == isLoading ? nil : isLoading
 
@@ -295,6 +315,7 @@ final class Workspace: Identifiable, ObservableObject {
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
+                hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
                 isLoading: loadingUpdate
             )
         }
@@ -313,6 +334,145 @@ final class Workspace: Identifiable, ObservableObject {
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    private func surfaceKind(for panel: any Panel) -> String {
+        switch panel.panelType {
+        case .terminal:
+            return SurfaceKind.terminal
+        case .browser:
+            return SurfaceKind.browser
+        }
+    }
+
+    private func resolvedPanelTitle(panelId: UUID, fallback: String) -> String {
+        let trimmedFallback = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = trimmedFallback.isEmpty ? "Tab" : trimmedFallback
+        if let custom = panelCustomTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !custom.isEmpty {
+            return custom
+        }
+        return fallbackTitle
+    }
+
+    private func syncPinnedStateForTab(_ tabId: TabID, panelId: UUID) {
+        let isPinned = pinnedPanelIds.contains(panelId)
+        if let panel = panels[panelId] {
+            bonsplitController.updateTab(
+                tabId,
+                kind: .some(surfaceKind(for: panel)),
+                isPinned: isPinned
+            )
+        } else {
+            bonsplitController.updateTab(tabId, isPinned: isPinned)
+        }
+    }
+
+    private func hasUnreadNotification(panelId: UUID) -> Bool {
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+    }
+
+    private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let shouldShowUnread = manualUnreadPanelIds.contains(panelId) || hasUnreadNotification(panelId: panelId)
+        if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
+            return
+        }
+        bonsplitController.updateTab(tabId, showsNotificationBadge: shouldShowUnread)
+    }
+
+    private func normalizePinnedTabs(in paneId: PaneID) {
+        guard !isNormalizingPinnedTabOrder else { return }
+        isNormalizingPinnedTabOrder = true
+        defer { isNormalizingPinnedTabOrder = false }
+
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        let pinnedTabs = tabs.filter { tab in
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
+            return pinnedPanelIds.contains(panelId)
+        }
+        let unpinnedTabs = tabs.filter { tab in
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return true }
+            return !pinnedPanelIds.contains(panelId)
+        }
+        let desiredOrder = pinnedTabs + unpinnedTabs
+
+        for (index, desiredTab) in desiredOrder.enumerated() {
+            let currentTabs = bonsplitController.tabs(inPane: paneId)
+            guard let currentIndex = currentTabs.firstIndex(where: { $0.id == desiredTab.id }) else { continue }
+            if currentIndex != index {
+                _ = bonsplitController.reorderTab(desiredTab.id, toIndex: index)
+            }
+        }
+    }
+
+    private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
+        let pinnedCount = tabs.reduce(into: 0) { count, tab in
+            if let panelId = panelIdFromSurfaceId(tab.id), pinnedPanelIds.contains(panelId) {
+                count += 1
+            }
+        }
+        let rawTarget = min(anchorIndex + 1, tabs.count)
+        return max(rawTarget, pinnedCount)
+    }
+
+    func setPanelCustomTitle(panelId: UUID, title: String?) {
+        guard panels[panelId] != nil else { return }
+        let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let previous = panelCustomTitles[panelId]
+        if trimmed.isEmpty {
+            guard previous != nil else { return }
+            panelCustomTitles.removeValue(forKey: panelId)
+        } else {
+            guard previous != trimmed else { return }
+            panelCustomTitles[panelId] = trimmed
+        }
+
+        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
+        let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+            hasCustomTitle: panelCustomTitles[panelId] != nil
+        )
+    }
+
+    func isPanelPinned(_ panelId: UUID) -> Bool {
+        pinnedPanelIds.contains(panelId)
+    }
+
+    func panelKind(panelId: UUID) -> String? {
+        guard let panel = panels[panelId] else { return nil }
+        return surfaceKind(for: panel)
+    }
+
+    func setPanelPinned(panelId: UUID, pinned: Bool) {
+        guard panels[panelId] != nil else { return }
+        let wasPinned = pinnedPanelIds.contains(panelId)
+        guard wasPinned != pinned else { return }
+        if pinned {
+            pinnedPanelIds.insert(panelId)
+        } else {
+            pinnedPanelIds.remove(panelId)
+        }
+
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else { return }
+        bonsplitController.updateTab(tabId, isPinned: pinned)
+        normalizePinnedTabs(in: paneId)
+    }
+
+    func markPanelUnread(_ panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        guard manualUnreadPanelIds.insert(panelId).inserted else { return }
+        syncUnreadBadgeStateForPanel(panelId)
+    }
+
+    func clearManualUnread(panelId: UUID) {
+        guard manualUnreadPanelIds.remove(panelId) != nil else { return }
+        syncUnreadBadgeStateForPanel(panelId)
     }
 
     // MARK: - Title Management
@@ -353,28 +513,50 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func updatePanelTitle(panelId: UUID, title: String) {
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
+        var didMutate = false
+
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
+            didMutate = true
         }
 
-        // Update bonsplit tab title
-        if let tabId = surfaceIdFromPanelId(panelId) {
-            bonsplitController.updateTab(tabId, title: trimmed)
+        // Update bonsplit tab title only when this panel's title changed.
+        if didMutate,
+           let tabId = surfaceIdFromPanelId(panelId),
+           let panel = panels[panelId] {
+            let baseTitle = panelTitles[panelId] ?? panel.displayTitle
+            let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedTitle,
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
         }
 
         // If this is the only panel and no custom title, update workspace title
         if panels.count == 1, customTitle == nil {
-            self.title = trimmed
-            processTitle = trimmed
+            if self.title != trimmed {
+                self.title = trimmed
+                didMutate = true
+            }
+            if processTitle != trimmed {
+                processTitle = trimmed
+            }
         }
+
+        return didMutate
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
+        panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
+        manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
@@ -431,13 +613,16 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
 
         // Pre-generate the bonsplit tab ID so we can install the panel mapping before bonsplit
         // mutates layout state (avoids transient "Empty Panel" flashes during split).
         let newTab = Bonsplit.Tab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            isDirty: newPanel.isDirty
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
 
@@ -450,6 +635,7 @@ final class Workspace: Identifiable, ObservableObject {
 	        defer { isProgrammaticSplit = false }
 	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
 	            panels.removeValue(forKey: newPanel.id)
+	            panelTitles.removeValue(forKey: newPanel.id)
 	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
 	            return nil
 	        }
@@ -497,15 +683,19 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
 
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
             isDirty: newPanel.isDirty,
+            isPinned: false,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
             return nil
         }
 
@@ -547,13 +737,16 @@ final class Workspace: Identifiable, ObservableObject {
         // Create browser panel
         let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
         panels[browserPanel.id] = browserPanel
+        panelTitles[browserPanel.id] = browserPanel.displayTitle
 
         // Pre-generate the bonsplit tab ID so the mapping exists before the split lands.
         let newTab = Bonsplit.Tab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
+            kind: SurfaceKind.browser,
             isDirty: browserPanel.isDirty,
-            isLoading: browserPanel.isLoading
+            isLoading: browserPanel.isLoading,
+            isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = browserPanel.id
 
@@ -564,6 +757,7 @@ final class Workspace: Identifiable, ObservableObject {
 	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
 	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
 	            panels.removeValue(forKey: browserPanel.id)
+	            panelTitles.removeValue(forKey: browserPanel.id)
 	            return nil
 	        }
 
@@ -600,15 +794,19 @@ final class Workspace: Identifiable, ObservableObject {
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
         panels[browserPanel.id] = browserPanel
+        panelTitles[browserPanel.id] = browserPanel.displayTitle
 
         guard let newTabId = bonsplitController.createTab(
             title: browserPanel.displayTitle,
             icon: browserPanel.displayIcon,
+            kind: SurfaceKind.browser,
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
+            isPinned: false,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: browserPanel.id)
+            panelTitles.removeValue(forKey: browserPanel.id)
             return nil
         }
 
@@ -826,18 +1024,37 @@ final class Workspace: Identifiable, ObservableObject {
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
         }
+        if let customTitle = detached.customTitle {
+            panelCustomTitles[detached.panelId] = customTitle
+        }
+        if detached.isPinned {
+            pinnedPanelIds.insert(detached.panelId)
+        } else {
+            pinnedPanelIds.remove(detached.panelId)
+        }
+        if detached.manuallyUnread {
+            manualUnreadPanelIds.insert(detached.panelId)
+        } else {
+            manualUnreadPanelIds.remove(detached.panelId)
+        }
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
+            hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
+            kind: detached.kind,
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
+            isPinned: detached.isPinned,
             inPane: paneId
         ) else {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             panelTitles.removeValue(forKey: detached.panelId)
+            panelCustomTitles.removeValue(forKey: detached.panelId)
+            pinnedPanelIds.remove(detached.panelId)
+            manualUnreadPanelIds.remove(detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             return nil
         }
@@ -846,6 +1063,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
+        syncPinnedStateForTab(newTabId, panelId: detached.panelId)
+        syncUnreadBadgeStateForPanel(detached.panelId)
+        normalizePinnedTabs(in: paneId)
 
         if focus {
             bonsplitController.focusPane(paneId)
@@ -1043,12 +1263,15 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
 
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
-            isDirty: newPanel.isDirty
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false
         ) {
             surfaceIdToPanelId[newTabId] = newPanel.id
         }
@@ -1145,6 +1368,79 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
+        for tabId in tabIds {
+            if skipPinned,
+               let panelId = panelIdFromSurfaceId(tabId),
+               pinnedPanelIds.contains(panelId) {
+                continue
+            }
+            _ = bonsplitController.closeTab(tabId)
+        }
+    }
+
+    private func tabIdsToLeft(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let index = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return [] }
+        return Array(tabs.prefix(index).map(\.id))
+    }
+
+    private func tabIdsToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
+        let tabs = bonsplitController.tabs(inPane: paneId)
+        guard let index = tabs.firstIndex(where: { $0.id == anchorTabId }),
+              index + 1 < tabs.count else { return [] }
+        return Array(tabs.suffix(from: index + 1).map(\.id))
+    }
+
+    private func tabIdsToCloseOthers(of anchorTabId: TabID, inPane paneId: PaneID) -> [TabID] {
+        bonsplitController.tabs(inPane: paneId)
+            .map(\.id)
+            .filter { $0 != anchorTabId }
+    }
+
+    private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
+        guard let newPanel = newTerminalSurface(inPane: paneId, focus: true) else { return }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+    }
+
+    private func createBrowserToRight(of anchorTabId: TabID, inPane paneId: PaneID, url: URL? = nil) {
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
+        guard let newPanel = newBrowserSurface(inPane: paneId, url: url, focus: true) else { return }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+    }
+
+    private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(anchorTabId),
+              let browser = browserPanel(for: panelId) else { return }
+        createBrowserToRight(of: anchorTabId, inPane: paneId, url: browser.currentURL)
+    }
+
+    private func promptRenamePanel(tabId: TabID) {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let panel = panels[panelId] else { return }
+
+        let alert = NSAlert()
+        alert.messageText = "Rename Tab"
+        alert.informativeText = "Enter a custom name for this tab."
+        let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
+        let input = NSTextField(string: currentTitle)
+        input.placeholderString = "Tab name"
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        setPanelCustomTitle(panelId: panelId, title: input.stringValue)
+    }
+
 }
 
 // MARK: - BonsplitDelegate
@@ -1222,6 +1518,8 @@ extension Workspace: BonsplitDelegate {
               let panel = panels[panelId] else {
             return
         }
+        syncPinnedStateForTab(selectedTabId, panelId: panelId)
+        syncUnreadBadgeStateForPanel(panelId)
 
         // Unfocus all other panels
         for (id, p) in panels where id != panelId {
@@ -1229,6 +1527,7 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
+        clearManualUnread(panelId: panelId)
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
@@ -1276,6 +1575,12 @@ extension Workspace: BonsplitDelegate {
         if forceCloseTabIds.contains(tab.id) {
             recordPostCloseSelection()
             return true
+        }
+
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           pinnedPanelIds.contains(panelId) {
+            NSSound.beep()
+            return false
         }
 
         // Check if the panel needs close confirmation
@@ -1344,12 +1649,16 @@ extension Workspace: BonsplitDelegate {
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,
                 panel: panel,
-                title: panel.displayTitle,
+                title: resolvedPanelTitle(panelId: panelId, fallback: panel.displayTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
+                kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
+                isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
-                cachedTitle: panelTitles[panelId]
+                cachedTitle: panelTitles[panelId],
+                customTitle: panelCustomTitles[panelId],
+                manuallyUnread: manualUnreadPanelIds.contains(panelId)
             )
         } else {
             panel?.close()
@@ -1359,6 +1668,9 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
+        panelCustomTitles.removeValue(forKey: panelId)
+        pinnedPanelIds.remove(panelId)
+        manualUnreadPanelIds.remove(panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -1388,6 +1700,9 @@ extension Workspace: BonsplitDelegate {
             applyTabSelection(tabId: selectTabId, inPane: pane)
         }
 
+        if bonsplitController.allPaneIds.contains(pane) {
+            normalizePinnedTabs(in: pane)
+        }
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }
@@ -1406,6 +1721,8 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+        normalizePinnedTabs(in: source)
+        normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }
@@ -1449,15 +1766,35 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
 #if DEBUG
+        let panelKindForTab: (TabID) -> String = { tabId in
+            guard let panelId = self.panelIdFromSurfaceId(tabId),
+                  let panel = self.panels[panelId] else { return "placeholder" }
+            if panel is TerminalPanel { return "terminal" }
+            if panel is BrowserPanel { return "browser" }
+            return String(describing: type(of: panel))
+        }
+        let paneKindSummary: (PaneID) -> String = { paneId in
+            let tabs = controller.tabs(inPane: paneId)
+            guard !tabs.isEmpty else { return "-" }
+            return tabs.map { tab in
+                String(panelKindForTab(tab.id).prefix(1))
+            }.joined(separator: ",")
+        }
+        let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { panelKindForTab($0.id) } ?? "none"
+        let newSelectedKind = controller.selectedTab(inPane: newPane).map { panelKindForTab($0.id) } ?? "none"
         dlog(
             "split.didSplit original=\(originalPane.id.uuidString.prefix(5)) new=\(newPane.id.uuidString.prefix(5)) " +
             "orientation=\(orientation) programmatic=\(isProgrammaticSplit ? 1 : 0) " +
-            "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count)"
+            "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count) " +
+            "originalSelected=\(originalSelectedKind) newSelected=\(newSelectedKind) " +
+            "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
         // Only auto-create a terminal if the split came from bonsplit UI.
         // Programmatic splits via newTerminalSplit() set isProgrammaticSplit and handle their own panels.
         guard !isProgrammaticSplit else {
+            normalizePinnedTabs(in: originalPane)
+            normalizePinnedTabs(in: newPane)
             scheduleTerminalGeometryReconcile()
             return
         }
@@ -1477,7 +1814,8 @@ extension Workspace: BonsplitDelegate {
             dlog(
                 "split.didSplit.drag original=\(originalPane.id.uuidString.prefix(5)) " +
                 "new=\(newPane.id.uuidString.prefix(5)) originalTabs=\(originalTabs.count) " +
-                "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0)"
+                "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0) " +
+                "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
             )
 #endif
             if !hasRealSurface {
@@ -1509,6 +1847,7 @@ extension Workspace: BonsplitDelegate {
                         portOrdinal: portOrdinal
                     )
                     panels[replacementPanel.id] = replacementPanel
+                    panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
 
                     bonsplitController.updateTab(
@@ -1516,9 +1855,12 @@ extension Workspace: BonsplitDelegate {
                         title: replacementPanel.displayTitle,
                         icon: .some(replacementPanel.displayIcon),
                         iconImageData: .some(nil),
+                        kind: .some(SurfaceKind.terminal),
+                        hasCustomTitle: false,
                         isDirty: replacementPanel.isDirty,
                         showsNotificationBadge: false,
-                        isLoading: false
+                        isLoading: false,
+                        isPinned: false
                     )
 
                     for extraPlaceholder in placeholderTabs.dropFirst() {
@@ -1539,6 +1881,8 @@ extension Workspace: BonsplitDelegate {
                     }
                 }
             }
+            normalizePinnedTabs(in: originalPane)
+            normalizePinnedTabs(in: newPane)
             scheduleTerminalGeometryReconcile()
             return
         }
@@ -1568,18 +1912,23 @@ extension Workspace: BonsplitDelegate {
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
 
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
             icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
             isDirty: newPanel.isDirty,
+            isPinned: false,
             inPane: newPane
         ) else {
             panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
             return
         }
 
         surfaceIdToPanelId[newTabId] = newPanel.id
+        normalizePinnedTabs(in: newPane)
 #if DEBUG
         dlog(
             "split.didSplit.autoCreate.done pane=\(newPane.id.uuidString.prefix(5)) " +
@@ -1607,6 +1956,39 @@ extension Workspace: BonsplitDelegate {
             _ = newBrowserSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        switch action {
+        case .rename:
+            promptRenamePanel(tabId: tab.id)
+        case .clearName:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            setPanelCustomTitle(panelId: panelId, title: nil)
+        case .closeToLeft:
+            closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
+        case .closeToRight:
+            closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
+        case .closeOthers:
+            closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+        case .newTerminalToRight:
+            createTerminalToRight(of: tab.id, inPane: pane)
+        case .newBrowserToRight:
+            createBrowserToRight(of: tab.id, inPane: pane)
+        case .reload:
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browser = browserPanel(for: panelId) else { return }
+            browser.reload()
+        case .duplicate:
+            duplicateBrowserToRight(anchorTabId: tab.id, inPane: pane)
+        case .togglePin:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            let shouldPin = !pinnedPanelIds.contains(panelId)
+            setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsUnread:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            markPanelUnread(panelId)
         }
     }
 

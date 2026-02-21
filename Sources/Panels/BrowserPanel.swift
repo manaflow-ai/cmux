@@ -68,19 +68,71 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let browserHostWhitelistKey = "browserHostWhitelist"
+    static let defaultBrowserHostWhitelist: String = ""
+
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
     }
+
+    static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Check whether a hostname matches the configured whitelist.
+    /// Empty whitelist means "allow all" (no filtering).
+    /// Supports exact match and wildcard prefix (`*.example.com`).
+    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let rawPatterns = hostWhitelist(defaults: defaults)
+        if rawPatterns.isEmpty { return true }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = BrowserInsecureHTTPSettings.normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return BrowserInsecureHTTPSettings.normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
 }
 
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
-        "127.0.0.1",
         "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
         "*.localtest.me",
     ]
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
@@ -189,7 +241,15 @@ enum BrowserInsecureHTTPSettings {
 
     private static func trimHost(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
+        // so user-entered allowlist patterns compare against URL.host consistently.
+        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
+            return canonicalized
+        }
+
+        return trimmed
     }
 }
 
@@ -1002,6 +1062,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingGeneration: Int = 0
 
     private var faviconTask: Task<Void, Never>?
+    private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
@@ -1281,9 +1342,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let pageURL = webView.url else { return }
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        faviconRefreshGeneration &+= 1
+        let refreshGeneration = faviconRefreshGeneration
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -1317,6 +1381,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     discoveredURL = u
                 }
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
@@ -1341,6 +1406,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
                 return
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
@@ -1352,6 +1418,11 @@ final class BrowserPanel: Panel, ObservableObject {
             // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
             faviconPNGData = png
         }
+    }
+
+    private func isCurrentFaviconRefresh(generation: Int) -> Bool {
+        guard !Task.isCancelled else { return false }
+        return generation == faviconRefreshGeneration
     }
 
     @MainActor
@@ -1412,6 +1483,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
         if newValue {
+            // Any new load invalidates older favicon fetches, even for same-URL reloads.
+            faviconRefreshGeneration &+= 1
+            faviconTask?.cancel()
+            faviconTask = nil
+            lastFaviconURLString = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -1642,14 +1718,21 @@ extension BrowserPanel {
         )
 #endif
         guard let inspector = webView.cmuxInspectorObject() else { return false }
-        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         let targetVisible = !visible
         let selector = NSSelectorFromString(targetVisible ? "show" : "close")
         guard inspector.responds(to: selector) else { return false }
         inspector.cmuxCallVoid(selector: selector)
         preferredDeveloperToolsVisible = targetVisible
         if targetVisible {
-            developerToolsRestoreRetryAttempt = 0
+            let visibleAfterToggle = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+            if visibleAfterToggle {
+                cancelDeveloperToolsRestoreRetry()
+            } else {
+                developerToolsRestoreRetryAttempt = 0
+                scheduleDeveloperToolsRestoreRetry()
+            }
         } else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
@@ -2422,6 +2505,26 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+
+    private func javaScriptDialogTitle(for webView: WKWebView) -> String {
+        if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
+            return "The page at \(absolute) says:"
+        }
+        return "This page says:"
+    }
+
+    private func presentDialog(
+        _ alert: NSAlert,
+        for webView: WKWebView,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        if let window = webView.window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+            return
+        }
+        completion(alert.runModal())
+    }
+
     /// Returning nil tells WebKit not to open a new window.
     /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
     func webView(
@@ -2457,6 +2560,64 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         panel.canChooseFiles = true
         panel.begin { result in
             completionHandler(result == .OK ? panel.urls : nil)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        presentDialog(alert, for: webView) { _ in completionHandler() }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        presentDialog(alert, for: webView) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = prompt
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+
+        presentDialog(alert, for: webView) { response in
+            if response == .alertFirstButtonReturn {
+                completionHandler(field.stringValue)
+            } else {
+                completionHandler(nil)
+            }
         }
     }
 }

@@ -161,6 +161,105 @@ final class SidebarState: ObservableObject {
 
 // MARK: - File Drop Overlay
 
+enum DragOverlayRoutingPolicy {
+    static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+
+    static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(bonsplitTabTransferType)
+    }
+
+    static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(sidebarTabReorderType)
+    }
+
+    static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(.fileURL)
+    }
+
+    static func shouldCaptureFileDropDestination(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        hasLocalDraggingSource: Bool
+    ) -> Bool {
+        // Local file drags (e.g. in-app draggable folder views) are valid drop
+        // inputs; rely on explicit non-file drag types below to avoid hijacking
+        // Bonsplit/sidebar drags.
+        _ = hasLocalDraggingSource
+        guard hasFileURL(pasteboardTypes) else { return false }
+
+        // Prefer explicit non-file drag types so stale fileURL entries cannot hijack
+        // Bonsplit tab drags or sidebar tab reorder drags.
+        if hasBonsplitTabTransfer(pasteboardTypes) { return false }
+        if hasSidebarTabReorder(pasteboardTypes) { return false }
+        return true
+    }
+
+    static func shouldCaptureFileDropDestination(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        shouldCaptureFileDropDestination(
+            pasteboardTypes: pasteboardTypes,
+            hasLocalDraggingSource: false
+        )
+    }
+
+    static func shouldCaptureFileDropOverlay(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
+        guard isDragMouseEvent(eventType) else { return false }
+        return true
+    }
+
+    static func shouldCaptureSidebarExternalOverlay(
+        hasSidebarDragState: Bool,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        guard hasSidebarDragState else { return false }
+        return hasSidebarTabReorder(pasteboardTypes)
+    }
+
+    static func shouldCaptureSidebarExternalOverlay(
+        draggedTabId: UUID?,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        shouldCaptureSidebarExternalOverlay(
+            hasSidebarDragState: draggedTabId != nil,
+            pasteboardTypes: pasteboardTypes
+        )
+    }
+
+    static func shouldPassThroughPortalHitTesting(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard isPortalDragEvent(eventType) else { return false }
+        return hasBonsplitTabTransfer(pasteboardTypes) || hasSidebarTabReorder(pasteboardTypes)
+    }
+
+    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+    }
+
+    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        // Restrict portal pass-through to explicit drag-motion events so stale
+        // NSPasteboard(name: .drag) types cannot hijack normal pointer input.
+        guard let eventType else { return false }
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -176,6 +275,8 @@ final class FileDropOverlayView: NSView {
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     private weak var activeDragWebView: WKWebView?
+    private var lastHitTestLogSignature: String?
+    private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -186,22 +287,24 @@ final class FileDropOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    // MARK: Hit-testing — only participate when the system drag pasteboard contains file
-    // URLs (i.e. a Finder file drag is in progress). For everything else — mouse events,
-    // sidebar tab reorder, bonsplit tab drags — return nil so events route to the content
-    // view below and SwiftUI / bonsplit drag-and-drop works normally.
+    // MARK: Hit-testing — participation is routed by DragOverlayRoutingPolicy so
+    // file-drop, bonsplit tab drags, and sidebar tab reorder drags cannot conflict.
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        guard let types = pb.types, types.contains(.fileURL) else { return nil }
-
-        // The drag pasteboard can retain stale file types after a completed drag.
-        // Only participate during active drag-motion events.
         let eventType = NSApp.currentEvent?.type
-        let isDragMouseEvent = eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-        guard isDragMouseEvent else { return nil }
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+            pasteboardTypes: pb.types,
+            eventType: eventType
+        )
+#if DEBUG
+        logHitTestDecision(
+            pasteboardTypes: pb.types,
+            eventType: eventType,
+            shouldCapture: shouldCapture
+        )
+#endif
+        guard shouldCapture else { return nil }
 
         return super.hitTest(point)
     }
@@ -260,11 +363,11 @@ final class FileDropOverlayView: NSView {
     // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return updateDragTarget(sender)
+        return updateDragTarget(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return updateDragTarget(sender)
+        return updateDragTarget(sender, phase: "updated")
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -275,20 +378,43 @@ final class FileDropOverlayView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let hasLocalDraggingSource = sender.draggingSource != nil
+        let types = sender.draggingPasteboard.types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+            pasteboardTypes: types,
+            hasLocalDraggingSource: hasLocalDraggingSource
+        )
         let webView = activeDragWebView
         activeDragWebView = nil
+        let terminal = terminalUnderPoint(sender.draggingLocation)
+        let hasTerminalTarget = terminal != nil
+#if DEBUG
+        logDragRouteDecision(
+            phase: "perform",
+            pasteboardTypes: types,
+            shouldCapture: shouldCapture,
+            hasLocalDraggingSource: hasLocalDraggingSource,
+            hasTerminalTarget: hasTerminalTarget
+        )
+#endif
+        guard shouldCapture else { return false }
         if let webView {
             return webView.performDragOperation(sender)
         }
-        guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
+        guard let terminal else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func updateDragTarget(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
-        let webView = webViewUnderPoint(loc)
+        let hasLocalDraggingSource = sender.draggingSource != nil
+        let types = sender.draggingPasteboard.types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+            pasteboardTypes: types,
+            hasLocalDraggingSource: hasLocalDraggingSource
+        )
+        let webView = shouldCapture ? webViewUnderPoint(loc) : nil
 
-        // Cursor moved away from the previous web view.
         if let prev = activeDragWebView, prev !== webView {
             prev.draggingExited(sender)
             activeDragWebView = nil
@@ -296,20 +422,29 @@ final class FileDropOverlayView: NSView {
 
         if let webView {
             if activeDragWebView !== webView {
-                // Cursor entered a (new) web view — send draggingEntered.
                 activeDragWebView = webView
                 return webView.draggingEntered(sender)
             }
             return webView.draggingUpdated(sender)
         }
 
-        // Over a terminal (or nothing).
-        guard let types = sender.draggingPasteboard.types,
-              types.contains(.fileURL),
-              terminalUnderPoint(loc) != nil else {
-            return []
-        }
+        let hasTerminalTarget = terminalUnderPoint(loc) != nil
+#if DEBUG
+        logDragRouteDecision(
+            phase: phase,
+            pasteboardTypes: types,
+            shouldCapture: shouldCapture,
+            hasLocalDraggingSource: hasLocalDraggingSource,
+            hasTerminalTarget: hasTerminalTarget
+        )
+#endif
+        guard shouldCapture, hasTerminalTarget else { return [] }
         return .copy
+    }
+
+    private func debugPasteboardTypes(_ types: [NSPasteboard.PasteboardType]?) -> String {
+        guard let types, !types.isEmpty else { return "-" }
+        return types.map(\.rawValue).joined(separator: ",")
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
@@ -328,6 +463,135 @@ final class FileDropOverlayView: NSView {
         return nil
     }
 
+    private func debugTopHitViewForCurrentEvent() -> String {
+        guard let window,
+              let currentEvent = NSApp.currentEvent,
+              let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return "-" }
+
+        let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
+        isHidden = true
+        defer { isHidden = false }
+
+        guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
+        var chain: [String] = []
+        var current: NSView? = hit
+        var depth = 0
+        while let view = current, depth < 6 {
+            chain.append(debugHitViewDescriptor(view))
+            current = view.superview
+            depth += 1
+        }
+        return chain.joined(separator: "->")
+    }
+
+    private func debugHitViewDescriptor(_ view: NSView) -> String {
+        let className = String(describing: type(of: view))
+        let ptr = String(describing: Unmanaged.passUnretained(view).toOpaque())
+        let dragTypes = debugRegisteredDragTypes(view)
+        return "\(className)@\(ptr){dragTypes=\(dragTypes)}"
+    }
+
+    private func debugRegisteredDragTypes(_ view: NSView) -> String {
+        let types = view.registeredDraggedTypes
+        guard !types.isEmpty else { return "-" }
+
+        let interestingTypes = types.filter { type in
+            let raw = type.rawValue
+            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+                || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
+                || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
+                || raw.contains("public.text")
+                || raw.contains("public.url")
+                || raw.contains("public.data")
+        }
+        let selected = interestingTypes.isEmpty ? Array(types.prefix(3)) : interestingTypes
+        let rendered = selected.map(\.rawValue).joined(separator: ",")
+        if selected.count < types.count {
+            return "\(rendered),+\(types.count - selected.count)"
+        }
+        return rendered
+    }
+
+    private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let types else { return false }
+        return types.contains(.fileURL)
+            || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
+    }
+
+    private func debugEventName(_ eventType: NSEvent.EventType?) -> String {
+        guard let eventType else { return "none" }
+        switch eventType {
+        case .cursorUpdate: return "cursorUpdate"
+        case .appKitDefined: return "appKitDefined"
+        case .systemDefined: return "systemDefined"
+        case .applicationDefined: return "applicationDefined"
+        case .periodic: return "periodic"
+        case .mouseMoved: return "mouseMoved"
+        case .mouseEntered: return "mouseEntered"
+        case .mouseExited: return "mouseExited"
+        case .flagsChanged: return "flagsChanged"
+        case .leftMouseDown: return "leftMouseDown"
+        case .leftMouseUp: return "leftMouseUp"
+        case .leftMouseDragged: return "leftMouseDragged"
+        case .rightMouseDown: return "rightMouseDown"
+        case .rightMouseUp: return "rightMouseUp"
+        case .rightMouseDragged: return "rightMouseDragged"
+        case .otherMouseDown: return "otherMouseDown"
+        case .otherMouseUp: return "otherMouseUp"
+        case .otherMouseDragged: return "otherMouseDragged"
+        case .scrollWheel: return "scrollWheel"
+        default: return "other(\(eventType.rawValue))"
+        }
+    }
+
+#if DEBUG
+    private func logHitTestDecision(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?,
+        shouldCapture: Bool
+    ) {
+        let isDragEvent = eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+        guard shouldCapture || isDragEvent || hasRelevantDragTypes(pasteboardTypes) else { return }
+
+        let signature = "\(shouldCapture ? 1 : 0)|\(debugEventName(eventType))|\(debugPasteboardTypes(pasteboardTypes))"
+        guard lastHitTestLogSignature != signature else { return }
+        lastHitTestLogSignature = signature
+        dlog(
+            "overlay.fileDrop.hitTest capture=\(shouldCapture ? 1 : 0) " +
+            "event=\(debugEventName(eventType)) " +
+            "topHit=\(debugTopHitViewForCurrentEvent()) " +
+            "types=\(debugPasteboardTypes(pasteboardTypes))"
+        )
+    }
+
+    private func logDragRouteDecision(
+        phase: String,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        shouldCapture: Bool,
+        hasLocalDraggingSource: Bool,
+        hasTerminalTarget: Bool
+    ) {
+        guard shouldCapture || hasRelevantDragTypes(pasteboardTypes) else { return }
+        let signature = [
+            shouldCapture ? "1" : "0",
+            hasLocalDraggingSource ? "1" : "0",
+            hasTerminalTarget ? "1" : "0",
+            debugPasteboardTypes(pasteboardTypes)
+        ].joined(separator: "|")
+        guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
+        lastDragRouteLogSignatureByPhase[phase] = signature
+        dlog(
+            "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
+            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
+            "types=\(debugPasteboardTypes(pasteboardTypes))"
+        )
+    }
+#endif
     /// Hit-tests the window to find the GhosttyNSView under the cursor.
     func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         if let window,
@@ -476,6 +740,8 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
+    @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    @State private var titlebarThemeUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -691,11 +957,27 @@ struct ContentView: View {
     private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            titlebarText = ""
+            if !titlebarText.isEmpty {
+                titlebarText = ""
+            }
             return
         }
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        titlebarText = title
+        if titlebarText != title {
+            titlebarText = title
+        }
+    }
+
+    private func scheduleTitlebarTextRefresh() {
+        titlebarTextUpdateCoalescer.signal {
+            updateTitlebarText()
+        }
+    }
+
+    private func scheduleTitlebarThemeRefresh() {
+        titlebarThemeUpdateCoalescer.signal {
+            titlebarThemeGeneration &+= 1
+        }
     }
 
     private var focusedDirectory: String? {
@@ -715,13 +997,11 @@ struct ContentView: View {
         return dir.isEmpty ? nil : dir
     }
 
-    var body: some View {
-        let useOverlay = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
-
-        Group {
-            if useOverlay {
-                // Overlay mode: terminal extends full width, sidebar on top
-                // This allows withinWindow blur to see the terminal content
+    private var contentAndSidebarLayout: AnyView {
+        if sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue {
+            // Overlay mode: terminal extends full width, sidebar on top
+            // This allows withinWindow blur to see the terminal content
+            return AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
@@ -729,26 +1009,35 @@ struct ContentView: View {
                         sidebarView
                     }
                 }
-            } else {
-                // Standard HStack mode for behindWindow blur
-                HStack(spacing: 0) {
-                    if sidebarState.isVisible {
-                        sidebarView
-                    }
-                    terminalContentWithSidebarDropOverlay
+            )
+        }
+
+        // Standard HStack mode for behindWindow blur
+        return AnyView(
+            HStack(spacing: 0) {
+                if sidebarState.isVisible {
+                    sidebarView
                 }
+                terminalContentWithSidebarDropOverlay
             }
-        }
-        .overlay(alignment: .topLeading) {
-            if isFullScreen && sidebarState.isVisible {
-                fullscreenControls
-                    .padding(.leading, 10)
-                    .padding(.top, 4)
-            }
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        .background(Color.clear)
-        .onAppear {
+        )
+    }
+
+    var body: some View {
+        var view = AnyView(
+            contentAndSidebarLayout
+                .overlay(alignment: .topLeading) {
+                    if isFullScreen && sidebarState.isVisible {
+                        fullscreenControls
+                            .padding(.leading, 10)
+                            .padding(.top, 4)
+                    }
+                }
+                .frame(minWidth: 800, minHeight: 600)
+                .background(Color.clear)
+        )
+
+        view = AnyView(view.onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -757,8 +1046,9 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
             updateTitlebarText()
-        }
-        .onChange(of: tabManager.selectedTabId) { newValue in
+        })
+
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -778,8 +1068,9 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
-        }
-        .onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        })
+
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -791,37 +1082,45 @@ struct ContentView: View {
             }
 #endif
             reconcileMountedWorkspaceIds()
-        }
-        .onChange(of: retiringWorkspaceId) { _ in
+        })
+
+        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
             reconcileMountedWorkspaceIds()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
+            scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
-            updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
+            scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            titlebarThemeGeneration &+= 1
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
-            titlebarThemeGeneration &+= 1
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
+            scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyConfigDidReload"))) { _ in
+            scheduleTitlebarThemeRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { _ in
+            scheduleTitlebarThemeRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-        }
-        .onReceive(tabManager.$tabs) { tabs in
+        })
+
+        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
@@ -843,8 +1142,9 @@ struct ContentView: View {
                     lastSidebarSelectionIndex = nil
                 }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
             let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
             sidebarDraggedTabId = tabId
 #if DEBUG
@@ -853,60 +1153,67 @@ struct ContentView: View {
                 "reason=\(SidebarDragLifecycleNotification.reason(from: notification))"
             )
 #endif
-        }
-        .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
+        })
+
+        view = AnyView(view.onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
-        }
-        .onChange(of: bgGlassTintHex) { _ in
+        })
+
+        view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
-        }
-        .onChange(of: bgGlassTintOpacity) { _ in
+        })
+
+        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = true
             setTitlebarControlsHidden(true, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = false
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
-        }
-	        .ignoresSafeArea()
-	        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
-	            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-	            window.titlebarAppearsTransparent = true
-	            // Do not make the entire background draggable; it interferes with drag gestures
-	            // like sidebar tab reordering in multi-window mode.
-	            window.isMovableByWindowBackground = false
-	            window.styleMask.insert(.fullSizeContentView)
+        })
 
-                // Track this window for fullscreen notifications
-                if observedWindow !== window {
-                    DispatchQueue.main.async {
-                        observedWindow = window
-                        isFullScreen = window.styleMask.contains(.fullScreen)
-                    }
-                }
+        view = AnyView(view.ignoresSafeArea())
 
-                // Keep content below the titlebar so drags on Bonsplit's tab bar don't
-                // get interpreted as window drags.
-                let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-                let nextPadding = max(28, min(72, computedTitlebarHeight))
-                if abs(titlebarPadding - nextPadding) > 0.5 {
-                    DispatchQueue.main.async {
-                        titlebarPadding = nextPadding
-                    }
+        view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
+            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+            window.titlebarAppearsTransparent = true
+            // Do not make the entire background draggable; it interferes with drag gestures
+            // like sidebar tab reordering in multi-window mode.
+            window.isMovableByWindowBackground = false
+            window.styleMask.insert(.fullSizeContentView)
+
+            // Track this window for fullscreen notifications
+            if observedWindow !== window {
+                DispatchQueue.main.async {
+                    observedWindow = window
+                    isFullScreen = window.styleMask.contains(.fullScreen)
                 }
+            }
+
+            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+            // get interpreted as window drags.
+            let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+            let nextPadding = max(28, min(72, computedTitlebarHeight))
+            if abs(titlebarPadding - nextPadding) > 0.5 {
+                DispatchQueue.main.async {
+                    titlebarPadding = nextPadding
+                }
+            }
 #if DEBUG
-	            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-	                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
-	            }
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+            }
 #endif
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
@@ -942,7 +1249,9 @@ struct ContentView: View {
                 sidebarSelectionState: sidebarSelectionState
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
-        })
+        }))
+
+        return view
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
@@ -1193,6 +1502,12 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .background(
+            WindowAccessor { window in
+                commandKeyMonitor.setHostWindow(window)
+            }
+            .frame(width: 0, height: 0)
+        )
         .onAppear {
             commandKeyMonitor.start()
             draggedTabId = nil
@@ -1252,6 +1567,35 @@ enum SidebarCommandHintPolicy {
 
     static func shouldShowHints(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
         modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
+    }
+
+    static func isCurrentWindow(
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        guard let hostWindowNumber, hostWindowIsKey else { return false }
+        if let eventWindowNumber {
+            return eventWindowNumber == hostWindowNumber
+        }
+        return keyWindowNumber == hostWindowNumber
+    }
+
+    static func shouldShowHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        shouldShowHints(for: modifierFlags) &&
+            isCurrentWindow(
+                hostWindowNumber: hostWindowNumber,
+                hostWindowIsKey: hostWindowIsKey,
+                eventWindowNumber: eventWindowNumber,
+                keyWindowNumber: keyWindowNumber
+            )
     }
 }
 
@@ -1416,13 +1760,26 @@ private struct SidebarExternalDropOverlay: View {
     let draggedTabId: UUID?
 
     var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .allowsHitTesting(draggedTabId != nil)
-            .onDrop(
-                of: [SidebarTabDragPayload.typeIdentifier],
-                delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
-            )
+        let dragPasteboardTypes = NSPasteboard(name: .drag).types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
+            draggedTabId: draggedTabId,
+            pasteboardTypes: dragPasteboardTypes
+        )
+        Group {
+            if shouldCapture {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(true)
+                    .onDrop(
+                        of: [SidebarTabDragPayload.typeIdentifier],
+                        delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
+                    )
+            } else {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
@@ -1484,28 +1841,63 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 private final class SidebarCommandKeyMonitor: ObservableObject {
     @Published private(set) var isCommandPressed = false
 
+    private weak var hostWindow: NSWindow?
+    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
+    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
-    private var resignObserver: NSObjectProtocol?
+    private var appResignObserver: NSObjectProtocol?
     private var pendingShowWorkItem: DispatchWorkItem?
+
+    func setHostWindow(_ window: NSWindow?) {
+        guard hostWindow !== window else { return }
+        removeHostWindowObservers()
+        hostWindow = window
+        guard let window else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
+        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
+            }
+        }
+
+        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
+    }
 
     func start() {
         guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags)
+            update(from: NSEvent.modifierFlags, eventWindow: nil)
             return
         }
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags)
+            self?.update(from: event.modifierFlags, eventWindow: event.window)
             return event
         }
 
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.cancelPendingHintShow(resetVisible: true)
+            self?.handleKeyDown(event)
             return event
         }
 
-        resignObserver = NotificationCenter.default.addObserver(
+        appResignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
             queue: .main
@@ -1515,7 +1907,7 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
             }
         }
 
-        update(from: NSEvent.modifierFlags)
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
     }
 
     func stop() {
@@ -1527,15 +1919,36 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
             NSEvent.removeMonitor(keyDownMonitor)
             self.keyDownMonitor = nil
         }
-        if let resignObserver {
-            NotificationCenter.default.removeObserver(resignObserver)
-            self.resignObserver = nil
+        if let appResignObserver {
+            NotificationCenter.default.removeObserver(appResignObserver)
+            self.appResignObserver = nil
         }
+        removeHostWindowObservers()
         cancelPendingHintShow(resetVisible: true)
     }
 
-    private func update(from modifierFlags: NSEvent.ModifierFlags) {
-        guard SidebarCommandHintPolicy.shouldShowHints(for: modifierFlags) else {
+    private func handleKeyDown(_ event: NSEvent) {
+        guard isCurrentWindow(eventWindow: event.window) else { return }
+        cancelPendingHintShow(resetVisible: true)
+    }
+
+    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
+        SidebarCommandHintPolicy.isCurrentWindow(
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        )
+    }
+
+    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
+        guard SidebarCommandHintPolicy.shouldShowHints(
+            for: modifierFlags,
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        ) else {
             cancelPendingHintShow(resetVisible: true)
             return
         }
@@ -1550,7 +1963,13 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard SidebarCommandHintPolicy.shouldShowHints(for: NSEvent.modifierFlags) else { return }
+            guard SidebarCommandHintPolicy.shouldShowHints(
+                for: NSEvent.modifierFlags,
+                hostWindowNumber: self.hostWindow?.windowNumber,
+                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
+                eventWindowNumber: nil,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+            ) else { return }
             self.isCommandPressed = true
         }
 
@@ -1563,6 +1982,17 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
         pendingShowWorkItem = nil
         if resetVisible {
             isCommandPressed = false
+        }
+    }
+
+    private func removeHostWindowObservers() {
+        if let hostWindowDidBecomeKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
+            self.hostWindowDidBecomeKeyObserver = nil
+        }
+        if let hostWindowDidResignKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
+            self.hostWindowDidResignKeyObserver = nil
         }
     }
 }
@@ -2009,8 +2439,11 @@ private struct TabItemView: View {
             let targetIds = contextTargetIds()
             let shouldPin = !tab.isPinned
             let pinLabel = targetIds.count > 1
-                ? (shouldPin ? "Pin Tabs" : "Unpin Tabs")
-                : (shouldPin ? "Pin Tab" : "Unpin Tab")
+                ? (shouldPin ? "Pin Workspaces" : "Unpin Workspaces")
+                : (shouldPin ? "Pin Workspace" : "Unpin Workspace")
+            let closeLabel = targetIds.count > 1 ? "Close Workspaces" : "Close Workspace"
+            let markReadLabel = targetIds.count > 1 ? "Mark Workspaces as Read" : "Mark Workspace as Read"
+            let markUnreadLabel = targetIds.count > 1 ? "Mark Workspaces as Unread" : "Mark Workspace as Unread"
             Button(pinLabel) {
                 for id in targetIds {
                     if let tab = tabManager.tabs.first(where: { $0.id == id }) {
@@ -2020,12 +2453,12 @@ private struct TabItemView: View {
                 syncSelectionAfterMutation()
             }
 
-            Button("Rename Tab…") {
+            Button("Rename Workspace…") {
                 promptRename()
             }
 
             if tab.hasCustomTitle {
-                Button("Remove Custom Name") {
+                Button("Remove Custom Workspace Name") {
                     tabManager.clearCustomTitle(tabId: tab.id)
                 }
             }
@@ -2042,14 +2475,20 @@ private struct TabItemView: View {
             }
             .disabled(index >= tabManager.tabs.count - 1)
 
+            Button("Move to Top") {
+                tabManager.moveTabsToTop(Set(targetIds))
+                syncSelectionAfterMutation()
+            }
+            .disabled(targetIds.isEmpty)
+
             Divider()
 
-            Button("Close Workspaces") {
+            Button(closeLabel) {
                 closeTabs(targetIds, allowPinned: true)
             }
             .disabled(targetIds.isEmpty)
 
-            Button("Close Others") {
+            Button("Close Other Workspaces") {
                 closeOtherTabs(targetIds)
             }
             .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
@@ -2066,20 +2505,12 @@ private struct TabItemView: View {
 
             Divider()
 
-            Button("Move to Top") {
-                tabManager.moveTabsToTop(Set(targetIds))
-                syncSelectionAfterMutation()
-            }
-            .disabled(targetIds.isEmpty)
-
-            Divider()
-
-            Button("Mark as Read") {
+            Button(markReadLabel) {
                 markTabsRead(targetIds)
             }
             .disabled(!hasUnreadNotifications(in: targetIds))
 
-            Button("Mark as Unread") {
+            Button(markUnreadLabel) {
                 markTabsUnread(targetIds)
             }
             .disabled(!hasReadNotifications(in: targetIds))
@@ -2317,10 +2748,10 @@ private struct TabItemView: View {
 
     private func promptRename() {
         let alert = NSAlert()
-        alert.messageText = "Rename Tab"
-        alert.informativeText = "Enter a custom name for this tab."
+        alert.messageText = "Rename Workspace"
+        alert.informativeText = "Enter a custom name for this workspace."
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Tab name"
+        input.placeholderString = "Workspace name"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
         alert.addButton(withTitle: "Rename")
