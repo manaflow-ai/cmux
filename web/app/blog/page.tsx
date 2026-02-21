@@ -12,7 +12,7 @@ const posts = [
     title: "Launching cmux on Show HN",
     date: "2026-02-21",
     summary:
-      "cmux hit the front page, went viral in Japan, and shipped 18 releases in 48 hours.",
+      "cmux hit #2 on Hacker News, got shared by Mitchell Hashimoto, and went viral in Japan.",
   },
   {
     slug: "introducing-cmux",
