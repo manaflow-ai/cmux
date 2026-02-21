@@ -70,11 +70,15 @@ Before launching a new tagged run, clean up any older tags you started in this s
 
 ## Debug event log
 
-All debug events (keys, mouse, focus, splits, tabs) go to a single unified log in DEBUG builds:
+All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:
 
 ```bash
-tail -f /tmp/cmux-debug.log
+tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug.log)"
 ```
+
+- Untagged Debug app: `/tmp/cmux-debug.log`
+- Tagged Debug app (`./scripts/reload.sh --tag <tag>`): `/tmp/cmux-debug-<tag>.log`
+- `reload.sh` writes the current path to `/tmp/cmux-last-debug-log-path`
 
 - Implementation: `vendor/bonsplit/Sources/Bonsplit/Public/DebugEventLog.swift`
 - Free function `dlog("message")` — logs with timestamp and appends to file in real time
