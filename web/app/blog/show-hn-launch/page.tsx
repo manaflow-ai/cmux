@@ -96,21 +96,6 @@ export default function ShowHNLaunchPage() {
       <Tweet id="2024913161238053296" />
 
       <p>
-        The HN thread was good feedback. People asked about the Ghostty
-        relationship (cmux uses libghostty as a library, not a fork),
-        requested features, and reported bugs.
-      </p>
-
-      <div className="my-6">
-        <Image
-          src={starHistory}
-          alt="cmux GitHub star history showing growth from near 0 to 900+ stars after the Show HN launch"
-          placeholder="blur"
-          className="w-full rounded-xl"
-        />
-      </div>
-
-      <p>
         Surprisingly, cmux went semi-viral in Japan!
       </p>
 
@@ -146,6 +131,15 @@ export default function ShowHNLaunchPage() {
         that keeps up,{" "}
         <a href="https://github.com/manaflow-ai/cmux">try cmux</a>.
       </p>
+
+      <div className="my-6">
+        <Image
+          src={starHistory}
+          alt="cmux GitHub star history showing growth from near 0 to 900+ stars after the Show HN launch"
+          placeholder="blur"
+          className="w-full rounded-xl"
+        />
+      </div>
     </>
   );
 }
