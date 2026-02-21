@@ -95,6 +95,22 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
 
+## Socket command threading policy
+
+- Do not use `DispatchQueue.main.sync` for high-frequency socket telemetry commands (`report_*`, `ports_kick`, status/progress/log metadata updates).
+- For telemetry hot paths:
+  - Parse and validate arguments off-main.
+  - Dedupe/coalesce off-main first.
+  - Schedule minimal UI/model mutation with `DispatchQueue.main.async` only when needed.
+- Commands that directly manipulate AppKit/Ghostty UI state (focus/select/open/close/send key/input, list/current queries requiring exact synchronous snapshot) are allowed to run on main actor.
+- If adding a new socket command, default to off-main handling; require an explicit reason in code comments when main-thread execution is necessary.
+
+## Socket focus policy
+
+- Socket/CLI commands must not steal macOS app focus (no app activation/window raising side effects).
+- Only explicit focus-intent commands may mutate in-app focus/selection (`window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents).
+- All non-focus commands should preserve current user focus context while still applying data/model changes.
+
 ## E2E mac UI tests
 
 Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:

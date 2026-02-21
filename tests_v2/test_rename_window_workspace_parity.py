@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
@@ -39,11 +39,13 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: List[str]) -> str:
+def _run_cli(cli: str, args: List[str], env_overrides: Optional[Dict[str, str]] = None) -> str:
     env = dict(os.environ)
     # Keep this test deterministic when running from inside another cmux shell.
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
+    if env_overrides:
+        env.update(env_overrides)
     cmd = [cli, "--socket", SOCKET_PATH] + args
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     if proc.returncode != 0:
@@ -91,6 +93,17 @@ def main() -> int:
         _must(
             _workspace_title(c, ws_id) == current_title,
             "cmux rename-window without --workspace should target current workspace",
+        )
+
+        env_title = f"tmux env {stamp}"
+        _run_cli(
+            cli,
+            ["rename-workspace", env_title],
+            env_overrides={"CMUX_WORKSPACE_ID": ws_id},
+        )
+        _must(
+            _workspace_title(c, ws_id) == env_title,
+            "cmux rename-workspace should default to CMUX_WORKSPACE_ID",
         )
 
         env = dict(os.environ)
