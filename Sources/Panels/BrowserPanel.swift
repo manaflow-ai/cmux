@@ -129,8 +129,10 @@ enum BrowserLinkOpenSettings {
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
-        "127.0.0.1",
         "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
         "*.localtest.me",
     ]
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
