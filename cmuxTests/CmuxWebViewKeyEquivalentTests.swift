@@ -865,7 +865,7 @@ private func makeShortcutKeyDownEvent(
 
 @MainActor
 final class TabManagerFindRoutingTests: XCTestCase {
-    func testBrowserFocusedRoutesFindActionsToTextFinder() {
+    func testBrowserFocusedRoutesFindActionsToInPageFindFallback() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(insertAtEnd: true),
@@ -885,16 +885,15 @@ final class TabManagerFindRoutingTests: XCTestCase {
 #endif
 
         XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        browserPanel.updateInPageFindQuery("example")
         XCTAssertTrue(manager.findNext())
         XCTAssertTrue(manager.findPrevious())
         XCTAssertTrue(manager.searchSelection())
         XCTAssertTrue(manager.hideFind())
 
 #if DEBUG
-        XCTAssertEqual(
-            actions,
-            [.showFindInterface, .nextMatch, .previousMatch, .setSearchString, .hideFindInterface]
-        )
+        XCTAssertTrue(actions.isEmpty)
 #endif
     }
 
@@ -960,9 +959,9 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         }
 
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
-        XCTAssertEqual(actions, [.showFindInterface])
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
     }
-
     func testCmdLThenCmdFRoutesAddressBarStateToBrowserFindAndClearsOmnibarMode() {
         _ = NSApplication.shared
         let manager = TabManager()
@@ -989,26 +988,91 @@ final class AppDelegateFindShortcutTests: XCTestCase {
 
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
-        XCTAssertEqual(actions, [.showFindInterface])
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
 
         // After Cmd+F handoff, omnibar navigation shortcuts should no longer be consumed.
         XCTAssertFalse(delegate.debugHandleCustomShortcut(event: ctrlNEvent))
     }
 
-    func testTerminalFindOverlayMountsInsideHostedView() {
+    func testCmdFShortcutUsesTerminalSearchWhenBrowserAddressBarStateIsStale() {
+        _ = NSApplication.shared
         let manager = TabManager()
-        guard let panel = manager.selectedTerminalPanel else {
-            XCTFail("Expected focused terminal panel")
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdLEvent = makeShortcutKeyDownEvent(key: "l", modifiers: [.command], keyCode: 37),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key events")
             return
         }
 
-        panel.searchState = TerminalSurface.SearchState()
-        panel.hostedView.setSearchOverlay(searchState: panel.searchState)
-        XCTAssertTrue(panel.hostedView.debugHasSearchOverlay())
+        workspace.focusPanel(browserPanel.id)
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
 
-        panel.hostedView.setSearchOverlay(searchState: nil)
-        XCTAssertFalse(panel.hostedView.debugHasSearchOverlay())
+        // Simulate focus moving to terminal while the omnibar-focused panel marker lingers.
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
     }
+
+    func testCmdFShortcutUsesTerminalSearchWhenFirstResponderReportsTerminalPanel() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        delegate.debugFindShortcutTerminalPanelIdOverride = { terminalPanel.id }
+        defer { delegate.debugFindShortcutTerminalPanelIdOverride = nil }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+    }
+
+    func testEscapeShortcutHidesVisibleBrowserFind() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let escapeEvent = makeShortcutKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53) else {
+            XCTFail("Expected browser panel and escape key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        _ = browserPanel.showFindInterface()
+        browserPanel.updateInPageFindQuery("e")
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+        XCTAssertEqual(browserPanel.inPageFindQuery, "e")
+        XCTAssertEqual(browserPanel.inPageFindMatchCount, 0)
+        XCTAssertEqual(browserPanel.inPageFindCurrentMatchIndex, 0)
+    }
+
 }
 #endif
 
@@ -1039,16 +1103,19 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
     func testShowFindInterfaceAlsoShowsFallbackWhenTextFinderActionHandled() {
         _ = NSApplication.shared
         let panel = BrowserPanel(workspaceId: UUID())
+        var actions: [NSTextFinder.Action] = []
 
         panel.debugTextFinderActionHandler = { action in
-            action == .showFindInterface
+            actions.append(action)
+            return true
         }
 
         XCTAssertTrue(panel.showFindInterface())
         XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
     }
 
-    func testShowFindInterfaceDispatchesToDescendantResponder() {
+    func testShowFindInterfaceDoesNotDispatchToDescendantResponder() {
         _ = NSApplication.shared
         let panel = BrowserPanel(workspaceId: UUID())
         let responderView = FinderResponderView(frame: .zero)
@@ -1076,7 +1143,86 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         _ = window.makeFirstResponder(panel.webView)
 
         XCTAssertTrue(panel.showFindInterface())
-        XCTAssertEqual(responderView.receivedActionTags, [NSTextFinder.Action.showFindInterface.rawValue])
+        XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(responderView.receivedActionTags.isEmpty)
+    }
+
+    func testHideInPageFindRestoresWebViewFocusWhenOpenedFromWebView() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        let findField = NSTextField(frame: NSRect(x: 12, y: 12, width: 200, height: 24))
+        host.addSubview(findField)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(window.makeFirstResponder(findField))
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        guard let firstResponder = window.firstResponder as? NSView else {
+            XCTFail("Expected a first responder")
+            return
+        }
+        XCTAssertTrue(firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView))
+    }
+
+    func testHideInPageFindDoesNotStealFocusWhenOpenedFromNonWebViewResponder() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        let addressLikeField = NSTextField(frame: NSRect(x: 12, y: 12, width: 200, height: 24))
+        let focusAfterDismissField = NSTextField(frame: NSRect(x: 12, y: 44, width: 200, height: 24))
+        host.addSubview(addressLikeField)
+        host.addSubview(focusAfterDismissField)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(addressLikeField))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(window.makeFirstResponder(focusAfterDismissField))
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        guard let firstResponder = window.firstResponder as? NSView else {
+            XCTFail("Expected a first responder")
+            return
+        }
+        XCTAssertFalse(firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView))
     }
 
     func testUnchangedBrowserFindQueryDoesNotAdvanceCurrentMatch() {
@@ -1144,6 +1290,63 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
         // Empty query clears highlights/state in WebKit instead of routing through the match handler.
         XCTAssertEqual(requests.count, 1)
+
+        let tokenAfterFirstClear = panel.inPageFindFocusToken
+        panel.updateInPageFindQuery("")
+        XCTAssertEqual(panel.inPageFindQuery, "")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(panel.inPageFindFocusToken, tokenAfterFirstClear + 1)
+
+        panel.updateInPageFindQuery("   ")
+        XCTAssertEqual(panel.inPageFindQuery, "   ")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testStaleClearRetryPolicyForHiddenOrEmptyFindState() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        _ = panel.showFindInterface()
+        panel.updateInPageFindQuery("e")
+        XCTAssertFalse(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("")
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("e")
+        _ = panel.hideInPageFindFromUI()
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
+    }
+
+    func testHideInPageFindRequestsHighlightClearWhenVisibleAndWhenAlreadyHidden() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        var clearRequests: [(sequence: Int?, allowStaleRetry: Bool)] = []
+        panel.debugInPageFindClearHandler = { requestSequence, allowStaleRetry in
+            clearRequests.append((requestSequence, allowStaleRetry))
+        }
+
+        _ = panel.showFindInterface()
+        panel.updateInPageFindQuery("e")
+        clearRequests.removeAll()
+
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+        XCTAssertFalse(panel.isInPageFindVisible)
+        XCTAssertEqual(clearRequests.count, 1)
+        XCTAssertNotNil(clearRequests[0].sequence)
+        XCTAssertTrue(clearRequests[0].allowStaleRetry)
+
+        clearRequests.removeAll()
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+        XCTAssertEqual(clearRequests.count, 1)
+        XCTAssertNotNil(clearRequests[0].sequence)
+        XCTAssertTrue(clearRequests[0].allowStaleRetry)
     }
 
     func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {
@@ -1170,8 +1373,11 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("applySpanFallback"))
         XCTAssertTrue(highlightScript.contains("const sequenceKey = \"__cmuxInPageFindSequence\""))
         XCTAssertTrue(highlightScript.contains("const requestSequence = Number(payload.requestSequence || 0)"))
+        XCTAssertTrue(highlightScript.contains("function isRequestStale()"))
         XCTAssertTrue(highlightScript.contains("if (requestSequence < latestSequence)"))
         XCTAssertTrue(highlightScript.contains("stale: true"))
+        XCTAssertTrue(highlightScript.contains("stage: \"postcollect\""))
+        XCTAssertTrue(highlightScript.contains("stage: \"postapply\""))
 
         let staleGuardOffset = try XCTUnwrap(highlightScript.range(of: "if (requestSequence < latestSequence)"))
         let clearMarksOffset = try XCTUnwrap(highlightScript.range(of: "clearMarks();"))
@@ -1182,6 +1388,8 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         let clearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 43)
         XCTAssertTrue(clearScript.contains("CSS.highlights.delete(allHighlightName)"))
         XCTAssertTrue(clearScript.contains("CSS.highlights.delete(activeHighlightName)"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.clear()"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.set(allHighlightName, new Highlight())"))
         XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
         XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
     }
@@ -2639,6 +2847,24 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
+    }
+
+    func testSearchOverlayMountsAndUnmountsWithSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(surface: surface, searchState: searchState)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(surface: surface, searchState: nil)
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 }
 

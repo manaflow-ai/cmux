@@ -230,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    var debugFindShortcutTerminalPanelIdOverride: (() -> UUID?)?
 
     private func childExitKeyboardProbePath() -> String? {
         let env = ProcessInfo.processInfo.environment
@@ -1680,6 +1681,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Browser in-page find should always close on Escape while visible, regardless
+        // of which subview in the popover currently owns first responder.
+        if flags.isEmpty,
+           event.keyCode == 53,
+           let browserPanel = tabManager?.focusedBrowserPanel,
+           browserPanel.isInPageFindVisible {
+            return browserPanel.hideInPageFindFromUI()
+        }
+
         // When the notifications popover is showing an empty state, consume plain typing
         // so key presses do not leak through into the focused terminal.
         if flags.isDisjoint(with: [.command, .control, .option]),
@@ -1736,29 +1746,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // App-level fallback for Find. This avoids responder-chain gaps where
         // SwiftUI/AppKit key-equivalent dispatch can consume Cmd+F without
         // invoking our Find command when focus temporarily drifts.
-        if flags == [.command], chars == "f" {
-            findDebugLog("shortcut cmd+f keyCode=\(event.keyCode) addrBarPanel=\(browserAddressBarFocusedPanelId?.uuidString ?? "nil")")
-            logFindDebugSnapshot(
-                label: "shortcut.cmdf.pre",
-                window: NSApp.keyWindow,
-                focusView: NSApp.keyWindow?.firstResponder as? NSView
-            )
-
+        if flags == [.command], (chars == "f" || event.keyCode == 3) {
             let handled = handleFindShortcutViaStateMachine()
-            findDebugLog("shortcut cmd+f handled=\(handled)")
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                Task { @MainActor in
-                    logFindDebugSnapshot(
-                        label: "shortcut.cmdf.post",
-                        window: NSApp.keyWindow,
-                        focusView: NSApp.keyWindow?.firstResponder as? NSView
-                    )
-                }
-            }
             return handled
         }
-
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             sidebarState?.toggle()
@@ -2048,14 +2039,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case fallback
     }
 
+    private func firstResponderTerminalPanelIdForFindShortcut() -> UUID? {
+#if DEBUG
+        if let debugFindShortcutTerminalPanelIdOverride {
+            return debugFindShortcutTerminalPanelIdOverride()
+        }
+#endif
+        var responder = NSApp.keyWindow?.firstResponder
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if let ghostty = current as? GhosttyNSView {
+                return ghostty.terminalSurface?.id
+            }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return nil
+    }
+
     private func resolveFindShortcutRoutingState() -> FindShortcutRoutingState {
         if let panelId = browserAddressBarFocusedPanelId {
-            if let panel = browserPanel(for: panelId) {
+            if let panel = browserPanel(for: panelId),
+               tabManager?.selectedWorkspace?.focusedPanelId == panel.id {
                 return .browserAddressBar(panelId: panelId, panel: panel)
             }
-            // Recover from stale state when the address bar focus event outlives panel lifecycle.
+            // Recover from stale address-bar focus state when panel focus has moved elsewhere
+            // (e.g. terminal pane focus) or panel lifecycle changed.
             browserAddressBarFocusedPanelId = nil
             stopBrowserOmnibarSelectionRepeat()
+            browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
         }
 
         if let panel = tabManager?.focusedBrowserPanel {
@@ -2073,21 +2086,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleFindShortcutViaStateMachine() -> Bool {
+        if let terminalPanelId = firstResponderTerminalPanelIdForFindShortcut() {
+#if DEBUG
+            dlog(
+                "find.route target=terminal reason=firstResponderContainsGhostty panel=\(terminalPanelId.uuidString.prefix(8)) addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
+            )
+#endif
+            if let workspace = tabManager?.selectedWorkspace,
+               workspace.terminalPanel(for: terminalPanelId) != nil {
+                workspace.focusPanel(terminalPanelId)
+            }
+            if let panelId = browserAddressBarFocusedPanelId {
+                transitionAddressBarFocusToFind(panelId: panelId)
+            }
+            return tabManager?.startSearch() ?? false
+        }
+
         switch resolveFindShortcutRoutingState() {
         case .browserAddressBar(let panelId, let panel):
+#if DEBUG
+            dlog("find.route target=browser reason=addressBar panel=\(panel.id.uuidString.prefix(8))")
+#endif
             tabManager?.selectedWorkspace?.focusPanel(panel.id)
             transitionAddressBarFocusToFind(panelId: panelId)
-            let handled = panel.showFindInterface()
-            findDebugLog("shortcut cmd+f route=addressBar panel=\(panel.id.uuidString) handled=\(handled)")
-            return handled
+            return panel.showFindInterface()
         case .browserPanel(let panel):
-            let handled = panel.showFindInterface()
-            findDebugLog("shortcut cmd+f route=browser panel=\(panel.id.uuidString) handled=\(handled)")
-            return handled
+#if DEBUG
+            dlog("find.route target=browser reason=focusedPanel panel=\(panel.id.uuidString.prefix(8))")
+#endif
+            return panel.showFindInterface()
         case .fallback:
-            let handled = tabManager?.startSearch() ?? false
-            findDebugLog("shortcut cmd+f route=fallback handled=\(handled)")
-            return handled
+#if DEBUG
+            dlog("find.route target=terminal reason=fallback")
+#endif
+            return tabManager?.startSearch() ?? false
         }
     }
 

@@ -2917,7 +2917,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
-    private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
+    private var searchOverlayHostingView: NSHostingView<AnyView>?
+    private var searchOverlayConstraints: [NSLayoutConstraint] = []
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
@@ -3254,64 +3255,66 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
-    func setSearchOverlay(searchState: TerminalSurface.SearchState?) {
+    func setSearchOverlay(surface: TerminalSurface, searchState: TerminalSurface.SearchState?) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.setSearchOverlay(searchState: searchState)
+                self?.setSearchOverlay(surface: surface, searchState: searchState)
             }
             return
         }
 
-        guard let terminalSurface = surfaceView.terminalSurface,
-              let searchState else {
-            findDebugLog(
-                "terminal.hostedOverlay.remove surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") hadOverlay=\(searchOverlayHostingView != nil)"
+        guard let searchState else {
+            clearSearchOverlay()
+            return
+        }
+
+        let rootView = AnyView(
+            SurfaceSearchOverlay(
+                surface: surface,
+                searchState: searchState,
+                onClose: { [weak self, weak surface] in
+                    guard let surface else { return }
+                    surface.searchState = nil
+                    self?.moveFocus()
+                }
             )
-            searchOverlayHostingView?.removeFromSuperview()
-            searchOverlayHostingView = nil
+        )
+
+        if let host = searchOverlayHostingView {
+            host.rootView = rootView
+            if host.superview !== self {
+                addSubview(host, positioned: .above, relativeTo: nil)
+            } else if subviews.last !== host {
+                addSubview(host, positioned: .above, relativeTo: nil)
+            }
             return
         }
 
-        let root = SurfaceSearchOverlay(
-            surface: terminalSurface,
-            searchState: searchState,
-            onClose: { [weak self] in
-                self?.surfaceView.terminalSurface?.searchState = nil
-                self?.moveFocus()
-            }
-        )
+        let host = NSHostingView(rootView: rootView)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.wantsLayer = false
+        addSubview(host, positioned: .above, relativeTo: nil)
+        searchOverlayHostingView = host
+        searchOverlayConstraints = [
+            host.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ]
+        NSLayoutConstraint.activate(searchOverlayConstraints)
+    }
 
-        if let overlay = searchOverlayHostingView {
-            overlay.rootView = root
-            if overlay.superview !== self {
-                addSubview(overlay)
+    func clearSearchOverlay() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.clearSearchOverlay()
             }
-            let index = subviews.firstIndex(of: overlay) ?? -1
-            findDebugLog(
-                "terminal.hostedOverlay.update surface=\(terminalSurface.id.uuidString) index=\(index) totalSubviews=\(subviews.count)"
-            )
             return
         }
 
-        let overlay = NSHostingView(rootView: root)
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(overlay)
-        NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: topAnchor),
-            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
-        searchOverlayHostingView = overlay
-        let index = subviews.firstIndex(of: overlay) ?? -1
-        findDebugLog(
-            "terminal.hostedOverlay.add surface=\(terminalSurface.id.uuidString) index=\(index) totalSubviews=\(subviews.count)"
-        )
-        logFindDebugSnapshot(
-            label: "terminal.hostedOverlay.add",
-            window: window ?? NSApp.keyWindow,
-            focusView: overlay
-        )
+        guard let host = searchOverlayHostingView else { return }
+        NSLayoutConstraint.deactivate(searchOverlayConstraints)
+        searchOverlayConstraints.removeAll()
+        host.removeFromSuperview()
+        searchOverlayHostingView = nil
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
@@ -3526,16 +3529,15 @@ final class GhosttySurfaceScrollView: NSView {
         )
     }
 
+    func debugHasSearchOverlay() -> Bool {
+        searchOverlayHostingView?.superview === self
+    }
+
     func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
         (
             notificationRingOverlayView.isHidden,
             notificationRingLayer.opacity
         )
-    }
-
-    func debugHasSearchOverlay() -> Bool {
-        guard let overlay = searchOverlayHostingView else { return false }
-        return overlay.superview === self && !overlay.isHidden
     }
 
 #endif
@@ -4198,7 +4200,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var showsUnreadNotificationRing: Bool = false
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
-    var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
@@ -4299,10 +4300,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
             visible: showsInactiveOverlay
         )
         hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
-        hostedView.setSearchOverlay(searchState: searchState)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         hostedView.setDropZoneOverlay(zone: paneDropZone)
+        hostedView.setSearchOverlay(surface: terminalSurface, searchState: terminalSurface.searchState)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
@@ -4397,6 +4398,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)
+        hostedView?.clearSearchOverlay()
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }

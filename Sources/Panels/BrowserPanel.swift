@@ -1016,6 +1016,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
     var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
     var debugInPageFindFallbackHandler: ((BrowserInPageFindDebugRequest) -> BrowserInPageFindDebugResult)?
+    var debugInPageFindClearHandler: ((Int?, Bool) -> Void)?
 #endif
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -1039,6 +1040,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var inPageFindLastQuery: String = ""
     private var inPageFindRequestSequence: Int = 0
+    private var inPageFindFocusRestoreState: InPageFindFocusRestoreState = .idle
+
+    private enum InPageFindFocusRestoreState {
+        case idle
+        case returnToWebViewOnDismiss
+    }
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1804,55 +1811,50 @@ extension BrowserPanel {
 
     @discardableResult
     func showFindInterface() -> Bool {
-        let nativeHandled = performTextFinderAction(.showFindInterface)
         let fallbackHandled = showInPageFindFallback(focusField: true)
         if !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = runInPageFindFallback(backwards: false)
         }
         browserFindDebugLog(
-            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func findNextMatch() -> Bool {
-        let nativeHandled = performTextFinderAction(.nextMatch)
         let fallbackHandled = runInPageFindFallback(backwards: false)
         browserFindDebugLog(
-            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func findPreviousMatch() -> Bool {
-        let nativeHandled = performTextFinderAction(.previousMatch)
         let fallbackHandled = runInPageFindFallback(backwards: true)
         browserFindDebugLog(
-            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func hideFindInterface() -> Bool {
-        let nativeHandled = performTextFinderAction(.hideFindInterface)
         let fallbackHandled = hideInPageFindFallback()
         browserFindDebugLog(
-            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
+            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func useSelectionForFind() -> Bool {
-        let nativeHandled = performTextFinderAction(.setSearchString)
         let fallbackHandled = useSelectionForInPageFindFallback()
         browserFindDebugLog(
-            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled)"
+            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled)"
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     func updateInPageFindQuery(_ query: String) {
@@ -1862,7 +1864,14 @@ extension BrowserPanel {
         browserFindDebugLog(
             "browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\" unchanged=\(unchanged)"
         )
-        guard !unchanged else { return }
+        if unchanged {
+            // SwiftUI can emit duplicate empty-value updates; keep this idempotent clear path
+            // so stale highlights are removed even when the model value doesn't change.
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = runInPageFindFallback(backwards: false)
+            }
+            return
+        }
         _ = runInPageFindFallback(backwards: false)
     }
 
@@ -2061,6 +2070,10 @@ extension BrowserPanel {
     func debugClearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
         clearInPageFindHighlightScript(requestSequence: requestSequence)
     }
+
+    func debugShouldRetryStaleInPageFindClear() -> Bool {
+        shouldRetryStaleInPageFindClear()
+    }
 }
 #endif
 
@@ -2161,6 +2174,14 @@ private extension BrowserPanel {
     @discardableResult
     func showInPageFindFallback(focusField: Bool) -> Bool {
         let wasVisible = isInPageFindVisible
+        if focusField, !wasVisible {
+            if let window = webView.window,
+               Self.responderChainContains(window.firstResponder, target: webView) {
+                inPageFindFocusRestoreState = .returnToWebViewOnDismiss
+            } else {
+                inPageFindFocusRestoreState = .idle
+            }
+        }
         let tokenBefore = inPageFindFocusToken
         isInPageFindVisible = true
         if focusField {
@@ -2179,7 +2200,17 @@ private extension BrowserPanel {
 
     @discardableResult
     func hideInPageFindFallback() -> Bool {
-        guard isInPageFindVisible else { return false }
+        let wasVisible = isInPageFindVisible
+        let hasQuery = !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasStateToClear =
+            wasVisible ||
+            hasQuery ||
+            inPageFindMatchFound != nil ||
+            inPageFindMatchCount > 0 ||
+            inPageFindCurrentMatchIndex > 0 ||
+            !inPageFindLastQuery.isEmpty
+        guard hasStateToClear else { return false }
+
         inPageFindRequestSequence &+= 1
         let requestSequence = inPageFindRequestSequence
         isInPageFindVisible = false
@@ -2188,7 +2219,10 @@ private extension BrowserPanel {
         inPageFindCurrentMatchIndex = 0
         inPageFindLastQuery = ""
         clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
-        browserFindDebugLog("browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\"")
+        restoreWebViewFocusAfterFindDismissIfNeeded()
+        browserFindDebugLog(
+            "browser.inPageFind.hide panel=\(id.uuidString) wasVisible=\(wasVisible) hasQuery=\(hasQuery) query=\"\(inPageFindQuery)\" request=\(requestSequence)"
+        )
         return true
     }
 
@@ -2228,6 +2262,9 @@ private extension BrowserPanel {
             inPageFindRequestSequence &+= 1
             let requestSequence = inPageFindRequestSequence
             clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
+            browserFindDebugLog(
+                "browser.inPageFind.clearRequested panel=\(id.uuidString) reason=emptyQuery request=\(requestSequence)"
+            )
             return true
         }
 
@@ -2296,6 +2333,13 @@ private extension BrowserPanel {
                     return
                 }
 
+                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                    browserFindDebugLog(
+                        "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                    )
+                    return
+                }
+
                 let summary = self.decodeInPageFindSummary(result)
                 self.inPageFindMatchFound = summary.matchFound
                 self.inPageFindMatchCount = summary.total
@@ -2353,6 +2397,13 @@ private extension BrowserPanel {
         return (matchFound, max(0, current), max(0, total))
     }
 
+    private func extractInPageFindStaleInfo(_ result: Any?) -> (isStale: Bool, stage: String?)? {
+        guard let dictionary = result as? [String: Any] else { return nil }
+        let stale = boolValueFromJavaScript(dictionary["stale"]) ?? false
+        let stage = dictionary["stage"] as? String
+        return (stale, stage)
+    }
+
     private func intValueFromJavaScript(_ value: Any?) -> Int {
         if let intValue = value as? Int { return intValue }
         if let number = value as? NSNumber { return number.intValue }
@@ -2367,15 +2418,65 @@ private extension BrowserPanel {
         return nil
     }
 
-    private func clearInPageFindHighlightsInWebView(requestSequence: Int? = nil) {
-        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] _, error in
-            guard let error else { return }
+    private func shouldRetryStaleInPageFindClear() -> Bool {
+        if !isInPageFindVisible {
+            return true
+        }
+        return inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clearInPageFindHighlightsInWebView(
+        requestSequence: Int? = nil,
+        allowStaleRetry: Bool = true
+    ) {
+#if DEBUG
+        if let debugInPageFindClearHandler {
+            debugInPageFindClearHandler(requestSequence, allowStaleRetry)
+            return
+        }
+#endif
+        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
+                if let error {
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) error=\(error.localizedDescription)"
+                    )
+                    return
+                }
+                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                    let retry = allowStaleRetry && self.shouldRetryStaleInPageFindClear()
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil") stage=\(staleInfo.stage ?? "unspecified") retry=\(retry)"
+                    )
+                    if retry {
+                        self.clearInPageFindHighlightsInWebView(requestSequence: nil, allowStaleRetry: false)
+                    }
+                    return
+                }
                 browserFindDebugLog(
-                    "browser.inPageFind.clear panel=\(self.id.uuidString) error=\(error.localizedDescription)"
+                    "browser.inPageFind.clear panel=\(self.id.uuidString) stale=false request=\(requestSequence.map(String.init) ?? "nil")"
                 )
             }
+        }
+    }
+
+    private func restoreWebViewFocusAfterFindDismissIfNeeded() {
+        let shouldRestore = inPageFindFocusRestoreState == .returnToWebViewOnDismiss
+        inPageFindFocusRestoreState = .idle
+        guard shouldRestore else { return }
+        guard !shouldSuppressWebViewFocus() else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.shouldSuppressWebViewFocus() else { return }
+            guard let window = self.webView.window,
+                  !self.webView.isHiddenOrHasHiddenAncestor else { return }
+            guard !Self.responderChainContains(window.firstResponder, target: self.webView) else { return }
+            let moved = window.makeFirstResponder(self.webView)
+            browserFindDebugLog(
+                "browser.inPageFind.restoreFocus panel=\(self.id.uuidString) moved=\(moved)"
+            )
         }
     }
 
@@ -2420,8 +2521,15 @@ private extension BrowserPanel {
 
           function clearCustomHighlights() {
             if (typeof CSS === "undefined" || !CSS.highlights) return;
-            try { CSS.highlights.delete(allHighlightName); } catch (_) {}
-            try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
+            try {
+              if (typeof Highlight !== "undefined" && typeof CSS.highlights.set === "function") {
+                CSS.highlights.set(allHighlightName, new Highlight());
+                CSS.highlights.set(activeHighlightName, new Highlight());
+              }
+            } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(activeHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.clear === "function") CSS.highlights.clear(); } catch (_) {}
           }
 
           clearMarks();
@@ -2460,6 +2568,11 @@ private extension BrowserPanel {
               return { matchFound: false, current: 0, total: 0, stale: true };
             }
             window[sequenceKey] = requestSequence;
+          }
+
+          function isRequestStale() {
+            if (!hasRequestSequence) return false;
+            return Number(window[sequenceKey] || 0) !== requestSequence;
           }
 
           function supportsCustomHighlights() {
@@ -2709,9 +2822,15 @@ private extension BrowserPanel {
           }
 
           try {
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" };
+            }
             const query = (payload.query || "").trim();
             clearMarks();
             clearCustomHighlights();
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" };
+            }
             if (!query) {
               window[stateKey] = { query: "", activeIndex: 0 };
               return { matchFound: false, current: 0, total: 0 };
@@ -2719,6 +2838,9 @@ private extension BrowserPanel {
 
             ensureStyle();
             const matches = collectMatches(query);
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postcollect" };
+            }
 
             if (matches.length === 0) {
               window[stateKey] = { query, activeIndex: 0 };
@@ -2736,6 +2858,9 @@ private extension BrowserPanel {
               }
             } else {
               activeTarget = applySpanFallback(matches, activeIndex);
+            }
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" };
             }
             scrollMatchIntoView(activeTarget);
 
@@ -2845,7 +2970,9 @@ private extension NSObject {
 @MainActor
 private func browserFindDebugLog(_ message: @autoclosure () -> String) {
 #if DEBUG
-    NSLog("FindDebug: %@", message())
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
 #endif
 }
 

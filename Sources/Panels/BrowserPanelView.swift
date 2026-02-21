@@ -344,6 +344,13 @@ struct BrowserPanelView: View {
     }
 
     private var inPageFindPopover: some View {
+        func dismissFindPopoverFromEscape() {
+            browserFindViewDebugLog(
+                "browser.findPopover.escape panel=\(panel.id.uuidString) query=\"\(panel.inPageFindQuery)\""
+            )
+            _ = panel.hideInPageFindFromUI()
+        }
+
         return HStack(spacing: 4) {
             let trimmedQuery = panel.inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -364,12 +371,6 @@ struct BrowserPanelView: View {
             .focused($inPageFindFieldFocused)
             .onSubmit {
                 _ = panel.inPageFindNextFromUI()
-            }
-            .onExitCommand {
-                browserFindViewDebugLog(
-                    "browser.findPopover.escape panel=\(panel.id.uuidString) query=\"\(panel.inPageFindQuery)\""
-                )
-                _ = panel.hideInPageFindFromUI()
             }
             .accessibilityIdentifier("BrowserInPageFindField")
             .overlay(alignment: .trailing) {
@@ -408,6 +409,9 @@ struct BrowserPanelView: View {
         .background(.background)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(radius: 4)
+        .onExitCommand {
+            dismissFindPopoverFromEscape()
+        }
         .onAppear {
             browserFindViewDebugLog(
                 "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
@@ -3345,6 +3349,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 @MainActor
 private func browserFindViewDebugLog(_ message: @autoclosure () -> String) {
 #if DEBUG
-    NSLog("FindDebug: %@", message())
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
 #endif
 }
