@@ -68,6 +68,91 @@ class TerminalController {
 
     private init() {}
 
+    nonisolated static func shouldReplaceStatusEntry(
+        current: SidebarStatusEntry?,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?
+    ) -> Bool {
+        guard let current else { return true }
+        return current.key != key || current.value != value || current.icon != icon || current.color != color
+    }
+
+    nonisolated static func shouldReplaceProgress(
+        current: SidebarProgressState?,
+        value: Double,
+        label: String?
+    ) -> Bool {
+        guard let current else { return true }
+        return current.value != value || current.label != label
+    }
+
+    nonisolated static func shouldReplaceGitBranch(
+        current: SidebarGitBranchState?,
+        branch: String,
+        isDirty: Bool
+    ) -> Bool {
+        guard let current else { return true }
+        return current.branch != branch || current.isDirty != isDirty
+    }
+
+    nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
+        let currentSorted = Array(Set(current ?? [])).sorted()
+        let nextSorted = Array(Set(next)).sorted()
+        return currentSorted != nextSorted
+    }
+
+    private struct SocketSurfaceKey: Hashable {
+        let workspaceId: UUID
+        let panelId: UUID
+    }
+
+    private final class SocketFastPathState: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
+        private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
+        private let maxTrackedDirectories = 4096
+
+        func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedDirectories[key] == directory {
+                    return false
+                }
+                if lastReportedDirectories.count >= maxTrackedDirectories {
+                    lastReportedDirectories.removeAll(keepingCapacity: true)
+                }
+                lastReportedDirectories[key] = directory
+                return true
+            }
+        }
+    }
+
+    private static let socketFastPathState = SocketFastPathState()
+
+    nonisolated static func explicitSocketScope(
+        options: [String: String]
+    ) -> (workspaceId: UUID, panelId: UUID)? {
+        guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tabRaw.isEmpty,
+              let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !panelRaw.isEmpty,
+              let workspaceId = UUID(uuidString: tabRaw),
+              let panelId = UUID(uuidString: panelRaw) else {
+            return nil
+        }
+        return (workspaceId, panelId)
+    }
+
+    nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return directory }
+        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
+            return url.path
+        }
+        return trimmed
+    }
+
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
     func setActiveTabManager(_ tabManager: TabManager?) {
@@ -194,7 +279,14 @@ class TerminalController {
                 guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                 let validSurfaceIds = Set(workspace.panels.keys)
                 guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+                let nextPorts = Array(Set(ports)).sorted()
+                let currentPorts = workspace.surfaceListeningPorts[panelId] ?? []
+                guard currentPorts != nextPorts else { return }
+                if nextPorts.isEmpty {
+                    workspace.surfaceListeningPorts.removeValue(forKey: panelId)
+                } else {
+                    workspace.surfaceListeningPorts[panelId] = nextPorts
+                }
                 workspace.recomputeListeningPorts()
             }
         }
@@ -10421,12 +10513,22 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
+            guard Self.shouldReplaceStatusEntry(
+                current: tab.statusEntries[key],
+                key: key,
+                value: value,
+                icon: icon,
+                color: color
+            ) else {
+                return
+            }
             tab.statusEntries[key] = SidebarStatusEntry(
                 key: key,
                 value: value,
                 icon: icon,
                 color: color,
-                timestamp: Date())
+                timestamp: Date()
+            )
         }
         return result
     }
@@ -10569,6 +10671,9 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
+            guard Self.shouldReplaceProgress(current: tab.progress, value: clamped, label: label) else {
+                return
+            }
             tab.progress = SidebarProgressState(value: clamped, label: label)
         }
         return result
@@ -10581,7 +10686,9 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            tab.progress = nil
+            if tab.progress != nil {
+                tab.progress = nil
+            }
         }
         return result
     }
@@ -10599,7 +10706,6 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
@@ -10641,7 +10747,6 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-
             let validSurfaceIds = Set(tab.panels.keys)
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
@@ -10687,6 +10792,7 @@ class TerminalController {
             }
             ports.append(port)
         }
+        let normalizedPorts = Array(Set(ports)).sorted()
 
         var result = "OK"
         DispatchQueue.main.sync {
@@ -10723,20 +10829,43 @@ class TerminalController {
                 return
             }
 
-            tab.surfaceListeningPorts[surfaceId] = ports
+            guard Self.shouldReplacePorts(current: tab.surfaceListeningPorts[surfaceId], next: normalizedPorts) else {
+                return
+            }
+
+            tab.surfaceListeningPorts[surfaceId] = normalizedPorts
             tab.recomputeListeningPorts()
         }
         return result
     }
 
     private func reportPwd(_ args: String) -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
             return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let directory = Self.normalizeReportedDirectory(parsed.positional.joined(separator: " "))
+
+        // Shell integration provides explicit UUID handles for cwd updates.
+        // Keep this hot path off-main and drop no-op reports before scheduling UI work.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishDirectory(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                directory: directory
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -10803,11 +10932,15 @@ class TerminalController {
                     result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
                     return
                 }
-                tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+                if tab.surfaceListeningPorts.removeValue(forKey: surfaceId) != nil {
+                    tab.recomputeListeningPorts()
+                }
             } else {
-                tab.surfaceListeningPorts.removeAll()
+                if !tab.surfaceListeningPorts.isEmpty {
+                    tab.surfaceListeningPorts.removeAll()
+                    tab.recomputeListeningPorts()
+                }
             }
-            tab.recomputeListeningPorts()
         }
         return result
     }
@@ -10816,6 +10949,17 @@ class TerminalController {
         let parsed = parseOptions(args)
         guard let ttyName = parsed.positional.first, !ttyName.isEmpty else {
             return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+        }
+
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to avoid sync-hopping on every report.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.registerTTY(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                ttyName: ttyName
+            )
+            return "OK"
         }
 
         var result = "OK"
@@ -10851,6 +10995,7 @@ class TerminalController {
                 return
             }
 
+            guard tab.surfaceTTYNames[surfaceId] != ttyName else { return }
             tab.surfaceTTYNames[surfaceId] = ttyName
             PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
         }
@@ -10858,15 +11003,22 @@ class TerminalController {
     }
 
     private func portsKick(_ args: String) -> String {
+        let parsed = parseOptions(args)
+
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to keep prompt hooks from blocking UI work.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
-                let parsed = parseOptions(args)
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
 
-            let parsed = parseOptions(args)
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
             let surfaceId: UUID
             if let panelArg {
