@@ -58,6 +58,7 @@ export function SiteFooter() {
         </a>
         <a href="https://twitter.com/manaflowai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Twitter</a>
         <a href="https://discord.gg/xsgFEVrWCZ" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Discord</a>
+        <Link href="/docs/changelog" className="hover:text-foreground transition-colors">Changelog</Link>
         <Link href="/privacy-policy" className="hover:text-foreground transition-colors">Privacy</Link>
         <Link href="/terms-of-service" className="hover:text-foreground transition-colors">Terms</Link>
         <Link href="/eula" className="hover:text-foreground transition-colors">EULA</Link>
