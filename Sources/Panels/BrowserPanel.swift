@@ -1589,14 +1589,21 @@ extension BrowserPanel {
         )
 #endif
         guard let inspector = webView.cmuxInspectorObject() else { return false }
-        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         let targetVisible = !visible
         let selector = NSSelectorFromString(targetVisible ? "show" : "close")
         guard inspector.responds(to: selector) else { return false }
         inspector.cmuxCallVoid(selector: selector)
         preferredDeveloperToolsVisible = targetVisible
         if targetVisible {
-            developerToolsRestoreRetryAttempt = 0
+            let visibleAfterToggle = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+            if visibleAfterToggle {
+                cancelDeveloperToolsRestoreRetry()
+            } else {
+                developerToolsRestoreRetryAttempt = 0
+                scheduleDeveloperToolsRestoreRetry()
+            }
         } else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
