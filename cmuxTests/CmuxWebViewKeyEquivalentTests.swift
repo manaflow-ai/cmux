@@ -1511,6 +1511,34 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
         XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
     }
+
+    func testInPageFindScriptFiltersHiddenMatchesFromCounts() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "hidden",
+            "direction": "reset",
+            "queryChanged": true,
+            "requestSequence": 44,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("function isTextNodeVisiblyRenderable(node)"))
+        XCTAssertTrue(highlightScript.contains("range.getClientRects()"))
+        XCTAssertTrue(highlightScript.contains("style.display === \"none\""))
+        XCTAssertTrue(highlightScript.contains("style.visibility === \"hidden\""))
+        XCTAssertTrue(highlightScript.contains("style.contentVisibility === \"hidden\""))
+        XCTAssertTrue(highlightScript.contains("const visibilityCache = new WeakMap()"))
+        XCTAssertTrue(highlightScript.contains("if (!isVisible) {"))
+        XCTAssertTrue(highlightScript.contains("continue;"))
+    }
 }
 #endif
 

@@ -2884,6 +2884,50 @@ private extension BrowserPanel {
             return false;
           }
 
+          function isTextNodeVisiblyRenderable(node) {
+            if (!node || !node.parentElement) return false;
+            if (typeof node.isConnected === "boolean" && !node.isConnected) return false;
+
+            let ancestor = node.parentElement;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              if (ancestor.hidden) {
+                return false;
+              }
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                if (style.display === "none") return false;
+                if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+                if (style.contentVisibility === "hidden") return false;
+                const opacity = Number(style.opacity);
+                if (Number.isFinite(opacity) && opacity <= 0) return false;
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+
+            try {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const rects = range.getClientRects();
+              for (let index = 0; index < rects.length; index += 1) {
+                const rect = rects[index];
+                if (!rect) continue;
+                if (
+                  Number.isFinite(rect.width) &&
+                  Number.isFinite(rect.height) &&
+                  rect.width > 0 &&
+                  rect.height > 0
+                ) {
+                  return true;
+                }
+              }
+            } catch (_) {
+              return false;
+            }
+            return false;
+          }
+
           function collectTextNodes() {
             const root = document.body || document.documentElement;
             if (!root) return [];
@@ -2910,12 +2954,24 @@ private extension BrowserPanel {
             const lowerQuery = query.toLocaleLowerCase();
             const queryLength = query.length;
             const matches = [];
+            const visibilityCache = new WeakMap();
 
             for (const textNode of collectTextNodes()) {
               const original = textNode.nodeValue || "";
               const lower = original.toLocaleLowerCase();
               let cursor = 0;
               let index = lower.indexOf(lowerQuery, cursor);
+              if (index === -1) {
+                continue;
+              }
+              let isVisible = visibilityCache.get(textNode);
+              if (typeof isVisible !== "boolean") {
+                isVisible = isTextNodeVisiblyRenderable(textNode);
+                visibilityCache.set(textNode, isVisible);
+              }
+              if (!isVisible) {
+                continue;
+              }
               while (index !== -1) {
                 matches.push({
                   node: textNode,
