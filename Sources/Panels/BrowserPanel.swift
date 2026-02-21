@@ -1009,6 +1009,19 @@ final class BrowserPanel: Panel, ObservableObject {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
+    private static func srgbColor(_ color: NSColor) -> NSColor {
+        color.usingColorSpace(.sRGB) ?? color
+    }
+
+    private static func cssRGBAString(_ color: NSColor) -> String {
+        let srgb = srgbColor(color)
+        let red = Int(round(max(0.0, min(1.0, srgb.redComponent)) * 255.0))
+        let green = Int(round(max(0.0, min(1.0, srgb.greenComponent)) * 255.0))
+        let blue = Int(round(max(0.0, min(1.0, srgb.blueComponent)) * 255.0))
+        let alpha = max(0.0, min(1.0, srgb.alphaComponent))
+        return String(format: "rgba(%d, %d, %d, %.3f)", red, green, blue, alpha)
+    }
+
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
         let userInfo = notification?.userInfo
         let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
@@ -1024,6 +1037,29 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
+    static func themedBlankHTML(backgroundColor: NSColor) -> String {
+        let cssColor = cssRGBAString(backgroundColor)
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            background: \(cssColor);
+            overflow: hidden;
+        }
+        </style>
+        </head>
+        <body data-cmux-themed-blank="1"></body>
+        </html>
+        """
     }
 
     let id: UUID
@@ -1228,6 +1264,8 @@ final class BrowserPanel: Panel, ObservableObject {
         // Navigate to initial URL if provided
         if let url = initialURL {
             navigate(to: url)
+        } else {
+            loadThemedBlankDocument(backgroundColor: Self.resolvedGhosttyBackgroundColor())
         }
     }
 
@@ -1320,9 +1358,31 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
+                let resolvedBackground = Self.resolvedGhosttyBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = resolvedBackground
+                self.refreshThemedBlankDocumentBackgroundIfNeeded(resolvedBackground)
             }
             .store(in: &cancellables)
+    }
+
+    private func loadThemedBlankDocument(backgroundColor: NSColor) {
+        webView.loadHTMLString(Self.themedBlankHTML(backgroundColor: backgroundColor), baseURL: URL(string: blankURLString))
+    }
+
+    private func refreshThemedBlankDocumentBackgroundIfNeeded(_ backgroundColor: NSColor) {
+        guard webView.url?.absoluteString == blankURLString else { return }
+        let cssColor = Self.cssRGBAString(backgroundColor)
+        let js = """
+        (() => {
+            const body = document.body;
+            if (!body || body.getAttribute("data-cmux-themed-blank") !== "1") return false;
+            const root = document.documentElement;
+            root.style.background = "\(cssColor)";
+            body.style.background = "\(cssColor)";
+            return true;
+        })();
+        """
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     // MARK: - Panel Protocol
