@@ -374,7 +374,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
-        let shouldShowUnread = manualUnreadPanelIds.contains(panelId) || hasUnreadNotification(panelId: panelId)
+        let shouldShowUnread = Self.shouldShowUnreadIndicator(
+            hasUnreadNotification: hasUnreadNotification(panelId: panelId),
+            isManuallyUnread: manualUnreadPanelIds.contains(panelId)
+        )
         if let existing = bonsplitController.tab(tabId), existing.showsNotificationBadge == shouldShowUnread {
             return
         }
@@ -470,6 +473,12 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    func markPanelRead(_ panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        clearManualUnread(panelId: panelId)
+    }
+
     func clearManualUnread(panelId: UUID) {
         guard manualUnreadPanelIds.remove(panelId) != nil else { return }
         syncUnreadBadgeStateForPanel(panelId)
@@ -478,6 +487,10 @@ final class Workspace: Identifiable, ObservableObject {
     static func shouldClearManualUnread(previousFocusedPanelId: UUID?, nextFocusedPanelId: UUID) -> Bool {
         guard let previousFocusedPanelId else { return false }
         return previousFocusedPanelId != nextFocusedPanelId
+    }
+
+    static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
+        hasUnreadNotification || isManuallyUnread
     }
 
     // MARK: - Title Management
@@ -1994,6 +2007,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            markPanelRead(panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)

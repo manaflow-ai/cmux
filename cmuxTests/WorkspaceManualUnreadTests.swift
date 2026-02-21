@@ -38,4 +38,31 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             )
         )
     }
+
+    func testShouldShowUnreadIndicatorWhenNotificationIsUnread() {
+        XCTAssertTrue(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: true,
+                isManuallyUnread: false
+            )
+        )
+    }
+
+    func testShouldShowUnreadIndicatorWhenManualUnreadIsSet() {
+        XCTAssertTrue(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: true
+            )
+        )
+    }
+
+    func testShouldHideUnreadIndicatorWhenNeitherNotificationNorManualUnreadExists() {
+        XCTAssertFalse(
+            Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: false,
+                isManuallyUnread: false
+            )
+        )
+    }
 }
