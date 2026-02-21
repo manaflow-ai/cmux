@@ -271,6 +271,44 @@ final class NotificationBurstCoalescerTests: XCTestCase {
     }
 }
 
+final class RecentlyClosedBrowserStackTests: XCTestCase {
+    func testPopReturnsEntriesInLIFOOrder() {
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1))
+        stack.push(makeSnapshot(index: 2))
+        stack.push(makeSnapshot(index: 3))
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 3)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 2)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 1)
+        XCTAssertNil(stack.pop())
+    }
+
+    func testPushDropsOldestEntriesWhenCapacityExceeded() {
+        var stack = RecentlyClosedBrowserStack(capacity: 3)
+        for index in 1...5 {
+            stack.push(makeSnapshot(index: index))
+        }
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 5)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 4)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 3)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+        ClosedBrowserPanelRestoreSnapshot(
+            workspaceId: UUID(),
+            url: URL(string: "https://example.com/\(index)"),
+            originalPaneId: UUID(),
+            originalTabIndex: index,
+            fallbackSplitOrientation: .horizontal,
+            fallbackSplitInsertFirst: false,
+            fallbackAnchorPaneId: UUID()
+        )
+    }
+}
+
 final class TabManagerNotificationOrderingSourceTests: XCTestCase {
     func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
         let projectRoot = findProjectRoot()
