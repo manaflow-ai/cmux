@@ -127,8 +127,17 @@ export default function Home() {
           <div data-dev="features-spacer" style={{ height: 23 }} />
         </section>
 
+        {/* Wall of Love — break out wider */}
+        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40 mb-10">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
+            {testimonials.map((t) => (
+              <TestimonialCard key={t.url} testimonial={t} />
+            ))}
+          </div>
+        </section>
+
         {/* FAQ */}
-        <section data-dev="faq" className="mb-10">
+        <section data-dev="faq">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             FAQ
           </h2>
@@ -190,16 +199,6 @@ export default function Home() {
                 <a href="https://github.com/manaflow-ai/cmux" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">GitHub</a>.
               </p>
             </div>
-          </div>
-          <div data-dev="faq-spacer" style={{ height: 23 }} />
-        </section>
-
-        {/* Wall of Love — break out wider */}
-        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40">
-          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
-            {testimonials.map((t) => (
-              <TestimonialCard key={t.url} testimonial={t} />
-            ))}
           </div>
         </section>
 
