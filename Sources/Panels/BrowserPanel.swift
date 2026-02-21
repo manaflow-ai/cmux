@@ -2237,6 +2237,33 @@ extension BrowserPanel {
             }
           }
 
+          function highlightFirstRangeSummary(name) {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.get !== "function") {
+                return null;
+              }
+              const highlight = CSS.highlights.get(name);
+              if (!highlight || typeof highlight[Symbol.iterator] !== "function") {
+                return null;
+              }
+              const iterator = highlight[Symbol.iterator]();
+              const first = iterator.next();
+              if (!first || first.done || !first.value) {
+                return null;
+              }
+              const range = first.value;
+              const rect = (range && typeof range.getBoundingClientRect === "function")
+                ? range.getBoundingClientRect()
+                : null;
+              return {
+                text: clip((range && typeof range.toString === "function") ? range.toString() : "", 120),
+                rect: rectSummary(rect),
+              };
+            } catch (_) {
+              return null;
+            }
+          }
+
           function activeElementSummary() {
             const active = document.activeElement;
             if (!active) return null;
@@ -2272,6 +2299,8 @@ extension BrowserPanel {
             highlightNames: highlightNames(),
             allHighlightRangeCount: highlightSize(allHighlightName),
             activeHighlightRangeCount: highlightSize(activeHighlightName),
+            firstAllHighlightRange: highlightFirstRangeSummary(allHighlightName),
+            firstActiveHighlightRange: highlightFirstRangeSummary(activeHighlightName),
             spanMarkCount: marks.length,
             spanActiveCount: activeMarks.length,
             firstMarkText: firstMark ? clip(firstMark.textContent || "", 120) : "",
@@ -2901,6 +2930,29 @@ private extension BrowserPanel {
                 if (style.contentVisibility === "hidden") return false;
                 const opacity = Number(style.opacity);
                 if (Number.isFinite(opacity) && opacity <= 0) return false;
+
+                const clip = style.clip || "auto";
+                if (clip !== "auto") return false;
+
+                const clipPath = style.clipPath || "none";
+                const width = Number.parseFloat(style.width || "");
+                const height = Number.parseFloat(style.height || "");
+                const overflowX = style.overflowX || style.overflow || "";
+                const overflowY = style.overflowY || style.overflow || "";
+                const isTinyBox =
+                  (Number.isFinite(width) && width <= 1.5) ||
+                  (Number.isFinite(height) && height <= 1.5);
+                if (clipPath !== "none" && (isTinyBox || overflowX === "hidden" || overflowY === "hidden")) {
+                  return false;
+                }
+                if (isTinyBox && (overflowX === "hidden" || overflowY === "hidden")) {
+                  return false;
+                }
+
+                const textIndent = Number.parseFloat(style.textIndent || "0");
+                if (Number.isFinite(textIndent) && textIndent <= -500) {
+                  return false;
+                }
               }
               ancestor = ancestor.parentElement;
               depth += 1;
@@ -2910,14 +2962,20 @@ private extension BrowserPanel {
               const range = document.createRange();
               range.selectNodeContents(node);
               const rects = range.getClientRects();
+              const minimumRenderableArea = 4;
               for (let index = 0; index < rects.length; index += 1) {
                 const rect = rects[index];
                 if (!rect) continue;
+                const area = rect.width * rect.height;
                 if (
                   Number.isFinite(rect.width) &&
                   Number.isFinite(rect.height) &&
                   rect.width > 0 &&
-                  rect.height > 0
+                  rect.height > 0 &&
+                  Number.isFinite(area) &&
+                  area >= minimumRenderableArea &&
+                  rect.right > -64 &&
+                  rect.bottom > -64
                 ) {
                   return true;
                 }
