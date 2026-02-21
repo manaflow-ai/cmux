@@ -1601,7 +1601,11 @@ class TabManager: ObservableObject {
                 selectedTabId = targetWorkspace.id
             }
 
-            if reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+                // Workspace switches defer focus restoration to the next main-queue turn.
+                // Record the reopened browser immediately so deferred restore doesn't snap
+                // back to the previously focused terminal in that workspace.
+                rememberFocusedSurface(tabId: targetWorkspace.id, surfaceId: reopenedPanelId)
                 return true
             }
         }
@@ -1612,14 +1616,14 @@ class TabManager: ObservableObject {
     private func reopenClosedBrowserPanel(
         _ snapshot: ClosedBrowserPanelRestoreSnapshot,
         in workspace: Workspace
-    ) -> Bool {
+    ) -> UUID? {
         if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
            let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
             _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
-            return true
+            return browserPanel.id
         }
 
         if let orientation = snapshot.fallbackSplitOrientation,
@@ -1627,19 +1631,19 @@ class TabManager: ObservableObject {
            let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
            let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
-           workspace.newBrowserSplit(
+           let browserPanelId = workspace.newBrowserSplit(
                from: anchorPanelId,
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
                url: snapshot.url
-           ) != nil {
-            return true
+           )?.id {
+            return browserPanelId
         }
 
         guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return false
+            return nil
         }
-        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true) != nil
+        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true)?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
