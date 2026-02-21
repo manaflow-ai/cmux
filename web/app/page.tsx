@@ -149,7 +149,7 @@ export default function Home() {
               </p>
             </div>
             <div>
-              <p className="font-medium mb-1">Does it work with AI tools other than Claude?</p>
+              <p className="font-medium mb-1">What coding agents does cmux work with?</p>
               <p className="text-muted">
                 Yes. The notification system uses standard terminal escape sequences (OSC 9/99/777),
                 so any CLI tool that prints those will trigger notification rings. The socket API and
