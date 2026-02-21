@@ -2177,6 +2177,9 @@ extension BrowserPanel {
           const styleId = "cmux-inpage-find-style";
           const markClass = "cmux-inpage-find-hit";
           const activeClass = "cmux-inpage-find-active";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
+          const overlayMarkClass = "cmux-inpage-find-overlay-hit";
+          const overlayActiveClass = "cmux-inpage-find-overlay-active";
           const stateKey = "__cmuxInPageFindState";
           const sequenceKey = "__cmuxInPageFindSequence";
           const allHighlightName = "cmux-inpage-find-all";
@@ -2366,12 +2369,23 @@ extension BrowserPanel {
           }
 
           const styleElement = document.getElementById(styleId);
+          const overlayRoot = document.getElementById(overlayRootId);
           const marks = Array.from(document.querySelectorAll("span." + markClass));
           const activeMarks = Array.from(document.querySelectorAll("span." + markClass + "." + activeClass));
+          const overlayMarks = overlayRoot
+            ? Array.from(overlayRoot.querySelectorAll("." + overlayMarkClass))
+            : [];
+          const overlayActiveMarks = overlayRoot
+            ? Array.from(overlayRoot.querySelectorAll("." + overlayMarkClass + "." + overlayActiveClass))
+            : [];
           const firstMark = marks.length > 0 ? marks[0] : null;
+          const firstOverlayMark = overlayMarks.length > 0 ? overlayMarks[0] : null;
           const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
           const firstMarkRect = firstMark && typeof firstMark.getBoundingClientRect === "function"
             ? firstMark.getBoundingClientRect()
+            : null;
+          const firstOverlayRect = firstOverlayMark && typeof firstOverlayMark.getBoundingClientRect === "function"
+            ? firstOverlayMark.getBoundingClientRect()
             : null;
           const state = window[stateKey] || null;
           const hasCustomHighlights = (typeof CSS !== "undefined" && !!CSS.highlights);
@@ -2393,6 +2407,10 @@ extension BrowserPanel {
             firstActiveHighlightRange: highlightFirstRangeSummary(activeHighlightName),
             spanMarkCount: marks.length,
             spanActiveCount: activeMarks.length,
+            overlayMarkCount: overlayMarks.length,
+            overlayActiveCount: overlayActiveMarks.length,
+            firstOverlayRect: rectSummary(firstOverlayRect),
+            firstOverlayStyle: styleSummary(firstOverlayMark),
             firstMarkText: firstMark ? clip(firstMark.textContent || "", 120) : "",
             firstMarkRect: rectSummary(firstMarkRect),
             firstMarkStyle: styleSummary(firstMark),
@@ -2401,6 +2419,7 @@ extension BrowserPanel {
             findState: state ? {
               query: String(state.query || ""),
               activeIndex: Number.isFinite(state.activeIndex) ? Number(state.activeIndex) : null,
+              renderMode: String(state.renderMode || ""),
             } : null,
             findSequence: Number(window[sequenceKey] || 0),
           };
@@ -2844,6 +2863,7 @@ private extension BrowserPanel {
         (function() {
           const requestSequence = \(requestSequenceJSON);
           const markClass = "cmux-inpage-find-hit";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
           const styleId = "cmux-inpage-find-style";
           const stateKey = "__cmuxInPageFindState";
           const sequenceKey = "__cmuxInPageFindSequence";
@@ -2890,14 +2910,22 @@ private extension BrowserPanel {
             try { if (typeof CSS.highlights.clear === "function") CSS.highlights.clear(); } catch (_) {}
           }
 
+          function clearOverlayHighlights() {
+            const overlayRoot = document.getElementById(overlayRootId);
+            if (overlayRoot && overlayRoot.parentNode) {
+              overlayRoot.parentNode.removeChild(overlayRoot);
+            }
+          }
+
           clearMarks();
           clearCustomHighlights();
+          clearOverlayHighlights();
 
           const style = document.getElementById(styleId);
           if (style && style.parentNode) {
             style.parentNode.removeChild(style);
           }
-          window[stateKey] = { query: "", activeIndex: 0 };
+          window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
           if (hasRequestSequence) {
             window[sequenceKey] = normalizedRequestSequence;
           }
@@ -2911,7 +2939,9 @@ private extension BrowserPanel {
         (function() {
           const payload = \(payloadJSON);
           const markClass = "cmux-inpage-find-hit";
-          const activeClass = "cmux-inpage-find-active";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
+          const overlayMarkClass = "cmux-inpage-find-overlay-hit";
+          const overlayActiveClass = "cmux-inpage-find-overlay-active";
           const styleId = "cmux-inpage-find-style";
           const stateKey = "__cmuxInPageFindState";
           const sequenceKey = "__cmuxInPageFindSequence";
@@ -2941,15 +2971,13 @@ private extension BrowserPanel {
               typeof Range !== "undefined"
             );
           }
-          // WKWebView currently reports custom-highlight support but can fail to paint
-          // highlights reliably in embedded browser surfaces. Keep the code path for
-          // future re-enable, but force span fallback for deterministic visibility.
-          const customHighlightEnabled = false;
+          // Prefer non-DOM-mutating highlights to avoid layout shift.
+          const customHighlightEnabled = true;
           const canUseCustomHighlights = customHighlightEnabled && supportsCustomHighlights();
-          const renderMode = canUseCustomHighlights ? "customHighlight" : "spanFallback";
+          const defaultRenderMode = canUseCustomHighlights ? "customHighlight" : "overlayFallback";
 
-          function withRenderMode(result) {
-            return Object.assign({ renderMode }, result);
+          function withRenderMode(result, mode) {
+            return Object.assign({ renderMode: mode || defaultRenderMode }, result);
           }
 
           function clearMarks() {
@@ -2975,6 +3003,26 @@ private extension BrowserPanel {
             try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
           }
 
+          function clearOverlayHighlights() {
+            const overlayRoot = document.getElementById(overlayRootId);
+            if (overlayRoot && overlayRoot.parentNode) {
+              overlayRoot.parentNode.removeChild(overlayRoot);
+            }
+          }
+
+          function ensureOverlayRoot() {
+            let overlayRoot = document.getElementById(overlayRootId);
+            if (!overlayRoot) {
+              overlayRoot = document.createElement("div");
+              overlayRoot.id = overlayRootId;
+              overlayRoot.setAttribute("aria-hidden", "true");
+              (document.body || document.documentElement).appendChild(overlayRoot);
+            } else {
+              overlayRoot.textContent = "";
+            }
+            return overlayRoot;
+          }
+
           function ensureStyle() {
             let style = document.getElementById(styleId);
             if (!style) {
@@ -2982,32 +3030,31 @@ private extension BrowserPanel {
               style.id = styleId;
               (document.head || document.documentElement).appendChild(style);
             }
-            if (canUseCustomHighlights) {
-              style.textContent = `
-                ::highlight(${allHighlightName}) {
-                  background: ${payload.allBackground};
-                  color: ${payload.allForeground};
-                }
-                ::highlight(${activeHighlightName}) {
-                  background: ${payload.activeBackground};
-                  color: ${payload.activeForeground};
-                }
-              `;
-              return;
-            }
             style.textContent = `
-              span.${markClass} {
-                background-color: ${payload.allBackground} !important;
-                color: ${payload.allForeground} !important;
-                -webkit-text-fill-color: ${payload.allForeground} !important;
-                border-radius: 2px;
-                box-decoration-break: clone;
-                -webkit-box-decoration-break: clone;
+              ::highlight(${allHighlightName}) {
+                background: ${payload.allBackground};
+                color: ${payload.allForeground};
               }
-              span.${markClass}.${activeClass} {
+              ::highlight(${activeHighlightName}) {
+                background: ${payload.activeBackground};
+                color: ${payload.activeForeground};
+              }
+              #${overlayRootId} {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 0;
+                height: 0;
+                pointer-events: none;
+                z-index: 2147483647;
+              }
+              #${overlayRootId} .${overlayMarkClass} {
+                position: absolute;
+                background-color: ${payload.allBackground};
+                border-radius: 2px;
+              }
+              #${overlayRootId} .${overlayMarkClass}.${overlayActiveClass} {
                 background-color: ${payload.activeBackground} !important;
-                color: ${payload.activeForeground} !important;
-                -webkit-text-fill-color: ${payload.activeForeground} !important;
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
               }
             `;
@@ -3022,6 +3069,9 @@ private extension BrowserPanel {
               return true;
             }
             if (parent.closest("span." + markClass)) {
+              return true;
+            }
+            if (parent.closest("#" + overlayRootId)) {
               return true;
             }
             return false;
@@ -3129,6 +3179,25 @@ private extension BrowserPanel {
             return false;
           }
 
+          function hasCustomHighlightPaintBlocker(node) {
+            if (!node || !node.parentElement) return false;
+            let ancestor = node.parentElement;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                const userSelect = (style.userSelect || style.webkitUserSelect || "").toLowerCase();
+                // WebKit can fail to paint CSS custom highlights under user-select:none.
+                if (userSelect === "none") {
+                  return true;
+                }
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+            return false;
+          }
+
           function collectTextNodes() {
             const root = document.body || document.documentElement;
             if (!root) return [];
@@ -3156,6 +3225,7 @@ private extension BrowserPanel {
             const queryLength = query.length;
             const matches = [];
             const visibilityCache = new WeakMap();
+            const customHighlightPaintBlockerCache = new WeakMap();
 
             for (const textNode of collectTextNodes()) {
               const original = textNode.nodeValue || "";
@@ -3173,11 +3243,17 @@ private extension BrowserPanel {
               if (!isVisible) {
                 continue;
               }
+              let customHighlightPaintBlocked = customHighlightPaintBlockerCache.get(textNode);
+              if (typeof customHighlightPaintBlocked !== "boolean") {
+                customHighlightPaintBlocked = hasCustomHighlightPaintBlocker(textNode);
+                customHighlightPaintBlockerCache.set(textNode, customHighlightPaintBlocked);
+              }
               while (index !== -1) {
                 matches.push({
                   node: textNode,
                   start: index,
                   end: index + queryLength,
+                  customHighlightPaintBlocked,
                 });
                 cursor = index + queryLength;
                 index = lower.indexOf(lowerQuery, cursor);
@@ -3203,13 +3279,12 @@ private extension BrowserPanel {
 
           function scrollMatchIntoView(match) {
             if (!match) return;
-            if (!canUseCustomHighlights) {
+            if (!match.node) {
               if (match.scrollIntoView) {
                 match.scrollIntoView({ block: "center", inline: "nearest" });
               }
               return;
             }
-
             const range = document.createRange();
             range.setStart(match.node, match.start);
             range.setEnd(match.node, match.end);
@@ -3234,14 +3309,21 @@ private extension BrowserPanel {
             });
           }
 
+          function rangeForMatch(match) {
+            if (!match || !match.node) return null;
+            const range = document.createRange();
+            range.setStart(match.node, match.start);
+            range.setEnd(match.node, match.end);
+            return range;
+          }
+
           function applyCustomHighlights(matches, activeIndex) {
             clearCustomHighlights();
 
             const allHighlight = new Highlight();
             for (const match of matches) {
-              const range = document.createRange();
-              range.setStart(match.node, match.start);
-              range.setEnd(match.node, match.end);
+              const range = rangeForMatch(match);
+              if (!range) continue;
               allHighlight.add(range);
             }
             CSS.highlights.set(allHighlightName, allHighlight);
@@ -3249,59 +3331,53 @@ private extension BrowserPanel {
             const activeHighlight = new Highlight();
             const activeMatch = matches[activeIndex];
             if (activeMatch) {
-              const activeRange = document.createRange();
-              activeRange.setStart(activeMatch.node, activeMatch.start);
-              activeRange.setEnd(activeMatch.node, activeMatch.end);
+              const activeRange = rangeForMatch(activeMatch);
+              if (!activeRange) {
+                CSS.highlights.set(activeHighlightName, activeHighlight);
+                return activeMatch || null;
+              }
               activeHighlight.add(activeRange);
             }
             CSS.highlights.set(activeHighlightName, activeHighlight);
             return activeMatch || null;
           }
 
-          function applySpanFallback(matches, activeIndex) {
-            const marksByNode = new Map();
-            for (const match of matches) {
-              const nodeMatches = marksByNode.get(match.node) || [];
-              nodeMatches.push(match);
-              marksByNode.set(match.node, nodeMatches);
-            }
+          function applyOverlayFallback(matches, activeIndex) {
+            clearOverlayHighlights();
+            const overlayRoot = ensureOverlayRoot();
+            const activeMatch = matches[activeIndex] || null;
+            const minimumRenderableArea = 2;
 
-            const marks = [];
-            for (const textNode of collectTextNodes()) {
-              const nodeMatches = marksByNode.get(textNode);
-              if (!nodeMatches || nodeMatches.length === 0) continue;
-
-              const original = textNode.nodeValue || "";
-              let cursor = 0;
-              const fragment = document.createDocumentFragment();
-              for (const match of nodeMatches) {
-                const start = match.start;
-                const end = match.end;
-                if (start > cursor) {
-                  fragment.appendChild(document.createTextNode(original.slice(cursor, start)));
+            for (let idx = 0; idx < matches.length; idx += 1) {
+              const match = matches[idx];
+              const range = rangeForMatch(match);
+              if (!range) continue;
+              const rects = range.getClientRects();
+              for (let rectIndex = 0; rectIndex < rects.length; rectIndex += 1) {
+                const rect = rects[rectIndex];
+                if (!rect) continue;
+                const area = rect.width * rect.height;
+                if (
+                  !Number.isFinite(rect.width) ||
+                  !Number.isFinite(rect.height) ||
+                  rect.width <= 0 ||
+                  rect.height <= 0 ||
+                  !Number.isFinite(area) ||
+                  area < minimumRenderableArea
+                ) {
+                  continue;
                 }
-                const mark = document.createElement("span");
-                mark.className = markClass;
-                mark.textContent = original.slice(start, end);
-                fragment.appendChild(mark);
-                marks.push(mark);
-                cursor = end;
-              }
-              if (cursor < original.length) {
-                fragment.appendChild(document.createTextNode(original.slice(cursor)));
-              }
-              textNode.replaceWith(fragment);
-            }
-
-            for (let idx = 0; idx < marks.length; idx += 1) {
-              if (idx === activeIndex) {
-                marks[idx].classList.add(activeClass);
-              } else {
-                marks[idx].classList.remove(activeClass);
+                const mark = document.createElement("div");
+                mark.className = overlayMarkClass + (idx === activeIndex ? " " + overlayActiveClass : "");
+                mark.style.left = `${rect.left + window.scrollX}px`;
+                mark.style.top = `${rect.top + window.scrollY}px`;
+                mark.style.width = `${rect.width}px`;
+                mark.style.height = `${rect.height}px`;
+                overlayRoot.appendChild(mark);
               }
             }
 
-            return marks[activeIndex] || null;
+            return activeMatch;
           }
 
           try {
@@ -3311,12 +3387,13 @@ private extension BrowserPanel {
             const query = (payload.query || "").trim();
             clearMarks();
             clearCustomHighlights();
+            clearOverlayHighlights();
             if (isRequestStale()) {
               return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" });
             }
             if (!query) {
-              window[stateKey] = { query: "", activeIndex: 0 };
-              return withRenderMode({ matchFound: false, current: 0, total: 0 });
+              window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 }, "none");
             }
 
             ensureStyle();
@@ -3326,29 +3403,34 @@ private extension BrowserPanel {
             }
 
             if (matches.length === 0) {
-              window[stateKey] = { query, activeIndex: 0 };
-              return withRenderMode({ matchFound: false, current: 0, total: 0 });
+              const renderMode = canUseCustomHighlights ? "customHighlight" : "overlayFallback";
+              window[stateKey] = { query, activeIndex: 0, renderMode };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 }, renderMode);
             }
 
             const activeIndex = resolveActiveIndex(query, matches.length);
+            const hasCustomHighlightPaintBlockedMatch = matches.some((match) => !!match.customHighlightPaintBlocked);
+            const shouldUseCustomHighlights = canUseCustomHighlights && !hasCustomHighlightPaintBlockedMatch;
+            let renderMode = shouldUseCustomHighlights ? "customHighlight" : "overlayFallback";
 
             var activeTarget = null;
-            if (canUseCustomHighlights) {
+            if (shouldUseCustomHighlights) {
               try {
                 activeTarget = applyCustomHighlights(matches, activeIndex);
               } catch (_) {
-                activeTarget = applySpanFallback(matches, activeIndex);
+                activeTarget = applyOverlayFallback(matches, activeIndex);
+                renderMode = "overlayFallback";
               }
             } else {
-              activeTarget = applySpanFallback(matches, activeIndex);
+              activeTarget = applyOverlayFallback(matches, activeIndex);
             }
             if (isRequestStale()) {
               return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" });
             }
             scrollMatchIntoView(activeTarget);
 
-            window[stateKey] = { query, activeIndex };
-            return withRenderMode({ matchFound: true, current: activeIndex + 1, total: matches.length });
+            window[stateKey] = { query, activeIndex, renderMode };
+            return withRenderMode({ matchFound: true, current: activeIndex + 1, total: matches.length }, renderMode);
           } catch (error) {
             return withRenderMode({
               matchFound: false,
