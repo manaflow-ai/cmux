@@ -1193,6 +1193,8 @@ class TerminalController {
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                     "surface_id": v2OrNull(surfaceUUID?.uuidString),
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceUUID),
+                    "tab_id": v2OrNull(surfaceUUID?.uuidString),
+                    "tab_ref": v2TabRef(uuid: surfaceUUID),
                     "surface_type": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType.rawValue }),
                     "is_browser_surface": v2OrNull(surfaceUUID.flatMap { ws.panels[$0]?.panelType == .browser })
                 ]
@@ -1208,7 +1210,7 @@ class TerminalController {
         var resolvedCaller: [String: Any]? = nil
         if let callerObj = params["caller"] as? [String: Any],
            let wsId = v2UUIDAny(callerObj["workspace_id"]) {
-            let surfaceId = v2UUIDAny(callerObj["surface_id"])
+            let surfaceId = v2UUIDAny(callerObj["surface_id"]) ?? v2UUIDAny(callerObj["tab_id"])
             v2MainSync {
                 let callerTabManager = AppDelegate.shared?.tabManagerFor(tabId: wsId) ?? tabManager
                 if let ws = callerTabManager.tabs.first(where: { $0.id == wsId }) {
@@ -1224,6 +1226,8 @@ class TerminalController {
                         let paneUUID = ws.paneId(forPanelId: surfaceId)?.id
                         payload["surface_id"] = surfaceId.uuidString
                         payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+                        payload["tab_id"] = surfaceId.uuidString
+                        payload["tab_ref"] = v2TabRef(uuid: surfaceId)
                         payload["surface_type"] = v2OrNull(ws.panels[surfaceId]?.panelType.rawValue)
                         payload["is_browser_surface"] = v2OrNull(ws.panels[surfaceId]?.panelType == .browser)
                         payload["pane_id"] = v2OrNull(paneUUID?.uuidString)
@@ -1231,6 +1235,8 @@ class TerminalController {
                     } else {
                         payload["surface_id"] = NSNull()
                         payload["surface_ref"] = NSNull()
+                        payload["tab_id"] = NSNull()
+                        payload["tab_ref"] = NSNull()
                         payload["surface_type"] = NSNull()
                         payload["is_browser_surface"] = NSNull()
                         payload["pane_id"] = NSNull()
@@ -1332,12 +1338,25 @@ class TerminalController {
                 return id
             }
         }
+        // Tab refs are aliases for surface refs in tab-facing APIs.
+        let trimmed = handle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if trimmed.hasPrefix("tab:"),
+           let ordinal = Int(trimmed.replacingOccurrences(of: "tab:", with: "")),
+           let id = v2UUIDByRef[.surface]?["surface:\(ordinal)"] {
+            return id
+        }
         return nil
     }
 
     private func v2Ref(kind: V2HandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
         return v2EnsureHandleRef(kind: kind, uuid: uuid)
+    }
+
+    private func v2TabRef(uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
+        return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
     private func v2RefreshKnownRefs() {
@@ -2041,7 +2060,7 @@ class TerminalController {
                 return
             }
 
-            let surfaceId = v2UUID(params, "surface_id") ?? workspace.focusedPanelId
+            let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") ?? workspace.focusedPanelId
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused tab", data: nil)
                 return
@@ -2049,7 +2068,9 @@ class TerminalController {
             guard workspace.panels[surfaceId] != nil else {
                 result = .err(code: "not_found", message: "Tab not found", data: [
                     "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "tab_id": surfaceId.uuidString,
+                    "tab_ref": v2TabRef(uuid: surfaceId)
                 ])
                 return
             }
@@ -2065,7 +2086,9 @@ class TerminalController {
                     "workspace_id": workspace.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
                     "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "tab_id": surfaceId.uuidString,
+                    "tab_ref": v2TabRef(uuid: surfaceId)
                 ]
                 if let paneId = workspace.paneId(forPanelId: surfaceId)?.id {
                     payload["pane_id"] = paneId.uuidString
@@ -2169,7 +2192,9 @@ class TerminalController {
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
-                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
+                    "created_tab_id": newPanel.id.uuidString,
+                    "created_tab_ref": v2TabRef(uuid: newPanel.id)
                 ])
 
             case "new_terminal_right", "new_terminal_to_right", "new_terminal_tab_to_right":
@@ -2187,7 +2212,9 @@ class TerminalController {
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
-                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
+                    "created_tab_id": newPanel.id.uuidString,
+                    "created_tab_ref": v2TabRef(uuid: newPanel.id)
                 ])
 
             case "new_browser_right", "new_browser_to_right", "new_browser_tab_to_right":
@@ -2212,7 +2239,9 @@ class TerminalController {
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
-                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id)
+                    "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
+                    "created_tab_id": newPanel.id.uuidString,
+                    "created_tab_ref": v2TabRef(uuid: newPanel.id)
                 ])
 
             case "close_left", "close_to_left":
