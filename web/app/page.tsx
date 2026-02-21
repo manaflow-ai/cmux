@@ -112,15 +112,7 @@ export default function Home() {
                 </span>
               </span>
             </li>
-            <li className="flex gap-3">
-              <span className="text-muted shrink-0">-</span>
-              <span>
-                <strong className="font-medium">Ghostty compatible</strong>
-                <span className="text-muted">
-                  : reads your existing <code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">~/.config/ghostty/config</code> for themes, fonts, and colors
-                </span>
-              </span>
-            </li>
+
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
