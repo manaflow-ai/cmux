@@ -180,6 +180,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var ghosttyBackgroundGeneration: Int = 0
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 26
@@ -216,6 +217,11 @@ struct BrowserPanelView: View {
 
     private var devToolsColorOption: BrowserDevToolsIconColorOption {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
+
+    private var browserChromeBackground: Color {
+        _ = ghosttyBackgroundGeneration
+        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     var body: some View {
@@ -356,6 +362,9 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            ghosttyBackgroundGeneration &+= 1
+        }
     }
 
     private var addressBar: some View {
@@ -370,7 +379,7 @@ struct BrowserPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
-        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        .background(browserChromeBackground)
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
     }

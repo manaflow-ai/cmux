@@ -1140,11 +1140,7 @@ struct ContentView: View {
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var fakeTitlebarBackground: Color {
         _ = titlebarThemeGeneration
-        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        let configuredOpacity = CGFloat(max(0, min(1, GhosttyApp.shared.defaultBackgroundOpacity)))
-        let minimumChromeOpacity: CGFloat = ghosttyBackground.isLightColor ? 0.90 : 0.84
-        let chromeOpacity = max(minimumChromeOpacity, configuredOpacity)
-        return Color(nsColor: ghosttyBackground.withAlphaComponent(chromeOpacity))
+        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
     private var fakeTitlebarTextColor: Color {
         _ = titlebarThemeGeneration
