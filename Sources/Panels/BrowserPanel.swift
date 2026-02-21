@@ -2977,15 +2977,17 @@ private extension BrowserPanel {
             }
             style.textContent = `
               span.${markClass} {
-                background: ${payload.allBackground};
+                background-color: ${payload.allBackground} !important;
                 color: ${payload.allForeground} !important;
+                -webkit-text-fill-color: ${payload.allForeground} !important;
                 border-radius: 2px;
                 box-decoration-break: clone;
                 -webkit-box-decoration-break: clone;
               }
               span.${markClass}.${activeClass} {
-                background: ${payload.activeBackground};
+                background-color: ${payload.activeBackground} !important;
                 color: ${payload.activeForeground} !important;
+                -webkit-text-fill-color: ${payload.activeForeground} !important;
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
               }
             `;
