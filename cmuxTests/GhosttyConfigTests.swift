@@ -270,3 +270,49 @@ final class NotificationBurstCoalescerTests: XCTestCase {
         XCTAssertEqual(flushCount, 2)
     }
 }
+
+final class TabManagerNotificationOrderingSourceTests: XCTestCase {
+    func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
+        let projectRoot = findProjectRoot()
+        let tabManagerURL = projectRoot.appendingPathComponent("Sources/TabManager.swift")
+        let source = try String(contentsOf: tabManagerURL, encoding: .utf8)
+
+        guard let titleObserverStart = source.range(of: "forName: .ghosttyDidSetTitle"),
+              let focusObserverStart = source.range(
+                of: "forName: .ghosttyDidFocusSurface",
+                range: titleObserverStart.upperBound..<source.endIndex
+              ) else {
+            XCTFail("Failed to locate TabManager notification observer block in Sources/TabManager.swift")
+            return
+        }
+
+        let block = String(source[titleObserverStart.lowerBound..<focusObserverStart.lowerBound])
+        XCTAssertFalse(
+            block.contains("Task {"),
+            """
+            The .ghosttyDidSetTitle observer must update model state in the notification callback.
+            Using Task can reorder updates and leave titlebar/toolbar one event behind.
+            """
+        )
+        XCTAssertTrue(
+            block.contains("MainActor.assumeIsolated"),
+            "Expected .ghosttyDidSetTitle observer to run synchronously on MainActor."
+        )
+        XCTAssertTrue(
+            block.contains("enqueuePanelTitleUpdate"),
+            "Expected .ghosttyDidSetTitle observer to enqueue panel title updates."
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
