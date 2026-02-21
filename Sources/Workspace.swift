@@ -94,6 +94,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
+    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -513,6 +514,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
+        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        let existing = panelGitBranches[panelId]
+        if existing?.branch != branch || existing?.isDirty != isDirty {
+            panelGitBranches[panelId] = state
+        }
+        if panelId == focusedPanelId {
+            gitBranch = state
+        }
+    }
+
+    func clearPanelGitBranch(panelId: UUID) {
+        panelGitBranches.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            gitBranch = nil
+        }
+    }
+
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -557,6 +576,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
@@ -1539,6 +1559,7 @@ extension Workspace: BonsplitDelegate {
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
+        gitBranch = panelGitBranches[panelId]
 
         // Post notification
         NotificationCenter.default.post(
@@ -1667,6 +1688,7 @@ extension Workspace: BonsplitDelegate {
         panels.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
+        panelGitBranches.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
