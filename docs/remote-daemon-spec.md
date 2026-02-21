@@ -105,6 +105,7 @@ All cases require deterministic `MUST` assertions.
 | T-004 | no `--name` | workspace created with non-empty title |
 | T-005 | scoped niceties | only `cmux ssh` command metadata includes scoped `GHOSTTY_SHELL_FEATURES` SSH additions |
 | T-006 | detach/reattach | same `session_id`, state/history preserved |
+| T-007 | shell integration e2e | in fresh docker host, `cmux ssh` yields TERM/terminfo behavior and propagated SSH env vars per `ssh-env`/`ssh-terminfo` |
 
 ### 8.2 Web Proxy
 
@@ -139,7 +140,7 @@ All cases require deterministic `MUST` assertions.
 
 ## 9. CI Gates
 
-1. `remote-terminal-core`: T-001..T-005
+1. `remote-terminal-core`: T-001..T-005, T-007
 2. `remote-proxy-core`: W-001..W-004, W-007
 3. `remote-reconnect-core`: R-001..R-003
 4. `remote-multidaemon-core`: M-001..M-002

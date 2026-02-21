@@ -1939,14 +1939,24 @@ struct CMUXCLI {
 
     private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String) -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sshCommandWithScopedFeatures: String
-        if trimmedFeatures.isEmpty {
-            sshCommandWithScopedFeatures = sshCommand
-        } else {
-            sshCommandWithScopedFeatures = "GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures)) " + sshCommand
-        }
-        let script = sshCommandWithScopedFeatures + "; exec ${SHELL:-/bin/zsh} -l"
-        return "/bin/sh -lc \(shellQuote(script))"
+        let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
+            ? ""
+            : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
+        // Run through an interactive zsh so Ghostty's ssh-env/ssh-terminfo wrappers are actually loaded.
+        let sourceGhosttyZshIntegration = """
+if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+  _cmux_ghostty_integration="${GHOSTTY_RESOURCES_DIR}/shell-integration/zsh/ghostty-integration"
+  if [[ -r "$_cmux_ghostty_integration" ]]; then
+    builtin source -- "$_cmux_ghostty_integration"
+    (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init
+  fi
+  builtin unset _cmux_ghostty_integration
+fi
+"""
+        let script = [shellFeaturesBootstrap, sourceGhosttyZshIntegration, "\(sshCommand); exec ${SHELL:-/bin/zsh} -l"]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+        return "/bin/zsh -ilc \(shellQuote(script))"
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {

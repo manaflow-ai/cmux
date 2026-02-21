@@ -1,6 +1,6 @@
 FROM alpine:3.20
 
-RUN apk add --no-cache openssh python3 iproute2 net-tools
+RUN apk add --no-cache openssh python3 iproute2 net-tools ncurses
 
 RUN adduser -D -s /bin/sh dev \
     && mkdir -p /home/dev/.ssh /run/sshd /srv/www \

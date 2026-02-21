@@ -101,6 +101,11 @@ def main() -> int:
                 ssh_command.startswith("ssh "),
                 f"cmux ssh should emit plain ssh command text (env is passed via workspace.create initial_env): {ssh_command!r}",
             )
+            ssh_startup_command = str(payload.get("ssh_startup_command") or "")
+            _must(
+                ssh_startup_command.startswith("/bin/zsh -ilc "),
+                f"cmux ssh should launch startup command via interactive zsh for shell integration: {ssh_startup_command!r}",
+            )
             ssh_env_overrides = payload.get("ssh_env_overrides") or {}
             _must(
                 str(ssh_env_overrides.get("GHOSTTY_SHELL_FEATURES") or "").endswith("ssh-env,ssh-terminfo"),

@@ -16,6 +16,7 @@ ChallengeResponseAuthentication no
 UsePAM no
 AuthorizedKeysFile .ssh/authorized_keys
 PermitEmptyPasswords no
+AcceptEnv TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM
 
 X11Forwarding no
 AllowTcpForwarding yes
