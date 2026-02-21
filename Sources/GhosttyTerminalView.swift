@@ -2917,6 +2917,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var searchOverlayHostingView: NSHostingView<AnyView>?
+    private var searchOverlayConstraints: [NSLayoutConstraint] = []
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
@@ -3253,6 +3255,68 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    func setSearchOverlay(surface: TerminalSurface, searchState: TerminalSurface.SearchState?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setSearchOverlay(surface: surface, searchState: searchState)
+            }
+            return
+        }
+
+        guard let searchState else {
+            clearSearchOverlay()
+            return
+        }
+
+        let rootView = AnyView(
+            SurfaceSearchOverlay(
+                surface: surface,
+                searchState: searchState,
+                onClose: { [weak self, weak surface] in
+                    guard let surface else { return }
+                    surface.searchState = nil
+                    self?.moveFocus()
+                }
+            )
+        )
+
+        if let host = searchOverlayHostingView {
+            host.rootView = rootView
+            if host.superview !== self {
+                addSubview(host, positioned: .above, relativeTo: nil)
+            } else if subviews.last !== host {
+                addSubview(host, positioned: .above, relativeTo: nil)
+            }
+            return
+        }
+
+        let host = NSHostingView(rootView: rootView)
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.wantsLayer = false
+        addSubview(host, positioned: .above, relativeTo: nil)
+        searchOverlayHostingView = host
+        searchOverlayConstraints = [
+            host.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ]
+        NSLayoutConstraint.activate(searchOverlayConstraints)
+    }
+
+    func clearSearchOverlay() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.clearSearchOverlay()
+            }
+            return
+        }
+
+        guard let host = searchOverlayHostingView else { return }
+        NSLayoutConstraint.deactivate(searchOverlayConstraints)
+        searchOverlayConstraints.removeAll()
+        host.removeFromSuperview()
+        searchOverlayHostingView = nil
+    }
+
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let padding: CGFloat = 4
         switch zone {
@@ -3463,6 +3527,10 @@ final class GhosttySurfaceScrollView: NSView {
             inactiveOverlayView.isHidden,
             inactiveOverlayView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
         )
+    }
+
+    func debugHasSearchOverlay() -> Bool {
+        searchOverlayHostingView?.superview === self
     }
 
     func debugNotificationRingState() -> (isHidden: Bool, opacity: Float) {
@@ -4235,6 +4303,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         hostedView.setDropZoneOverlay(zone: paneDropZone)
+        hostedView.setSearchOverlay(surface: terminalSurface, searchState: terminalSurface.searchState)
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
@@ -4329,6 +4398,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView?.setFocusHandler(nil)
         hostedView?.setTriggerFlashHandler(nil)
         hostedView?.setDropZoneOverlay(zone: nil)
+        hostedView?.clearSearchOverlay()
         coordinator.hostedView = nil
 
         nsView.subviews.forEach { $0.removeFromSuperview() }

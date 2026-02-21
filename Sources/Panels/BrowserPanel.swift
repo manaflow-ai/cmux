@@ -1016,6 +1016,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #if DEBUG
     var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
     var debugInPageFindFallbackHandler: ((BrowserInPageFindDebugRequest) -> BrowserInPageFindDebugResult)?
+    var debugInPageFindClearHandler: ((Int?, Bool) -> Void)?
 #endif
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -1039,6 +1040,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var inPageFindLastQuery: String = ""
     private var inPageFindRequestSequence: Int = 0
+    private var inPageFindFocusRestoreState: InPageFindFocusRestoreState = .idle
+
+    private enum InPageFindFocusRestoreState {
+        case idle
+        case returnToWebViewOnDismiss
+    }
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -2167,6 +2174,14 @@ private extension BrowserPanel {
     @discardableResult
     func showInPageFindFallback(focusField: Bool) -> Bool {
         let wasVisible = isInPageFindVisible
+        if focusField, !wasVisible {
+            if let window = webView.window,
+               Self.responderChainContains(window.firstResponder, target: webView) {
+                inPageFindFocusRestoreState = .returnToWebViewOnDismiss
+            } else {
+                inPageFindFocusRestoreState = .idle
+            }
+        }
         let tokenBefore = inPageFindFocusToken
         isInPageFindVisible = true
         if focusField {
@@ -2185,7 +2200,17 @@ private extension BrowserPanel {
 
     @discardableResult
     func hideInPageFindFallback() -> Bool {
-        guard isInPageFindVisible else { return false }
+        let wasVisible = isInPageFindVisible
+        let hasQuery = !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasStateToClear =
+            wasVisible ||
+            hasQuery ||
+            inPageFindMatchFound != nil ||
+            inPageFindMatchCount > 0 ||
+            inPageFindCurrentMatchIndex > 0 ||
+            !inPageFindLastQuery.isEmpty
+        guard hasStateToClear else { return false }
+
         inPageFindRequestSequence &+= 1
         let requestSequence = inPageFindRequestSequence
         isInPageFindVisible = false
@@ -2194,8 +2219,9 @@ private extension BrowserPanel {
         inPageFindCurrentMatchIndex = 0
         inPageFindLastQuery = ""
         clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
+        restoreWebViewFocusAfterFindDismissIfNeeded()
         browserFindDebugLog(
-            "browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\" request=\(requestSequence)"
+            "browser.inPageFind.hide panel=\(id.uuidString) wasVisible=\(wasVisible) hasQuery=\(hasQuery) query=\"\(inPageFindQuery)\" request=\(requestSequence)"
         )
         return true
     }
@@ -2403,6 +2429,12 @@ private extension BrowserPanel {
         requestSequence: Int? = nil,
         allowStaleRetry: Bool = true
     ) {
+#if DEBUG
+        if let debugInPageFindClearHandler {
+            debugInPageFindClearHandler(requestSequence, allowStaleRetry)
+            return
+        }
+#endif
         webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
@@ -2426,6 +2458,25 @@ private extension BrowserPanel {
                     "browser.inPageFind.clear panel=\(self.id.uuidString) stale=false request=\(requestSequence.map(String.init) ?? "nil")"
                 )
             }
+        }
+    }
+
+    private func restoreWebViewFocusAfterFindDismissIfNeeded() {
+        let shouldRestore = inPageFindFocusRestoreState == .returnToWebViewOnDismiss
+        inPageFindFocusRestoreState = .idle
+        guard shouldRestore else { return }
+        guard !shouldSuppressWebViewFocus() else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.shouldSuppressWebViewFocus() else { return }
+            guard let window = self.webView.window,
+                  !self.webView.isHiddenOrHasHiddenAncestor else { return }
+            guard !Self.responderChainContains(window.firstResponder, target: self.webView) else { return }
+            let moved = window.makeFirstResponder(self.webView)
+            browserFindDebugLog(
+                "browser.inPageFind.restoreFocus panel=\(self.id.uuidString) moved=\(moved)"
+            )
         }
     }
 
