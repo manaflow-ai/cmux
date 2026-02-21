@@ -3082,4 +3082,36 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             )
         )
     }
+
+    func testExplicitSocketScopeParsesValidUUIDTabAndPanel() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scope = TerminalController.explicitSocketScope(
+            options: [
+                "tab": workspaceId.uuidString,
+                "panel": panelId.uuidString
+            ]
+        )
+        XCTAssertEqual(scope?.workspaceId, workspaceId)
+        XCTAssertEqual(scope?.panelId, panelId)
+    }
+
+    func testExplicitSocketScopeAcceptsSurfaceAlias() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scope = TerminalController.explicitSocketScope(
+            options: [
+                "tab": workspaceId.uuidString,
+                "surface": panelId.uuidString
+            ]
+        )
+        XCTAssertEqual(scope?.workspaceId, workspaceId)
+        XCTAssertEqual(scope?.panelId, panelId)
+    }
+
+    func testExplicitSocketScopeRejectsMissingOrInvalidValues() {
+        XCTAssertNil(TerminalController.explicitSocketScope(options: [:]))
+        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": "workspace:1", "panel": UUID().uuidString]))
+        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": UUID().uuidString, "panel": "surface:1"]))
+    }
 }

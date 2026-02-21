@@ -49,6 +49,7 @@ final class PortScanner: @unchecked Sendable {
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
         queue.async { [self] in
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            guard ttyNames[key] != ttyName else { return }
             ttyNames[key] = ttyName
         }
     }
