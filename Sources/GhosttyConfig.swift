@@ -11,6 +11,7 @@ struct GhosttyConfig {
     var fontSize: CGFloat = 12
     var theme: String?
     var workingDirectory: String?
+    var windowInheritWorkingDirectory: Bool = true
     var scrollbackLimit: Int = 10000
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
@@ -94,6 +95,10 @@ struct GhosttyConfig {
                     theme = value
                 case "working-directory":
                     workingDirectory = value
+                case "window-inherit-working-directory":
+                    if let inherit = Self.parseBoolean(value) {
+                        windowInheritWorkingDirectory = inherit
+                    }
                 case "scrollback-limit":
                     if let limit = Int(value) {
                         scrollbackLimit = limit
@@ -356,6 +361,17 @@ struct GhosttyConfig {
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
+    }
+
+    private static func parseBoolean(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 
     private static func readConfigFile(at path: String) -> String? {
