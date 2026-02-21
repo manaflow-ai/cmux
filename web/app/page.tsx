@@ -52,27 +52,28 @@ export default function Home() {
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
-                <strong className="font-medium">Notification rings</strong>
-                <span className="text-muted">
-                  : tabs flash when agents need your input
-                </span>
-              </span>
-            </li>
-            <li className="flex gap-3">
-              <span className="text-muted shrink-0">-</span>
-              <span>
                 <strong className="font-medium">Vertical tabs</strong>
                 <span className="text-muted">
-                  : see all your terminals at a glance in a sidebar
+                  : sidebar shows git branch, working directory, ports, and notification text
                 </span>
               </span>
             </li>
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
-                <strong className="font-medium">GPU-accelerated</strong>
+                <strong className="font-medium">Notification rings</strong>
                 <span className="text-muted">
-                  : powered by libghostty for smooth rendering
+                  : panes light up when agents need attention
+                </span>
+              </span>
+            </li>
+
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">In-app browser</strong>
+                <span className="text-muted">
+                  : split a browser alongside your terminal with a scriptable API
                 </span>
               </span>
             </li>
@@ -88,12 +89,22 @@ export default function Home() {
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
-                <strong className="font-medium">Socket API</strong>
+                <strong className="font-medium">Scriptable</strong>
                 <span className="text-muted">
-                  : programmatic control for creating tabs, sending input
+                  : CLI and socket API for automation and scripting
                 </span>
               </span>
             </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">GPU-accelerated</strong>
+                <span className="text-muted">
+                  : powered by libghostty for smooth rendering
+                </span>
+              </span>
+            </li>
+
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
