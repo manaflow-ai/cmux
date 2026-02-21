@@ -845,11 +845,24 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def seed_drag_pasteboard_sidebar_reorder(self) -> None:
+        """Seed NSDrag pasteboard with sidebar reorder type in the app process (debug builds only)."""
+        response = self._send_command("seed_drag_pasteboard_sidebar_reorder")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def clear_drag_pasteboard(self) -> None:
         """Clear NSDrag pasteboard in the app process (debug builds only)."""
         response = self._send_command("clear_drag_pasteboard")
         if not response.startswith("OK"):
             raise cmuxError(response)
+
+    def overlay_hit_gate(self, event_type: str) -> bool:
+        """Return whether FileDropOverlayView would capture hit-testing for event_type."""
+        response = self._send_command(f"overlay_hit_gate {event_type}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
 
     def drop_hit_test(self, x: float, y: float) -> Optional[str]:
         """Hit-test the file-drop overlay at normalised (0-1) coords.

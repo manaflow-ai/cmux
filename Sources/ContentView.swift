@@ -160,6 +160,40 @@ final class SidebarState: ObservableObject {
 
 // MARK: - File Drop Overlay
 
+enum DragOverlayRoutingPolicy {
+    static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+    static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+
+    static func shouldCaptureFileDropOverlay(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard let pasteboardTypes, pasteboardTypes.contains(.fileURL) else { return false }
+        guard isDragMouseEvent(eventType) else { return false }
+
+        // Prefer explicit non-file drag types so stale fileURL entries cannot hijack
+        // Bonsplit tab drags or sidebar tab reorder drags.
+        if pasteboardTypes.contains(bonsplitTabTransferType) { return false }
+        if pasteboardTypes.contains(sidebarTabReorderType) { return false }
+        return true
+    }
+
+    static func shouldCaptureSidebarExternalOverlay(
+        draggedTabId: UUID?,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        guard draggedTabId != nil else { return false }
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(sidebarTabReorderType)
+    }
+
+    private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+    }
+}
+
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -182,22 +216,15 @@ final class FileDropOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    // MARK: Hit-testing — only participate when the system drag pasteboard contains file
-    // URLs (i.e. a Finder file drag is in progress). For everything else — mouse events,
-    // sidebar tab reorder, bonsplit tab drags — return nil so events route to the content
-    // view below and SwiftUI / bonsplit drag-and-drop works normally.
+    // MARK: Hit-testing — participation is routed by DragOverlayRoutingPolicy so
+    // file-drop, bonsplit tab drags, and sidebar tab reorder drags cannot conflict.
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        guard let types = pb.types, types.contains(.fileURL) else { return nil }
-
-        // The drag pasteboard can retain stale file types after a completed drag.
-        // Only participate during active drag-motion events.
-        let eventType = NSApp.currentEvent?.type
-        let isDragMouseEvent = eventType == .leftMouseDragged
-            || eventType == .rightMouseDragged
-            || eventType == .otherMouseDragged
-        guard isDragMouseEvent else { return nil }
+        guard DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+            pasteboardTypes: pb.types,
+            eventType: NSApp.currentEvent?.type
+        ) else { return nil }
 
         return super.hitTest(point)
     }
@@ -659,13 +686,11 @@ struct ContentView: View {
         return dir.isEmpty ? nil : dir
     }
 
-    var body: some View {
-        let useOverlay = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
-
-        Group {
-            if useOverlay {
-                // Overlay mode: terminal extends full width, sidebar on top
-                // This allows withinWindow blur to see the terminal content
+    private var contentAndSidebarLayout: AnyView {
+        if sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue {
+            // Overlay mode: terminal extends full width, sidebar on top
+            // This allows withinWindow blur to see the terminal content
+            return AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
@@ -673,26 +698,35 @@ struct ContentView: View {
                         sidebarView
                     }
                 }
-            } else {
-                // Standard HStack mode for behindWindow blur
-                HStack(spacing: 0) {
-                    if sidebarState.isVisible {
-                        sidebarView
-                    }
-                    terminalContentWithSidebarDropOverlay
+            )
+        }
+
+        // Standard HStack mode for behindWindow blur
+        return AnyView(
+            HStack(spacing: 0) {
+                if sidebarState.isVisible {
+                    sidebarView
                 }
+                terminalContentWithSidebarDropOverlay
             }
-        }
-        .overlay(alignment: .topLeading) {
-            if isFullScreen && sidebarState.isVisible {
-                fullscreenControls
-                    .padding(.leading, 10)
-                    .padding(.top, 4)
-            }
-        }
-        .frame(minWidth: 800, minHeight: 600)
-        .background(Color.clear)
-        .onAppear {
+        )
+    }
+
+    var body: some View {
+        var view = AnyView(
+            contentAndSidebarLayout
+                .overlay(alignment: .topLeading) {
+                    if isFullScreen && sidebarState.isVisible {
+                        fullscreenControls
+                            .padding(.leading, 10)
+                            .padding(.top, 4)
+                    }
+                }
+                .frame(minWidth: 800, minHeight: 600)
+                .background(Color.clear)
+        )
+
+        view = AnyView(view.onAppear {
             tabManager.applyWindowBackgroundForSelectedTab()
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
@@ -701,8 +735,9 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
             updateTitlebarText()
-        }
-        .onChange(of: tabManager.selectedTabId) { newValue in
+        })
+
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -722,8 +757,9 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
             updateTitlebarText()
-        }
-        .onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        })
+
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -735,37 +771,45 @@ struct ContentView: View {
             }
 #endif
             reconcileMountedWorkspaceIds()
-        }
-        .onChange(of: retiringWorkspaceId) { _ in
+        })
+
+        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
             reconcileMountedWorkspaceIds()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
             updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
             updateTitlebarText()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyConfigDidReload"))) { _ in
             titlebarThemeGeneration &+= 1
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { _ in
             titlebarThemeGeneration &+= 1
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
-        }
-        .onReceive(tabManager.$tabs) { tabs in
+        })
+
+        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
@@ -787,8 +831,9 @@ struct ContentView: View {
                     lastSidebarSelectionIndex = nil
                 }
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
             let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
             sidebarDraggedTabId = tabId
 #if DEBUG
@@ -797,60 +842,67 @@ struct ContentView: View {
                 "reason=\(SidebarDragLifecycleNotification.reason(from: notification))"
             )
 #endif
-        }
-        .onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
+        })
+
+        view = AnyView(view.onPreferenceChange(SidebarFramePreferenceKey.self) { frame in
             sidebarMinX = frame.minX
-        }
-        .onChange(of: bgGlassTintHex) { _ in
+        })
+
+        view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
-        }
-        .onChange(of: bgGlassTintOpacity) { _ in
+        })
+
+        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = true
             setTitlebarControlsHidden(true, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
             isFullScreen = false
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
-        }
-	        .ignoresSafeArea()
-	        .background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
-	            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
-	            window.titlebarAppearsTransparent = true
-	            // Do not make the entire background draggable; it interferes with drag gestures
-	            // like sidebar tab reordering in multi-window mode.
-	            window.isMovableByWindowBackground = false
-	            window.styleMask.insert(.fullSizeContentView)
+        })
 
-                // Track this window for fullscreen notifications
-                if observedWindow !== window {
-                    DispatchQueue.main.async {
-                        observedWindow = window
-                        isFullScreen = window.styleMask.contains(.fullScreen)
-                    }
-                }
+        view = AnyView(view.ignoresSafeArea())
 
-                // Keep content below the titlebar so drags on Bonsplit's tab bar don't
-                // get interpreted as window drags.
-                let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-                let nextPadding = max(28, min(72, computedTitlebarHeight))
-                if abs(titlebarPadding - nextPadding) > 0.5 {
-                    DispatchQueue.main.async {
-                        titlebarPadding = nextPadding
-                    }
+        view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
+            window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+            window.titlebarAppearsTransparent = true
+            // Do not make the entire background draggable; it interferes with drag gestures
+            // like sidebar tab reordering in multi-window mode.
+            window.isMovableByWindowBackground = false
+            window.styleMask.insert(.fullSizeContentView)
+
+            // Track this window for fullscreen notifications
+            if observedWindow !== window {
+                DispatchQueue.main.async {
+                    observedWindow = window
+                    isFullScreen = window.styleMask.contains(.fullScreen)
                 }
+            }
+
+            // Keep content below the titlebar so drags on Bonsplit's tab bar don't
+            // get interpreted as window drags.
+            let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+            let nextPadding = max(28, min(72, computedTitlebarHeight))
+            if abs(titlebarPadding - nextPadding) > 0.5 {
+                DispatchQueue.main.async {
+                    titlebarPadding = nextPadding
+                }
+            }
 #if DEBUG
-	            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
-	                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
-	            }
+            if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
+                UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
+            }
 #endif
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
@@ -886,7 +938,9 @@ struct ContentView: View {
                 sidebarSelectionState: sidebarSelectionState
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
-        })
+        }))
+
+        return view
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
@@ -1360,9 +1414,14 @@ private struct SidebarExternalDropOverlay: View {
     let draggedTabId: UUID?
 
     var body: some View {
+        let dragPasteboardTypes = NSPasteboard(name: .drag).types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
+            draggedTabId: draggedTabId,
+            pasteboardTypes: dragPasteboardTypes
+        )
         Color.clear
             .contentShape(Rectangle())
-            .allowsHitTesting(draggedTabId != nil)
+            .allowsHitTesting(shouldCapture)
             .onDrop(
                 of: [SidebarTabDragPayload.typeIdentifier],
                 delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)

@@ -481,11 +481,17 @@ class TerminalController {
         case "seed_drag_pasteboard_tabtransfer":
             return seedDragPasteboardTabTransfer()
 
+        case "seed_drag_pasteboard_sidebar_reorder":
+            return seedDragPasteboardSidebarReorder()
+
         case "clear_drag_pasteboard":
             return clearDragPasteboard()
 
         case "drop_hit_test":
             return dropHitTest(args)
+
+        case "overlay_hit_gate":
+            return overlayHitGate(args)
 
         case "activate_app":
             return activateApp()
@@ -6277,8 +6283,10 @@ class TerminalController {
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
+          seed_drag_pasteboard_sidebar_reorder - Seed NSDrag pasteboard with sidebar reorder type (test-only)
           clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
+          overlay_hit_gate <event|none> - Return true/false if file-drop overlay would capture hit-testing for event type (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -6522,11 +6530,66 @@ class TerminalController {
         return "OK"
     }
 
+    private func seedDragPasteboardSidebarReorder() -> String {
+        DispatchQueue.main.sync {
+            _ = NSPasteboard(name: .drag).declareTypes([
+                DragOverlayRoutingPolicy.sidebarTabReorderType
+            ], owner: nil)
+        }
+        return "OK"
+    }
+
     private func clearDragPasteboard() -> String {
         DispatchQueue.main.sync {
             _ = NSPasteboard(name: .drag).clearContents()
         }
         return "OK"
+    }
+
+    private func overlayHitGate(_ args: String) -> String {
+        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !token.isEmpty else {
+            return "ERROR: Usage: overlay_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
+        }
+
+        let eventType: NSEvent.EventType?
+        switch token {
+        case "leftmousedragged":
+            eventType = .leftMouseDragged
+        case "rightmousedragged":
+            eventType = .rightMouseDragged
+        case "othermousedragged":
+            eventType = .otherMouseDragged
+        case "leftmousedown":
+            eventType = .leftMouseDown
+        case "leftmouseup":
+            eventType = .leftMouseUp
+        case "rightmousedown":
+            eventType = .rightMouseDown
+        case "rightmouseup":
+            eventType = .rightMouseUp
+        case "othermousedown":
+            eventType = .otherMouseDown
+        case "othermouseup":
+            eventType = .otherMouseUp
+        case "scrollwheel":
+            eventType = .scrollWheel
+        case "none":
+            eventType = nil
+        default:
+            return "ERROR: Unknown event type '\(args.trimmingCharacters(in: .whitespacesAndNewlines))'"
+        }
+
+        var shouldCapture = false
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard(name: .drag)
+            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+                pasteboardTypes: pb.types,
+                eventType: eventType
+            )
+        }
+
+        return shouldCapture ? "true" : "false"
     }
 
     /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
