@@ -264,7 +264,7 @@ struct BrowserPanelView: View {
                     #if DEBUG
                     dlog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
                     #endif
-                    panel.reload()
+                    panel.reload(reason: "toolbar.button")
                 }
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")

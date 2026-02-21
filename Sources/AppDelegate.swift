@@ -265,6 +265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     fileprivate var hasFocusedBrowserAddressBar: Bool {
         browserAddressBarFocusedPanelId != nil
     }
+    fileprivate var hasFocusedBrowserPanel: Bool {
+        tabManager?.focusedBrowserPanel != nil
+    }
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatKeyCode: UInt16?
@@ -1514,7 +1517,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
+                let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
+                let focusedBrowserPanelId = self.tabManager?.focusedBrowserPanel
+                    .map { String($0.id.uuidString.prefix(8)) } ?? "nil"
+                dlog(
+                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) " +
+                    "addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") " +
+                    "focusedBrowser=\(focusedBrowserPanelId) keyWin=\(keyWindowNumber) mainWin=\(mainWindowNumber)"
+                )
+                if event.keyCode == 36 || event.keyCode == 76 {
+                    let chars = event.characters?.debugDescription ?? "nil"
+                    let charsIgnoring = event.charactersIgnoringModifiers?.debugDescription ?? "nil"
+                    dlog(
+                        "monitor.return.raw keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) " +
+                        "chars=\(chars) charsIgn=\(charsIgnoring)"
+                    )
+                }
 #endif
                 if self.handleCustomShortcut(event: event) {
 #if DEBUG
@@ -3395,27 +3414,34 @@ enum MenuBarIconRenderer {
 func shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
     event: NSEvent,
     firstResponder: NSResponder?,
-    hasFocusedBrowserAddressBar: Bool
+    hasFocusedBrowserAddressBar: Bool,
+    hasFocusedBrowserPanel: Bool
 ) -> Bool {
     guard isBrowserCommandReturnEvent(event) else { return false }
+
+    // Keep terminal routing unchanged.
+    if firstResponder is GhosttyNSView {
+        return false
+    }
 
     if hasFocusedBrowserAddressBar {
         return true
     }
 
-    guard let firstResponderView = firstResponder as? NSView else {
-        return false
-    }
-
-    var view: NSView? = firstResponderView
-    while let current = view {
-        if current is CmuxWebView {
-            return true
+    if let firstResponderView = firstResponder as? NSView {
+        var view: NSView? = firstResponderView
+        while let current = view {
+            if current is CmuxWebView {
+                return true
+            }
+            view = current.superview
         }
-        view = current.superview
     }
 
-    return false
+    // Some browser focus transitions leave a non-view first responder (e.g. AppKitWindow).
+    // In that state, still bypass window-wide performKeyEquivalent traversal if the focused
+    // panel is a browser surface.
+    return hasFocusedBrowserPanel
 }
 
 
@@ -3424,6 +3450,18 @@ private extension NSWindow {
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
+        if event.keyCode == 36 || event.keyCode == 76 {
+            let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
+            let focusedBrowserPanelId = AppDelegate.shared?.tabManager?.focusedBrowserPanel
+                .map { String($0.id.uuidString.prefix(8)) } ?? "nil"
+            let chars = event.characters?.debugDescription ?? "nil"
+            let charsIgnoring = event.charactersIgnoringModifiers?.debugDescription ?? "nil"
+            dlog(
+                "performKeyEquiv.return.raw win=\(self.windowNumber) keyWin=\(keyWindowNumber) " +
+                "chars=\(chars) charsIgn=\(charsIgnoring) mods=\(event.modifierFlags.rawValue) " +
+                "cmdReturn=\(isBrowserCommandReturnEvent(event) ? 1 : 0) focusedBrowser=\(focusedBrowserPanelId)"
+            )
+        }
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
@@ -3465,11 +3503,29 @@ private extension NSWindow {
             return true
         }
 
-        if shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+        let hasFocusedBrowserAddressBar = AppDelegate.shared?.hasFocusedBrowserAddressBar == true
+        let hasFocusedBrowserPanel = AppDelegate.shared?.hasFocusedBrowserPanel == true
+        let shouldBypassBrowserCmdReturn = shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
             event: event,
             firstResponder: self.firstResponder,
-            hasFocusedBrowserAddressBar: AppDelegate.shared?.hasFocusedBrowserAddressBar == true
-        ) {
+            hasFocusedBrowserAddressBar: hasFocusedBrowserAddressBar,
+            hasFocusedBrowserPanel: hasFocusedBrowserPanel
+        )
+#if DEBUG
+        if isBrowserCommandReturnEvent(event) {
+            let focusedBrowserPanelId = AppDelegate.shared?.tabManager?.focusedBrowserPanel
+                .map { String($0.id.uuidString.prefix(8)) } ?? "nil"
+            dlog(
+                "cmdReturn.routeDecision fr=\(frType) " +
+                "addrBar=\(hasFocusedBrowserAddressBar ? 1 : 0) " +
+                "focusedBrowser=\(hasFocusedBrowserPanel ? 1 : 0) " +
+                "panelId=\(focusedBrowserPanelId) " +
+                "bypass=\(shouldBypassBrowserCmdReturn ? 1 : 0)"
+            )
+        }
+#endif
+
+        if shouldBypassBrowserCmdReturn {
 #if DEBUG
             dlog("  → bypass original performKeyEquivalent for browser Cmd+Return")
 #endif

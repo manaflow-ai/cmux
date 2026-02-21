@@ -424,7 +424,9 @@ struct cmuxApp: App {
                 .keyboardShortcut("]", modifiers: .command)
 
                 Button("Reload Page") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
+                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload(
+                        reason: "menu.reloadPage"
+                    )
                 }
                 .keyboardShortcut("r", modifiers: .command)
 

@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cmux cmd+enter fixture</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: linear-gradient(160deg, #f2f7ff 0%, #e6ecff 100%);
+        color: #0f172a;
+      }
+
+      main {
+        max-width: 860px;
+        margin: 40px auto;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 14px;
+        padding: 20px 24px;
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 22px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        line-height: 1.45;
+      }
+
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        margin: 8px 0;
+      }
+
+      code {
+        background: rgba(15, 23, 42, 0.08);
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>cmux Cmd+Enter Reload Fixture</h1>
+      <p>
+        This page is used for manual repro and UI automation around browser
+        <code>Cmd+Enter</code> handling.
+      </p>
+      <div class="row">
+        <strong>sessionStorage reload count:</strong>
+        <span id="reload-count">0</span>
+      </div>
+      <div class="row">
+        <strong>last keydown:</strong>
+        <span id="last-key">none</span>
+      </div>
+      <p>
+        Expected behavior in cmux browser: pressing <code>Cmd+Enter</code> while
+        WebView is focused should not trigger page reload.
+      </p>
+    </main>
+
+    <script>
+      (function () {
+        var key = "cmux_cmd_enter_fixture_reload_count";
+        var count = Number(sessionStorage.getItem(key) || "0") + 1;
+        sessionStorage.setItem(key, String(count));
+        document.getElementById("reload-count").textContent = String(count);
+        document.documentElement.setAttribute("data-reload-count", String(count));
+        document.title = "cmux cmd+enter fixture reload=" + count;
+        window.__cmuxReloadCount = count;
+
+        window.addEventListener("keydown", function (event) {
+          var parts = [];
+          if (event.metaKey) parts.push("cmd");
+          if (event.ctrlKey) parts.push("ctrl");
+          if (event.altKey) parts.push("alt");
+          if (event.shiftKey) parts.push("shift");
+          parts.push(event.key);
+          document.getElementById("last-key").textContent = parts.join("+");
+        });
+      })();
+    </script>
+  </body>
+</html>

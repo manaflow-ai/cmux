@@ -888,6 +888,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
+        navDelegate.debugPanelId = String(self.id.uuidString.prefix(5))
         navDelegate.didFinish = { webView in
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
@@ -1298,7 +1299,27 @@ extension BrowserPanel {
     }
 
     /// Reload the current page
-    func reload() {
+    func reload(reason: String = "unspecified") {
+#if DEBUG
+        let frType = webView.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let frContainsWeb = BrowserPanel.responderChainContains(webView.window?.firstResponder, target: webView) ? 1 : 0
+        let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
+        let windowNumber = webView.window?.windowNumber ?? -1
+        let focusedBrowserPanelId = AppDelegate.shared?.tabManager?.focusedBrowserPanel
+            .map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let currentURLString = webView.url?.absoluteString ?? currentURL?.absoluteString ?? "nil"
+        let message =
+            "browser.reload panel=\(id.uuidString.prefix(5)) reason=\(reason) " +
+            "win=\(windowNumber) keyWin=\(keyWindowNumber) fr=\(frType) frHasWeb=\(frContainsWeb) " +
+            "focusedBrowser=\(focusedBrowserPanelId) url=\(currentURLString)"
+        NSLog("%@", message)
+        UITestRecorder.incrementInt("browserReloadInvocations")
+        UITestRecorder.record([
+            "browserReloadLastPanelId": id.uuidString,
+            "browserReloadLastReason": reason,
+            "browserReloadLastURL": currentURLString
+        ])
+#endif
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         webView.reload()
     }
@@ -1442,6 +1463,7 @@ private extension BrowserPanel {
 // MARK: - Navigation Delegate
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    var debugPanelId: String = "unknown"
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
@@ -1478,7 +1500,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView) {
-        NSLog("BrowserPanel web content process terminated, reloading")
+#if DEBUG
+        NSLog("browser.reload.processTerminated panel=%@", debugPanelId)
+#endif
+        NSLog("BrowserPanel web content process terminated, reloading panel=%@", debugPanelId)
         webView.reload()
     }
 
@@ -1564,6 +1589,25 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+#if DEBUG
+        if navigationAction.navigationType == .reload {
+            let frType = webView.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            let frIsWeb = webView.window?.firstResponder === webView ? 1 : 0
+            let keyWindow = webView.window?.isKeyWindow == true ? 1 : 0
+            let urlString = navigationAction.request.url?.absoluteString ?? "nil"
+            let message =
+                "browser.nav.reload panel=\(debugPanelId) type=\(navigationAction.navigationType.rawValue) " +
+                "fr=\(frType) frIsWeb=\(frIsWeb) keyWin=\(keyWindow) " +
+                "targetFrameNil=\(navigationAction.targetFrame == nil ? 1 : 0) url=\(urlString)"
+            NSLog("%@", message)
+            UITestRecorder.incrementInt("browserNavigationReloadCount")
+            UITestRecorder.record([
+                "browserNavigationReloadLastPanelId": debugPanelId,
+                "browserNavigationReloadLastURL": urlString
+            ])
+        }
+#endif
+
         // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {

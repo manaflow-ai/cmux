@@ -4299,7 +4299,7 @@ class TerminalController {
             case "forward":
                 browserPanel.goForward()
             case "reload":
-                browserPanel.reload()
+                browserPanel.reload(reason: "terminal.v2.browser.reload")
             default:
                 break
             }
@@ -8362,7 +8362,7 @@ class TerminalController {
                 return
             }
 
-            browserPanel.reload()
+            browserPanel.reload(reason: "terminal.browser_reload")
             result = "OK"
         }
         return result

@@ -267,7 +267,8 @@ final class BrowserCommandReturnWindowBypassTests: XCTestCase {
             shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
                 event: event!,
                 firstResponder: webView,
-                hasFocusedBrowserAddressBar: false
+                hasFocusedBrowserAddressBar: false,
+                hasFocusedBrowserPanel: false
             )
         )
     }
@@ -281,7 +282,8 @@ final class BrowserCommandReturnWindowBypassTests: XCTestCase {
             shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
                 event: event!,
                 firstResponder: editor,
-                hasFocusedBrowserAddressBar: true
+                hasFocusedBrowserAddressBar: true,
+                hasFocusedBrowserPanel: false
             )
         )
     }
@@ -295,7 +297,38 @@ final class BrowserCommandReturnWindowBypassTests: XCTestCase {
             shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
                 event: event!,
                 firstResponder: editor,
-                hasFocusedBrowserAddressBar: false
+                hasFocusedBrowserAddressBar: false,
+                hasFocusedBrowserPanel: false
+            )
+        )
+    }
+
+    func testBypassesOriginalWindowTraversalForNonViewResponderWhenBrowserPanelFocused() {
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        XCTAssertNotNil(event)
+
+        let responder = NSResponder()
+        XCTAssertTrue(
+            shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+                event: event!,
+                firstResponder: responder,
+                hasFocusedBrowserAddressBar: false,
+                hasFocusedBrowserPanel: true
+            )
+        )
+    }
+
+    func testDoesNotBypassForNonViewResponderWithoutFocusedBrowserPanel() {
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36)
+        XCTAssertNotNil(event)
+
+        let responder = NSResponder()
+        XCTAssertFalse(
+            shouldBypassOriginalPerformKeyEquivalentForBrowserCommandReturn(
+                event: event!,
+                firstResponder: responder,
+                hasFocusedBrowserAddressBar: false,
+                hasFocusedBrowserPanel: false
             )
         )
     }

@@ -17,6 +17,18 @@ func isBrowserCommandReturnEvent(_ event: NSEvent) -> Bool {
 }
 
 #if DEBUG
+private func browserKeyDescription(_ event: NSEvent) -> String {
+    var parts: [String] = []
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    if flags.contains(.command) { parts.append("Cmd") }
+    if flags.contains(.shift) { parts.append("Shift") }
+    if flags.contains(.option) { parts.append("Opt") }
+    if flags.contains(.control) { parts.append("Ctrl") }
+    let chars = (event.charactersIgnoringModifiers ?? event.characters)?.debugDescription ?? "nil"
+    parts.append("\(chars)(\(event.keyCode))")
+    return parts.joined(separator: "+")
+}
+
 private func browserCommandReturnDebugContext(for webView: CmuxWebView) -> String {
     let pointer = Unmanaged.passUnretained(webView).toOpaque()
     let isFirstResponder = webView.window?.firstResponder === webView ? 1 : 0
@@ -43,6 +55,14 @@ final class CmuxWebView: WKWebView {
             return true
         }
 
+        if event.keyCode == 36 || event.keyCode == 76 {
+            dlog(
+                "webview.return.performKeyEquiv raw=\(browserKeyDescription(event)) " +
+                "cmdReturn=\(isBrowserCommandReturnEvent(event) ? 1 : 0) " +
+                "\(browserCommandReturnDebugContext(for: self))"
+            )
+        }
+
         // Let Cmd+Return/Cmd+Enter flow to keyDown. WebKit can consume this in
         // performKeyEquivalent and trigger an unwanted page reload.
         if isBrowserCommandReturnEvent(event) {
@@ -56,6 +76,16 @@ final class CmuxWebView: WKWebView {
     }
 
     override func keyDown(with event: NSEvent) {
+#if DEBUG
+        if event.keyCode == 36 || event.keyCode == 76 {
+            dlog(
+                "webview.return.keyDown raw=\(browserKeyDescription(event)) " +
+                "cmdReturn=\(isBrowserCommandReturnEvent(event) ? 1 : 0) " +
+                "\(browserCommandReturnDebugContext(for: self))"
+            )
+        }
+#endif
+
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {

@@ -182,6 +182,237 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 }
 
+final class BrowserCommandReturnReloadUITests: XCTestCase {
+    private var gotoSplitPath = ""
+    private var keyequivPath = ""
+    private var httpServerProcess: Process?
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+
+        gotoSplitPath = "/tmp/cmux-ui-test-cmd-return-goto-split-\(UUID().uuidString).json"
+        keyequivPath = "/tmp/cmux-ui-test-cmd-return-keyequiv-\(UUID().uuidString).json"
+
+        try? FileManager.default.removeItem(atPath: gotoSplitPath)
+        try? FileManager.default.removeItem(atPath: keyequivPath)
+    }
+
+    override func tearDown() {
+        if let process = httpServerProcess {
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+            httpServerProcess = nil
+        }
+
+        try? FileManager.default.removeItem(atPath: gotoSplitPath)
+        try? FileManager.default.removeItem(atPath: keyequivPath)
+
+        super.tearDown()
+    }
+
+    func testCmdReturnDoesNotTriggerBrowserReloadWhenWebViewFocused() throws {
+        let fixtureRelativePath = "tests/fixtures/cmd-enter-reload-fixture.html"
+        let fixtureURL = sourceRootURL().appendingPathComponent(fixtureRelativePath)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: fixtureURL.path),
+            "Missing fixture HTML at \(fixtureURL.path)"
+        )
+
+        let server = try startHTTPServer(rootDirectory: sourceRootURL())
+        httpServerProcess = server.process
+        let fixtureAddress = "http://127.0.0.1:\(server.port)/\(fixtureRelativePath)"
+        XCTAssertTrue(waitForHTTPFixture(address: fixtureAddress, timeout: 6.0))
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
+        app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
+        app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(
+            waitForGotoSplit(keys: ["browserPanelId", "webViewFocused"], timeout: 10.0),
+            "Expected goto_split setup data to be written"
+        )
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0), "Expected browser omnibar")
+
+        // Navigate to the deterministic local fixture page.
+        app.typeKey("l", modifierFlags: [.command])
+        omnibar.click()
+        app.typeKey("a", modifierFlags: [.command])
+        omnibar.typeText(fixtureAddress)
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContain(omnibar: omnibar, token: "cmd-enter-reload-fixture.html", timeout: 8.0),
+            "Expected fixture URL to load in omnibar"
+        )
+
+        // Ensure WKWebView is first responder before sending Cmd+Return.
+        app.typeKey("l", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        if !waitForGotoSplitMatch(timeout: 2.0, predicate: { $0["webViewFocusedAfterAddressBarExit"] == "true" }) {
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        }
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0, predicate: { $0["webViewFocusedAfterAddressBarExit"] == "true" }),
+            "Expected WebView to be focused before Cmd+Return"
+        )
+
+        let baselineNavigationReloads = loadKeyequivInt("browserNavigationReloadCount")
+        let baselineExplicitReloads = loadKeyequivInt("browserReloadInvocations")
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.command])
+
+        XCTAssertFalse(
+            waitForKeyequivInt(
+                key: "browserNavigationReloadCount",
+                toBeAtLeast: baselineNavigationReloads + 1,
+                timeout: 1.5
+            ),
+            "Expected Cmd+Return to avoid WebKit reload navigation"
+        )
+        XCTAssertFalse(
+            waitForKeyequivInt(
+                key: "browserReloadInvocations",
+                toBeAtLeast: baselineExplicitReloads + 1,
+                timeout: 1.5
+            ),
+            "Expected Cmd+Return to avoid BrowserPanel.reload"
+        )
+    }
+
+    private func sourceRootURL() -> URL {
+        // #filePath points to .../cmuxUITests/MenuKeyEquivalentRoutingUITests.swift.
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // cmuxUITests
+            .deletingLastPathComponent() // repo root
+    }
+
+    private func startHTTPServer(rootDirectory: URL) throws -> (process: Process, port: Int) {
+        for _ in 0..<10 {
+            let port = Int.random(in: 39000...49000)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            process.arguments = [
+                "-m", "http.server",
+                String(port),
+                "--bind", "127.0.0.1",
+                "--directory", rootDirectory.path
+            ]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try process.run()
+
+            if waitForHTTPFixture(
+                address: "http://127.0.0.1:\(port)/tests/fixtures/cmd-enter-reload-fixture.html",
+                timeout: 2.5
+            ) {
+                return (process, port)
+            }
+
+            if process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+
+        throw NSError(
+            domain: "BrowserCommandReturnReloadUITests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to start local fixture HTTP server"]
+        )
+    }
+
+    private func waitForHTTPFixture(address: String, timeout: TimeInterval) -> Bool {
+        guard let url = URL(string: address) else { return false }
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = try? Data(contentsOf: url),
+               let body = String(data: data, encoding: .utf8),
+               body.contains("cmux Cmd+Enter Reload Fixture") {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
+    }
+
+    private func waitForOmnibarToContain(omnibar: XCUIElement, token: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let value = (omnibar.value as? String) ?? ""
+            if value.contains(token) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        let finalValue = (omnibar.value as? String) ?? ""
+        return finalValue.contains(token)
+    }
+
+    private func waitForGotoSplit(keys: [String], timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
+            return true
+        }
+        return false
+    }
+
+    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadGotoSplit(), predicate(data) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadGotoSplit(), predicate(data) {
+            return true
+        }
+        return false
+    }
+
+    private func waitForKeyequivInt(key: String, toBeAtLeast expected: Int, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let value = loadKeyequivInt(key)
+            if value >= expected {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return loadKeyequivInt(key) >= expected
+    }
+
+    private func loadGotoSplit() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: gotoSplitPath)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func loadKeyequivInt(_ key: String) -> Int {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: keyequivPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return 0
+        }
+        return Int(object[key] ?? "") ?? 0
+    }
+}
+
 final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     private var dataPath = ""
     private var socketPath = ""
