@@ -1,112 +1,80 @@
-# Remote Daemon Spec (SSH + Proxy)
+# Remote Daemon Spec (Concise)
 
 Last updated: February 21, 2026  
 Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 
-## 1. Goals
+## 1. Scope
 
-1. Make `cmux ssh <target>` reusable and reliable for repeated connections.
-2. Reuse a single SSH transport for identical normalized host configs.
-3. Run a remote Go daemon (`cmuxd-remote`) for session control and proxying.
-4. Treat web proxying (HTTP CONNECT + SOCKS5 + websocket traffic) as core behavior.
-5. Keep plain shell usage (`ssh <target>`) unchanged.
+`cmux ssh` should support:
+1. one client connected to multiple daemons at once
+2. tmux-style persistent remote/local sessions
+3. SSH transport reuse for identical targets
+4. first-class web proxying (HTTP CONNECT + SOCKS5 + websocket)
 
-## 2. Non-Goals (v1)
+Remote daemon is Go (`cmuxd-remote`) for portability.
 
-1. Full remote filesystem sync.
-2. TLS interception/MITM.
-3. Cross-user multi-tenant daemon sharing.
+## 2. Core Invariants
 
-## 3. Architecture
+1. **Daemon owns non-layout state**: PTYs, process lifecycle, scrollback, cwd/title, service/port discovery, proxy channels, persistence.
+2. **Client owns layout**: windows/workspaces/panes/focus/reorder remain in Swift app.
+3. **Session is durable; attachment is disposable**: UI panes attach/detach from daemon sessions.
+4. **Transport is separate from session**: one SSH transport can carry many sessions.
+5. **Reuse key is normalized config**: not raw alias text.
+6. **One protocol for local and remote**: unix socket and SSH stdio are transport adapters for the same RPC/stream contract.
 
-### 3.1 Components
+## 3. Multi-Daemon Model
 
-1. `cmux` CLI and local app runtime.
-2. Local SSH connection pool manager.
-3. Remote daemon: `cmuxd-remote` (Go, cross-compiled).
-4. Local proxy listener(s) for browser and tool traffic.
+1. Client has a daemon router keyed by `daemon_id`.
+2. Any workspace pane may point to any daemon.
+3. Attachment identity:
+   - `pane_id -> daemon_id + session_id + stream_id`
+4. Handles exposed in APIs include daemon scope where relevant:
+   - `daemon_id`, `session_id`, `transport_id`, `connection_key_hash`
+5. Cross-daemon "move pane" is modeled as attach/create on target daemon, not live PTY migration.
 
-### 3.2 Reuse Model
+## 4. Connection Reuse
 
-1. One active SSH transport per `ConnectionKey`.
-2. One SSH transport can host multiple logical remote sessions/workspaces.
-3. Reuse decision is based on normalized SSH config, not raw alias text.
+Connection reuse key (`ConnectionKey`) is derived from `ssh -G` plus cmux flags:
+1. hostname, user, port
+2. identity files + `IdentitiesOnly`
+3. `ProxyJump` / `ProxyCommand`
+4. host-key policy options that change trust/auth semantics
+5. auth-impacting `--ssh-option` values
 
-### 3.3 ConnectionKey Normalization
+Reuse rule:
+1. identical normalized key => reuse same SSH transport
+2. any key difference => new transport
 
-Source: `ssh -G <target>` output plus explicit CLI flags.
+## 5. Bootstrap + Protocol
 
-Required key fields:
-1. resolved `hostname`
-2. resolved `user`
-3. resolved `port`
-4. ordered `identityfile` list + `identitiesonly`
-5. `proxyjump`
-6. `proxycommand`
-7. host key trust policy knobs (`stricthostkeychecking`, user known hosts path, global known hosts path)
-8. auth-impacting extra options passed by `cmux ssh --ssh-option`
+Bootstrap:
+1. ensure remote binary at `~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote`
+2. checksum-verify before exec
+3. run `cmuxd-remote serve --stdio`
+4. negotiate version/capabilities
 
-Rules:
-1. All key names lowercased.
-2. Whitespace trimmed.
-3. Multi-value fields normalized to deterministic order where OpenSSH order is not semantic.
-4. Hash with stable format to form `connection_key_hash`.
-
-### 3.4 Remote Daemon Bootstrap
-
-Remote install path:
-1. `~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote`
-2. metadata: `~/.cmux/bin/cmuxd-remote/<version>/manifest.json`
-
-Bootstrap flow:
-1. resolve target + connection key
-2. open SSH transport (or reuse existing)
-3. check remote daemon binary + checksum
-4. upload if missing/mismatched
-5. exec `cmuxd-remote serve --stdio`
-6. perform version/capability handshake
-
-### 3.5 Local/Remote Protocol
-
-Transport:
-1. framed multiplexed protocol over SSH stdio
-2. one control channel + N data channels
-
-Required control RPCs:
+Minimum RPC surface:
 1. `hello`
-2. `session.create`
-3. `session.attach`
-4. `session.detach`
-5. `session.close`
-6. `session.resize`
-7. `session.signal`
-8. `service.watch`
-9. `proxy.open`
-10. `proxy.close`
-11. `heartbeat`
+2. `session.create|attach|detach|close|resize|signal`
+3. `service.watch`
+4. `proxy.open|close`
+5. `heartbeat`
 
-Required observability fields in status APIs:
-1. `connection_key_hash`
-2. `transport_id`
-3. `transport_refcount`
-4. `last_heartbeat_at`
-5. `reconnect_attempts`
-6. `proxy_channels_active`
+Protocol requirement:
+1. multiplexed framed streams (control + PTY + proxy data)
 
-### 3.6 Proxying Model
+## 6. Proxying
 
-Proxy roles:
-1. local HTTP CONNECT endpoint bound to loopback
-2. local SOCKS5 endpoint bound to loopback
-3. optional explicit local forward binds for known remote ports
+Proxy endpoints (loopback only by default):
+1. HTTP CONNECT
+2. SOCKS5
 
 Behavior:
-1. CONNECT/SOCKS requests are tunneled to remote daemon, which dials remote destinations.
-2. Daemon may enforce allow/deny policy (default allow loopback targets + discovered listening services).
-3. Websocket traffic must pass transparently through both proxy modes.
-4. Local bind conflicts are surfaced as structured errors and trigger next-port fallback where configured.
+1. requests tunnel to daemon, daemon dials destinations
+2. websocket must work in both proxy modes
+3. local bind conflicts return structured errors (+ optional next-port fallback)
 
-### 3.7 Reconnect Semantics
+## 7. Reconnect Semantics
 
 States:
 1. `connected`
@@ -116,91 +84,65 @@ States:
 5. `fatal`
 
 Rules:
-1. Transport loss moves all attached logical sessions to `reconnecting`.
-2. If reattach succeeds, restore `connected` without creating duplicate sessions.
-3. Persistent sessions survive local app restart and reconnect.
-4. Ephemeral sessions may be GC'd by daemon after TTL if no client reattaches.
+1. transport loss moves all attached sessions to `reconnecting`
+2. successful reattach must keep same `session_id` (no duplicate shells)
+3. persistent sessions survive app restart/disconnect
+4. ephemeral sessions can be GC'd after TTL
 
-## 4. Security Requirements
+## 8. Test Matrix
 
-1. SSH remains the auth boundary.
-2. Remote binary integrity must be checksum-verified before exec.
-3. Daemon listens only on stdio/unix socket/loopback (never public interfaces by default).
-4. No plaintext persistence of SSH secrets outside normal SSH tooling.
+All cases require deterministic `MUST` assertions.
 
-## 5. Test Strategy
+### 8.1 Terminal
 
-Three layers:
-1. unit tests: normalization, key hashing, state machine transitions
-2. integration tests: dockerized ssh targets + proxy fixtures
-3. end-to-end tests: cmux CLI + UI socket methods + process-level assertions
+| ID | Scenario | MUST Assertions |
+|---|---|---|
+| T-001 | baseline connect | one transport, one session, connected state |
+| T-002 | identical host twice | same `transport_id`, refcount 2, one SSH process |
+| T-003 | different identity/options | different `connection_key_hash`, separate transports |
+| T-004 | no `--name` | workspace created with non-empty title |
+| T-005 | scoped niceties | only `cmux ssh` command metadata includes scoped `GHOSTTY_SHELL_FEATURES` SSH additions |
+| T-006 | detach/reattach | same `session_id`, state/history preserved |
 
-Required test fixtures:
-1. existing SSH fixture (`tests/fixtures/ssh-remote/`)
-2. HTTP CONNECT target fixture (HTTP service behind daemon)
-3. websocket fixture (echo server behind daemon)
-4. fault fixture (transport kill, delayed network, remote daemon restart)
+### 8.2 Web Proxy
 
-## 6. Test Matrix
+| ID | Scenario | MUST Assertions |
+|---|---|---|
+| W-001 | HTTP CONNECT | fixture response matches expected body |
+| W-002 | SOCKS5 | response parity with direct remote |
+| W-003 | websocket via CONNECT | echo integrity, no unexpected close |
+| W-004 | websocket via SOCKS5 | echo integrity |
+| W-005 | port conflict | structured conflict error + fallback behavior |
+| W-006 | concurrent PTY + proxy load | no PTY stall; proxy latency/error budget met |
 
-Pass criteria convention:
-1. every case defines deterministic assertions
-2. all `MUST` assertions pass on CI
-3. flaky cases are not allowed for merge gates
+### 8.3 Reconnect
 
-### 6.1 Terminal Session Cases
+| ID | Scenario | MUST Assertions |
+|---|---|---|
+| R-001 | kill transport | sessions enter `reconnecting`, retries begin |
+| R-002 | reconnect success | return to `connected`, same `session_id`s |
+| R-003 | reconnect exhausted | transition to `disconnected` with actionable error |
+| R-004 | daemon restart | client reattaches per policy without duplicate sessions |
+| R-005 | app restart (persistent) | session continuity retained |
 
-| ID | Scenario | Setup | Steps | MUST Assertions |
-|---|---|---|---|---|
-| T-001 | Single connect baseline | fresh app, no pooled transport | `cmux ssh cmux-vm` | one transport created; one remote session attached; workspace shows remote state `connected` |
-| T-002 | Reuse identical host | existing connected transport for key K | run `cmux ssh cmux-vm` twice | both workspaces map to same `transport_id`; `transport_refcount == 2`; only one SSH transport process for key K |
-| T-003 | Do not reuse changed identity | key file A then key file B | run `cmux ssh host --identity A`, then B | two distinct `connection_key_hash` values; two transport processes |
-| T-004 | Do not reuse changed proxyjump | host via jump1 then jump2 | run with different jump options | no reuse across different normalized proxy settings |
-| T-005 | Optional name behavior | none | run `cmux ssh host` (no `--name`) | workspace is created; title non-empty; no CLI error |
-| T-006 | Scoped ssh niceties | none | run `cmux ssh host --json` and inspect emitted command metadata | emitted `ssh_command` includes scoped `GHOSTTY_SHELL_FEATURES ... ssh-env,ssh-terminfo`; plain shell default features remain unchanged |
-| T-007 | Session detach/attach | persistent session enabled | create session, detach local workspace, reattach | same remote `session_id`; shell state/history retained |
-| T-008 | Explicit close | active session + transport refcount 1 | close workspace | remote session closes; transport released when refcount reaches 0 |
+### 8.4 Multi-Daemon
 
-### 6.2 Web Proxy Traffic Cases
+| ID | Scenario | MUST Assertions |
+|---|---|---|
+| M-001 | one client, two daemons | panes/workspaces may attach to different `daemon_id`s simultaneously |
+| M-002 | per-daemon failure isolation | daemon A outage does not impact daemon B sessions |
+| M-003 | mixed local+remote | local `cmuxd` and remote `cmuxd-remote` coexist under same client layout |
+| M-004 | reconnect with mixed daemons | only affected daemon’s panes transition state; others remain connected |
 
-| ID | Scenario | Setup | Steps | MUST Assertions |
-|---|---|---|---|---|
-| W-001 | HTTP CONNECT basic | remote HTTP service on loopback | open local CONNECT proxy; fetch remote URL through proxy | 200 response body matches fixture payload |
-| W-002 | SOCKS5 basic | same as W-001 | fetch remote URL through SOCKS5 endpoint | response matches direct remote response |
-| W-003 | Websocket through CONNECT | remote websocket echo service | connect websocket via CONNECT proxy and exchange messages | echo payload integrity; no unexpected close frames |
-| W-004 | Websocket through SOCKS5 | same as W-003 | connect via SOCKS5 | echo payload integrity |
-| W-005 | Concurrent browser + terminal traffic | active terminal workload + browser requests | run high-volume stdout in session while proxying requests | no stalled PTY stream; proxy p95 latency below threshold |
-| W-006 | Service discovery to local exposure | remote daemon detects listening app port | start remote web app, observe status payload | detected port listed; local forwarded/proxy route becomes reachable |
-| W-007 | Local port conflict handling | reserve desired local bind port beforehand | request proxy/forward for conflicting port | conflict is reported structurally; allocator picks fallback if enabled |
-| W-008 | Large response streaming | remote serves large payload | fetch 100MB file through proxy | byte count matches; no truncation/corruption |
+## 9. CI Gates
 
-### 6.3 Reconnect + Failure Cases
+1. `remote-terminal-core`: T-001..T-005
+2. `remote-proxy-core`: W-001..W-004
+3. `remote-reconnect-core`: R-001..R-003
+4. `remote-multidaemon-core`: M-001..M-002
 
-| ID | Scenario | Setup | Steps | MUST Assertions |
-|---|---|---|---|---|
-| R-001 | Transport process killed | active shared transport with 2 sessions | kill local SSH process | both sessions enter `reconnecting`; auto-reconnect starts |
-| R-002 | Reconnect success reattach | continue R-001 with healthy remote | wait for reconnect | both sessions return `connected`; same remote `session_id`s; no duplicate shells |
-| R-003 | Reconnect failure exhaustion | block network to host during reconnect | wait past retry budget | state becomes `disconnected` with actionable error; no busy-loop retries |
-| R-004 | Remote daemon restart | kill `cmuxd-remote` but keep SSH transport | observe client recovery | daemon restarts or re-exec path runs; sessions reattached per policy |
-| R-005 | Persistent session across app restart | persistent session active | quit/relaunch cmux and reattach | session state preserved; command history/output continuity verified |
-| R-006 | Ephemeral session GC | ephemeral session detached | wait TTL expiration | session removed remotely; subsequent attach gets not-found and creates fresh session |
-| R-007 | Proxy channels during reconnect | active websocket + HTTP requests | induce transport flap | in-flight streams fail cleanly; new streams succeed after reconnect |
-| R-008 | Heartbeat timeout | drop packets without killing process | observe heartbeat | timeout transitions to `degraded`/`reconnecting`; recovery after network restore |
+## 10. Open Decisions
 
-## 7. CI Gate Proposal
-
-Gate suites:
-1. `remote-terminal-core` = T-001..T-006
-2. `remote-proxy-core` = W-001..W-004, W-006
-3. `remote-reconnect-core` = R-001..R-004
-
-Nightly suites:
-1. high-load and large payload tests (W-005, W-008)
-2. long-running durability and GC tests (R-005..R-008)
-
-## 8. Open Design Decisions
-
-1. Whether proxy endpoint is per transport (`connection_key_hash`) or per workspace by default.
-2. Default session policy (`ephemeral` vs `persistent`) for `cmux ssh`.
-3. Exact retry/backoff budgets for reconnect on laptop sleep/wake.
-4. Whether daemon upgrades are eager (on connect) or lazy (on capability miss).
+1. default session policy for `cmux ssh`: `ephemeral` vs `persistent`
+2. proxy endpoint scope: per daemon transport vs per workspace
+3. reconnect retry budget and backoff profile
