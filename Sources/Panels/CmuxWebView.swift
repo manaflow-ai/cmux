@@ -7,6 +7,13 @@ import WebKit
 /// the first responder.
 final class CmuxWebView: WKWebView {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
+        // route it through app/menu key equivalents, which can trigger unintended actions.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command), event.keyCode == 36 || event.keyCode == 76 {
+            return false
+        }
+
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
             return true
@@ -110,10 +117,21 @@ final class CmuxWebView: WKWebView {
     // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
     // AppKit only bubbles up through superviews, not siblings.
     //
-    // Fix: prevent WKWebView from registering as a drag destination entirely. AppKit won't
-    // route drags here, so they reach the SwiftUI overlay drop zones as intended.
+    // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
+    // file URL types so Finder file drops and HTML drag-and-drop work.
+    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
+        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
+        NSPasteboard.PasteboardType("public.text"),
+        NSPasteboard.PasteboardType("public.plain-text"),
+        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
+        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
+    ]
+
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        // No-op: suppress WKWebView's automatic drag type registration.
+        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        if !filtered.isEmpty {
+            super.registerForDraggedTypes(filtered)
+        }
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {

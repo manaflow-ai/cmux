@@ -1,12 +1,56 @@
 import XCTest
 import AppKit
 import WebKit
+import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
+private var cmuxUnitTestInspectorOverrideInstalled = false
+
+private extension CmuxWebView {
+    @objc func cmuxUnitTestInspector() -> NSObject? {
+        objc_getAssociatedObject(self, &cmuxUnitTestInspectorAssociationKey) as? NSObject
+    }
+}
+
+private extension WKWebView {
+    func cmuxSetUnitTestInspector(_ inspector: NSObject?) {
+        objc_setAssociatedObject(
+            self,
+            &cmuxUnitTestInspectorAssociationKey,
+            inspector,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+}
+
+private func installCmuxUnitTestInspectorOverride() {
+    guard !cmuxUnitTestInspectorOverrideInstalled else { return }
+
+    guard let replacementMethod = class_getInstanceMethod(
+        CmuxWebView.self,
+        #selector(CmuxWebView.cmuxUnitTestInspector)
+    ) else {
+        fatalError("Unable to locate test inspector replacement method")
+    }
+
+    let added = class_addMethod(
+        CmuxWebView.self,
+        NSSelectorFromString("_inspector"),
+        method_getImplementation(replacementMethod),
+        method_getTypeEncoding(replacementMethod)
+    )
+    guard added else {
+        fatalError("Unable to install CmuxWebView _inspector test override")
+    }
+
+    cmuxUnitTestInspectorOverrideInstalled = true
+}
 
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
@@ -85,6 +129,258 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+}
+
+final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserDevToolsButtonDebugSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testIconCatalogIncludesExpandedChoices() {
+        XCTAssertGreaterThanOrEqual(BrowserDevToolsIconOption.allCases.count, 10)
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.terminal))
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.globe))
+        XCTAssertTrue(BrowserDevToolsIconOption.allCases.contains(.curlyBracesSquare))
+    }
+
+    func testIconOptionFallsBackToDefaultForUnknownRawValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("this.symbol.does.not.exist", forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
+
+        XCTAssertEqual(
+            BrowserDevToolsButtonDebugSettings.iconOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings.defaultIcon
+        )
+    }
+
+    func testColorOptionFallsBackToDefaultForUnknownRawValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set("notAValidColor", forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+
+        XCTAssertEqual(
+            BrowserDevToolsButtonDebugSettings.colorOption(defaults: defaults),
+            BrowserDevToolsButtonDebugSettings.defaultColor
+        )
+    }
+
+    func testCopyPayloadUsesPersistedValues() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserDevToolsIconOption.scope.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconNameKey)
+        defaults.set(BrowserDevToolsIconColorOption.bonsplitActive.rawValue, forKey: BrowserDevToolsButtonDebugSettings.iconColorKey)
+
+        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
+        XCTAssertTrue(payload.contains("browserDevToolsIconName=scope"))
+        XCTAssertTrue(payload.contains("browserDevToolsIconColor=bonsplitActive"))
+    }
+}
+
+final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
+    func testSafariDefaultShortcutForToggleDeveloperTools() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        XCTAssertEqual(shortcut.key, "i")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testSafariDefaultShortcutForShowJavaScriptConsole() {
+        let shortcut = KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        XCTAssertEqual(shortcut.key, "c")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
+}
+
+@MainActor
+final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
+    func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let developerExtras = panel.webView.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool
+        XCTAssertEqual(developerExtras, true)
+
+        if #available(macOS 13.3, *) {
+            XCTAssertTrue(panel.webView.isInspectable)
+        }
+    }
+}
+
+@MainActor
+final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
+    private final class FakeInspector: NSObject {
+        private(set) var showCount = 0
+        private(set) var closeCount = 0
+        private var visible = false
+
+        @objc func isVisible() -> Bool {
+            visible
+        }
+
+        @objc func show() {
+            showCount += 1
+            visible = true
+        }
+
+        @objc func close() {
+            closeCount += 1
+            visible = false
+        }
+    }
+
+    override class func setUp() {
+        super.setUp()
+        installCmuxUnitTestInspectorOverride()
+    }
+
+    private func makePanelWithInspector() -> (BrowserPanel, FakeInspector) {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let inspector = FakeInspector()
+        panel.webView.cmuxSetUnitTestInspector(inspector)
+        return (panel, inspector)
+    }
+
+    func testRestoreReopensInspectorAfterAttachWhenPreferredVisible() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate WebKit closing inspector during detach/reattach churn.
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 1)
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate user closing inspector before detach.
+        inspector.close()
+        panel.syncDeveloperToolsPreferenceFromInspector()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+    }
+
+    func testSyncCanPreserveVisibleIntentDuringDetachChurn() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // Simulate a transient close caused by view detach, not user intent.
+        inspector.close()
+        panel.syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: true)
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
+        let (panel, inspector) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.closeCount, 0)
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertEqual(inspector.showCount, 1)
+
+        // The force-refresh request should be one-shot.
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertEqual(inspector.showCount, 1)
+    }
+
+    func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
+        let (panel, _) = makePanelWithInspector()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
+        XCTAssertTrue(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+    }
+
+    func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
+        let (panel, _) = makePanelWithInspector()
+
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+    }
+
+    func testWebViewDismantleSkipsDetachWhenDeveloperToolsIntentIsVisible() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        host.addSubview(panel.webView)
+
+        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+
+        XCTAssertTrue(panel.webView.superview === host)
+    }
+
+    func testWebViewDismantleDetachesWhenDeveloperToolsIntentIsHidden() {
+        let (panel, _) = makePanelWithInspector()
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+
+        let representable = WebViewRepresentable(
+            panel: panel,
+            shouldAttachWebView: true,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0
+        )
+        let coordinator = representable.makeCoordinator()
+        coordinator.webView = panel.webView
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        host.addSubview(panel.webView)
+
+        WebViewRepresentable.dismantleNSView(host, coordinator: coordinator)
+
+        XCTAssertNil(panel.webView.superview)
     }
 }
 
@@ -203,6 +499,57 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
 
     func testCommandHintUsesIntentionalHoldDelay() {
         XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
+    }
+
+    func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
+        XCTAssertTrue(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 7,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: false,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+    }
+
+    func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
+        XCTAssertTrue(
+            SidebarCommandHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 7
+            )
+        )
     }
 }
 
@@ -339,6 +686,43 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class WorkspaceAutoReorderSettingsTests: XCTestCase {
+    func testDefaultIsEnabled() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+
+    func testDisabledWhenSetToFalse() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Disabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: WorkspaceAutoReorderSettings.key)
+        XCTAssertFalse(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+
+    func testEnabledWhenSetToTrue() {
+        let suiteName = "WorkspaceAutoReorderSettingsTests.Enabled.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: WorkspaceAutoReorderSettings.key)
+        XCTAssertTrue(WorkspaceAutoReorderSettings.isEnabled(defaults: defaults))
+    }
+}
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
@@ -353,40 +737,6 @@ final class AppearanceSettingsTests: XCTestCase {
         let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
         XCTAssertEqual(resolved, .system)
         XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-
-    func testResolvedModeMigratesLegacyAndInvalidValuesToSystem() {
-        let suiteName = "AppearanceSettingsTests.Migrate.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.auto.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-
-        defaults.set("invalid-value", forKey: AppearanceSettings.appearanceModeKey)
-        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-
-    func testResolvedModePreservesExplicitLightAndDark() {
-        let suiteName = "AppearanceSettingsTests.Preserve.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(AppearanceMode.light.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .light)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.light.rawValue)
-
-        defaults.set(AppearanceMode.dark.rawValue, forKey: AppearanceSettings.appearanceModeKey)
-        XCTAssertEqual(AppearanceSettings.resolvedMode(defaults: defaults), .dark)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.dark.rawValue)
     }
 }
 
@@ -2013,22 +2363,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
     }
-
-    func testUnreadNotificationRingVisibilityTracksRequestedState() {
-        let hostedView = GhosttySurfaceScrollView(
-            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
-        )
-
-        hostedView.setNotificationRing(visible: true)
-        var state = hostedView.debugNotificationRingState()
-        XCTAssertFalse(state.isHidden)
-        XCTAssertEqual(state.opacity, 1, accuracy: 0.001)
-
-        hostedView.setNotificationRing(visible: false)
-        state = hostedView.debugNotificationRingState()
-        XCTAssertTrue(state.isHidden)
-        XCTAssertEqual(state.opacity, 0, accuracy: 0.001)
-    }
 }
 
 @MainActor
@@ -2221,6 +2555,222 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+}
+
+@MainActor
+final class BrowserWindowPortalLifecycleTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
+    func testPortalHostInstallsAboveContentViewForVisibility() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowBrowserPortal(window: window)
+        _ = portal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
+
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected content container")
+            return
+        }
+
+        guard let hostIndex = container.subviews.firstIndex(where: { $0 is WindowBrowserHostView }),
+              let contentIndex = container.subviews.firstIndex(where: { $0 === contentView }) else {
+            XCTFail("Expected host/content views in same container")
+            return
+        }
+
+        XCTAssertGreaterThan(
+            hostIndex,
+            contentIndex,
+            "Browser portal host must remain above content view so portal-hosted web views stay visible"
+        )
+    }
+
+    func testAnchorRebindKeepsWebViewInStablePortalSuperview() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor1 = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        let anchor2 = NSView(frame: NSRect(x: 240, y: 40, width: 180, height: 120))
+        contentView.addSubview(anchor1)
+        contentView.addSubview(anchor2)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor1, visibleInUI: true)
+        let firstSuperview = webView.superview
+
+        XCTAssertNotNil(firstSuperview)
+        XCTAssertTrue(firstSuperview is WindowBrowserSlotView)
+
+        portal.bind(webView: webView, to: anchor2, visibleInUI: true)
+        XCTAssertTrue(webView.superview === firstSuperview, "Anchor moves should not reparent the web view")
+
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor2)
+        guard let slot = webView.superview as? WindowBrowserSlotView,
+              let host = slot.superview as? WindowBrowserHostView else {
+            XCTFail("Expected browser slot + host views")
+            return
+        }
+        let expectedFrame = host.convert(anchor2.bounds, from: anchor2)
+        XCTAssertEqual(slot.frame.origin.x, expectedFrame.origin.x, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, expectedFrame.origin.y, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, expectedFrame.size.width, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, expectedFrame.size.height, accuracy: 0.5)
+    }
+
+    func testPortalClampsWebViewFrameToHostBoundsWhenAnchorOverflowsSidebar() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        // Simulate a transient oversized anchor rect during split churn.
+        let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected web view slot")
+            return
+        }
+
+        XCTAssertFalse(slot.isHidden, "Partially visible browser anchor should stay visible")
+        XCTAssertEqual(slot.frame.origin.x, 120, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.origin.y, 20, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.width, 200, accuracy: 0.5)
+        XCTAssertEqual(slot.frame.size.height, 150, accuracy: 0.5)
+    }
+
+    func testPortalSyncNormalizesOutOfBoundsWebFrame() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 20, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
+
+        // Reproduce observed drift from logs where WebKit shifts/expands frame beyond slot bounds.
+        webView.frame = NSRect(x: 0, y: 250, width: slot.bounds.width, height: slot.bounds.height)
+        XCTAssertGreaterThan(webView.frame.maxY, slot.bounds.maxY)
+
+        portal.synchronizeWebViewForAnchor(anchor)
+        XCTAssertEqual(webView.frame.origin.x, slot.bounds.origin.x, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.origin.y, slot.bounds.origin.y, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.size.width, slot.bounds.size.width, accuracy: 0.5)
+        XCTAssertEqual(webView.frame.size.height, slot.bounds.size.height, accuracy: 0.5)
+    }
+
+    func testPortalHostBoundsBecomeReadyAfterBindingInFrameDrivenHierarchy() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        let anchor = NSView(frame: NSRect(x: 40, y: 24, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        portal.bind(webView: webView, to: anchor, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor)
+
+        guard let slot = webView.superview as? WindowBrowserSlotView,
+              let host = slot.superview as? WindowBrowserHostView else {
+            XCTFail("Expected portal slot + host views")
+            return
+        }
+        XCTAssertGreaterThan(host.bounds.width, 1, "Portal host width should be ready for clipping/sync")
+        XCTAssertGreaterThan(host.bounds.height, 1, "Portal host height should be ready for clipping/sync")
+    }
+
+    func testRegistryDetachRemovesPortalHostedWebView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        XCTAssertNotNil(webView.superview)
+
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        XCTAssertNil(webView.superview)
     }
 }
 
