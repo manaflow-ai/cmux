@@ -103,6 +103,7 @@ def main() -> int:
         created = c._call("workspace.create", {}) or {}
         ws_id = str(created.get("workspace_id") or "")
         _must(bool(ws_id), f"workspace.create returned no workspace_id: {created}")
+        ws_other = ""
         try:
             c._call("workspace.select", {"workspace_id": ws_id})
 
@@ -119,7 +120,22 @@ def main() -> int:
             socket_tab = c._call("tab.action", {"workspace_id": ws_id, "tab_id": tab_ref, "action": "clear_name"}) or {}
             _must(str(socket_tab.get("tab_ref") or "").startswith("tab:"), f"Expected tab_ref in tab.action result: {socket_tab}")
             _must(str(socket_tab.get("workspace_id") or "") == ws_id, f"tab.action should target requested workspace: {socket_tab}")
+
+            other_created = c._call("workspace.create", {}) or {}
+            ws_other = str(other_created.get("workspace_id") or "")
+            _must(bool(ws_other), f"workspace.create (second) returned no workspace_id: {other_created}")
+            c._call("workspace.select", {"workspace_id": ws_other})
+
+            # Regression: tab_id alone should resolve both tab manager + workspace, even when another workspace is selected.
+            by_tab_only = c._call("tab.action", {"tab_id": tab_ref, "action": "mark_unread"}) or {}
+            _must(str(by_tab_only.get("tab_ref") or "").startswith("tab:"), f"Expected tab_ref in tab_id-only result: {by_tab_only}")
+            _must(str(by_tab_only.get("workspace_id") or "") == ws_id, f"tab_id-only action should resolve target workspace: {by_tab_only}")
         finally:
+            if ws_other:
+                try:
+                    c.close_workspace(ws_other)
+                except Exception:
+                    pass
             try:
                 c.close_workspace(ws_id)
             except Exception:

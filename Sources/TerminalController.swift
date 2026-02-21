@@ -1457,7 +1457,7 @@ class TerminalController {
     // MARK: - V2 Context Resolution
 
     private func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
-        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id,
+        // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
         if let windowId = v2UUID(params, "window_id") {
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
@@ -1467,7 +1467,7 @@ class TerminalController {
                 return tm
             }
         }
-        if let surfaceId = v2UUID(params, "surface_id") {
+        if let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") {
             if let tm = v2MainSync({ AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager }) {
                 return tm
             }
@@ -2303,7 +2303,7 @@ class TerminalController {
         if let wsId = v2UUID(params, "workspace_id") {
             return tabManager.tabs.first(where: { $0.id == wsId })
         }
-        if let surfaceId = v2UUID(params, "surface_id") {
+        if let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") {
             return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
