@@ -1,8 +1,11 @@
+import Image from "next/image";
 import Balancer from "react-wrap-balancer";
+import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
+import { testimonials, TestimonialCard } from "./testimonials";
 
 export default function Home() {
   return (
@@ -38,6 +41,17 @@ export default function Home() {
         <div className="flex flex-wrap items-center gap-3" data-dev="download" style={{ marginTop: 21, marginBottom: 33 }}>
           <DownloadButton location="hero" />
           <GitHubButton />
+        </div>
+
+        {/* Screenshot */}
+        <div data-dev="screenshot" className="mb-12">
+          <Image
+            src={landingImage}
+            alt="cmux terminal app screenshot"
+            priority
+            placeholder="blur"
+            className="w-full rounded-xl border border-border"
+          />
         </div>
 
         {/* Features */}
@@ -111,6 +125,26 @@ export default function Home() {
             </li>
           </ul>
           <div data-dev="features-spacer" style={{ height: 23 }} />
+        </section>
+
+        {/* Wall of Love */}
+        <section data-dev="wall-of-love">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
+            Wall of Love
+          </h2>
+          <div className="columns-1 sm:columns-2 gap-4">
+            {testimonials.map((t) => (
+              <TestimonialCard key={t.url} testimonial={t} />
+            ))}
+          </div>
+          <div className="mt-2">
+            <a
+              href="/wall-of-love"
+              className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+            >
+              See all testimonials
+            </a>
+          </div>
         </section>
 
       </main>
