@@ -3,6 +3,7 @@ import Bonsplit
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
+import WebKit
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
@@ -172,6 +173,9 @@ final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
+    /// The WKWebView currently receiving forwarded drag events, so we can
+    /// synthesize draggingExited/draggingEntered as the cursor moves.
+    private weak var activeDragWebView: WKWebView?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -248,28 +252,80 @@ final class FileDropOverlayView: NSView {
     override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
     override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
-    // MARK: NSDraggingDestination – only accept file drops over terminal views.
+    // MARK: NSDraggingDestination – accept file drops over terminal and browser views.
+    //
+    // AppKit sends draggingEntered once when the drag enters this overlay, then
+    // draggingUpdated as the cursor moves within it. We track which WKWebView (if
+    // any) is under the cursor and synthesize enter/exit calls so the browser's
+    // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        return updateDragTarget(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        return updateDragTarget(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        if let prev = activeDragWebView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let webView = activeDragWebView
+        activeDragWebView = nil
+        if let webView {
+            return webView.performDragOperation(sender)
+        }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    private func updateDragTarget(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let loc = sender.draggingLocation
+        let webView = webViewUnderPoint(loc)
+
+        // Cursor moved away from the previous web view.
+        if let prev = activeDragWebView, prev !== webView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
+
+        if let webView {
+            if activeDragWebView !== webView {
+                // Cursor entered a (new) web view — send draggingEntered.
+                activeDragWebView = webView
+                return webView.draggingEntered(sender)
+            }
+            return webView.draggingUpdated(sender)
+        }
+
+        // Over a terminal (or nothing).
         guard let types = sender.draggingPasteboard.types,
               types.contains(.fileURL),
-              terminalUnderPoint(sender.draggingLocation) != nil else {
+              terminalUnderPoint(loc) != nil else {
             return []
         }
         return .copy
+    }
+
+    /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
+    private func webViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+        let point = contentView.convert(windowPoint, from: nil)
+        let hitView = contentView.hitTest(point)
+
+        var current: NSView? = hitView
+        while let view = current {
+            if let webView = view as? WKWebView { return webView }
+            current = view.superview
+        }
+        return nil
     }
 
     /// Hit-tests the window to find the GhosttyNSView under the cursor.

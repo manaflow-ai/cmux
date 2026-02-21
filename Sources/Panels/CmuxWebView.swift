@@ -117,10 +117,21 @@ final class CmuxWebView: WKWebView {
     // of SwiftUI's sibling .onDrop overlays. Rejecting in draggingEntered doesn't help because
     // AppKit only bubbles up through superviews, not siblings.
     //
-    // Fix: prevent WKWebView from registering as a drag destination entirely. AppKit won't
-    // route drags here, so they reach the SwiftUI overlay drop zones as intended.
+    // Fix: filter out text-based types that conflict with bonsplit tab drags, but keep
+    // file URL types so Finder file drops and HTML drag-and-drop work.
+    private static let blockedDragTypes: Set<NSPasteboard.PasteboardType> = [
+        .string, // public.utf8-plain-text — matches bonsplit's NSString tab drags
+        NSPasteboard.PasteboardType("public.text"),
+        NSPasteboard.PasteboardType("public.plain-text"),
+        NSPasteboard.PasteboardType("com.splittabbar.tabtransfer"),
+        NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
+    ]
+
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
-        // No-op: suppress WKWebView's automatic drag type registration.
+        let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
+        if !filtered.isEmpty {
+            super.registerForDraggedTypes(filtered)
+        }
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
