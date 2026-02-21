@@ -27,7 +27,7 @@ const defaults: DevValues = {
   featuresLh: 1.275,
   featuresPt: 12,
   featuresPb: 15,
-  communityGap: 6,
+  communityGap: 16,
   faqPt: 0,
   docsPt: 8,
 };

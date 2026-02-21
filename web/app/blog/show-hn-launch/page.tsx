@@ -159,7 +159,7 @@ export default function ShowHNLaunchPage() {
       </blockquote>
 
       <p>
-        Surprisingly, cmux went semi-viral in Japan!
+        Surprisingly, cmux went viral in Japan:
       </p>
 
       <Tweet id="2025129675262251026" />
@@ -170,6 +170,12 @@ export default function ShowHNLaunchPage() {
         Code in parallel. The waiting-for-input panel gets a blue frame, and
         it has its own notification system.&quot;
       </p>
+
+      <p>
+        And semi-viral in China:
+      </p>
+
+      <Tweet id="2024867449947275444" />
 
       <p>
         Another exciting thing was seeing people build on top of the cmux
