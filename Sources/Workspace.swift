@@ -629,6 +629,12 @@ final class Workspace: Identifiable, ObservableObject {
         return surfaceKind(for: panel)
     }
 
+    func panelTitle(panelId: UUID) -> String? {
+        guard let panel = panels[panelId] else { return nil }
+        let fallback = panelTitles[panelId] ?? panel.displayTitle
+        return resolvedPanelTitle(panelId: panelId, fallback: fallback)
+    }
+
     func setPanelPinned(panelId: UUID, pinned: Bool) {
         guard panels[panelId] != nil else { return }
         let wasPinned = pinnedPanelIds.contains(panelId)
@@ -848,7 +854,8 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSplit(
         from panelId: UUID,
         orientation: SplitOrientation,
-        insertFirst: Bool = false
+        insertFirst: Bool = false,
+        focus: Bool = true
     ) -> TerminalPanel? {
         // Get inherited config from the source terminal when possible.
         // If the split is initiated from a non-terminal panel (for example browser),
@@ -921,10 +928,14 @@ final class Workspace: Identifiable, ObservableObject {
 	        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
 	        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
 	        // stealing focus from the new panel and creating model/surface divergence.
-	        previousHostedView?.suppressReparentFocus()
-	        focusPanel(newPanel.id, previousHostedView: previousHostedView)
-	        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	            previousHostedView?.clearSuppressReparentFocus()
+	        if focus {
+	            previousHostedView?.suppressReparentFocus()
+	            focusPanel(newPanel.id, previousHostedView: previousHostedView)
+	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+	                previousHostedView?.clearSuppressReparentFocus()
+	            }
+	        } else {
+	            scheduleFocusReconcile()
 	        }
 
 	        return newPanel
@@ -993,7 +1004,8 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        url: URL? = nil
+        url: URL? = nil,
+        focus: Bool = true
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -1037,10 +1049,14 @@ final class Workspace: Identifiable, ObservableObject {
 
 	        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
 	        let previousHostedView = focusedTerminalPanel?.hostedView
-	        previousHostedView?.suppressReparentFocus()
-	        focusPanel(browserPanel.id)
-	        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	            previousHostedView?.clearSuppressReparentFocus()
+	        if focus {
+	            previousHostedView?.suppressReparentFocus()
+	            focusPanel(browserPanel.id)
+	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+	                previousHostedView?.clearSuppressReparentFocus()
+	            }
+	        } else {
+	            scheduleFocusReconcile()
 	        }
 
         installBrowserPanelSubscription(browserPanel)
