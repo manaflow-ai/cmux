@@ -217,6 +217,48 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
+    func testBrowserPanelUIDelegateImplementsJavaScriptDialogSelectors() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        guard let uiDelegate = panel.webView.uiDelegate as? NSObject else {
+            XCTFail("Expected BrowserPanel webView.uiDelegate to be an NSObject")
+            return
+        }
+
+        XCTAssertTrue(
+            uiDelegate.responds(
+                to: #selector(
+                    WKUIDelegate.webView(
+                        _:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:
+                    )
+                )
+            ),
+            "Browser UI delegate must implement JavaScript alert handling"
+        )
+        XCTAssertTrue(
+            uiDelegate.responds(
+                to: #selector(
+                    WKUIDelegate.webView(
+                        _:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:
+                    )
+                )
+            ),
+            "Browser UI delegate must implement JavaScript confirm handling"
+        )
+        XCTAssertTrue(
+            uiDelegate.responds(
+                to: #selector(
+                    WKUIDelegate.webView(
+                        _:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:
+                    )
+                )
+            ),
+            "Browser UI delegate must implement JavaScript prompt handling"
+        )
+    }
+}
+
+@MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class FakeInspector: NSObject {
         private(set) var showCount = 0
