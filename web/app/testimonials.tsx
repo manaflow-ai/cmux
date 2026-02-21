@@ -13,7 +13,7 @@ export const testimonials = [
     handle: "johnthedebs",
     avatar: null,
     text: "Hey, this looks seriously awesome. Love the ideas here, specifically: the programmability, layered UI, browser w/ api. Looking forward to giving this a spin. Also want to add that I really appreciate Mitchell Hashimoto creating libghostty; it feels like an exciting time to be a terminal user.",
-    url: "https://news.ycombinator.com/item?id=47079718",
+    url: "https://news.ycombinator.com/item?id=47083596",
     platform: "hn" as const,
   },
   {
