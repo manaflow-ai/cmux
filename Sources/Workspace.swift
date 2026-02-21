@@ -559,7 +559,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[panelId] = trimmed
         }
         // Update current directory if this is the focused panel
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, currentDirectory != trimmed {
             currentDirectory = trimmed
         }
     }
@@ -616,7 +616,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func recomputeListeningPorts() {
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
-        listeningPorts = unique.sorted()
+        let next = unique.sorted()
+        if listeningPorts != next {
+            listeningPorts = next
+        }
     }
 
     // MARK: - Panel Operations
