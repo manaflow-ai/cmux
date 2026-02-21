@@ -361,6 +361,12 @@ struct BrowserPanelView: View {
             .onSubmit {
                 _ = panel.inPageFindNextFromUI()
             }
+            .onExitCommand {
+                browserFindViewDebugLog(
+                    "browser.findPopover.escape panel=\(panel.id.uuidString) query=\"\(panel.inPageFindQuery)\""
+                )
+                _ = panel.hideInPageFindFromUI()
+            }
             .accessibilityIdentifier("BrowserInPageFindField")
 
             if panel.inPageFindMatchFound == false {
