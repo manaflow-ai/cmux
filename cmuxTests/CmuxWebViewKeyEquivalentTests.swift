@@ -1087,6 +1087,82 @@ final class SidebarBranchOrderingTests: XCTestCase {
             [SidebarBranchOrdering.BranchEntry(name: "fallback", isDirty: true)]
         )
     }
+
+    func testOrderedUniqueBranchDirectoryEntriesDedupesPairsAndMergesDirtyState() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let fifth = UUID()
+
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second, third, fourth, fifth],
+            panelBranches: [
+                first: SidebarGitBranchState(branch: "main", isDirty: false),
+                second: SidebarGitBranchState(branch: "feature", isDirty: false),
+                third: SidebarGitBranchState(branch: "main", isDirty: true),
+                fourth: SidebarGitBranchState(branch: "main", isDirty: false)
+            ],
+            panelDirectories: [
+                first: "/repo/a",
+                second: "/repo/b",
+                third: "/repo/a",
+                fourth: "/repo/d",
+                fifth: "/repo/e"
+            ],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/a"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "feature", isDirty: false, directory: "/repo/b"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/d"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "/repo/e")
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesUsesFallbackBranchWhenPanelBranchesMissing() {
+        let first = UUID()
+        let second = UUID()
+
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second],
+            panelBranches: [:],
+            panelDirectories: [
+                first: "/repo/one",
+                second: "/repo/two"
+            ],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: true)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/one"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/two")
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesFallsBackWhenNoPanelsExist() {
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [],
+            panelBranches: [:],
+            panelDirectories: [:],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/default")]
+        )
+    }
 }
 
 @MainActor

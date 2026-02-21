@@ -43,6 +43,12 @@ enum SidebarBranchOrdering {
         let isDirty: Bool
     }
 
+    struct BranchDirectoryEntry: Equatable {
+        let branch: String?
+        let isDirty: Bool
+        let directory: String?
+    }
+
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
         switch tree {
         case .pane(let pane):
@@ -108,6 +114,82 @@ enum SidebarBranchOrdering {
 
         return orderedNames.map { name in
             BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
+        }
+    }
+
+    static func orderedUniqueBranchDirectoryEntries(
+        orderedPanelIds: [UUID],
+        panelBranches: [UUID: SidebarGitBranchState],
+        panelDirectories: [UUID: String],
+        defaultDirectory: String?,
+        fallbackBranch: SidebarGitBranchState?
+    ) -> [BranchDirectoryEntry] {
+        struct EntryKey: Hashable {
+            let branch: String?
+            let directory: String?
+        }
+
+        struct MutableEntry {
+            var branch: String?
+            var isDirty: Bool
+            var directory: String?
+        }
+
+        func normalized(_ text: String?) -> String? {
+            guard let text else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
+        let shouldUseFallbackBranchPerPanel = !orderedPanelIds.contains {
+            normalized(panelBranches[$0]?.branch) != nil
+        }
+        let defaultBranchForPanels = shouldUseFallbackBranchPerPanel ? normalizedFallbackBranch : nil
+        let defaultBranchDirty = shouldUseFallbackBranchPerPanel ? (fallbackBranch?.isDirty ?? false) : false
+
+        var order: [EntryKey] = []
+        var entries: [EntryKey: MutableEntry] = [:]
+
+        for panelId in orderedPanelIds {
+            let panelBranch = normalized(panelBranches[panelId]?.branch)
+            let branch = panelBranch ?? defaultBranchForPanels
+            let directory = normalized(panelDirectories[panelId] ?? defaultDirectory)
+            guard branch != nil || directory != nil else { continue }
+
+            let panelDirty = panelBranch != nil
+                ? (panelBranches[panelId]?.isDirty ?? false)
+                : defaultBranchDirty
+
+            let key = EntryKey(branch: branch, directory: directory)
+            if entries[key] == nil {
+                order.append(key)
+                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
+            } else if panelDirty {
+                entries[key]?.isDirty = true
+            }
+        }
+
+        if order.isEmpty {
+            let fallbackDirectory = normalized(defaultDirectory)
+            if normalizedFallbackBranch != nil || fallbackDirectory != nil {
+                return [
+                    BranchDirectoryEntry(
+                        branch: normalizedFallbackBranch,
+                        isDirty: fallbackBranch?.isDirty ?? false,
+                        directory: fallbackDirectory
+                    )
+                ]
+            }
+        }
+
+        return order.compactMap { key in
+            guard let entry = entries[key] else { return nil }
+            return BranchDirectoryEntry(
+                branch: entry.branch,
+                isDirty: entry.isDirty,
+                directory: entry.directory
+            )
         }
     }
 }
@@ -692,6 +774,16 @@ final class Workspace: Identifiable, ObservableObject {
                 fallbackBranch: gitBranch
             )
             .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
+    }
+
+    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+        SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: sidebarOrderedPanelIds(),
+            panelBranches: panelGitBranches,
+            panelDirectories: panelDirectories,
+            defaultDirectory: currentDirectory,
+            fallbackBranch: gitBranch
+        )
     }
 
     // MARK: - Panel Operations
