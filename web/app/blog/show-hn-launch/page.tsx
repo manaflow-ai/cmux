@@ -111,6 +111,27 @@ export default function ShowHNLaunchPage() {
       <Tweet id="2024913161238053296" />
 
       <p>
+        My favorite comment from the{" "}
+        <a href="https://news.ycombinator.com/item?id=47079718">HN thread</a>:
+      </p>
+
+      <blockquote className="border-l-2 border-border pl-4 my-6 text-muted space-y-3 text-[15px]">
+        <p>
+          Hey, this looks seriously awesome. Love the ideas here, specifically:
+          the programmability, layered UI, browser w/ api. Looking forward to
+          giving this a spin. Also want to add that I really appreciate Mitchell
+          Hashimoto creating libghostty; it feels like an exciting time to be a
+          terminal user.
+        </p>
+        <p className="text-xs">
+          —{" "}
+          <a href="https://news.ycombinator.com/item?id=47081798" className="hover:text-foreground transition-colors">
+            johnthedebs
+          </a>
+        </p>
+      </blockquote>
+
+      <p>
         Surprisingly, cmux went semi-viral in Japan!
       </p>
 
