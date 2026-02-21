@@ -71,6 +71,7 @@ def main() -> int:
     _must("Create a new workspace" in help_text, "ssh --help output should describe workspace creation")
 
     workspace_id = ""
+    workspace_id_without_name = ""
     with cmux(SOCKET_PATH) as client:
         try:
             payload = _run_cli_json(
@@ -112,14 +113,43 @@ def main() -> int:
             status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
             status_remote = status.get("remote") or {}
             _must(bool(status_remote.get("enabled")) is True, f"workspace.remote.status should report enabled remote: {status}")
+
+            # Regression: --name is optional.
+            payload2 = _run_cli_json(
+                cli,
+                ["ssh", "127.0.0.1", "--port", "1"],
+            )
+            workspace_id_without_name = str(payload2.get("workspace_id") or "")
+            workspace_ref_without_name = str(payload2.get("workspace_ref") or "")
+            if not workspace_id_without_name and workspace_ref_without_name.startswith("workspace:"):
+                listed2 = client._call("workspace.list", {}) or {}
+                for row in listed2.get("workspaces") or []:
+                    if str(row.get("ref") or "") == workspace_ref_without_name:
+                        workspace_id_without_name = str(row.get("id") or "")
+                        break
+
+            _must(bool(workspace_id_without_name), f"cmux ssh without --name should still create workspace: {payload2}")
+            row2 = None
+            listed2 = client._call("workspace.list", {}) or {}
+            for row in listed2.get("workspaces") or []:
+                if str(row.get("id") or "") == workspace_id_without_name:
+                    row2 = row
+                    break
+            _must(row2 is not None, f"workspace created without --name missing from workspace.list: {workspace_id_without_name}")
+            _must(bool(str((row2 or {}).get("title") or "").strip()), f"workspace title should not be empty without --name: {row2}")
         finally:
             if workspace_id:
                 try:
                     client.close_workspace(workspace_id)
                 except Exception:
                     pass
+            if workspace_id_without_name:
+                try:
+                    client.close_workspace(workspace_id_without_name)
+                except Exception:
+                    pass
 
-    print("PASS: cmux ssh marks workspace as remote and exposes remote metadata via workspace APIs")
+    print("PASS: cmux ssh marks workspace as remote, exposes remote metadata, and does not require --name")
     return 0
 
 
