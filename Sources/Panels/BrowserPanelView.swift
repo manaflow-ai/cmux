@@ -2633,6 +2633,27 @@ struct WebViewRepresentable: NSViewRepresentable {
             super.setFrameSize(newSize)
             onGeometryChanged?()
         }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            if shouldPassThroughToSidebarResizer(at: point) {
+                return nil
+            }
+            return super.hitTest(point)
+        }
+
+        private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+            // Pass through a narrow leading-edge band so the shared sidebar divider
+            // handle can receive hover/click even when WKWebView is attached here.
+            // Keeping this deterministic avoids flicker from dynamic left-edge scans.
+            guard point.x >= 0, point.x <= SidebarResizeInteraction.hitWidthPerSide else {
+                return false
+            }
+            guard let window, let contentView = window.contentView else {
+                return false
+            }
+            let hostRectInContent = contentView.convert(bounds, from: self)
+            return hostRectInContent.minX > 1
+        }
     }
 
     #if DEBUG
