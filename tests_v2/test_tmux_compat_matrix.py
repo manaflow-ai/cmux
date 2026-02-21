@@ -82,6 +82,46 @@ def _surface_has(c: cmux, workspace_id: str, surface_id: str, token: str) -> boo
     return token in str(payload.get("text") or "")
 
 
+def _layout_panes(c: cmux) -> List[dict]:
+    layout_payload = c.layout_debug() or {}
+    layout = layout_payload.get("layout") or {}
+    panes = layout.get("panes") or []
+    return list(panes)
+
+
+def _pane_extent(c: cmux, pane_id: str, axis: str) -> float:
+    panes = _layout_panes(c)
+    for pane in panes:
+        pid = str(pane.get("paneId") or pane.get("pane_id") or "")
+        if pid != pane_id:
+            continue
+        frame = pane.get("frame") or {}
+        return float(frame.get(axis) or 0.0)
+    raise cmuxError(f"Pane {pane_id} missing from debug layout panes: {panes}")
+
+
+def _pick_resize_target(c: cmux, pane_ids: List[str]) -> Tuple[str, str, str]:
+    panes = [p for p in _layout_panes(c) if str(p.get("paneId") or p.get("pane_id") or "") in pane_ids]
+    if len(panes) < 2:
+        raise cmuxError(f"Need >=2 panes for resize test, got {panes}")
+
+    def x_of(p: dict) -> float:
+        return float((p.get("frame") or {}).get("x") or 0.0)
+
+    def y_of(p: dict) -> float:
+        return float((p.get("frame") or {}).get("y") or 0.0)
+
+    x_span = max(x_of(p) for p in panes) - min(x_of(p) for p in panes)
+    y_span = max(y_of(p) for p in panes) - min(y_of(p) for p in panes)
+
+    if x_span >= y_span:
+        target = min(panes, key=x_of)
+        return str(target.get("paneId") or target.get("pane_id") or ""), "-R", "width"
+
+    target = min(panes, key=y_of)
+    return str(target.get("paneId") or target.get("pane_id") or ""), "-D", "height"
+
+
 def main() -> int:
     cli = _find_cli_binary()
     stamp = int(time.time() * 1000)
@@ -206,8 +246,13 @@ def main() -> int:
             merged = f"{proc.stdout}\n{proc.stderr}".lower()
             _must(proc.returncode != 0 and "not supported" in merged, f"Expected not_supported for {cmd}, got: {merged!r}")
 
-        resize = _run_cli(cli, ["resize-pane", "--pane", lp_source, "-L", "--amount", "5"], expect_ok=False)
-        _must(resize.returncode != 0, "Expected resize-pane to return not_supported until backend support is added")
+        resize_target, resize_flag, resize_axis = _pick_resize_target(c, current_panes)
+        pre_extent = _pane_extent(c, resize_target, resize_axis)
+        _run_cli(cli, ["resize-pane", "--pane", resize_target, resize_flag, "--amount", "80"])
+        _wait_for(
+            lambda: _pane_extent(c, resize_target, resize_axis) > pre_extent + 1.0,
+            timeout_s=3.0,
+        )
 
         buffer_token = f"TMUX_BUFFER_{stamp}"
         _run_cli(cli, ["set-buffer", "--name", "tmuxbuf", f"echo {buffer_token}\\n"])
