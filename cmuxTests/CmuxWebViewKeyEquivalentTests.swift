@@ -3114,4 +3114,25 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": "workspace:1", "panel": UUID().uuidString]))
         XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": UUID().uuidString, "panel": "surface:1"]))
     }
+
+    func testNormalizeReportedDirectoryTrimsWhitespace() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("   /Users/cmux/project   "),
+            "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryResolvesFileURL() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("file:///Users/cmux/project"),
+            "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryLeavesInvalidURLTrimmed() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("  file://bad host  "),
+            "file://bad host"
+        )
+    }
 }
