@@ -1796,8 +1796,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let layer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer.backgroundColor = color.cgColor
-            layer.isOpaque = color.alphaComponent >= 1.0
+            // GhosttySurfaceScrollView owns the panel background fill. Keeping this layer clear
+            // avoids stacking multiple identical translucent backgrounds (which looks opaque).
+            layer.backgroundColor = NSColor.clear.cgColor
+            layer.isOpaque = false
             CATransaction.commit()
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
@@ -3175,10 +3177,10 @@ final class GhosttySurfaceScrollView: NSView {
         super.init(frame: .zero)
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.backgroundColor =
-            GhosttyApp.shared.defaultBackgroundColor
-                .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-                .cgColor
+        let initialBackground = GhosttyApp.shared.defaultBackgroundColor
+            .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
+        backgroundView.layer?.backgroundColor = initialBackground.cgColor
+        backgroundView.layer?.isOpaque = initialBackground.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
         inactiveOverlayView.wantsLayer = true
@@ -3385,6 +3387,7 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.backgroundColor = color.cgColor
+        layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
     }
 
