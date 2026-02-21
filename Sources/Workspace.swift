@@ -313,6 +313,7 @@ final class Workspace: Identifiable, ObservableObject {
                 tabId,
                 title: titleUpdate,
                 iconImageData: faviconUpdate,
+                hasCustomTitle: self.panelCustomTitles[browserPanel.id] != nil,
                 isLoading: loadingUpdate
             )
         }
@@ -429,7 +430,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(tabId, title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle))
+        bonsplitController.updateTab(
+            tabId,
+            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
+            hasCustomTitle: panelCustomTitles[panelId] != nil
+        )
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -518,7 +523,11 @@ final class Workspace: Identifiable, ObservableObject {
            let panel = panels[panelId] {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
-            bonsplitController.updateTab(tabId, title: resolvedTitle)
+            bonsplitController.updateTab(
+                tabId,
+                title: resolvedTitle,
+                hasCustomTitle: panelCustomTitles[panelId] != nil
+            )
         }
 
         // If this is the only panel and no custom title, update workspace title
@@ -1017,6 +1026,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
+            hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             icon: detached.icon,
             iconImageData: detached.iconImageData,
             kind: detached.kind,
@@ -1832,6 +1842,7 @@ extension Workspace: BonsplitDelegate {
                         icon: .some(replacementPanel.displayIcon),
                         iconImageData: .some(nil),
                         kind: .some(SurfaceKind.terminal),
+                        hasCustomTitle: false,
                         isDirty: replacementPanel.isDirty,
                         showsNotificationBadge: false,
                         isLoading: false,
@@ -1938,6 +1949,9 @@ extension Workspace: BonsplitDelegate {
         switch action {
         case .rename:
             promptRenamePanel(tabId: tab.id)
+        case .clearName:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            setPanelCustomTitle(panelId: panelId, title: nil)
         case .closeToLeft:
             closeTabs(tabIdsToLeft(of: tab.id, inPane: pane))
         case .closeToRight:
