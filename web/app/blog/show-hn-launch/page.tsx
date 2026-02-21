@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { Tweet } from "react-tweet";
+import starHistory from "./star-history.png";
 
 export const metadata: Metadata = {
   title: "Launching cmux on Show HN",
@@ -99,6 +101,15 @@ export default function ShowHNLaunchPage() {
         requested features, and reported bugs. We shipped 18 releases in 48
         hours fixing everything we could.
       </p>
+
+      <div className="my-6">
+        <Image
+          src={starHistory}
+          alt="cmux GitHub star history showing growth from near 0 to 900+ stars after the Show HN launch"
+          placeholder="blur"
+          className="w-full rounded-xl"
+        />
+      </div>
 
       <p>
         Surprisingly, cmux went semi-viral in Japan!
