@@ -230,8 +230,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func refreshSplitButtonTooltips() {
+        let tooltips = Self.currentSplitButtonTooltips()
         var configuration = bonsplitController.configuration
-        configuration.appearance.splitButtonTooltips = Self.currentSplitButtonTooltips()
+        guard configuration.appearance.splitButtonTooltips != tooltips else { return }
+        configuration.appearance.splitButtonTooltips = tooltips
         bonsplitController.configuration = configuration
     }
 
