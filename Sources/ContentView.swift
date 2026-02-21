@@ -939,6 +939,11 @@ struct ContentView: View {
             NSApp.keyWindow?.zoom(nil)
         }
         .background(fakeTitlebarBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 1)
+        }
     }
 
     private func updateTitlebarText() {
