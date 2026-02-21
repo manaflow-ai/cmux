@@ -103,6 +103,20 @@ class TerminalController {
         return currentSorted != nextSorted
     }
 
+    nonisolated static func explicitSocketScope(
+        options: [String: String]
+    ) -> (workspaceId: UUID, panelId: UUID)? {
+        guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tabRaw.isEmpty,
+              let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !panelRaw.isEmpty,
+              let workspaceId = UUID(uuidString: tabRaw),
+              let panelId = UUID(uuidString: panelRaw) else {
+            return nil
+        }
+        return (workspaceId, panelId)
+    }
+
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
     func setActiveTabManager(_ tabManager: TabManager?) {
@@ -10830,6 +10844,17 @@ class TerminalController {
             return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
         }
 
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to avoid sync-hopping on every report.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.registerTTY(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                ttyName: ttyName
+            )
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -10872,6 +10897,14 @@ class TerminalController {
 
     private func portsKick(_ args: String) -> String {
         let parsed = parseOptions(args)
+
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to keep prompt hooks from blocking UI work.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
