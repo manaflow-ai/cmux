@@ -91,7 +91,7 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Scriptable</strong>
                 <span className="text-muted">
-                  : CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+                  : CLI and socket API for automation and scripting
                 </span>
               </span>
             </li>
