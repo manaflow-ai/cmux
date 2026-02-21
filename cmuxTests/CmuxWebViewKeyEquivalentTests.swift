@@ -701,54 +701,26 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
-final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
-    }
-
-    func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+final class UpdateFeedResolverTests: XCTestCase {
+    func testResolvedFeedFallsBackWhenInfoFeedMissing() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
-        )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+    func testResolvedFeedMarksNightlyWhenInfoFeedContainsNightlyPath() {
+        let infoFeed = "https://example.com/nightly/appcast.xml"
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -990,6 +962,37 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
         XCTAssertEqual(actions, [.showFindInterface])
     }
+    func testCmdLThenCmdFRoutesAddressBarStateToBrowserFindAndClearsOmnibarMode() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdLEvent = makeShortcutKeyDownEvent(key: "l", modifiers: [.command], keyCode: 37),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3),
+              let ctrlNEvent = makeShortcutKeyDownEvent(key: "n", modifiers: [.control], keyCode: 45) else {
+            XCTFail("Expected browser panel and key events")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertEqual(actions, [.showFindInterface])
+
+        // After Cmd+F handoff, omnibar navigation shortcuts should no longer be consumed.
+        XCTAssertFalse(delegate.debugHandleCustomShortcut(event: ctrlNEvent))
+    }
 
 }
 #endif
@@ -1102,6 +1105,70 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(panel.inPageFindNextFromUI())
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 2)
         XCTAssertEqual(requests.map(\.direction), ["reset", "next"])
+    }
+
+    func testClearingBrowserFindQueryResetsFallbackState() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        var requests: [BrowserInPageFindDebugRequest] = []
+
+        panel.debugInPageFindFallbackHandler = { request in
+            requests.append(request)
+            return BrowserInPageFindDebugResult(matchFound: true, current: 1, total: 5)
+        }
+
+        panel.updateInPageFindQuery("e")
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(panel.inPageFindMatchCount, 5)
+        XCTAssertEqual(requests.count, 1)
+
+        panel.updateInPageFindQuery("")
+        XCTAssertEqual(panel.inPageFindQuery, "")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        // Empty query clears highlights/state in WebKit instead of routing through the match handler.
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "example",
+            "direction": "next",
+            "queryChanged": true,
+            "requestSequence": 42,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("supportsCustomHighlights"))
+        XCTAssertTrue(highlightScript.contains("CSS.highlights.set(allHighlightName"))
+        XCTAssertTrue(highlightScript.contains("::highlight("))
+        XCTAssertTrue(highlightScript.contains("applySpanFallback"))
+        XCTAssertTrue(highlightScript.contains("const sequenceKey = \"__cmuxInPageFindSequence\""))
+        XCTAssertTrue(highlightScript.contains("const requestSequence = Number(payload.requestSequence || 0)"))
+        XCTAssertTrue(highlightScript.contains("if (requestSequence < latestSequence)"))
+        XCTAssertTrue(highlightScript.contains("stale: true"))
+
+        let staleGuardOffset = try XCTUnwrap(highlightScript.range(of: "if (requestSequence < latestSequence)"))
+        let clearMarksOffset = try XCTUnwrap(highlightScript.range(of: "clearMarks();"))
+        let staleGuardLocation = highlightScript.distance(from: highlightScript.startIndex, to: staleGuardOffset.lowerBound)
+        let clearMarksLocation = highlightScript.distance(from: highlightScript.startIndex, to: clearMarksOffset.lowerBound)
+        XCTAssertLessThan(staleGuardLocation, clearMarksLocation)
+
+        let clearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 43)
+        XCTAssertTrue(clearScript.contains("CSS.highlights.delete(allHighlightName)"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.delete(activeHighlightName)"))
+        XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
+        XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
     }
 }
 #endif
