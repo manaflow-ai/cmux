@@ -2418,7 +2418,7 @@ enum AppearanceSettings {
 
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
-    static let defaultHooksEnabled = false
+    static let defaultHooksEnabled = true
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {

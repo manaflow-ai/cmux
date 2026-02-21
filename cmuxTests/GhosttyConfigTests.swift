@@ -162,7 +162,7 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testClaudeCodeIntegrationDefaultsToDisabledWhenUnset() {
+    func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated user defaults suite")
@@ -173,7 +173,7 @@ final class GhosttyConfigTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
     func testClaudeCodeIntegrationRespectsStoredPreference() {
