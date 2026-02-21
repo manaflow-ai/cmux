@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepare and ship a cmux release end-to-end: choose the next version, curate user-facing changelog entries, bump versions, open and monitor a release PR, merge, tag, and verify published artifacts. Use when asked to cut, prepare, publish, or tag a new release.
+description: "Prepare and ship a cmux release end-to-end: choose the next version, curate user-facing changelog entries, bump versions, open and monitor a release PR, merge, tag, and verify published artifacts. Use when asked to cut, prepare, publish, or tag a new release."
 ---
 
 # Release
@@ -63,4 +63,3 @@ Run this workflow to prepare and publish a cmux release.
 - Include only user-visible changes.
 - Exclude internal-only changes (CI, tests, docs-only edits, refactors without behavior changes).
 - Write concise user-facing bullets in present tense.
-
