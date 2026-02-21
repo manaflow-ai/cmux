@@ -40,11 +40,13 @@ def _find_cli_binary() -> str:
     return candidates[0]
 
 
-def _run_cli(cli: str, args: list[str], *, json_output: bool) -> str:
+def _run_cli(cli: str, args: list[str], *, json_output: bool, extra_env: dict[str, str] | None = None) -> str:
     env = dict(os.environ)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
+    if extra_env:
+        env.update(extra_env)
 
     cmd = [cli, "--socket", SOCKET_PATH]
     if json_output:
@@ -57,8 +59,8 @@ def _run_cli(cli: str, args: list[str], *, json_output: bool) -> str:
     return proc.stdout
 
 
-def _run_cli_json(cli: str, args: list[str]) -> dict:
-    output = _run_cli(cli, args, json_output=True)
+def _run_cli_json(cli: str, args: list[str], *, extra_env: dict[str, str] | None = None) -> dict:
+    output = _run_cli(cli, args, json_output=True, extra_env=extra_env)
     try:
         return json.loads(output or "{}")
     except Exception as exc:  # noqa: BLE001
@@ -96,9 +98,10 @@ def main() -> int:
             ssh_command = str(payload.get("ssh_command") or "")
             _must(bool(ssh_command), f"cmux ssh output missing ssh_command: {payload}")
             _must(
-                "GHOSTTY_SHELL_FEATURES=${GHOSTTY_SHELL_FEATURES:+$GHOSTTY_SHELL_FEATURES,}ssh-env,ssh-terminfo" in ssh_command,
-                f"cmux ssh should scope ssh niceties to this command: {ssh_command!r}",
+                ssh_command.startswith("env GHOSTTY_SHELL_FEATURES="),
+                f"cmux ssh should set shell features via shell-agnostic env prefix: {ssh_command!r}",
             )
+            _must("ssh-env,ssh-terminfo" in ssh_command, f"cmux ssh should include ssh niceties: {ssh_command!r}")
             _must("ssh -o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
             _must("-o ControlMaster=auto" in ssh_command, f"ssh command should opt into connection reuse: {ssh_command!r}")
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
@@ -195,6 +198,23 @@ def main() -> int:
                     break
             _must(row2 is not None, f"workspace created without --name missing from workspace.list: {workspace_id_without_name}")
             _must(bool(str((row2 or {}).get("title") or "").strip()), f"workspace title should not be empty without --name: {row2}")
+
+            payload3 = _run_cli_json(
+                cli,
+                ["ssh", "127.0.0.1", "--port", "1", "--name", "ssh-meta-features"],
+                extra_env={"GHOSTTY_SHELL_FEATURES": "cursor,title"},
+            )
+            ssh_command_with_existing = str(payload3.get("ssh_command") or "")
+            _must(
+                "GHOSTTY_SHELL_FEATURES=cursor,title,ssh-env,ssh-terminfo" in ssh_command_with_existing,
+                f"cmux ssh should merge existing shell features when present: {ssh_command_with_existing!r}",
+            )
+            workspace_id3 = str(payload3.get("workspace_id") or "")
+            if workspace_id3:
+                try:
+                    client.close_workspace(workspace_id3)
+                except Exception:
+                    pass
         finally:
             if workspace_id:
                 try:
