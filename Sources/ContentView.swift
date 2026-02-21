@@ -2341,7 +2341,7 @@ private struct TabItemView: View {
 
             // Branch + directory row
             if sidebarBranchVerticalLayout {
-                if !branchDirectorySummaryLines.isEmpty {
+                if !verticalBranchDirectoryLines.isEmpty {
                     HStack(alignment: .top, spacing: 3) {
                         if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
                             Image(systemName: "arrow.triangle.branch")
@@ -2349,12 +2349,28 @@ private struct TabItemView: View {
                                 .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
                         }
                         VStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(branchDirectorySummaryLines.enumerated()), id: \.offset) { _, line in
-                                Text(line)
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
+                            ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                HStack(spacing: 4) {
+                                    if let branch = line.branch {
+                                        Text(branch)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                    if line.branch != nil, line.directory != nil {
+                                        Image(systemName: "circle.fill")
+                                            .font(.system(size: 4))
+                                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                    }
+                                    if let directory = line.directory {
+                                        Text(directory)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                    }
+                                }
                             }
                         }
                     }
@@ -2725,10 +2741,15 @@ private struct TabItemView: View {
     }
 
     private var verticalRowsContainBranch: Bool {
-        sidebarShowGitBranch && verticalBranchDirectoryEntries.contains { $0.branch != nil }
+        sidebarShowGitBranch && verticalBranchDirectoryLines.contains { $0.branch != nil }
     }
 
-    private var branchDirectorySummaryLines: [String] {
+    private struct VerticalBranchDirectoryLine {
+        let branch: String?
+        let directory: String?
+    }
+
+    private var verticalBranchDirectoryLines: [VerticalBranchDirectoryLine] {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return verticalBranchDirectoryEntries.compactMap { entry in
             let branchText: String? = {
@@ -2744,11 +2765,11 @@ private struct TabItemView: View {
 
             switch (branchText, directoryText) {
             case let (branch?, directory?):
-                return "\(branch) @ \(directory)"
+                return VerticalBranchDirectoryLine(branch: branch, directory: directory)
             case let (branch?, nil):
-                return branch
+                return VerticalBranchDirectoryLine(branch: branch, directory: nil)
             case let (nil, directory?):
-                return directory
+                return VerticalBranchDirectoryLine(branch: nil, directory: directory)
             default:
                 return nil
             }
