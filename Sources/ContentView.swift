@@ -2744,7 +2744,7 @@ private struct TabItemView: View {
 
             switch (branchText, directoryText) {
             case let (branch?, directory?):
-                return "\(branch) / \(directory)"
+                return "\(branch) @ \(directory)"
             case let (branch?, nil):
                 return branch
             case let (nil, directory?):
