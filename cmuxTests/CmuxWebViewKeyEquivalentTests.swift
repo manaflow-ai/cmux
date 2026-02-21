@@ -783,53 +783,26 @@ final class AppearanceSettingsTests: XCTestCase {
 }
 
 final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
-    }
-
-    func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+    func testResolvedFeedFallsBackWhenInfoFeedMissing() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
+    func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(
+            infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -977,6 +950,97 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected surviving panel to become focused")
         XCTAssertEqual(workspace.gitBranch?.branch, "main")
         XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+    }
+
+    func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "main", isDirty: false)
+        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+        workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "feature/sidebar", isDirty: true)
+
+        let ordered = workspace.sidebarGitBranchesInDisplayOrder()
+        XCTAssertEqual(ordered.map(\.branch), ["main", "feature/sidebar"])
+        XCTAssertEqual(ordered.map(\.isDirty), [false, true])
+    }
+
+    func testSidebarOrderingUsesPaneOrderThenTabOrderWithBranchDeduping() {
+        let workspace = Workspace()
+        guard let leftFirstPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
+              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
+              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+            XCTFail("Expected panes and panels for ordering test")
+            return
+        }
+
+        XCTAssertTrue(workspace.reorderSurface(panelId: leftFirstPanelId, toIndex: 0))
+        XCTAssertTrue(workspace.reorderSurface(panelId: leftSecondPanel.id, toIndex: 1))
+        XCTAssertTrue(workspace.reorderSurface(panelId: rightFirstPanel.id, toIndex: 0))
+        XCTAssertTrue(workspace.reorderSurface(panelId: rightSecondPanel.id, toIndex: 1))
+
+        workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: rightFirstPanel.id, branch: "main", isDirty: true)
+        workspace.updatePanelGitBranch(panelId: rightSecondPanel.id, branch: "feature/right", isDirty: false)
+
+        XCTAssertEqual(
+            workspace.sidebarOrderedPanelIds(),
+            [leftFirstPanelId, leftSecondPanel.id, rightFirstPanel.id, rightSecondPanel.id]
+        )
+
+        let branches = workspace.sidebarGitBranchesInDisplayOrder()
+        XCTAssertEqual(branches.map(\.branch), ["main", "feature/left", "feature/right"])
+        XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
+    }
+}
+
+final class SidebarBranchOrderingTests: XCTestCase {
+
+    func testOrderedUniqueBranchesDedupesByNameAndMergesDirtyState() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+            orderedPanelIds: [first, second, third],
+            panelBranches: [
+                first: SidebarGitBranchState(branch: "main", isDirty: false),
+                second: SidebarGitBranchState(branch: "feature", isDirty: false),
+                third: SidebarGitBranchState(branch: "main", isDirty: true)
+            ],
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            branches,
+            [
+                SidebarBranchOrdering.BranchEntry(name: "main", isDirty: true),
+                SidebarBranchOrdering.BranchEntry(name: "feature", isDirty: false)
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchesUsesFallbackWhenNoPanelBranchesExist() {
+        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+            orderedPanelIds: [],
+            panelBranches: [:],
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: true)
+        )
+
+        XCTAssertEqual(
+            branches,
+            [SidebarBranchOrdering.BranchEntry(name: "fallback", isDirty: true)]
+        )
     }
 }
 

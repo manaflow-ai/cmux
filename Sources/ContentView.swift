@@ -2341,7 +2341,7 @@ private struct TabItemView: View {
             // Branch + directory row
             if let dirRow = branchDirectoryRow {
                 HStack(spacing: 3) {
-                    if sidebarShowGitBranch && tab.gitBranch != nil && sidebarShowGitBranchIcon {
+                    if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 9))
                             .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
@@ -2675,9 +2675,8 @@ private struct TabItemView: View {
         var parts: [String] = []
 
         // Git branch (if enabled and available)
-        if sidebarShowGitBranch, let git = tab.gitBranch {
-            let dirty = git.isDirty ? "*" : ""
-            parts.append("\(git.branch)\(dirty)")
+        if sidebarShowGitBranch, let gitSummary = gitBranchSummaryText {
+            parts.append(gitSummary)
         }
 
         // Directory summary
@@ -2689,12 +2688,22 @@ private struct TabItemView: View {
         return result.isEmpty ? nil : result
     }
 
+    private var gitBranchSummaryText: String? {
+        let branches = tab.sidebarGitBranchesInDisplayOrder()
+        guard !branches.isEmpty else { return nil }
+        return branches
+            .map { branch in
+                "\(branch.branch)\(branch.isDirty ? "*" : "")"
+            }
+            .joined(separator: " | ")
+    }
+
     private var directorySummaryText: String? {
         guard !tab.panels.isEmpty else { return nil }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var seen: Set<String> = []
         var entries: [String] = []
-        for panelId in tab.panels.keys {
+        for panelId in tab.sidebarOrderedPanelIds() {
             let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
             let shortened = shortenPath(directory, home: home)
             guard !shortened.isEmpty else { continue }
