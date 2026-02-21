@@ -500,6 +500,57 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintUsesIntentionalHoldDelay() {
         XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
     }
+
+    func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
+        XCTAssertTrue(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: 7,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.isCurrentWindow(
+                hostWindowNumber: 42,
+                hostWindowIsKey: false,
+                eventWindowNumber: 42,
+                keyWindowNumber: 42
+            )
+        )
+    }
+
+    func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
+        XCTAssertTrue(
+            SidebarCommandHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 42
+            )
+        )
+
+        XCTAssertFalse(
+            SidebarCommandHintPolicy.shouldShowHints(
+                for: [.command],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 7
+            )
+        )
+    }
 }
 
 final class ShortcutHintDebugSettingsTests: XCTestCase {
