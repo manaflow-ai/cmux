@@ -37,6 +37,81 @@ struct SidebarGitBranchState {
     let isDirty: Bool
 }
 
+enum SidebarBranchOrdering {
+    struct BranchEntry: Equatable {
+        let name: String
+        let isDirty: Bool
+    }
+
+    static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
+        switch tree {
+        case .pane(let pane):
+            return [pane.id]
+        case .split(let split):
+            // Bonsplit split order matches visual order for both horizontal and vertical splits.
+            return orderedPaneIds(tree: split.first) + orderedPaneIds(tree: split.second)
+        }
+    }
+
+    static func orderedPanelIds(
+        tree: ExternalTreeNode,
+        paneTabs: [String: [UUID]],
+        fallbackPanelIds: [UUID]
+    ) -> [UUID] {
+        var ordered: [UUID] = []
+        var seen: Set<UUID> = []
+
+        for paneId in orderedPaneIds(tree: tree) {
+            for panelId in paneTabs[paneId] ?? [] {
+                if seen.insert(panelId).inserted {
+                    ordered.append(panelId)
+                }
+            }
+        }
+
+        for panelId in fallbackPanelIds {
+            if seen.insert(panelId).inserted {
+                ordered.append(panelId)
+            }
+        }
+
+        return ordered
+    }
+
+    static func orderedUniqueBranches(
+        orderedPanelIds: [UUID],
+        panelBranches: [UUID: SidebarGitBranchState],
+        fallbackBranch: SidebarGitBranchState?
+    ) -> [BranchEntry] {
+        var orderedNames: [String] = []
+        var branchDirty: [String: Bool] = [:]
+
+        for panelId in orderedPanelIds {
+            guard let state = panelBranches[panelId] else { continue }
+            let name = state.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            if branchDirty[name] == nil {
+                orderedNames.append(name)
+                branchDirty[name] = state.isDirty
+            } else if state.isDirty {
+                branchDirty[name] = true
+            }
+        }
+
+        if orderedNames.isEmpty, let fallbackBranch {
+            let name = fallbackBranch.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                return [BranchEntry(name: name, isDirty: fallbackBranch.isDirty)]
+            }
+        }
+
+        return orderedNames.map { name in
+            BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
+        }
+    }
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -585,6 +660,35 @@ final class Workspace: Identifiable, ObservableObject {
     func recomputeListeningPorts() {
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
         listeningPorts = unique.sorted()
+    }
+
+    func sidebarOrderedPanelIds() -> [UUID] {
+        let paneTabs: [String: [UUID]] = Dictionary(
+            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
+                let panelIds = bonsplitController
+                    .tabs(inPane: paneId)
+                    .compactMap { panelIdFromSurfaceId($0.id) }
+                return (paneId.id.uuidString, panelIds)
+            }
+        )
+
+        let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+        let tree = bonsplitController.treeSnapshot()
+        return SidebarBranchOrdering.orderedPanelIds(
+            tree: tree,
+            paneTabs: paneTabs,
+            fallbackPanelIds: fallbackPanelIds
+        )
+    }
+
+    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+        SidebarBranchOrdering
+            .orderedUniqueBranches(
+                orderedPanelIds: sidebarOrderedPanelIds(),
+                panelBranches: panelGitBranches,
+                fallbackBranch: gitBranch
+            )
+            .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
     }
 
     // MARK: - Panel Operations
@@ -1357,6 +1461,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
+        if let dir = panelDirectories[targetPanelId] {
+            currentDirectory = dir
+        }
+        gitBranch = panelGitBranches[targetPanelId]
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -1720,6 +1828,11 @@ extension Workspace: BonsplitDelegate {
             // frame where the pane has no selected content.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
+        } else if let focusedPane = bonsplitController.focusedPaneId,
+                  let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+            // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
+            // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
+            applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
         }
 
         if bonsplitController.allPaneIds.contains(pane) {
