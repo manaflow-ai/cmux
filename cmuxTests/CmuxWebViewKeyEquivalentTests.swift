@@ -1039,9 +1039,86 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
     }
 
+    func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let preReopenPanelId = workspace1.focusedPanelId,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-cross-ws")) else {
+            XCTFail("Expected initial workspace state and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let panelIdsBeforeReopen = Set(workspace1.panels.keys)
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen) else {
+            XCTFail("Expected reopened browser panel ID")
+            return
+        }
+
+        // Simulate one delayed stale focus callback from the panel that was focused before reopen.
+        DispatchQueue.main.async {
+            workspace1.focusPanel(preReopenPanelId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertEqual(workspace1.focusedPanelId, reopenedPanelId)
+        XCTAssertTrue(workspace1.panels[reopenedPanelId] is BrowserPanel)
+    }
+
+    func testReopenInSameWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let preReopenPanelId = workspace.focusedPanelId,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-same-ws")) else {
+            XCTFail("Expected initial workspace state and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let panelIdsBeforeReopen = Set(workspace.panels.keys)
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen) else {
+            XCTFail("Expected reopened browser panel ID")
+            return
+        }
+
+        // Simulate one delayed stale focus callback from the panel that was focused before reopen.
+        DispatchQueue.main.async {
+            workspace.focusPanel(preReopenPanelId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
+        XCTAssertTrue(workspace.panels[reopenedPanelId] is BrowserPanel)
+    }
+
     private func isFocusedPanelBrowser(in workspace: Workspace) -> Bool {
         guard let focusedPanelId = workspace.focusedPanelId else { return false }
         return workspace.panels[focusedPanelId] is BrowserPanel
+    }
+
+    private func singleNewPanelId(in workspace: Workspace, comparedTo previousPanelIds: Set<UUID>) -> UUID? {
+        let newPanelIds = Set(workspace.panels.keys).subtracting(previousPanelIds)
+        guard newPanelIds.count == 1 else { return nil }
+        return newPanelIds.first
     }
 
     private func drainMainQueue() {
