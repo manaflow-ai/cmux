@@ -515,7 +515,11 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        let response = withSocketCommandPolicy(commandKey: cmd, isV2: false) {
             switch cmd {
         case "ping":
             return "PONG"
@@ -807,6 +811,18 @@ class TerminalController {
             return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
         }
         }
+
+        #if DEBUG
+        if cmd == "new_workspace" || cmd == "send" || cmd == "send_surface" {
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let status = response.hasPrefix("OK") ? "ok" : "err"
+            dlog(
+                "socket.v1 cmd=\(cmd) status=\(status) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+            )
+        }
+        #endif
+
+        return response
     }
 
     // MARK: - V2 JSON Socket Protocol
@@ -841,7 +857,11 @@ class TerminalController {
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
-        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        let response = withSocketCommandPolicy(commandKey: method, isV2: true) {
             switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
@@ -1181,6 +1201,18 @@ class TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
         }
+
+        #if DEBUG
+        if method == "workspace.create" || method == "surface.send_text" {
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let status = response.contains("\"ok\":true") ? "ok" : "err"
+            dlog(
+                "socket.v2 method=\(method) status=\(status) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+            )
+        }
+        #endif
+
+        return response
     }
 
     private func v2Capabilities() -> [String: Any] {
@@ -1781,10 +1813,20 @@ class TerminalController {
         }
 
         var newId: UUID?
+        let shouldFocus = v2FocusAllowed()
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         v2MainSync {
-            let ws = tabManager.addWorkspace(select: v2FocusAllowed())
+            let ws = tabManager.addWorkspace(select: shouldFocus)
             newId = ws.id
         }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        dlog(
+            "socket.workspace.create focus=\(shouldFocus ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+        )
+        #endif
 
         guard let newId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
@@ -3109,24 +3151,38 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
-                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
-                return
+            #if DEBUG
+            let sendStart = ProcessInfo.processInfo.systemUptime
+            #endif
+            let queued: Bool
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(text, surface: surface)
+                // Ensure we present a new frame after injecting input so snapshot-based tests (and
+                // socket-driven agents) can observe the updated terminal without requiring a focus
+                // change to trigger a draw.
+                terminalPanel.surface.forceRefresh()
+                queued = false
+            } else {
+                // Avoid blocking the main actor waiting for view/surface attachment.
+                terminalPanel.sendText(text)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                queued = true
             }
-
-            for char in text {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
-            }
-            // Ensure we present a new frame after injecting input so snapshot-based tests (and
-            // socket-driven agents) can observe the updated terminal without requiring a focus
-            // change to trigger a draw.
-            terminalPanel.surface.forceRefresh()
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            #if DEBUG
+            let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
+            dlog(
+                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+            )
+            #endif
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "queued": queued,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ])
         }
         return result
     }
@@ -3154,7 +3210,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
                 return
             }
@@ -8753,10 +8809,19 @@ class TerminalController {
 
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         DispatchQueue.main.sync {
             let workspace = tabManager.addTab(select: focus)
             newTabId = workspace.id
         }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        dlog(
+            "socket.new_workspace focus=\(focus ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+        )
+        #endif
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }
 
@@ -9741,6 +9806,69 @@ class TerminalController {
         sendKeyEvent(surface: surface, keycode: 0, text: text)
     }
 
+    enum SocketTextChunk: Equatable {
+        case text(String)
+        case control(UnicodeScalar)
+    }
+
+    nonisolated static func socketTextChunks(_ text: String) -> [SocketTextChunk] {
+        guard !text.isEmpty else { return [] }
+
+        var chunks: [SocketTextChunk] = []
+        chunks.reserveCapacity(8)
+        var bufferedText = ""
+        bufferedText.reserveCapacity(text.count)
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            chunks.append(.text(bufferedText))
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        for scalar in text.unicodeScalars {
+            if isSocketControlScalar(scalar) {
+                flushBufferedText()
+                chunks.append(.control(scalar))
+            } else {
+                bufferedText.unicodeScalars.append(scalar)
+            }
+        }
+        flushBufferedText()
+        return chunks
+    }
+
+    private nonisolated static func isSocketControlScalar(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x0A, 0x0D, 0x09, 0x1B, 0x7F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func sendSocketText(_ text: String, surface: ghostty_surface_t) {
+        let chunks = Self.socketTextChunks(text)
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+        for chunk in chunks {
+            switch chunk {
+            case .text(let value):
+                sendTextEvent(surface: surface, text: value)
+            case .control(let scalar):
+                _ = handleControlScalar(scalar, surface: surface)
+            }
+        }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        if elapsedMs >= 8 || chunks.count > 1 {
+            dlog(
+                "socket.send_text.inject chars=\(text.count) chunks=\(chunks.count) ms=\(String(format: "%.2f", elapsedMs))"
+            )
+        }
+        #endif
+    }
+
     private func handleControlScalar(_ scalar: UnicodeScalar, surface: ghostty_surface_t) -> Bool {
         switch scalar.value {
         case 0x0A, 0x0D:
@@ -9843,15 +9971,6 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -9859,13 +9978,11 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -9883,20 +10000,18 @@ class TerminalController {
 
         var success = false
         DispatchQueue.main.sync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -9917,11 +10032,7 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }
@@ -9943,11 +10054,11 @@ class TerminalController {
         var success = false
         var error: String?
         DispatchQueue.main.sync {
-            guard resolveTerminalPanel(from: target, tabManager: tabManager) != nil else {
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
                 return
             }
-            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }
