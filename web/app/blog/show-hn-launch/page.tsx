@@ -102,8 +102,8 @@ export default function ShowHNLaunchPage() {
       <p>
         cmux exposes everything over a Unix socket: creating workspaces,
         sending keystrokes, controlling the browser, reading notifications.
-        Any tool that can talk to a socket can extend it. That&apos;s the
-        whole point.
+        The cmux CLI talks to this socket, and most people should just use
+        the CLI. But the socket is there if you need it.
       </p>
 
       <p>
