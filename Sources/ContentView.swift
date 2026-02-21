@@ -3,6 +3,7 @@ import Bonsplit
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
+import WebKit
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
@@ -248,28 +249,62 @@ final class FileDropOverlayView: NSView {
     override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
     override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
-    // MARK: NSDraggingDestination – only accept file drops over terminal views.
+    // MARK: NSDraggingDestination – accept file drops over terminal and browser views.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        let loc = sender.draggingLocation
+        if let webView = webViewUnderPoint(loc) {
+            return webView.draggingEntered(sender)
+        }
+        return dragOperationForTerminal(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        let loc = sender.draggingLocation
+        if let webView = webViewUnderPoint(loc) {
+            return webView.draggingUpdated(sender)
+        }
+        return dragOperationForTerminal(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        guard let sender else { return }
+        if let webView = webViewUnderPoint(sender.draggingLocation) {
+            webView.draggingExited(sender)
+        }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let webView = webViewUnderPoint(sender.draggingLocation) {
+            return webView.performDragOperation(sender)
+        }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    private func dragOperationForTerminal(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let types = sender.draggingPasteboard.types,
               types.contains(.fileURL),
               terminalUnderPoint(sender.draggingLocation) != nil else {
             return []
         }
         return .copy
+    }
+
+    /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
+    private func webViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+        let point = contentView.convert(windowPoint, from: nil)
+        let hitView = contentView.hitTest(point)
+
+        var current: NSView? = hitView
+        while let view = current {
+            if let webView = view as? WKWebView { return webView }
+            current = view.superview
+        }
+        return nil
     }
 
     /// Hit-tests the window to find the GhosttyNSView under the cursor.
