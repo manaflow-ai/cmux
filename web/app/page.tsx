@@ -67,15 +67,7 @@ export default function Home() {
                 </span>
               </span>
             </li>
-            <li className="flex gap-3">
-              <span className="text-muted shrink-0">-</span>
-              <span>
-                <strong className="font-medium">Notification panel</strong>
-                <span className="text-muted">
-                  : all pending notifications in one place, jump to most recent unread
-                </span>
-              </span>
-            </li>
+
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
