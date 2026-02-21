@@ -5,7 +5,7 @@ import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
 import { SiteHeader } from "./components/site-header";
-import { testimonials, TestimonialCard } from "./testimonials";
+import { testimonials } from "./testimonials";
 
 export default function Home() {
   return (
@@ -199,13 +199,30 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Wall of Love - break out wider */}
-        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40">
-          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
+        {/* Wall of Love */}
+        <section data-dev="wall-of-love" className="mb-10">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
+            Wall of Love
+          </h2>
+          <ul className="space-y-3 text-[15px]" style={{ lineHeight: 1.5 }}>
             {testimonials.map((t) => (
-              <TestimonialCard key={t.url} testimonial={t} />
+              <li key={t.url} className="flex gap-3">
+                <span className="text-muted shrink-0">-</span>
+                <span>
+                  <span className="text-muted">&quot;{t.text}&quot;</span>
+                  {" "}
+                  <a
+                    href={t.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted hover:text-foreground transition-colors"
+                  >
+                    — {t.name}
+                  </a>
+                </span>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
 
         {/* Bottom CTA */}
