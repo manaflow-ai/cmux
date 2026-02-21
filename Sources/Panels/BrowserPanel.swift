@@ -1295,6 +1295,17 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         webViewObservers.append(progressObserver)
+
+        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
+            .sink { [weak self] notification in
+                guard let self else { return }
+                if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
+                    self.webView.underPageBackgroundColor = backgroundColor
+                } else {
+                    self.webView.underPageBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
+                }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Panel Protocol
@@ -1337,6 +1348,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewObservers.removeAll()
+        cancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -1649,6 +1661,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
         webViewObservers.removeAll()
+        cancellables.removeAll()
     }
 }
 
