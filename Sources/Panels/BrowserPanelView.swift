@@ -122,6 +122,39 @@ struct OmnibarInlineCompletion: Equatable {
     }
 }
 
+private struct OmnibarAddressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        OmnibarAddressButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct OmnibarAddressButtonStyleBody: View {
+    let configuration: OmnibarAddressButtonStyle.Configuration
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    private var backgroundOpacity: Double {
+        guard isEnabled else { return 0.0 }
+        if configuration.isPressed { return 0.16 }
+        if isHovered { return 0.08 }
+        return 0.0
+    }
+
+    var body: some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(backgroundOpacity))
+            )
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -151,7 +184,8 @@ struct BrowserPanelView: View {
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 32
+    private let addressBarButtonHitSize: CGFloat = 26
+    private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
 
     private var searchEngine: BrowserSearchEngine {
@@ -364,8 +398,8 @@ struct BrowserPanelView: View {
             developerToolsButton
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, addressBarVerticalPadding)
+        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
     }
@@ -383,7 +417,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
@@ -399,7 +433,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .help("Go Forward")
@@ -422,7 +456,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .help(panel.isLoading ? "Stop" : "Reload")
 
             if panel.isDownloading {
@@ -448,7 +482,7 @@ struct BrowserPanelView: View {
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .help("Toggle Developer Tools")
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
@@ -566,25 +600,38 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
-        WebViewRepresentable(
-            panel: panel,
-            shouldAttachWebView: isVisibleInUI,
-            shouldFocusWebView: isFocused && !addressBarFocused,
-            isPanelFocused: isFocused,
-            portalZPriority: portalPriority
-        )
-            // Keep the representable identity stable across bonsplit structural updates.
-            // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
-            .id(panel.id)
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded {
-                // Chrome-like behavior: clicking web content while editing the
-                // omnibar should commit blur and revert transient edits.
-                if addressBarFocused {
-                    addressBarFocused = false
-                }
-            })
-            .zIndex(0)
+        Group {
+            if panel.shouldRenderWebView {
+                WebViewRepresentable(
+                    panel: panel,
+                    shouldAttachWebView: isVisibleInUI,
+                    shouldFocusWebView: isFocused && !addressBarFocused,
+                    isPanelFocused: isFocused,
+                    portalZPriority: portalPriority
+                )
+                // Keep the representable identity stable across bonsplit structural updates.
+                // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
+                .id(panel.id)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    // Chrome-like behavior: clicking web content while editing the
+                    // omnibar should commit blur and revert transient edits.
+                    if addressBarFocused {
+                        addressBarFocused = false
+                    }
+                })
+            } else {
+                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            addressBarFocused = false
+                        }
+                    }
+            }
+        }
+        .zIndex(0)
     }
 
     private func triggerFocusFlashAnimation() {

@@ -562,6 +562,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
+        if TerminalController.shouldSuppressSocketCommandActivation() {
+            if window.isMiniaturized {
+                window.deminiaturize(nil)
+            }
+            if TerminalController.socketCommandAllowsInAppFocusMutations() {
+                window.orderFront(nil)
+                setActiveMainWindow(window)
+            }
+            return true
+        }
         bringToFront(window)
         return true
     }
@@ -736,9 +746,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: sidebarSelectionState
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
-        window.makeKeyAndOrderFront(nil)
-        setActiveMainWindow(window)
-        NSApp.activate(ignoringOtherApps: true)
+        if TerminalController.shouldSuppressSocketCommandActivation() {
+            window.orderFront(nil)
+            if TerminalController.socketCommandAllowsInAppFocusMutations() {
+                setActiveMainWindow(window)
+            }
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            setActiveMainWindow(window)
+            NSApp.activate(ignoringOtherApps: true)
+        }
         return windowId
     }
 

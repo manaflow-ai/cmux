@@ -193,6 +193,36 @@ jobs:
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
+      - name: Guard immutable release assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            const requiredAssets = ['cmux-macos.dmg', 'appcast.xml'];
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              const assetNames = new Set((release.data.assets || []).map((asset) => asset.name));
+              const conflicts = requiredAssets.filter((asset) => assetNames.has(asset));
+              if (conflicts.length > 0) {
+                core.setFailed(
+                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                  'Refusing to overwrite signed artifacts for an existing tag.'
+                );
+                return;
+              }
+              core.notice(`Release ${tag} exists but does not contain conflicting assets.`);
+            } catch (error) {
+              if (error.status === 404) {
+                core.notice(`Release ${tag} does not exist yet; safe to publish assets.`);
+                return;
+              }
+              throw error;
+            }
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
@@ -200,6 +230,7 @@ jobs:
             cmux-macos.dmg
             appcast.xml
           generate_release_notes: true
+          overwrite_files: false
 
       - name: Cleanup keychain
         if: always()

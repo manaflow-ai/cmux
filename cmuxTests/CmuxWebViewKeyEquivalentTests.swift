@@ -255,6 +255,41 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             XCTAssertTrue(panel.webView.isInspectable)
         }
     }
+
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
+        let updatedOpacity = 0.57
+
+        NotificationCenter.default.post(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: updatedColor,
+                GhosttyNotificationKey.backgroundOpacity: updatedOpacity
+            ]
+        )
+
+        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
+              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+    }
+
+    func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertEqual(panel.displayTitle, "New tab")
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertNil(panel.webView.url)
+        XCTAssertNil(panel.currentURL)
+    }
 }
 
 @MainActor
@@ -806,6 +841,34 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     }
 }
 
+final class SidebarBranchLayoutSettingsTests: XCTestCase {
+    func testDefaultUsesVerticalLayout() {
+        let suiteName = "SidebarBranchLayoutSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+
+    func testStoredPreferenceOverridesDefault() {
+        let suiteName = "SidebarBranchLayoutSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
+        XCTAssertFalse(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+
+        defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
+        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+}
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
@@ -824,53 +887,33 @@ final class AppearanceSettingsTests: XCTestCase {
 }
 
 final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
+    func testResolvedFeedFallsBackWhenInfoFeedMissing() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        XCTAssertFalse(resolved.isNightly)
+        XCTAssertTrue(resolved.usedFallback)
     }
 
-    func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+    func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: "")
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
+    func testResolvedFeedDetectsNightlyFromInfoFeedURL() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(
+            infoFeedURL: "https://example.com/nightly/appcast.xml"
         )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+        XCTAssertEqual(resolved.url, "https://example.com/nightly/appcast.xml")
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -907,6 +950,78 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+}
+
+@MainActor
+final class TabManagerChildExitCloseTests: XCTestCase {
+    func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        manager.selectWorkspace(second)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+
+        guard let secondPanelId = second.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id])
+        XCTAssertEqual(
+            manager.selectedTabId,
+            third.id,
+            "Expected selection to stay at the same index after deleting the selected workspace"
+        )
+    }
+
+    func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+
+        manager.selectWorkspace(second)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+
+        guard let secondPanelId = second.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id])
+        XCTAssertEqual(
+            manager.selectedTabId,
+            first.id,
+            "Expected previous workspace to be selected after closing the last-index workspace"
+        )
+    }
+
+    func testChildExitOnNonLastPanelClosesOnlyPanel() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        let panelCountBefore = workspace.panels.count
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
+        XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
+        XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
     }
 }
 
@@ -991,6 +1106,386 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+}
+
+@MainActor
+final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
+    func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/ws-switch")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
+    }
+
+    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() {
+        let manager = TabManager()
+        guard let originalWorkspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let currentWorkspace = manager.addWorkspace()
+        manager.closeWorkspace(originalWorkspace)
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: currentWorkspace))
+    }
+
+    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let sourcePanelId = workspace1.focusedPanelId,
+              let splitBrowserId = manager.newBrowserSplit(
+                tabId: workspace1.id,
+                fromPanelId: sourcePanelId,
+                orientation: .horizontal,
+                insertFirst: false,
+                url: URL(string: "https://example.com/collapsed-split")
+              ) else {
+            XCTFail("Expected to create browser split")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
+        drainMainQueue()
+
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
+    }
+
+    func testReopenFromDifferentWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let preReopenPanelId = workspace1.focusedPanelId,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-cross-ws")) else {
+            XCTFail("Expected initial workspace state and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let panelIdsBeforeReopen = Set(workspace1.panels.keys)
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        guard let reopenedPanelId = singleNewPanelId(in: workspace1, comparedTo: panelIdsBeforeReopen) else {
+            XCTFail("Expected reopened browser panel ID")
+            return
+        }
+
+        // Simulate one delayed stale focus callback from the panel that was focused before reopen.
+        DispatchQueue.main.async {
+            workspace1.focusPanel(preReopenPanelId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertEqual(workspace1.focusedPanelId, reopenedPanelId)
+        XCTAssertTrue(workspace1.panels[reopenedPanelId] is BrowserPanel)
+    }
+
+    func testReopenInSameWorkspaceWinsAgainstSingleDeferredStaleFocus() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let preReopenPanelId = workspace.focusedPanelId,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/stale-focus-same-ws")) else {
+            XCTFail("Expected initial workspace state and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let panelIdsBeforeReopen = Set(workspace.panels.keys)
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsBeforeReopen) else {
+            XCTFail("Expected reopened browser panel ID")
+            return
+        }
+
+        // Simulate one delayed stale focus callback from the panel that was focused before reopen.
+        DispatchQueue.main.async {
+            workspace.focusPanel(preReopenPanelId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
+        XCTAssertTrue(workspace.panels[reopenedPanelId] is BrowserPanel)
+    }
+
+    private func isFocusedPanelBrowser(in workspace: Workspace) -> Bool {
+        guard let focusedPanelId = workspace.focusedPanelId else { return false }
+        return workspace.panels[focusedPanelId] is BrowserPanel
+    }
+
+    private func singleNewPanelId(in workspace: Workspace, comparedTo previousPanelIds: Set<UUID>) -> UUID? {
+        let newPanelIds = Set(workspace.panels.keys).subtracting(previousPanelIds)
+        guard newPanelIds.count == 1 else { return nil }
+        return newPanelIds.first
+    }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+}
+
+@MainActor
+final class WorkspacePanelGitBranchTests: XCTestCase {
+    func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
+        guard let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/bugfix", isDirty: true)
+        XCTAssertEqual(workspace.focusedPanelId, secondPanel.id, "Expected split panel to be focused")
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/bugfix")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, true)
+
+        XCTAssertTrue(workspace.closePanel(secondPanel.id, force: true), "Expected split panel close to succeed")
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected surviving panel to become focused")
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+    }
+
+    func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "main", isDirty: false)
+        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+        workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "feature/sidebar", isDirty: true)
+
+        let ordered = workspace.sidebarGitBranchesInDisplayOrder()
+        XCTAssertEqual(ordered.map(\.branch), ["main", "feature/sidebar"])
+        XCTAssertEqual(ordered.map(\.isDirty), [false, true])
+    }
+
+    func testSidebarOrderingUsesPaneOrderThenTabOrderWithBranchDeduping() {
+        let workspace = Workspace()
+        guard let leftFirstPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
+              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
+              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+            XCTFail("Expected panes and panels for ordering test")
+            return
+        }
+
+        XCTAssertTrue(workspace.reorderSurface(panelId: leftFirstPanelId, toIndex: 0))
+        XCTAssertTrue(workspace.reorderSurface(panelId: leftSecondPanel.id, toIndex: 1))
+        XCTAssertTrue(workspace.reorderSurface(panelId: rightFirstPanel.id, toIndex: 0))
+        XCTAssertTrue(workspace.reorderSurface(panelId: rightSecondPanel.id, toIndex: 1))
+
+        workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: rightFirstPanel.id, branch: "main", isDirty: true)
+        workspace.updatePanelGitBranch(panelId: rightSecondPanel.id, branch: "feature/right", isDirty: false)
+
+        XCTAssertEqual(
+            workspace.sidebarOrderedPanelIds(),
+            [leftFirstPanelId, leftSecondPanel.id, rightFirstPanel.id, rightSecondPanel.id]
+        )
+
+        let branches = workspace.sidebarGitBranchesInDisplayOrder()
+        XCTAssertEqual(branches.map(\.branch), ["main", "feature/left", "feature/right"])
+        XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
+    }
+
+    func testClosingPaneDropsBranchesFromClosedSide() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected left/right split panes")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "branch1", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
+
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch1", "branch2"])
+        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
+    }
+}
+
+final class SidebarBranchOrderingTests: XCTestCase {
+
+    func testOrderedUniqueBranchesDedupesByNameAndMergesDirtyState() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+
+        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+            orderedPanelIds: [first, second, third],
+            panelBranches: [
+                first: SidebarGitBranchState(branch: "main", isDirty: false),
+                second: SidebarGitBranchState(branch: "feature", isDirty: false),
+                third: SidebarGitBranchState(branch: "main", isDirty: true)
+            ],
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            branches,
+            [
+                SidebarBranchOrdering.BranchEntry(name: "main", isDirty: true),
+                SidebarBranchOrdering.BranchEntry(name: "feature", isDirty: false)
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchesUsesFallbackWhenNoPanelBranchesExist() {
+        let branches = SidebarBranchOrdering.orderedUniqueBranches(
+            orderedPanelIds: [],
+            panelBranches: [:],
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: true)
+        )
+
+        XCTAssertEqual(
+            branches,
+            [SidebarBranchOrdering.BranchEntry(name: "fallback", isDirty: true)]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesDedupesPairsAndMergesDirtyState() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+        let fifth = UUID()
+
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second, third, fourth, fifth],
+            panelBranches: [
+                first: SidebarGitBranchState(branch: "main", isDirty: false),
+                second: SidebarGitBranchState(branch: "feature", isDirty: false),
+                third: SidebarGitBranchState(branch: "main", isDirty: true),
+                fourth: SidebarGitBranchState(branch: "main", isDirty: false)
+            ],
+            panelDirectories: [
+                first: "/repo/a",
+                second: "/repo/b",
+                third: "/repo/a",
+                fourth: "/repo/d",
+                fifth: "/repo/e"
+            ],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/a"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "feature", isDirty: false, directory: "/repo/b"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/d"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: nil, isDirty: false, directory: "/repo/e")
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesUsesFallbackBranchWhenPanelBranchesMissing() {
+        let first = UUID()
+        let second = UUID()
+
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second],
+            panelBranches: [:],
+            panelDirectories: [
+                first: "/repo/one",
+                second: "/repo/two"
+            ],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: true)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/one"),
+                SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: true, directory: "/repo/two")
+            ]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesFallsBackWhenNoPanelsExist() {
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [],
+            panelBranches: [:],
+            panelDirectories: [:],
+            defaultDirectory: "/repo/default",
+            fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: false)
+        )
+
+        XCTAssertEqual(
+            rows,
+            [SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/default")]
+        )
     }
 }
 
@@ -3047,5 +3542,166 @@ final class BrowserHostWhitelistTests: XCTestCase {
     func testUnicodeWhitelistEntryMatchesPunycodeHost() {
         defaults.set("b\u{00FC}cher.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
+    }
+}
+
+final class TerminalControllerSidebarDedupeTests: XCTestCase {
+    func testShouldReplaceStatusEntryReturnsFalseForUnchangedPayload() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "idle",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123)
+        )
+        XCTAssertFalse(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "idle",
+                icon: "bolt",
+                color: "#ffffff"
+            )
+        )
+    }
+
+    func testShouldReplaceStatusEntryReturnsTrueWhenValueChanges() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "idle",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123)
+        )
+        XCTAssertTrue(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "running",
+                icon: "bolt",
+                color: "#ffffff"
+            )
+        )
+    }
+
+    func testShouldReplaceProgressReturnsFalseForUnchangedPayload() {
+        XCTAssertFalse(
+            TerminalController.shouldReplaceProgress(
+                current: SidebarProgressState(value: 0.42, label: "indexing"),
+                value: 0.42,
+                label: "indexing"
+            )
+        )
+    }
+
+    func testShouldReplaceGitBranchReturnsFalseForUnchangedPayload() {
+        XCTAssertFalse(
+            TerminalController.shouldReplaceGitBranch(
+                current: SidebarGitBranchState(branch: "main", isDirty: true),
+                branch: "main",
+                isDirty: true
+            )
+        )
+    }
+
+    func testShouldReplacePortsIgnoresOrderAndDuplicates() {
+        XCTAssertFalse(
+            TerminalController.shouldReplacePorts(
+                current: [9229, 3000],
+                next: [3000, 9229, 3000]
+            )
+        )
+        XCTAssertTrue(
+            TerminalController.shouldReplacePorts(
+                current: [9229, 3000],
+                next: [3000]
+            )
+        )
+    }
+
+    func testExplicitSocketScopeParsesValidUUIDTabAndPanel() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scope = TerminalController.explicitSocketScope(
+            options: [
+                "tab": workspaceId.uuidString,
+                "panel": panelId.uuidString
+            ]
+        )
+        XCTAssertEqual(scope?.workspaceId, workspaceId)
+        XCTAssertEqual(scope?.panelId, panelId)
+    }
+
+    func testExplicitSocketScopeAcceptsSurfaceAlias() {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let scope = TerminalController.explicitSocketScope(
+            options: [
+                "tab": workspaceId.uuidString,
+                "surface": panelId.uuidString
+            ]
+        )
+        XCTAssertEqual(scope?.workspaceId, workspaceId)
+        XCTAssertEqual(scope?.panelId, panelId)
+    }
+
+    func testExplicitSocketScopeRejectsMissingOrInvalidValues() {
+        XCTAssertNil(TerminalController.explicitSocketScope(options: [:]))
+        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": "workspace:1", "panel": UUID().uuidString]))
+        XCTAssertNil(TerminalController.explicitSocketScope(options: ["tab": UUID().uuidString, "panel": "surface:1"]))
+    }
+
+    func testNormalizeReportedDirectoryTrimsWhitespace() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("   /Users/cmux/project   "),
+            "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryResolvesFileURL() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("file:///Users/cmux/project"),
+            "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryLeavesInvalidURLTrimmed() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory("  file://bad host  "),
+            "file://bad host"
+        )
+    }
+}
+
+final class TerminalControllerSocketTextChunkTests: XCTestCase {
+    func testSocketTextChunksReturnsSingleChunkForPlainText() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("echo hello"),
+            [.text("echo hello")]
+        )
+    }
+
+    func testSocketTextChunksSplitsControlScalars() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("abc\rdef\tghi"),
+            [
+                .text("abc"),
+                .control("\r".unicodeScalars.first!),
+                .text("def"),
+                .control("\t".unicodeScalars.first!),
+                .text("ghi")
+            ]
+        )
+    }
+
+    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
+        XCTAssertEqual(
+            TerminalController.socketTextChunks("\r\n\t"),
+            [
+                .control("\r".unicodeScalars.first!),
+                .control("\n".unicodeScalars.first!),
+                .control("\t".unicodeScalars.first!)
+            ]
+        )
     }
 }
