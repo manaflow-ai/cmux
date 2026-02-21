@@ -1,7 +1,12 @@
 import XCTest
 import Foundation
 import AppKit
+
+#if canImport(cmux_DEV)
 @testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 /// Regression test: ensures UpdatePill is never gated behind #if DEBUG in production code paths.
 /// This prevents accidentally hiding the update UI in Release builds.
@@ -142,6 +147,23 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 
         let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
+    }
+
+    func testPreparedNavigationRequestPreservesOriginalMethodBodyAndHeaders() throws {
+        let url = try XCTUnwrap(URL(string: "http://localtest.me:3000/submit"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data("token=abc123".utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
+        let prepared = browserPreparedNavigationRequest(request)
+
+        XCTAssertEqual(prepared.url, url)
+        XCTAssertEqual(prepared.httpMethod, "POST")
+        XCTAssertEqual(prepared.httpBody, Data("token=abc123".utf8))
+        XCTAssertEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
+        XCTAssertEqual(prepared.cachePolicy, .useProtocolCachePolicy)
     }
 
     func testOneTimeBypassIsConsumedAfterFirstNavigation() throws {

@@ -294,6 +294,13 @@ func browserShouldPersistInsecureHTTPAllowlistSelection(
     return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
 }
 
+func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
+    var preparedRequest = request
+    // Match browser behavior for ordinary loads while preserving method/body/headers.
+    preparedRequest.cachePolicy = .useProtocolCachePolicy
+    return preparedRequest
+}
+
 enum BrowserUserAgentSettings {
     // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
@@ -1154,8 +1161,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
             self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
         }
-        navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] url, intent in
-            self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+        navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
+            self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
         navDelegate.onDownloadDetected = { [weak self] _ in
             self?.beginDownloadActivity()
@@ -1190,8 +1197,8 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             self.openLinkInNewTab(url: url)
         }
-        browserUIDelegate.requestNavigation = { [weak self] url, intent in
-            self?.requestNavigation(url, intent: intent)
+        browserUIDelegate.requestNavigation = { [weak self] request, intent in
+            self?.requestNavigation(request, intent: intent)
         }
         webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
@@ -1525,24 +1532,28 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Navigate to a URL
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: url, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
             return
         }
-        navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
     private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
+        let request = URLRequest(url: url)
+        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+    }
+
+    private func navigateWithoutInsecureHTTPPrompt(request: URLRequest, recordTypedNavigation: Bool) {
+        guard let url = request.url else { return }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         if recordTypedNavigation {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        var request = URLRequest(url: url)
-        // Behave like a normal browser (respect HTTP caching). Reload is handled separately.
-        request.cachePolicy = .useProtocolCachePolicy
-        webView.load(request)
+        webView.load(browserPreparedNavigationRequest(request))
     }
 
     /// Navigate with smart URL/search detection
@@ -1573,24 +1584,26 @@ final class BrowserPanel: Panel, ObservableObject {
         return browserShouldBlockInsecureHTTPURL(url)
     }
 
-    private func requestNavigation(_ url: URL, intent: BrowserInsecureHTTPNavigationIntent) {
+    private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
+        guard let url = request.url else { return }
         if shouldBlockInsecureHTTPNavigation(to: url) {
-            presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+            presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
             return
         }
         switch intent {
         case .currentTab:
-            navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+            navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
         case .newTab:
             openLinkInNewTab(url: url)
         }
     }
 
     private func presentInsecureHTTPAlert(
-        for url: URL,
+        for request: URLRequest,
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool
     ) {
+        guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
 
         let alert = NSAlert()
@@ -1621,7 +1634,7 @@ final class BrowserPanel: Panel, ObservableObject {
             switch intent {
             case .currentTab:
                 insecureHTTPBypassHostOnce = host
-                navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+                navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
             case .newTab:
                 openLinkInNewTab(url: url, bypassInsecureHTTPHostOnce: host)
             }
@@ -2263,7 +2276,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
-    var handleBlockedInsecureHTTPNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// Called when navigation response policy decides to route to WKDownload.
     var onDownloadDetected: ((String?) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
@@ -2404,15 +2417,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             } else {
                 intent = .currentTab
             }
-            handleBlockedInsecureHTTPNavigation?(url, intent)
+            handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
             decisionHandler(.cancel)
             return
         }
 
         // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
-           let url = navigationAction.request.url {
-            webView.load(URLRequest(url: url))
+           navigationAction.request.url != nil {
+            webView.load(navigationAction.request)
             decisionHandler(.cancel)
             return
         }
@@ -2504,7 +2517,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
-    var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
@@ -2537,11 +2550,11 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent =
                     navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
-                requestNavigation(url, intent)
+                requestNavigation(navigationAction.request, intent)
             } else if navigationAction.modifierFlags.contains(.command) {
                 openInNewTab?(url)
             } else {
-                webView.load(URLRequest(url: url))
+                webView.load(navigationAction.request)
             }
         }
         return nil
