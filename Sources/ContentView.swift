@@ -7,15 +7,26 @@ import WebKit
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var strokeColor: Color {
+        let baseOpacity = colorScheme == .dark ? 0.30 : 0.18
+        return Color.primary.opacity(baseOpacity * emphasis)
+    }
+
+    private var shadowColor: Color {
+        let baseOpacity = colorScheme == .dark ? 0.22 : 0.08
+        return Color.black.opacity(baseOpacity * emphasis)
+    }
 
     var body: some View {
         Capsule(style: .continuous)
             .fill(.regularMaterial)
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.30 * emphasis), lineWidth: 0.8)
+                    .stroke(strokeColor, lineWidth: 0.8)
             )
-            .shadow(color: Color.black.opacity(0.22 * emphasis), radius: 2, x: 0, y: 1)
+            .shadow(color: shadowColor, radius: 2, x: 0, y: 1)
     }
 }
 
@@ -798,6 +809,7 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
 struct ContentView: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
@@ -825,6 +837,10 @@ struct ContentView: View {
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
     @State private var sidebarResizerCursorStabilizer: DispatchSourceTimer?
+
+    private var defaultTintBaseColor: NSColor {
+        colorScheme == .dark ? .black : .white
+    }
 
     private static let fixedSidebarResizeCursor = NSCursor(
         image: NSCursor.resizeLeftRight.image,
@@ -1517,7 +1533,7 @@ struct ContentView: View {
                     }
                 }
                 // Apply liquid glass effect to the window with tint from settings
-                let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+                let tintColor = (NSColor(hex: bgGlassTintHex) ?? defaultTintBaseColor).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
@@ -1586,7 +1602,7 @@ struct ContentView: View {
     private func updateWindowGlassTint() {
         // Find this view's main window by identifier (keyWindow might be a debug panel/settings).
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
-        let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+        let tintColor = (NSColor(hex: bgGlassTintHex) ?? defaultTintBaseColor).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
     }
 
@@ -2310,18 +2326,32 @@ private struct SidebarDevFooter: View {
 
 private struct SidebarTopScrim: View {
     let height: CGFloat
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var maskColors: [Color] {
+        if colorScheme == .dark {
+            return [
+                Color.black.opacity(0.95),
+                Color.black.opacity(0.75),
+                Color.black.opacity(0.35),
+                Color.clear
+            ]
+        }
+
+        return [
+            Color.white.opacity(0.90),
+            Color.white.opacity(0.64),
+            Color.white.opacity(0.30),
+            Color.clear
+        ]
+    }
 
     var body: some View {
         SidebarTopBlurEffect()
             .frame(height: height)
             .mask(
                 LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.95),
-                        Color.black.opacity(0.75),
-                        Color.black.opacity(0.35),
-                        Color.clear
-                    ],
+                    colors: maskColors,
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -2432,6 +2462,7 @@ private struct SidebarEmptyArea: View {
 }
 
 private struct TabItemView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @ObservedObject var tab: Tab
@@ -2456,6 +2487,34 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+
+    private var activeForegroundColor: Color {
+        Color(nsColor: .alternateSelectedControlTextColor)
+    }
+
+    private var activeSecondaryForegroundColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.82 : 0.78)
+    }
+
+    private var activeTertiaryForegroundColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.68 : 0.62)
+    }
+
+    private var activeSubtleForegroundColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.54 : 0.50)
+    }
+
+    private var activeBadgeFillColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.25 : 0.22)
+    }
+
+    private var activeProgressTrackColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.15 : 0.22)
+    }
+
+    private var activeProgressFillColor: Color {
+        activeForegroundColor.opacity(colorScheme == .dark ? 0.80 : 0.86)
+    }
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -2505,10 +2564,10 @@ private struct TabItemView: View {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
-                            .fill(isActive ? Color.white.opacity(0.25) : Color.accentColor)
+                            .fill(isActive ? activeBadgeFillColor : Color.accentColor)
                         Text("\(unreadCount)")
                             .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(activeForegroundColor)
                     }
                     .frame(width: 16, height: 16)
                 }
@@ -2516,12 +2575,12 @@ private struct TabItemView: View {
                 if tab.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                 }
 
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(isActive ? .white : .primary)
+                    .foregroundColor(isActive ? activeForegroundColor : .primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
@@ -2536,7 +2595,7 @@ private struct TabItemView: View {
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
+                            .foregroundColor(isActive ? activeTertiaryForegroundColor : .secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
@@ -2550,7 +2609,7 @@ private struct TabItemView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundColor(isActive ? .white : .primary)
+                            .foregroundColor(isActive ? activeForegroundColor : .primary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(ShortcutHintPillBackground(emphasis: isActive ? 1.0 : 0.9))
@@ -2568,7 +2627,7 @@ private struct TabItemView: View {
             if let subtitle = latestNotificationText {
                 Text(subtitle)
                     .font(.system(size: 10))
-                    .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                    .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
@@ -2594,7 +2653,7 @@ private struct TabItemView: View {
                         .foregroundColor(logLevelColor(latestLog.level, isActive: isActive))
                     Text(latestLog.message)
                         .font(.system(size: 10))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -2607,9 +2666,9 @@ private struct TabItemView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
-                                .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
+                                .fill(isActive ? activeProgressTrackColor : Color.secondary.opacity(0.2))
                             Capsule()
-                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
+                                .fill(isActive ? activeProgressFillColor : Color.accentColor)
                                 .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
                         }
                     }
@@ -2618,7 +2677,7 @@ private struct TabItemView: View {
                     if let label = progress.label {
                         Text(label)
                             .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .foregroundColor(isActive ? activeTertiaryForegroundColor : .secondary)
                             .lineLimit(1)
                     }
                 }
@@ -2632,7 +2691,7 @@ private struct TabItemView: View {
                         if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
                             Image(systemName: "arrow.triangle.branch")
                                 .font(.system(size: 9))
-                                .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                .foregroundColor(isActive ? activeTertiaryForegroundColor : .secondary)
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
@@ -2640,20 +2699,20 @@ private struct TabItemView: View {
                                     if let branch = line.branch {
                                         Text(branch)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                     }
                                     if line.branch != nil, line.directory != nil {
                                         Image(systemName: "circle.fill")
                                             .font(.system(size: 3))
-                                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                            .foregroundColor(isActive ? activeTertiaryForegroundColor : .secondary)
                                             .padding(.horizontal, 1)
                                     }
                                     if let directory = line.directory {
                                         Text(directory)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                     }
@@ -2667,11 +2726,11 @@ private struct TabItemView: View {
                     if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .foregroundColor(isActive ? activeTertiaryForegroundColor : .secondary)
                     }
                     Text(dirRow)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                        .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -2681,7 +2740,7 @@ private struct TabItemView: View {
             if sidebarShowPorts, !tab.listeningPorts.isEmpty {
                 Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                    .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -3092,11 +3151,11 @@ private struct TabItemView: View {
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
         if isActive {
             switch level {
-            case .info: return .white.opacity(0.5)
-            case .progress: return .white.opacity(0.8)
-            case .success: return .white.opacity(0.9)
-            case .warning: return .white.opacity(0.9)
-            case .error: return .white.opacity(0.9)
+            case .info: return activeSubtleForegroundColor
+            case .progress: return activeSecondaryForegroundColor
+            case .success: return activeForegroundColor
+            case .warning: return activeForegroundColor
+            case .error: return activeForegroundColor
             }
         }
         switch level {
@@ -3146,14 +3205,27 @@ private struct SidebarStatusPillsRow: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
     let onFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var isExpanded: Bool = false
+
+    private var activeTextColor: Color {
+        Color(nsColor: .alternateSelectedControlTextColor)
+    }
+
+    private var activeSecondaryTextColor: Color {
+        activeTextColor.opacity(colorScheme == .dark ? 0.82 : 0.78)
+    }
+
+    private var activeTertiaryTextColor: Color {
+        activeTextColor.opacity(colorScheme == .dark ? 0.65 : 0.60)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(statusText)
                 .font(.system(size: 10))
-                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(isActive ? activeSecondaryTextColor : .secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
@@ -3176,7 +3248,7 @@ private struct SidebarStatusPillsRow: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeTertiaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -3993,6 +4065,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
 }
 
 private struct SidebarBackdrop: View {
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
     @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue
@@ -4001,11 +4074,19 @@ private struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
 
+    private var resolvedTintColor: NSColor {
+        let hasStoredTint = UserDefaults.standard.object(forKey: "sidebarTintHex") != nil
+        let fallbackBase = colorScheme == .dark ? NSColor.black : NSColor.white
+        let fallbackHex = colorScheme == .dark ? "#000000" : "#FFFFFF"
+        let base = NSColor(hex: hasStoredTint ? sidebarTintHex : fallbackHex) ?? fallbackBase
+        return base.withAlphaComponent(sidebarTintOpacity)
+    }
+
     var body: some View {
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
-        let tintColor = (NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
+        let tintColor = resolvedTintColor
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow

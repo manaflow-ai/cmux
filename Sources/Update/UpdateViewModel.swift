@@ -128,7 +128,7 @@ class UpdateViewModel: ObservableObject {
         case .idle:
             return .secondary
         case .permissionRequest:
-            return .white
+            return .accentColor
         case .checking:
             return .secondary
         case .updateAvailable:
@@ -145,11 +145,11 @@ class UpdateViewModel: ObservableObject {
     var backgroundColor: Color {
         switch effectiveState {
         case .permissionRequest:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
+            return Color(nsColor: .controlAccentColor).opacity(0.18)
         case .updateAvailable:
             return .accentColor
         case .notFound:
-            return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.5, of: .black) ?? .systemBlue)
+            return Color(nsColor: .controlAccentColor).opacity(0.14)
         case .error:
             return .orange.opacity(0.2)
         default:
@@ -160,11 +160,11 @@ class UpdateViewModel: ObservableObject {
     var foregroundColor: Color {
         switch effectiveState {
         case .permissionRequest:
-            return .white
+            return .primary
         case .updateAvailable:
             return .white
         case .notFound:
-            return .white
+            return .primary
         case .error:
             return .orange
         default:

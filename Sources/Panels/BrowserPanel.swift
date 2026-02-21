@@ -1009,6 +1009,19 @@ final class BrowserPanel: Panel, ObservableObject {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
+    private static func appPrefersDarkAppearance() -> Bool {
+        let mode = AppearanceSettings.mode(for: UserDefaults.standard.string(forKey: AppearanceSettings.appearanceModeKey))
+        switch mode {
+        case .dark:
+            return true
+        case .light:
+            return false
+        case .system, .auto:
+            let appearance = NSApp?.effectiveAppearance ?? NSApplication.shared.effectiveAppearance
+            return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+    }
+
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
         let userInfo = notification?.userInfo
         let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
@@ -1024,6 +1037,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
+    private static func resolvedBrowserUnderPageBackgroundColor(from notification: Notification? = nil) -> NSColor {
+        if appPrefersDarkAppearance() {
+            return resolvedGhosttyBackgroundColor(from: notification)
+        }
+        return .windowBackgroundColor
     }
 
     let id: UUID
@@ -1153,9 +1173,8 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.isInspectable = true
         }
 
-        // Match the empty-page background to the terminal theme so newly-created browsers
-        // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor()
+        webView.appearance = NSAppearance(named: Self.appPrefersDarkAppearance() ? .darkAqua : .aqua)
+        webView.underPageBackgroundColor = Self.resolvedBrowserUnderPageBackgroundColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1325,7 +1344,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = Self.resolvedBrowserUnderPageBackgroundColor(from: notification)
             }
             .store(in: &cancellables)
     }

@@ -2431,6 +2431,7 @@ enum ClaudeCodeIntegrationSettings {
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
+    @Environment(\.colorScheme) private var colorScheme
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
@@ -2454,6 +2455,40 @@ struct SettingsView: View {
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var browserHistoryEntryCount: Int = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+
+    private var topMaskBaseColors: [Color] {
+        if colorScheme == .dark {
+            return [
+                Color.black.opacity(0.9),
+                Color.black.opacity(0.64),
+                Color.black.opacity(0.36),
+                Color.clear
+            ]
+        }
+        return [
+            Color.white.opacity(0.90),
+            Color.white.opacity(0.64),
+            Color.white.opacity(0.32),
+            Color.clear
+        ]
+    }
+
+    private var topMaskDynamicColors: [Color] {
+        if colorScheme == .dark {
+            return [
+                Color.black.opacity(0.98),
+                Color.black.opacity(0.78),
+                Color.black.opacity(0.42),
+                Color.clear
+            ]
+        }
+        return [
+            Color.white.opacity(0.98),
+            Color.white.opacity(0.78),
+            Color.white.opacity(0.42),
+            Color.clear
+        ]
+    }
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2814,12 +2849,7 @@ struct SettingsView: View {
                 AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.9),
-                                Color.black.opacity(0.64),
-                                Color.black.opacity(0.36),
-                                Color.clear
-                            ],
+                            colors: topMaskBaseColors,
                             startPoint: .top,
                             endPoint: .bottom
                         )
@@ -2829,12 +2859,7 @@ struct SettingsView: View {
                 AboutVisualEffectBackground(material: .underWindowBackground, blendingMode: .withinWindow)
                     .mask(
                         LinearGradient(
-                            colors: [
-                                Color.black.opacity(0.98),
-                                Color.black.opacity(0.78),
-                                Color.black.opacity(0.42),
-                                Color.clear
-                            ],
+                            colors: topMaskDynamicColors,
                             startPoint: .top,
                             endPoint: .bottom
                         )

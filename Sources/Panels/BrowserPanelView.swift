@@ -162,6 +162,7 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -216,6 +217,10 @@ struct BrowserPanelView: View {
 
     private var devToolsColorOption: BrowserDevToolsIconColorOption {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
+
+    private var browserChromeBackgroundColor: Color {
+        Color(nsColor: colorScheme == .dark ? GhosttyApp.shared.defaultBackgroundColor : .windowBackgroundColor)
     }
 
     var body: some View {
@@ -370,7 +375,7 @@ struct BrowserPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
-        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        .background(browserChromeBackgroundColor)
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
     }
@@ -555,7 +560,8 @@ struct BrowserPanelView: View {
                     shouldAttachWebView: isVisibleInUI,
                     shouldFocusWebView: isFocused && !addressBarFocused,
                     isPanelFocused: isFocused,
-                    portalZPriority: portalPriority
+                    portalZPriority: portalPriority,
+                    preferredColorScheme: colorScheme
                 )
                 // Keep the representable identity stable across bonsplit structural updates.
                 // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
@@ -569,7 +575,7 @@ struct BrowserPanelView: View {
                     }
                 })
             } else {
-                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                browserChromeBackgroundColor
                     .contentShape(Rectangle())
                     .onTapGesture {
                         onRequestPanelFocus()
@@ -2439,6 +2445,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 }
 
 private struct OmnibarSuggestionsView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let engineName: String
     let items: [OmnibarSuggestion]
     let selectedIndex: Int
@@ -2457,6 +2464,58 @@ private struct OmnibarSuggestionsView: View {
     private let bottomInset: CGFloat = 3
     private var horizontalInset: CGFloat { topInset }
     private let maxPopupHeight: CGFloat = 560
+
+    private var rowTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.9) : Color.primary.opacity(0.92)
+    }
+
+    private var badgeTextColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.72) : Color.secondary.opacity(0.95)
+    }
+
+    private var badgeBackgroundColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
+    }
+
+    private var selectedRowFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.08)
+    }
+
+    private var popupOverlayGradient: LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [
+                    Color.black.opacity(0.26),
+                    Color.black.opacity(0.14),
+                ]
+                : [
+                    Color.white.opacity(0.28),
+                    Color.white.opacity(0.10),
+                ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var popupBorderGradient: LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [
+                    Color.white.opacity(0.22),
+                    Color.white.opacity(0.06),
+                ]
+                : [
+                    Color.black.opacity(0.18),
+                    Color.black.opacity(0.04),
+                ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var popupShadowColor: Color {
+        colorScheme == .dark ? Color.black.opacity(0.45) : Color.black.opacity(0.18)
+    }
 
     private var totalRowCount: Int {
         max(1, items.count)
@@ -2516,18 +2575,18 @@ private struct OmnibarSuggestionsView: View {
                 HStack(spacing: 6) {
                         Text(item.listText)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color.white.opacity(0.9))
+                            .foregroundStyle(rowTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
                                 .font(.system(size: 9.5, weight: .medium))
-                                .foregroundStyle(Color.white.opacity(0.72))
+                                .foregroundStyle(badgeTextColor)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(badgeBackgroundColor)
                                 )
                         }
                         Spacer(minLength: 0)
@@ -2543,7 +2602,7 @@ private struct OmnibarSuggestionsView: View {
                         RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
                             .fill(
                                 idx == selectedIndex
-                                    ? Color.white.opacity(0.12)
+                                    ? selectedRowFillColor
                                     : Color.clear
                             )
                     )
@@ -2596,33 +2655,14 @@ private struct OmnibarSuggestionsView: View {
                 .fill(.ultraThinMaterial)
                 .overlay(
                     RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.26),
-                                    Color.black.opacity(0.14),
-                                ],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                        .fill(popupOverlayGradient)
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.22),
-                            Color.white.opacity(0.06),
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+                .stroke(popupBorderGradient, lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
+        .shadow(color: popupShadowColor, radius: 20, y: 10)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
@@ -2638,6 +2678,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     let shouldFocusWebView: Bool
     let isPanelFocused: Bool
     let portalZPriority: Int
+    let preferredColorScheme: ColorScheme
 
     final class Coordinator {
         weak var panel: BrowserPanel?
@@ -2799,6 +2840,23 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = host as? HostContainerView else { return }
         host.onDidMoveToWindow = nil
         host.onGeometryChanged = nil
+    }
+
+    private static func applyTheme(
+        to webView: WKWebView,
+        preferredColorScheme: ColorScheme
+    ) {
+        let desiredAppearanceName: NSAppearance.Name = preferredColorScheme == .dark ? .darkAqua : .aqua
+        if webView.appearance?.name != desiredAppearanceName {
+            webView.appearance = NSAppearance(named: desiredAppearanceName)
+        }
+
+        if preferredColorScheme == .light {
+            let desiredBackgroundColor = NSColor.windowBackgroundColor
+            if webView.underPageBackgroundColor?.isEqual(desiredBackgroundColor) != true {
+                webView.underPageBackgroundColor = desiredBackgroundColor
+            }
+        }
     }
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
@@ -2998,6 +3056,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let webView = panel.webView
         context.coordinator.panel = panel
         context.coordinator.webView = webView
+        Self.applyTheme(to: webView, preferredColorScheme: preferredColorScheme)
 
         let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
         if shouldUseWindowPortal {

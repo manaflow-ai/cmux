@@ -180,14 +180,23 @@ struct EmptyPanelView: View {
 
     private struct ShortcutHint: View {
         let text: String
+        @Environment(\.colorScheme) private var colorScheme
+
+        private var textColor: Color {
+            Color.primary.opacity(colorScheme == .dark ? 0.90 : 0.86)
+        }
+
+        private var backgroundColor: Color {
+            Color.primary.opacity(colorScheme == .dark ? 0.18 : 0.10)
+        }
 
         var body: some View {
             Text(text)
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.9))
+                .foregroundStyle(textColor)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(.white.opacity(0.18), in: Capsule())
+                .background(backgroundColor, in: Capsule())
         }
     }
 

@@ -330,7 +330,7 @@ struct TitlebarControlsView: View {
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
                             .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color(nsColor: .alternateSelectedControlTextColor))
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
                                 Circle().fill(Color.accentColor)
