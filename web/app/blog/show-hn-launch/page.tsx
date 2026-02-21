@@ -118,11 +118,38 @@ export default function ShowHNLaunchPage() {
       <blockquote className="border-l-2 border-border pl-4 my-6 text-muted space-y-3 text-[15px]">
         <p>
           Hey, this looks seriously awesome. Love the ideas here, specifically:
-          the programmability, layered UI, browser w/ api. Looking forward to
-          giving this a spin. Also want to add that I really appreciate Mitchell
-          Hashimoto creating libghostty; it feels like an exciting time to be a
-          terminal user.
+          the programmability (I haven&apos;t tried it yet, but had been
+          considering learning tmux partly for this), layered UI, browser w/
+          api. Looking forward to giving this a spin. Also want to add that I
+          really appreciate Mitchell Hashimoto creating libghostty; it feels
+          like an exciting time to be a terminal user.
         </p>
+        <p>Some feedback (since you were asking for it elsewhere in the thread!):</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            It&apos;s not obvious/easy to open browser dev tools (cmd-alt-i
+            didn&apos;t work), and when I did find it (right click page →
+            inspect element) none of the controls were visible but I could see
+            stuff happening when I moved my mouse over the panel
+          </li>
+          <li>
+            Would be cool to borrow more of ghostty&apos;s behavior:
+            <ul className="list-disc pl-5 mt-1 space-y-1">
+              <li>
+                hotkey overrides – I have some things explicitly unmapped /
+                remapped in my ghostty config that conflict with some cmux
+                keybindings and weren&apos;t respected
+              </li>
+              <li>
+                command palette (cmd-shift-p) for less-often-used actions +
+                discoverability
+              </li>
+              <li>
+                cmd-z to &quot;zoom in&quot; to a pane is enormously useful imo
+              </li>
+            </ul>
+          </li>
+        </ul>
         <p className="text-xs">
           —{" "}
           <a href="https://news.ycombinator.com/item?id=47081798" className="hover:text-foreground transition-colors">
