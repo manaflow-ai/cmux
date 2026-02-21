@@ -89,6 +89,9 @@ struct WorkspaceContentView: View {
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
         }
+        .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
             refreshGhosttyAppearanceConfig()
         }
@@ -106,18 +109,30 @@ struct WorkspaceContentView: View {
     }
 
     private func syncBonsplitNotificationBadges() {
-        let unreadPanelIds: Set<UUID> = Set(
+        let unreadFromNotifications: Set<UUID> = Set(
             notificationStore.notifications
                 .filter { $0.tabId == workspace.id && !$0.isRead }
                 .compactMap { $0.surfaceId }
         )
+        let manualUnread = workspace.manualUnreadPanelIds
 
         for paneId in workspace.bonsplitController.allPaneIds {
             for tab in workspace.bonsplitController.tabs(inPane: paneId) {
                 let panelId = workspace.panelIdFromSurfaceId(tab.id)
-                let shouldShow = panelId.map { unreadPanelIds.contains($0) } ?? false
-                if tab.showsNotificationBadge != shouldShow {
-                    workspace.bonsplitController.updateTab(tab.id, showsNotificationBadge: shouldShow)
+                let expectedKind = panelId.flatMap { workspace.panelKind(panelId: $0) }
+                let expectedPinned = panelId.map { workspace.isPanelPinned($0) } ?? false
+                let shouldShow = panelId.map { unreadFromNotifications.contains($0) || manualUnread.contains($0) } ?? false
+                let kindUpdate: String?? = expectedKind.map { .some($0) }
+
+                if tab.showsNotificationBadge != shouldShow ||
+                    tab.isPinned != expectedPinned ||
+                    (expectedKind != nil && tab.kind != expectedKind) {
+                    workspace.bonsplitController.updateTab(
+                        tab.id,
+                        kind: kindUpdate,
+                        showsNotificationBadge: shouldShow,
+                        isPinned: expectedPinned
+                    )
                 }
             }
         }
