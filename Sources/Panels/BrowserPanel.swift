@@ -2002,15 +2002,9 @@ extension BrowserPanel {
         browserFindDebugLog(
             "browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\" unchanged=\(unchanged)"
         )
-        if unchanged {
-            // SwiftUI can emit duplicate empty-value updates; keep this idempotent clear path
-            // so stale highlights are removed even when the model value doesn't change.
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                _ = runInPageFindFallback(backwards: false)
-            }
-            return
-        }
-        _ = runInPageFindFallback(backwards: false)
+        // SwiftUI can emit duplicate value updates while editing; always rerun with reset
+        // semantics so stale highlights are replaced without advancing to the next match.
+        _ = runInPageFindFallback(backwards: false, forceReset: true)
     }
 
     @discardableResult
@@ -2747,13 +2741,14 @@ private extension BrowserPanel {
     }
 
     @discardableResult
-    func runInPageFindFallback(backwards: Bool) -> Bool {
+    func runInPageFindFallback(backwards: Bool, forceReset: Bool = false) -> Bool {
         _ = showInPageFindFallback(focusField: inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         let query = inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let queryChanged = query != inPageFindLastQuery
-        let direction = queryChanged ? "reset" : (backwards ? "prev" : "next")
+        let shouldReset = forceReset || queryChanged
+        let direction = shouldReset ? "reset" : (backwards ? "prev" : "next")
         browserFindDebugLog(
-            "browser.inPageFind.run panel=\(id.uuidString) backwards=\(backwards) queryChanged=\(queryChanged) direction=\(direction) query=\"\(query)\""
+            "browser.inPageFind.run panel=\(id.uuidString) backwards=\(backwards) queryChanged=\(queryChanged) forceReset=\(forceReset) direction=\(direction) query=\"\(query)\""
         )
         guard !query.isEmpty else {
             inPageFindMatchFound = nil
@@ -2780,7 +2775,7 @@ private extension BrowserPanel {
                 BrowserInPageFindDebugRequest(
                     query: query,
                     direction: direction,
-                    queryChanged: queryChanged,
+                    queryChanged: shouldReset,
                     requestSequence: requestSequence
                 )
             )
@@ -2799,7 +2794,7 @@ private extension BrowserPanel {
         let payload: [String: Any] = [
             "query": query,
             "direction": direction,
-            "queryChanged": queryChanged,
+            "queryChanged": shouldReset,
             "requestSequence": requestSequence,
             "allBackground": colors.allBackground,
             "allForeground": colors.allForeground,

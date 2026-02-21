@@ -1425,11 +1425,12 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
             panel.updateInPageFindQuery("example")
         }
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
-        XCTAssertEqual(requests.map(\.direction), ["reset"])
+        XCTAssertEqual(requests.map(\.direction), ["reset", "reset", "reset", "reset"])
+        XCTAssertEqual(requests.map(\.queryChanged), [true, true, true, true])
 
         XCTAssertTrue(panel.inPageFindNextFromUI())
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 2)
-        XCTAssertEqual(requests.map(\.direction), ["reset", "next"])
+        XCTAssertEqual(requests.map(\.direction), ["reset", "reset", "reset", "reset", "next"])
     }
 
     func testClearingBrowserFindQueryResetsFallbackState() {
