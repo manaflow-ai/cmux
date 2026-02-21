@@ -2818,6 +2818,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        #if DEBUG
+        let types = sender.draggingPasteboard.types ?? []
+        dlog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
+        #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
         if Set(types).isDisjoint(with: Self.dropTypes) {
             return []
