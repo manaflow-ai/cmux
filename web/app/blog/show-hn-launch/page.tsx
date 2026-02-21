@@ -124,11 +124,6 @@ export default function ShowHNLaunchPage() {
       </p>
 
       <p>
-        We didn&apos;t expect international adoption this early. Turns out
-        managing parallel AI agents is a universal pain point.
-      </p>
-
-      <p>
         Another exciting thing was seeing people build on top of the socket
         API. sasha built a pi-cmux extension that shows model info, token
         usage, and agent state in the sidebar:
