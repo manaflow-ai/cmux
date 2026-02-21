@@ -12,6 +12,7 @@ type DevValues = {
   featuresLh: number;
   featuresPt: number;
   featuresPb: number;
+  communityGap: number;
   faqPt: number;
   docsPt: number;
 };
@@ -26,6 +27,7 @@ const defaults: DevValues = {
   featuresLh: 1.275,
   featuresPt: 12,
   featuresPb: 15,
+  communityGap: 12,
   faqPt: 0,
   docsPt: 8,
 };
@@ -75,6 +77,13 @@ function applyToDOM(v: DevValues) {
   if (features) {
     features.style.paddingTop = `${v.featuresPt}px`;
     features.style.paddingBottom = `${v.featuresPb}px`;
+  }
+
+  const communityUl = el("community-ul");
+  if (communityUl) {
+    communityUl.style.display = "flex";
+    communityUl.style.flexDirection = "column";
+    communityUl.style.gap = `${v.communityGap}px`;
   }
 
   const faqTopSpacer = el("faq-top-spacer");
@@ -170,6 +179,10 @@ export function DevPanel() {
         <Row label="pb" value={vals.featuresPb} onChange={(v) => update({ featuresPb: v })} />
       </Section>
 
+      <Section label="Community">
+        <Row label="gap" value={vals.communityGap} onChange={(v) => update({ communityGap: v })} />
+      </Section>
+
       <Section label="FAQ">
         <Row label="pt" value={vals.faqPt} onChange={(v) => update({ faqPt: v })} />
       </Section>
@@ -190,6 +203,7 @@ export function DevPanel() {
             `features-lh: ${vals.featuresLh}`,
             `features-pt: ${vals.featuresPt}px`,
             `features-pb: ${vals.featuresPb}px`,
+            `community-gap: ${vals.communityGap}px`,
             `faq-pt: ${vals.faqPt}px`,
             `docs-pt: ${vals.docsPt}px`,
           ].join(", ");
