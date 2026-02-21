@@ -24,10 +24,10 @@ const columns = [
     ],
   },
   {
-    heading: "Connect",
+    heading: "Social",
     links: [
       { label: "GitHub", href: "https://github.com/manaflow-ai/cmux" },
-      { label: "X", href: "https://twitter.com/manaflowai" },
+      { label: "X / Twitter", href: "https://twitter.com/manaflowai" },
       { label: "Discord", href: "https://discord.gg/xsgFEVrWCZ" },
       { label: "Contact", href: "mailto:founders@manaflow.com" },
     ],
