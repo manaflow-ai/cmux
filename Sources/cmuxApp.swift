@@ -2649,7 +2649,7 @@ struct SettingsView: View {
                             Text("HTTP Hosts Allowed in Embedded Browser")
                                 .font(.system(size: 13, weight: .semibold))
 
-                            Text("Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt.")
+                            Text("Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt. Add 0.0.0.0 if your local dev server emits links with that host.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
@@ -2669,7 +2669,7 @@ struct SettingsView: View {
 
                             ViewThatFits(in: .horizontal) {
                                 HStack(alignment: .center, spacing: 10) {
-                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, 0.0.0.0, *.localtest.me).")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
