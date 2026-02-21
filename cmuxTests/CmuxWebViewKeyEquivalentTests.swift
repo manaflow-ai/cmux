@@ -3008,3 +3008,78 @@ final class BrowserHostWhitelistTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
     }
 }
+
+final class TerminalControllerSidebarDedupeTests: XCTestCase {
+    func testShouldReplaceStatusEntryReturnsFalseForUnchangedPayload() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "idle",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123)
+        )
+        XCTAssertFalse(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "idle",
+                icon: "bolt",
+                color: "#ffffff"
+            )
+        )
+    }
+
+    func testShouldReplaceStatusEntryReturnsTrueWhenValueChanges() {
+        let current = SidebarStatusEntry(
+            key: "agent",
+            value: "idle",
+            icon: "bolt",
+            color: "#ffffff",
+            timestamp: Date(timeIntervalSince1970: 123)
+        )
+        XCTAssertTrue(
+            TerminalController.shouldReplaceStatusEntry(
+                current: current,
+                key: "agent",
+                value: "running",
+                icon: "bolt",
+                color: "#ffffff"
+            )
+        )
+    }
+
+    func testShouldReplaceProgressReturnsFalseForUnchangedPayload() {
+        XCTAssertFalse(
+            TerminalController.shouldReplaceProgress(
+                current: SidebarProgressState(value: 0.42, label: "indexing"),
+                value: 0.42,
+                label: "indexing"
+            )
+        )
+    }
+
+    func testShouldReplaceGitBranchReturnsFalseForUnchangedPayload() {
+        XCTAssertFalse(
+            TerminalController.shouldReplaceGitBranch(
+                current: SidebarGitBranchState(branch: "main", isDirty: true),
+                branch: "main",
+                isDirty: true
+            )
+        )
+    }
+
+    func testShouldReplacePortsIgnoresOrderAndDuplicates() {
+        XCTAssertFalse(
+            TerminalController.shouldReplacePorts(
+                current: [9229, 3000],
+                next: [3000, 9229, 3000]
+            )
+        )
+        XCTAssertTrue(
+            TerminalController.shouldReplacePorts(
+                current: [9229, 3000],
+                next: [3000]
+            )
+        )
+    }
+}
