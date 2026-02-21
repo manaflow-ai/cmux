@@ -9,6 +9,7 @@ NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
+CMUX_DEBUG_LOG=""
 
 usage() {
   cat <<'EOF'
@@ -82,12 +83,14 @@ print_tag_cleanup_reminder() {
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
       echo "  rm -rf \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
   echo "  rm -rf \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
 
@@ -243,12 +246,16 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
       CMUX_SOCKET="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       echo "$CMUX_SOCKET" > /tmp/cmux-last-socket-path || true
+      echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET}\"" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_DEBUG_LOG \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_DEBUG_LOG string \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST"
       if [[ -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
@@ -295,6 +302,7 @@ OPEN_CLEAN_ENV=(
   -u CMUX_PANEL_ID
   -u CMUXD_UNIX_PATH
   -u CMUX_TAG
+  -u CMUX_DEBUG_LOG
   -u CMUX_BUNDLE_ID
   -u CMUX_SHELL_INTEGRATION
   -u GHOSTTY_BIN_DIR
@@ -310,10 +318,11 @@ OPEN_CLEAN_ENV=(
 
 if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
   # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open "$APP_PATH"
 elif [[ -n "${TAG_SLUG:-}" ]]; then
-  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" open "$APP_PATH"
+  "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open "$APP_PATH"
 else
+  echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
   "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
 fi
 osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
