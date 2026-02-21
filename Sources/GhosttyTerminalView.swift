@@ -1135,6 +1135,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
+    private var backgroundSurfaceStartQueued = false
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1614,6 +1615,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         writeTextData(data, to: surface)
+    }
+
+    func requestBackgroundSurfaceStartIfNeeded() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.requestBackgroundSurfaceStartIfNeeded()
+            }
+            return
+        }
+
+        guard surface == nil, attachedView != nil else { return }
+        guard !backgroundSurfaceStartQueued else { return }
+        backgroundSurfaceStartQueued = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.backgroundSurfaceStartQueued = false
+            guard self.surface == nil, let view = self.attachedView else { return }
+            #if DEBUG
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            #endif
+            self.createSurface(for: view)
+            #if DEBUG
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            dlog(
+                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+            )
+            #endif
+        }
     }
 
     private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {

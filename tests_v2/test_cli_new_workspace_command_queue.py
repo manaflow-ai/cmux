@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: `new-workspace --command` must not block/fail before surface attach."""
+"""Regression: `new-workspace --command` should execute without selecting the workspace."""
 
 from __future__ import annotations
 
@@ -89,9 +89,6 @@ def main() -> int:
             # Creation with --command should not steal focus.
             _must(c.current_workspace() == baseline_ws_id, "new-workspace --command should preserve selected workspace")
 
-            # Selecting the created workspace should attach/create the surface and flush queued input.
-            c.select_workspace(created_ws_id)
-
             observed = ""
             deadline = time.time() + 12.0
             while time.time() < deadline:
@@ -106,6 +103,7 @@ def main() -> int:
 
             _must(marker.exists(), f"Command marker file was not created: {marker}")
             _must(observed == token, f"Queued command did not execute as expected: expected={token!r} observed={observed!r}")
+            _must(c.current_workspace() == baseline_ws_id, "Command execution should not switch selected workspace")
         finally:
             if created_ws_id:
                 try:
@@ -118,7 +116,7 @@ def main() -> int:
     except OSError:
         pass
 
-    print("PASS: new-workspace --command queues input until surface attach and returns without blocking")
+    print("PASS: new-workspace --command executes without opening the created workspace")
     return 0
 
 
