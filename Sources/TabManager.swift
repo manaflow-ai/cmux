@@ -340,6 +340,7 @@ class TabManager: ObservableObject {
     private var workspaceCycleGeneration: UInt64 = 0
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
+    private let ghosttyConfigProvider: () -> GhosttyConfig
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -354,7 +355,11 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
+    init(
+        initialWorkingDirectory: String? = nil,
+        ghosttyConfigProvider: @escaping () -> GhosttyConfig = GhosttyConfig.load
+    ) {
+        self.ghosttyConfigProvider = ghosttyConfigProvider
         addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -510,6 +515,11 @@ class TabManager: ObservableObject {
     }
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
+        let config = ghosttyConfigProvider()
+        if !config.windowInheritWorkingDirectory {
+            return nil
+        }
+
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }) else {
             return nil

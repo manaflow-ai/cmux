@@ -828,6 +828,51 @@ final class WorkspaceReorderTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerWorkingDirectoryInheritanceTests: XCTestCase {
+    func testAddWorkspaceInheritsSelectedWorkspaceDirectoryWhenEnabled() {
+        var config = GhosttyConfig()
+        config.windowInheritWorkingDirectory = true
+        let manager = TabManager(ghosttyConfigProvider: { config })
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let inheritedDirectory = "/tmp/cmux-working-dir-inherit-\(UUID().uuidString)"
+        first.currentDirectory = inheritedDirectory
+
+        let second = manager.addWorkspace()
+        XCTAssertEqual(second.currentDirectory, inheritedDirectory)
+    }
+
+    func testAddWorkspaceDoesNotInheritSelectedWorkspaceDirectoryWhenDisabled() {
+        var config = GhosttyConfig()
+        config.windowInheritWorkingDirectory = false
+        let manager = TabManager(ghosttyConfigProvider: { config })
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let nonInheritedDirectory = "/tmp/cmux-working-dir-no-inherit-\(UUID().uuidString)"
+        first.currentDirectory = nonInheritedDirectory
+
+        let second = manager.addWorkspace()
+        XCTAssertNotEqual(second.currentDirectory, nonInheritedDirectory)
+    }
+
+    func testAddWorkspaceHonorsExplicitOverrideWhenInheritanceDisabled() {
+        var config = GhosttyConfig()
+        config.windowInheritWorkingDirectory = false
+        let manager = TabManager(ghosttyConfigProvider: { config })
+        let explicitDirectory = "/tmp/cmux-working-dir-explicit-\(UUID().uuidString)"
+
+        let second = manager.addWorkspace(workingDirectory: explicitDirectory)
+        XCTAssertEqual(second.currentDirectory, explicitDirectory)
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()

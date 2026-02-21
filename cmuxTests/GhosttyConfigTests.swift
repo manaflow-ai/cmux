@@ -45,6 +45,23 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(candidates.contains("iTerm2 Solarized Dark"))
     }
 
+    func testWindowInheritWorkingDirectoryParsesBooleanValues() {
+        var config = GhosttyConfig()
+        XCTAssertTrue(config.windowInheritWorkingDirectory)
+
+        config.parse("window-inherit-working-directory=false")
+        XCTAssertFalse(config.windowInheritWorkingDirectory)
+
+        config.parse("window-inherit-working-directory=on")
+        XCTAssertTrue(config.windowInheritWorkingDirectory)
+    }
+
+    func testWindowInheritWorkingDirectoryIgnoresInvalidValues() {
+        var config = GhosttyConfig()
+        config.parse("window-inherit-working-directory=maybe")
+        XCTAssertTrue(config.windowInheritWorkingDirectory)
+    }
+
     func testThemeSearchPathsIncludeXDGDataDirsThemes() {
         let pathA = "/tmp/cmux-theme-a"
         let pathB = "/tmp/cmux-theme-b"
