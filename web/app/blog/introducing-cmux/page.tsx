@@ -5,6 +5,35 @@ export const metadata: Metadata = {
   title: "Introducing cmux",
   description:
     "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+  keywords: [
+    "cmux",
+    "terminal",
+    "macOS",
+    "Ghostty",
+    "libghostty",
+    "AI coding agents",
+    "Claude Code",
+    "vertical tabs",
+    "split panes",
+    "socket API",
+  ],
+  openGraph: {
+    title: "Introducing cmux",
+    description:
+      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+    type: "article",
+    publishedTime: "2026-02-12T00:00:00Z",
+    url: "https://cmux.dev/blog/introducing-cmux",
+  },
+  twitter: {
+    card: "summary",
+    title: "Introducing cmux",
+    description:
+      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+  },
+  alternates: {
+    canonical: "https://cmux.dev/blog/introducing-cmux",
+  },
 };
 
 export default function IntroducingCmuxPage() {
@@ -20,7 +49,7 @@ export default function IntroducingCmuxPage() {
       </div>
 
       <h1>Introducing cmux</h1>
-      <time className="text-sm text-muted">February 12, 2026</time>
+      <time dateTime="2026-02-12" className="text-sm text-muted">February 12, 2026</time>
 
       <p className="mt-6">
         cmux is a native macOS terminal application built on top of Ghostty,

@@ -9,7 +9,7 @@ import starHistory from "./star-history.png";
 export const metadata: Metadata = {
   title: "Launching cmux on Show HN",
   description:
-    "cmux launched on Hacker News, hit the front page, went viral in Japan, and shipped 18 releases in 48 hours. Here's what happened.",
+    "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI. Here's what happened.",
   keywords: [
     "cmux",
     "Show HN",
@@ -20,14 +20,27 @@ export const metadata: Metadata = {
     "libghostty",
     "AI coding agents",
     "Claude Code",
+    "Codex",
     "launch",
+    "vertical tabs",
+    "notification rings",
   ],
   openGraph: {
     title: "Launching cmux on Show HN",
     description:
-      "cmux launched on Hacker News, hit the front page, went viral in Japan, and shipped 18 releases in 48 hours.",
+      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
     type: "article",
     publishedTime: "2026-02-21T00:00:00Z",
+    url: "https://cmux.dev/blog/show-hn-launch",
+  },
+  twitter: {
+    card: "summary",
+    title: "Launching cmux on Show HN",
+    description:
+      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
+  },
+  alternates: {
+    canonical: "https://cmux.dev/blog/show-hn-launch",
   },
 };
 
@@ -44,7 +57,7 @@ export default function ShowHNLaunchPage() {
       </div>
 
       <h1>Launching cmux on Show HN</h1>
-      <time className="text-sm text-muted">February 21, 2026</time>
+      <time dateTime="2026-02-21" className="text-sm text-muted">February 21, 2026</time>
 
       <p className="mt-6">
         We posted cmux on{" "}
