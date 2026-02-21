@@ -1002,6 +1002,23 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.branch), ["main", "feature/left", "feature/right"])
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
+
+    func testClosingPaneDropsBranchesFromClosedSide() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected left/right split panes")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftPanelId, branch: "branch1", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: rightPanel.id, branch: "branch2", isDirty: false)
+
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch1", "branch2"])
+        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["branch2"])
+    }
 }
 
 final class SidebarBranchOrderingTests: XCTestCase {

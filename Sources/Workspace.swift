@@ -330,6 +330,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    /// Panel IDs that were in a pane when a pane-close operation was approved.
+    /// Bonsplit pane-close does not emit per-tab didClose callbacks.
+    private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var isApplyingTabSelection = false
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
@@ -1880,7 +1883,36 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        _ = paneId
+        let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+
+        if !closedPanelIds.isEmpty {
+            for panelId in closedPanelIds {
+                panels[panelId]?.close()
+                panels.removeValue(forKey: panelId)
+                panelDirectories.removeValue(forKey: panelId)
+                panelGitBranches.removeValue(forKey: panelId)
+                panelTitles.removeValue(forKey: panelId)
+                panelCustomTitles.removeValue(forKey: panelId)
+                pinnedPanelIds.remove(panelId)
+                manualUnreadPanelIds.remove(panelId)
+                panelSubscriptions.removeValue(forKey: panelId)
+                surfaceTTYNames.removeValue(forKey: panelId)
+                surfaceListeningPorts.removeValue(forKey: panelId)
+                PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+            }
+
+            let closedSet = Set(closedPanelIds)
+            surfaceIdToPanelId = surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
+            recomputeListeningPorts()
+
+            if let focusedPane = bonsplitController.focusedPaneId,
+               let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+                applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
+            } else {
+                scheduleFocusReconcile()
+            }
+        }
+
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }
@@ -1893,9 +1925,11 @@ extension Workspace: BonsplitDelegate {
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
                terminalPanel.needsConfirmClose() {
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
         }
+        pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         return true
     }
 
