@@ -461,6 +461,9 @@ class TerminalController {
         case "reset_sidebar":
             return resetSidebar(args)
 
+        case "read_screen":
+            return readScreenText(args)
+
 
 #if DEBUG
         case "set_shortcut":
@@ -495,9 +498,6 @@ class TerminalController {
 
         case "read_terminal_text":
             return readTerminalText(args)
-
-        case "read_screen":
-            return readScreen(args)
 
         case "render_stats":
             return renderStats(args)
@@ -896,6 +896,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+        case "surface.read_text":
+            return v2Result(id: id, self.v2SurfaceReadText(params: params))
 
 
 #if DEBUG
@@ -973,6 +975,7 @@ class TerminalController {
             "surface.health",
             "surface.send_text",
             "surface.send_key",
+            "surface.read_text",
             "surface.trigger_flash",
             "pane.list",
             "pane.focus",
@@ -2385,6 +2388,36 @@ class TerminalController {
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
+    }
+
+    private func v2SurfaceReadText(params: [String: Any]) -> V2CallResult {
+        var includeScrollback = v2Bool(params, "scrollback") ?? false
+        let lineLimit = v2Int(params, "lines")
+        if let lineLimit, lineLimit <= 0 {
+            return .err(code: "invalid_params", message: "lines must be greater than 0", data: nil)
+        }
+        if lineLimit != nil {
+            includeScrollback = true
+        }
+
+        let response = readTerminalTextBase64(
+            surfaceArg: v2String(params, "surface_id") ?? "",
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
+        guard response.hasPrefix("OK ") else {
+            return .err(code: "internal_error", message: response, data: nil)
+        }
+        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
+        guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
+            return .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
+        }
+
+        return .ok([
+            "text": text,
+            "base64": base64
+        ])
     }
 
     private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
@@ -6193,6 +6226,161 @@ class TerminalController {
     }
 #endif
 
+    private struct ReadScreenOptions {
+        let surfaceArg: String
+        let includeScrollback: Bool
+        let lineLimit: Int?
+    }
+
+    private struct ReadScreenParseError: Error {
+        let message: String
+    }
+
+    private func parseReadScreenArgs(_ args: String) -> Result<ReadScreenOptions, ReadScreenParseError> {
+        let tokens = args
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        var surfaceArg: String?
+        var includeScrollback = false
+        var lineLimit: Int?
+        var idx = 0
+
+        while idx < tokens.count {
+            let token = tokens[idx]
+            switch token {
+            case "--scrollback":
+                includeScrollback = true
+                idx += 1
+            case "--lines":
+                guard idx + 1 < tokens.count, let parsed = Int(tokens[idx + 1]), parsed > 0 else {
+                    return .failure(ReadScreenParseError(message: "ERROR: --lines must be greater than 0"))
+                }
+                lineLimit = parsed
+                includeScrollback = true
+                idx += 2
+            default:
+                guard surfaceArg == nil else {
+                    return .failure(ReadScreenParseError(message: "ERROR: Usage: read_screen [id|idx] [--scrollback] [--lines <n>]"))
+                }
+                surfaceArg = token
+                idx += 1
+            }
+        }
+
+        return .success(
+            ReadScreenOptions(
+                surfaceArg: surfaceArg ?? "",
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+        )
+    }
+
+    private func tailTerminalLines(_ text: String, maxLines: Int) -> String {
+        guard maxLines > 0 else { return "" }
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > maxLines else { return text }
+        return lines.suffix(maxLines).joined(separator: "\n")
+    }
+
+    private func readTerminalTextBase64(surfaceArg: String, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmedSurfaceArg = surfaceArg.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = "ERROR: No tab selected"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+
+            let panelId: UUID?
+            if trimmedSurfaceArg.isEmpty {
+                panelId = tab.focusedPanelId
+            } else {
+                panelId = resolveSurfaceId(from: trimmedSurfaceArg, tab: tab)
+            }
+
+            guard let panelId,
+                  let terminalPanel = tab.terminalPanel(for: panelId),
+                  let surface = terminalPanel.surface.surface else {
+                result = "ERROR: Terminal surface not found"
+                return
+            }
+
+            let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
+            let topLeft = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            )
+            let bottomRight = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            )
+            var selection = ghostty_selection_s(
+                top_left: topLeft,
+                bottom_right: bottomRight,
+                rectangle: true
+            )
+            var text = ghostty_text_s()
+
+            guard ghostty_surface_read_text(surface, selection, &text) else {
+                result = "ERROR: Failed to read terminal text"
+                return
+            }
+            defer {
+                ghostty_surface_free_text(surface, &text)
+            }
+
+            let rawData: Data
+            if let ptr = text.text, text.text_len > 0 {
+                rawData = Data(bytes: ptr, count: Int(text.text_len))
+            } else {
+                rawData = Data()
+            }
+
+            var output = String(decoding: rawData, as: UTF8.self)
+            if let lineLimit {
+                output = tailTerminalLines(output, maxLines: lineLimit)
+            }
+
+            let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
+            result = "OK \(base64)"
+        }
+        return result
+    }
+
+    private func readScreenText(_ args: String) -> String {
+        let options: ReadScreenOptions
+        switch parseReadScreenArgs(args) {
+        case .success(let parsed):
+            options = parsed
+        case .failure(let error):
+            return error.message
+        }
+
+        let response = readTerminalTextBase64(
+            surfaceArg: options.surfaceArg,
+            includeScrollback: options.includeScrollback,
+            lineLimit: options.lineLimit
+        )
+        guard response.hasPrefix("OK ") else { return response }
+
+        let payload = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if payload.isEmpty {
+            return ""
+        }
+
+        guard let data = Data(base64Encoded: payload) else {
+            return "ERROR: Failed to decode terminal text"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     private func helpText() -> String {
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
@@ -6225,6 +6413,7 @@ class TerminalController {
           send_key <key>                  - Send special key (ctrl-c, ctrl-d, enter, tab, escape)
           send_surface <id|idx> <text>    - Send text to a specific terminal
           send_key_surface <id|idx> <key> - Send special key to a specific terminal
+          read_screen [id|idx] [--scrollback] [--lines N] - Read terminal text (plain text)
 
         Notification commands:
           notify <title>|<subtitle>|<body>   - Notify focused panel
@@ -6282,7 +6471,6 @@ class TerminalController {
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
-          read_screen [id|idx]            - Read visible terminal text (plain text, legacy test-only)
           render_stats [id|idx]           - Read terminal render stats (draw counters, test-only)
           layout_debug                    - Dump bonsplit layout + selected panel bounds (test-only)
           bonsplit_underflow_count        - Count bonsplit arranged-subview underflow events (test-only)
@@ -6638,82 +6826,7 @@ class TerminalController {
     }
 
     private func readTerminalText(_ args: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
-
-        let panelArg = args.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var result = "ERROR: No tab selected"
-        DispatchQueue.main.sync {
-            guard let tabId = tabManager.selectedTabId,
-                  let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
-                return
-            }
-
-            let panelId: UUID?
-            if panelArg.isEmpty {
-                panelId = tab.focusedPanelId
-            } else {
-                panelId = resolveSurfaceId(from: panelArg, tab: tab)
-            }
-
-            guard let panelId,
-                  let terminalPanel = tab.terminalPanel(for: panelId),
-                  let surface = terminalPanel.surface.surface else {
-                result = "ERROR: Terminal surface not found"
-                return
-            }
-
-            var selection = ghostty_selection_s(
-                top_left: ghostty_point_s(
-                    tag: GHOSTTY_POINT_VIEWPORT,
-                    coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                    x: 0,
-                    y: 0
-                ),
-                bottom_right: ghostty_point_s(
-                    tag: GHOSTTY_POINT_VIEWPORT,
-                    coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                    x: 0,
-                    y: 0
-                ),
-                rectangle: true
-            )
-            var text = ghostty_text_s()
-
-            guard ghostty_surface_read_text(surface, selection, &text) else {
-                result = "ERROR: Failed to read terminal text"
-                return
-            }
-            defer {
-                ghostty_surface_free_text(surface, &text)
-            }
-
-            let b64: String
-            if let ptr = text.text, text.text_len > 0 {
-                b64 = Data(bytes: ptr, count: Int(text.text_len)).base64EncodedString()
-            } else {
-                b64 = ""
-            }
-
-            result = "OK \(b64)"
-        }
-        return result
-    }
-
-    private func readScreen(_ args: String) -> String {
-        let response = readTerminalText(args)
-        guard response.hasPrefix("OK ") else { return response }
-
-        let payload = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        if payload.isEmpty {
-            return ""
-        }
-
-        guard let data = Data(base64Encoded: payload),
-              let text = String(data: data, encoding: .utf8) else {
-            return "ERROR: Failed to decode terminal text"
-        }
-        return text
+        readTerminalTextBase64(surfaceArg: args)
     }
 
     private struct RenderStatsResponse: Codable {
