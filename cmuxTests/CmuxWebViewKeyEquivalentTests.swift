@@ -954,6 +954,33 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspacePanelGitBranchTests: XCTestCase {
+    func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
+        guard let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panel to be created")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/bugfix", isDirty: true)
+        XCTAssertEqual(workspace.focusedPanelId, secondPanel.id, "Expected split panel to be focused")
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/bugfix")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, true)
+
+        XCTAssertTrue(workspace.closePanel(secondPanel.id, force: true), "Expected split panel close to succeed")
+        XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected surviving panel to become focused")
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+    }
+}
+
+@MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
     func testRequestPersistsUntilAcknowledged() {
         let panel = BrowserPanel(workspaceId: UUID())
