@@ -2444,6 +2444,7 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage("sidebarDirectoryShortName") private var sidebarDirectoryShortName = false
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -2552,6 +2553,18 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Sidebar")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Short Directory Name",
+                            subtitle: "Show only the last path component instead of the full path."
+                        ) {
+                            Toggle("", isOn: $sidebarDirectoryShortName)
+                                .labelsHidden()
+                                .controlSize(.small)
                         }
                     }
 
