@@ -125,6 +125,22 @@ def main() -> int:
             ws_other = str(other_created.get("workspace_id") or "")
             _must(bool(ws_other), f"workspace.create (second) returned no workspace_id: {other_created}")
             c._call("workspace.select", {"workspace_id": ws_other})
+            ws_target_ref = ""
+            ws_list = c._call("workspace.list", {}) or {}
+            for row in ws_list.get("workspaces") or []:
+                if str(row.get("id") or "") == ws_id:
+                    ws_target_ref = str(row.get("ref") or "")
+                    break
+
+            # Regression: workspace-scoped tab-action without --tab should target that workspace,
+            # not whichever tab is globally focused in another workspace.
+            cli_scoped = _run_cli_json(cli, ["tab-action", "--workspace", ws_id, "--action", "mark-unread"])
+            _must(str(cli_scoped.get("tab_ref") or "").startswith("tab:"), f"Expected tab_ref in scoped tab-action result: {cli_scoped}")
+            got_scoped_workspace = str(cli_scoped.get("workspace_id") or cli_scoped.get("workspace_ref") or "")
+            _must(
+                got_scoped_workspace in {x for x in [ws_id, ws_target_ref] if x},
+                f"workspace-scoped tab-action should resolve target workspace: {cli_scoped}",
+            )
 
             # Regression: tab_id alone should resolve both tab manager + workspace, even when another workspace is selected.
             by_tab_only = c._call("tab.action", {"tab_id": tab_ref, "action": "mark_unread"}) or {}
