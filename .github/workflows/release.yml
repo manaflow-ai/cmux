@@ -21,7 +21,63 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Guard immutable release assets
+        id: guard_release_assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
+            const tag = context.ref.replace('refs/tags/', '');
+            core.setOutput('skip_all', 'false');
+            core.setOutput('skip_upload', 'false');
+            core.setOutput('release_state', 'clear');
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
+              const {
+                conflicts,
+                missingImmutableAssets,
+                guardState,
+                hasPartialConflict,
+                shouldSkipBuildAndUpload,
+              } = evaluateReleaseAssetGuard({ existingAssetNames });
+
+              core.setOutput('release_state', guardState);
+
+              if (hasPartialConflict) {
+                core.setFailed(
+                  `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
+                  `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
+                  'Resolve release assets manually before rerunning.'
+                );
+                return;
+              }
+
+              if (shouldSkipBuildAndUpload) {
+                core.notice(
+                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
+                  'Skipping build, notarization, and upload to preserve existing signed artifacts.'
+                );
+                core.setOutput('skip_all', 'true');
+                core.setOutput('skip_upload', 'true');
+                return;
+              }
+
+              core.notice(`Release ${tag} exists but has no immutable release assets yet; continuing.`);
+            } catch (error) {
+              if (error.status === 404) {
+                core.notice(`Release ${tag} does not exist yet; safe to build and publish assets.`);
+                return;
+              }
+              throw error;
+            }
+
       - name: Select Xcode
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -41,15 +97,18 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
 
       - name: Install build deps
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           brew update
           brew install zig
           npm install --global create-dmg
 
       - name: Download Metal Toolchain
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: xcodebuild -downloadComponent MetalToolchain
 
       - name: Build GhosttyKit.xcframework
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           cd ghostty
           zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast
@@ -58,11 +117,13 @@ jobs:
           cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
       - name: Clear SPM cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Configure SwiftPM cache
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
           CACHE_DIR="${RUNNER_TEMP}/swiftpm-cache/${GITHUB_RUN_ID}"
@@ -71,6 +132,7 @@ jobs:
           echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
 
       - name: Derive Sparkle public key from private key
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -83,10 +145,12 @@ jobs:
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
       - name: Build app (Release)
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
       - name: Inject Sparkle keys into Info.plist
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
@@ -100,6 +164,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$APP_PLIST"
 
       - name: Import signing cert
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -123,6 +188,7 @@ jobs:
           security list-keychains -d user -s build.keychain
 
       - name: Codesign app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -140,6 +206,7 @@ jobs:
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
       - name: Notarize app
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -184,6 +251,7 @@ jobs:
           xcrun stapler validate "$DMG_RELEASE"
 
       - name: Generate Sparkle appcast
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -192,40 +260,6 @@ jobs:
             exit 1
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
-
-      - name: Guard immutable release assets
-        id: guard_release_assets
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
-            const tag = context.ref.replace('refs/tags/', '');
-            try {
-              const release = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag,
-              });
-              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
-              const { conflicts, shouldSkipUpload } = evaluateReleaseAssetGuard({ existingAssetNames });
-              if (shouldSkipUpload) {
-                core.notice(
-                  `Release ${tag} already contains immutable assets (${conflicts.join(', ')}). ` +
-                  'Skipping upload to preserve existing signed artifacts.'
-                );
-                core.setOutput('skip_upload', 'true');
-                return;
-              }
-              core.notice(`Release ${tag} exists but does not contain conflicting assets.`);
-              core.setOutput('skip_upload', 'false');
-            } catch (error) {
-              if (error.status === 404) {
-                core.notice(`Release ${tag} does not exist yet; safe to publish assets.`);
-                core.setOutput('skip_upload', 'false');
-                return;
-              }
-              throw error;
-            }
 
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true'
