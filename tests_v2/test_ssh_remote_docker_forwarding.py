@@ -158,6 +158,11 @@ def main() -> int:
             else:
                 raise cmuxError(f"Remote port forwarding did not converge: {last_status}")
 
+            daemon = ((last_status.get("remote") or {}).get("daemon") or {})
+            _must(str(daemon.get("state") or "") == "ready", f"daemon should be ready in connected state: {last_status}")
+            capabilities = daemon.get("capabilities") or []
+            _must("session.basic" in capabilities, f"daemon hello capabilities missing session.basic: {daemon}")
+
             body = ""
             deadline_http = time.time() + 15.0
             while time.time() < deadline_http:

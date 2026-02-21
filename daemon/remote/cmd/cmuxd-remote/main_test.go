@@ -41,6 +41,14 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 	if ok, _ := first["ok"].(bool); !ok {
 		t.Fatalf("first response should be ok=true: %v", first)
 	}
+	firstResult, _ := first["result"].(map[string]any)
+	if firstResult == nil {
+		t.Fatalf("first response missing result object: %v", first)
+	}
+	capabilities, _ := firstResult["capabilities"].([]any)
+	if len(capabilities) < 2 {
+		t.Fatalf("hello should return capabilities: %v", firstResult)
+	}
 
 	var second map[string]any
 	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
