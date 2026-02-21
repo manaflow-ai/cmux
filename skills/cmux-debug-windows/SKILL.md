@@ -10,6 +10,9 @@ Keep this workflow focused on existing debug windows and menu entries. Do not ad
 ## Workflow
 
 1. Verify debug menu wiring in `Sources/cmuxApp.swift` under `CommandMenu("Debug")`.
+   - Menu path in app: `Debug` → `Debug Windows` → window entry.
+   - The `Debug` menu only exists in DEBUG builds (`./scripts/reload.sh --tag ...`).
+   - Release builds (`reloadp.sh`, `reloads.sh`) do not show this menu.
 2. Keep these actions available in `Menu("Debug Windows")`:
 - `Sidebar Debug…`
 - `Background Debug…`
