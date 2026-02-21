@@ -274,11 +274,7 @@ jobs:
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
-          create-dmg \
-            --identity="$APPLE_SIGNING_IDENTITY" \
-            "$APP_PATH" \
-            ./
-          mv ./"cmux NIGHTLY"*.dmg "$DMG_RELEASE" 2>/dev/null || mv ./cmux*.dmg "$DMG_RELEASE"
+          ./scripts/create_release_dmg.sh "$APP_PATH" "$DMG_RELEASE" "$APPLE_SIGNING_IDENTITY"
           DMG_SUBMIT_JSON="$(xcrun notarytool submit "$DMG_RELEASE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait --output-format json)"
           DMG_SUBMIT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$DMG_SUBMIT_JSON")"
           DMG_STATUS="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$DMG_SUBMIT_JSON")"

@@ -107,7 +107,7 @@ echo "App notarized"
 # --- Create and notarize DMG ---
 echo "Creating DMG..."
 rm -f cmux-macos.dmg
-create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
+./scripts/create_release_dmg.sh "$APP_PATH" "cmux-macos.dmg" "$SIGN_HASH"
 echo "Notarizing DMG..."
 xcrun notarytool submit cmux-macos.dmg \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
