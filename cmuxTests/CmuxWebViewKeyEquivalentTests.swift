@@ -183,6 +183,47 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserForcedDarkModeSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserForcedDarkModeSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testDefaultsMatchConfiguredFallbacks() {
+        let defaults = makeIsolatedDefaults()
+        XCTAssertEqual(
+            BrowserForcedDarkModeSettings.enabled(defaults: defaults),
+            BrowserForcedDarkModeSettings.defaultEnabled
+        )
+        XCTAssertEqual(
+            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
+            BrowserForcedDarkModeSettings.defaultOpacity
+        )
+    }
+
+    func testOpacityIsClampedToSupportedRange() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(-100.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
+        XCTAssertEqual(
+            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
+            BrowserForcedDarkModeSettings.minOpacity
+        )
+
+        defaults.set(999.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
+        XCTAssertEqual(
+            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
+            BrowserForcedDarkModeSettings.maxOpacity
+        )
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
