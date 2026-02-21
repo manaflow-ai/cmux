@@ -205,7 +205,7 @@ export default function Home() {
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             Community
           </h2>
-          <ul data-dev="community-ul" className="space-y-2 text-[15px]" style={{ lineHeight: 1.5 }}>
+          <ul data-dev="community-ul" className="text-[15px]" style={{ lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 6 }}>
             {testimonials.map((t) => (
               <li key={t.url}>
                 <span>
