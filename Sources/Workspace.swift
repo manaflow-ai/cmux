@@ -511,15 +511,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func updatePanelTitle(panelId: UUID, title: String) {
+    @discardableResult
+    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return false }
+        var didMutate = false
+
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
+            didMutate = true
         }
 
-        // Update bonsplit tab title
-        if let tabId = surfaceIdFromPanelId(panelId),
+        // Update bonsplit tab title only when this panel's title changed.
+        if didMutate,
+           let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId] {
             let baseTitle = panelTitles[panelId] ?? panel.displayTitle
             let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: baseTitle)
@@ -532,9 +537,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         // If this is the only panel and no custom title, update workspace title
         if panels.count == 1, customTitle == nil {
-            self.title = trimmed
-            processTitle = trimmed
+            if self.title != trimmed {
+                self.title = trimmed
+                didMutate = true
+            }
+            if processTitle != trimmed {
+                processTitle = trimmed
+            }
         }
+
+        return didMutate
     }
 
     func pruneSurfaceMetadata(validSurfaceIds: Set<UUID>) {

@@ -92,6 +92,43 @@ enum WorkspacePlacementSettings {
     }
 }
 
+/// Coalesces repeated main-thread signals into one callback after a short delay.
+/// Useful for notification storms where only the latest update matters.
+final class NotificationBurstCoalescer {
+    private let delay: TimeInterval
+    private var isFlushScheduled = false
+    private var pendingAction: (() -> Void)?
+
+    init(delay: TimeInterval = 1.0 / 30.0) {
+        self.delay = max(0, delay)
+    }
+
+    func signal(_ action: @escaping () -> Void) {
+        precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        pendingAction = action
+        scheduleFlushIfNeeded()
+    }
+
+    private func scheduleFlushIfNeeded() {
+        guard !isFlushScheduled else { return }
+        isFlushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.flush()
+        }
+    }
+
+    private func flush() {
+        precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        isFlushScheduled = false
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        action()
+        if pendingAction != nil {
+            scheduleFlushIfNeeded()
+        }
+    }
+}
+
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -287,6 +324,12 @@ class TabManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
+    private struct PanelTitleUpdateKey: Hashable {
+        let tabId: UUID
+        let panelId: UUID
+    }
+    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -318,21 +361,25 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-            guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-            self.updatePanelTitle(tabId: tabId, panelId: surfaceId, title: title)
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
+                guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
+                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-            self.markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
+                markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+            }
         })
 
 #if DEBUG
@@ -1010,10 +1057,29 @@ class TabManager: ObservableObject {
         notificationStore.markRead(forTabId: tabId, surfaceId: panelId)
     }
 
+    private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        pendingPanelTitleUpdates[key] = trimmed
+        panelTitleUpdateCoalescer.signal { [weak self] in
+            self?.flushPendingPanelTitleUpdates()
+        }
+    }
+
+    private func flushPendingPanelTitleUpdates() {
+        guard !pendingPanelTitleUpdates.isEmpty else { return }
+        let updates = pendingPanelTitleUpdates
+        pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
+        for (key, title) in updates {
+            updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
+        }
+    }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
-        guard !title.isEmpty else { return }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelTitle(panelId: panelId, title: title)
+        let didChange = tab.updatePanelTitle(panelId: panelId, title: title)
+        guard didChange else { return }
 
         // Update window title if this is the selected tab and focused panel
         if selectedTabId == tabId && tab.focusedPanelId == panelId {
