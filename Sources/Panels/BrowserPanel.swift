@@ -969,7 +969,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published loading state
     @Published private(set) var isLoading: Bool = false
 
-    /// Published download state for top-level navigation downloads.
+    /// Published download state for browser downloads (navigation + context menu).
     @Published private(set) var isDownloading: Bool = false
 
     /// Published can go back state
@@ -993,6 +993,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
+    private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
@@ -1096,23 +1097,29 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
         }
         navDelegate.onDownloadDetected = { [weak self] _ in
-            self?.isDownloading = true
+            self?.beginDownloadActivity()
         }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        dlDelegate.onDownloadStarted = { [weak self] _ in
-            self?.isDownloading = true
-        }
+        // Download activity is already started at policy-detection time.
+        dlDelegate.onDownloadStarted = { _ in }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
-            self?.isDownloading = false
+            self?.endDownloadActivity()
         }
         dlDelegate.onDownloadFailed = { [weak self] _ in
-            self?.isDownloading = false
+            self?.endDownloadActivity()
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
+        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
+            if downloading {
+                self?.beginDownloadActivity()
+            } else {
+                self?.endDownloadActivity()
+            }
+        }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
@@ -1134,6 +1141,30 @@ final class BrowserPanel: Panel, ObservableObject {
         // Navigate to initial URL if provided
         if let url = initialURL {
             navigate(to: url)
+        }
+    }
+
+    private func beginDownloadActivity() {
+        let apply = {
+            self.activeDownloadCount += 1
+            self.isDownloading = self.activeDownloadCount > 0
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func endDownloadActivity() {
+        let apply = {
+            self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
+            self.isDownloading = self.activeDownloadCount > 0
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
         }
     }
 
