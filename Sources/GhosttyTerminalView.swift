@@ -20,6 +20,12 @@ func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
 private func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
     cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
 }
+
+private func cmuxTransparentWindowBaseColor() -> NSColor {
+    // A tiny non-zero alpha matches Ghostty's window compositing behavior on macOS and
+    // avoids visual artifacts that can happen with a fully clear window background.
+    NSColor.white.withAlphaComponent(0.001)
+}
 #endif
 
 #if DEBUG
@@ -1024,10 +1030,10 @@ class GhosttyApp {
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
         if cmuxShouldUseClearWindowBackground(for: defaultBackgroundOpacity) {
-            window.backgroundColor = .clear
+            window.backgroundColor = cmuxTransparentWindowBaseColor()
             window.isOpaque = false
             if backgroundLogEnabled {
-                logBackground("applied clear window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
+                logBackground("applied transparent window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
             }
         } else {
             let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
@@ -1813,7 +1819,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
         if cmuxShouldUseClearWindowBackground(for: color.alphaComponent) {
-            window.backgroundColor = .clear
+            window.backgroundColor = cmuxTransparentWindowBaseColor()
             window.isOpaque = false
         } else {
             window.backgroundColor = color
@@ -3040,6 +3046,13 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+
+    private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
+        // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
+        // additional translucent layer here, alpha stacks and appears effectively opaque.
+        terminalBackgroundColor.alphaComponent < 0.999 ? .clear : terminalBackgroundColor
+    }
+
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
 	    private static var flashCounts: [UUID: Int] = [:]
@@ -3177,10 +3190,11 @@ final class GhosttySurfaceScrollView: NSView {
         super.init(frame: .zero)
 
         backgroundView.wantsLayer = true
-        let initialBackground = GhosttyApp.shared.defaultBackgroundColor
+        let initialTerminalBackground = GhosttyApp.shared.defaultBackgroundColor
             .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-        backgroundView.layer?.backgroundColor = initialBackground.cgColor
-        backgroundView.layer?.isOpaque = initialBackground.alphaComponent >= 1.0
+        let initialPanelFill = Self.panelBackgroundFillColor(for: initialTerminalBackground)
+        backgroundView.layer?.backgroundColor = initialPanelFill.cgColor
+        backgroundView.layer?.isOpaque = initialPanelFill.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
         inactiveOverlayView.wantsLayer = true
@@ -3384,10 +3398,11 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor) {
         guard let layer = backgroundView.layer else { return }
+        let fillColor = Self.panelBackgroundFillColor(for: color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = color.cgColor
-        layer.isOpaque = color.alphaComponent >= 1.0
+        layer.backgroundColor = fillColor.cgColor
+        layer.isOpaque = fillColor.alphaComponent >= 1.0
         CATransaction.commit()
     }
 

@@ -1504,20 +1504,12 @@ struct ContentView: View {
 
             if shouldForceTransparentHosting {
                 window.isOpaque = false
-                if shouldApplyWindowGlassFallback {
-                    window.backgroundColor = .clear
-                }
-                // Configure contentView and all subviews for transparency
+                // Keep the window clear whenever translucency is active. Relying only on
+                // terminal focus-driven updates can leave stale opaque window fills.
+                window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+                // Configure contentView hierarchy for transparency.
                 if let contentView = window.contentView {
-                    contentView.wantsLayer = true
-                    contentView.layer?.backgroundColor = NSColor.clear.cgColor
-                    contentView.layer?.isOpaque = false
-                    // Make SwiftUI hosting view transparent
-                    for subview in contentView.subviews {
-                        subview.wantsLayer = true
-                        subview.layer?.backgroundColor = NSColor.clear.cgColor
-                        subview.layer?.isOpaque = false
-                    }
+                    makeViewHierarchyTransparent(contentView)
                 }
             }
 
@@ -1587,6 +1579,16 @@ struct ContentView: View {
     private func addTab() {
         tabManager.addTab()
         sidebarSelectionState.selection = .tabs
+    }
+
+    private func makeViewHierarchyTransparent(_ root: NSView) {
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+            view.layer?.isOpaque = false
+            stack.append(contentsOf: view.subviews)
+        }
     }
 
     private func updateWindowGlassTint() {
