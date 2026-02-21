@@ -68,19 +68,71 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let browserHostWhitelistKey = "browserHostWhitelist"
+    static let defaultBrowserHostWhitelist: String = ""
+
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
     }
+
+    static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Check whether a hostname matches the configured whitelist.
+    /// Empty whitelist means "allow all" (no filtering).
+    /// Supports exact match and wildcard prefix (`*.example.com`).
+    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let rawPatterns = hostWhitelist(defaults: defaults)
+        if rawPatterns.isEmpty { return true }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = BrowserInsecureHTTPSettings.normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return BrowserInsecureHTTPSettings.normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
 }
 
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
-        "127.0.0.1",
         "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
         "*.localtest.me",
     ]
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
@@ -189,7 +241,15 @@ enum BrowserInsecureHTTPSettings {
 
     private static func trimHost(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
+        // so user-entered allowlist patterns compare against URL.host consistently.
+        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
+            return canonicalized
+        }
+
+        return trimmed
     }
 }
 

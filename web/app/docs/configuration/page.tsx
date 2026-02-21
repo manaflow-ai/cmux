@@ -108,6 +108,28 @@ working-directory = ~/Projects`}</CodeBlock>
         &ldquo;cmux processes only&rdquo; mode.
       </Callout>
 
+      <h3>Browser link behavior</h3>
+      <p>
+        In <strong>Settings → Browser</strong>, cmux exposes two host lists with
+        different purposes:
+      </p>
+      <ul>
+        <li>
+          <strong>Hosts to Open in Embedded Browser</strong> — applies to links
+          clicked from terminal output. Hosts in this list open in cmux; other
+          hosts open in your default browser. Supports one host or wildcard per
+          line (for example: <code>example.com</code>,{" "}
+          <code>*.internal.example</code>).
+        </li>
+        <li>
+          <strong>HTTP Hosts Allowed in Embedded Browser</strong> — applies only
+          to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without
+          a warning prompt. Defaults include <code>localhost</code>,{" "}
+          <code>127.0.0.1</code>, <code>::1</code>, <code>0.0.0.0</code>, and{" "}
+          <code>*.localtest.me</code>.
+        </li>
+      </ul>
+
       <h2>Example config</h2>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`# Font
 font-family = SF Mono
