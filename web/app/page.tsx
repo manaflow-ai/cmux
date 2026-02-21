@@ -153,10 +153,11 @@ export default function Home() {
               <p className="text-muted">
                 All of them. cmux is a terminal, so any agent that runs in a terminal works out of the
                 box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
-                Cursor Agent, and anything else you can launch from the command line. cmux shows
-                notification rings on sidebar tabs when a process needs attention. For example,
-                when Claude Code asks a question or a build finishes. These work automatically
-                with any tool via standard terminal escape sequences (OSC 9/99/777), or you can{" "}
+                Cursor Agent, and anything else you can launch from the command line. When a
+                process needs attention, cmux shows notification rings around panes, unread
+                badges in the sidebar, and a dedicated notification popover. These work
+                automatically with any tool via standard terminal escape sequences (OSC
+                9/99/777), or you can{" "}
                 <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">trigger them programmatically</a>{" "}
                 with the cmux CLI.
               </p>
