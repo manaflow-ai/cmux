@@ -1005,6 +1005,27 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
+    private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
+        CGFloat(max(0.0, min(1.0, opacity)))
+    }
+
+    private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
+        let userInfo = notification?.userInfo
+        let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? GhosttyApp.shared.defaultBackgroundColor
+
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = GhosttyApp.shared.defaultBackgroundOpacity
+        }
+
+        return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
     let id: UUID
     let panelType: PanelType = .browser
 
@@ -1130,7 +1151,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
+        webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1299,11 +1320,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                    self.webView.underPageBackgroundColor = backgroundColor
-                } else {
-                    self.webView.underPageBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
-                }
+                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
             }
             .store(in: &cancellables)
     }
