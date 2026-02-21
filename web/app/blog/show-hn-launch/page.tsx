@@ -1,0 +1,212 @@
+import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
+import { Tweet } from "react-tweet";
+import { DownloadButton } from "../../components/download-button";
+import { GitHubButton } from "../../components/github-button";
+import starHistory from "./star-history.png";
+
+export const metadata: Metadata = {
+  title: "Launching cmux on Show HN",
+  description:
+    "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI. Here's what happened.",
+  keywords: [
+    "cmux",
+    "Show HN",
+    "Hacker News",
+    "terminal",
+    "macOS",
+    "Ghostty",
+    "libghostty",
+    "AI coding agents",
+    "Claude Code",
+    "Codex",
+    "launch",
+    "vertical tabs",
+    "notification rings",
+  ],
+  openGraph: {
+    title: "Launching cmux on Show HN",
+    description:
+      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
+    type: "article",
+    publishedTime: "2026-02-21T00:00:00Z",
+    url: "https://cmux.dev/blog/show-hn-launch",
+  },
+  twitter: {
+    card: "summary",
+    title: "Launching cmux on Show HN",
+    description:
+      "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
+  },
+  alternates: {
+    canonical: "https://cmux.dev/blog/show-hn-launch",
+  },
+};
+
+export default function ShowHNLaunchPage() {
+  return (
+    <>
+      <div className="mb-8">
+        <Link
+          href="/blog"
+          className="text-sm text-muted hover:text-foreground transition-colors"
+        >
+          &larr; Back to blog
+        </Link>
+      </div>
+
+      <h1>Launching cmux on Show HN</h1>
+      <time dateTime="2026-02-21" className="text-sm text-muted">February 21, 2026</time>
+
+      <p className="mt-6">
+        We posted cmux on{" "}
+        <a href="https://news.ycombinator.com/item?id=47079718">Show HN</a>{" "}
+        on Feb 19:
+      </p>
+
+      <blockquote className="border-l-2 border-border pl-4 my-6 text-muted space-y-3 text-[15px]">
+        <p>
+          I run a lot of Claude Code and Codex sessions in parallel. I was using
+          Ghostty with a bunch of split panes, and relying on native macOS
+          notifications to know when an agent needed me. But Claude Code&apos;s
+          notification body is always just &quot;Claude is waiting for your
+          input&quot; with no context, and with enough tabs open, I couldn&apos;t
+          even read the titles anymore.
+        </p>
+        <p>
+          I tried a few coding orchestrators but most of them were Electron/Tauri
+          apps and the performance bugged me. I also just prefer the terminal
+          since GUI orchestrators lock you into their workflow. So I built cmux as
+          a native macOS app in Swift/AppKit. It uses libghostty for terminal
+          rendering and reads your existing Ghostty config for themes, fonts,
+          colors, and more.
+        </p>
+        <p>
+          The main additions are the sidebar and notification system. The sidebar
+          has vertical tabs that show git branch, working directory, listening
+          ports, and the latest notification text for each workspace. The
+          notification system picks up terminal sequences (OSC 9/99/777) and has a
+          CLI (cmux notify) you can wire into agent hooks for Claude Code,
+          OpenCode, etc. When an agent is waiting, its pane gets a blue ring and
+          the tab lights up in the sidebar, so I can tell which one needs me
+          across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
+        </p>
+        <p>
+          The in-app browser has a scriptable API. Agents can snapshot the
+          accessibility tree, get element refs, click, fill forms, evaluate JS,
+          and read console logs. You can split a browser pane next to your
+          terminal and have Claude Code interact with your dev server directly.
+        </p>
+        <p>
+          Everything is scriptable through the CLI and socket API: create
+          workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+        </p>
+      </blockquote>
+
+      <p>
+        At peak it hit #2 on Hacker News. Mitchell Hashimoto shared it:
+      </p>
+
+      <Tweet id="2024913161238053296" />
+
+      <p>
+        My favorite comment from the{" "}
+        <a href="https://news.ycombinator.com/item?id=47079718">HN thread</a>:
+      </p>
+
+      <blockquote className="border-l-2 border-border pl-4 my-6 text-muted space-y-3 text-[15px]">
+        <p>
+          Hey, this looks seriously awesome. Love the ideas here, specifically:
+          the programmability (I haven&apos;t tried it yet, but had been
+          considering learning tmux partly for this), layered UI, browser w/
+          api. Looking forward to giving this a spin. Also want to add that I
+          really appreciate Mitchell Hashimoto creating libghostty; it feels
+          like an exciting time to be a terminal user.
+        </p>
+        <p>Some feedback (since you were asking for it elsewhere in the thread!):</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>
+            It&apos;s not obvious/easy to open browser dev tools (cmd-alt-i
+            didn&apos;t work), and when I did find it (right click page →
+            inspect element) none of the controls were visible but I could see
+            stuff happening when I moved my mouse over the panel
+          </li>
+          <li>
+            Would be cool to borrow more of ghostty&apos;s behavior:
+            <ul className="list-disc pl-5 mt-1 space-y-1">
+              <li>
+                hotkey overrides – I have some things explicitly unmapped /
+                remapped in my ghostty config that conflict with some cmux
+                keybindings and weren&apos;t respected
+              </li>
+              <li>
+                command palette (cmd-shift-p) for less-often-used actions +
+                discoverability
+              </li>
+              <li>
+                cmd-z to &quot;zoom in&quot; to a pane is enormously useful imo
+              </li>
+            </ul>
+          </li>
+        </ul>
+        <p className="text-xs">
+          —{" "}
+          <a href="https://news.ycombinator.com/item?id=47083596" className="hover:text-foreground transition-colors">
+            johnthedebs
+          </a>
+        </p>
+      </blockquote>
+
+      <p>
+        Surprisingly, cmux went semi-viral in Japan!
+      </p>
+
+      <Tweet id="2025129675262251026" />
+
+      <p>
+        Translation: &quot;This looks good. A Ghostty-based terminal app
+        designed so you don&apos;t get lost running multiple CLIs like Claude
+        Code in parallel. The waiting-for-input panel gets a blue frame, and
+        it has its own notification system.&quot;
+      </p>
+
+      <p>
+        Another exciting thing was seeing people build on top of the cmux
+        CLI. sasha built a pi-cmux extension that shows model info, token
+        usage, and agent state in the sidebar:
+      </p>
+
+      <Tweet id="2024978414822916358" />
+
+      <p>
+        Everything in cmux is scriptable through the CLI: creating workspaces,
+        sending keystrokes, controlling the browser, reading notifications.
+        Part of the cmux philosophy is being programmable and composable, so
+        people can customize the way they work with coding agents. The
+        state of the art for coding agents is changing fast, and you don&apos;t
+        want to be locked into an inflexible GUI orchestrator that can&apos;t
+        keep up.
+      </p>
+
+      <p>
+        If you&apos;re running multiple coding agents,{" "}
+        <a href="https://github.com/manaflow-ai/cmux">give cmux a try</a>.
+      </p>
+
+      <div className="my-6">
+        <Image
+          src={starHistory}
+          alt="cmux GitHub star history showing growth from near 0 to 900+ stars after the Show HN launch"
+          placeholder="blur"
+          className="w-full rounded-xl"
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
+        <DownloadButton location="blog-bottom" />
+        <GitHubButton />
+      </div>
+    </>
+  );
+}
