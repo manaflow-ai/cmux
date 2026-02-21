@@ -878,6 +878,78 @@ final class WorkspaceReorderTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerChildExitCloseTests: XCTestCase {
+    func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+
+        manager.selectWorkspace(second)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+
+        guard let secondPanelId = second.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id])
+        XCTAssertEqual(
+            manager.selectedTabId,
+            third.id,
+            "Expected selection to stay at the same index after deleting the selected workspace"
+        )
+    }
+
+    func testChildExitOnLastPanelInLastWorkspaceSelectsPreviousWorkspace() {
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace()
+
+        manager.selectWorkspace(second)
+        XCTAssertEqual(manager.selectedTabId, second.id)
+
+        guard let secondPanelId = second.focusedPanelId else {
+            XCTFail("Expected focused panel in selected workspace")
+            return
+        }
+
+        manager.closePanelAfterChildExited(tabId: second.id, surfaceId: secondPanelId)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id])
+        XCTAssertEqual(
+            manager.selectedTabId,
+            first.id,
+            "Expected previous workspace to be selected after closing the last-index workspace"
+        )
+    }
+
+    func testChildExitOnNonLastPanelClosesOnlyPanel() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let splitPanel = workspace.newTerminalSplit(from: initialPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        let panelCountBefore = workspace.panels.count
+        manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: splitPanel.id)
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.tabs.first?.id, workspace.id)
+        XCTAssertEqual(workspace.panels.count, panelCountBefore - 1)
+        XCTAssertNotNil(workspace.panels[initialPanelId], "Expected sibling panel to remain")
+    }
+}
+
+@MainActor
 final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
     func testDoesNotUnfocusWhenPendingTabIsCurrentlySelected() {
         let tabId = UUID()
