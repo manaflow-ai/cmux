@@ -18,6 +18,36 @@ class TerminalController {
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
     private let myPid = getpid()
+    private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
+    private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []
+    private nonisolated static let socketCommandPolicyLock = NSLock()
+
+    private static let focusIntentV1Commands: Set<String> = [
+        "focus_window",
+        "select_workspace",
+        "focus_surface",
+        "focus_pane",
+        "focus_surface_by_panel",
+        "focus_webview",
+        "focus_notification",
+        "activate_app"
+    ]
+
+    private static let focusIntentV2Methods: Set<String> = [
+        "window.focus",
+        "workspace.select",
+        "workspace.next",
+        "workspace.previous",
+        "workspace.last",
+        "surface.focus",
+        "pane.focus",
+        "pane.last",
+        "browser.focus_webview",
+        "browser.focus",
+        "browser.tab.switch",
+        "debug.notification.focus",
+        "debug.app.activate"
+    ]
 
     private enum V2HandleKind: String, CaseIterable {
         case window
@@ -67,6 +97,68 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
 
     private init() {}
+
+    nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
+        socketCommandPolicyLock.lock()
+        defer { socketCommandPolicyLock.unlock() }
+        return socketCommandPolicyDepth > 0
+    }
+
+    nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
+        allowsInAppFocusMutationsForActiveSocketCommand()
+    }
+
+    private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
+        socketCommandPolicyLock.lock()
+        defer { socketCommandPolicyLock.unlock() }
+        return socketCommandFocusAllowanceStack.last ?? false
+    }
+
+    private static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
+        if isV2 {
+            return focusIntentV2Methods.contains(commandKey)
+        }
+        return focusIntentV1Commands.contains(commandKey)
+    }
+
+    private func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
+        Self.socketCommandPolicyLock.lock()
+        Self.socketCommandPolicyDepth += 1
+        Self.socketCommandFocusAllowanceStack.append(allowsFocusMutation)
+        Self.socketCommandPolicyLock.unlock()
+        defer {
+            Self.socketCommandPolicyLock.lock()
+            if !Self.socketCommandFocusAllowanceStack.isEmpty {
+                _ = Self.socketCommandFocusAllowanceStack.popLast()
+            }
+            Self.socketCommandPolicyDepth = max(0, Self.socketCommandPolicyDepth - 1)
+            Self.socketCommandPolicyLock.unlock()
+        }
+        return body()
+    }
+
+    private func socketCommandAllowsInAppFocusMutations() -> Bool {
+        Self.allowsInAppFocusMutationsForActiveSocketCommand()
+    }
+
+    private func v2FocusAllowed(requested: Bool = true) -> Bool {
+        requested && socketCommandAllowsInAppFocusMutations()
+    }
+
+    private func v2MaybeFocusWindow(for tabManager: TabManager) {
+        guard socketCommandAllowsInAppFocusMutations(),
+              let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
+        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        setActiveTabManager(tabManager)
+    }
+
+    private func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
+        guard socketCommandAllowsInAppFocusMutations() else { return }
+        if tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+    }
 
     nonisolated static func shouldReplaceStatusEntry(
         current: SidebarStatusEntry?,
@@ -423,7 +515,8 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        switch cmd {
+        return withSocketCommandPolicy(commandKey: cmd, isV2: false) {
+            switch cmd {
         case "ping":
             return "PONG"
 
@@ -713,6 +806,7 @@ class TerminalController {
         default:
             return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
         }
+        }
     }
 
     // MARK: - V2 JSON Socket Protocol
@@ -747,7 +841,8 @@ class TerminalController {
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
-        switch method {
+        return withSocketCommandPolicy(commandKey: method, isV2: true) {
+            switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
@@ -1084,6 +1179,7 @@ class TerminalController {
 
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+        }
         }
     }
 
@@ -1624,8 +1720,9 @@ class TerminalController {
         guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
             return .err(code: "internal_error", message: "Failed to create window", data: nil)
         }
-        // The new window should become key, but setActiveTabManager defensively.
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        // Keep active routing stable unless this command is explicitly focus-intent.
+        if socketCommandAllowsInAppFocusMutations(),
+           let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return .ok([
@@ -1685,7 +1782,7 @@ class TerminalController {
 
         var newId: UUID?
         v2MainSync {
-            let ws = tabManager.addWorkspace()
+            let ws = tabManager.addWorkspace(select: v2FocusAllowed())
             newId = ws.id
         }
 
@@ -1711,12 +1808,8 @@ class TerminalController {
         var success = false
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                // If this workspace belongs to another window, bring it forward so focus is visible.
-                if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                    setActiveTabManager(tabManager)
-                }
-                tabManager.selectWorkspace(ws)
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
                 success = true
             }
         }
@@ -1789,7 +1882,7 @@ class TerminalController {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
         v2MainSync {
@@ -1909,10 +2002,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No workspace selected", data: nil)
         v2MainSync {
             guard tabManager.selectedTabId != nil else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.selectNextTab()
             guard let workspaceId = tabManager.selectedTabId else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -1934,10 +2024,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No workspace selected", data: nil)
         v2MainSync {
             guard tabManager.selectedTabId != nil else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.selectPreviousTab()
             guard let workspaceId = tabManager.selectedTabId else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -1959,10 +2046,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No previous workspace in history", data: nil)
         v2MainSync {
             guard let before = tabManager.selectedTabId else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.navigateBack()
             guard let after = tabManager.selectedTabId, after != before else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -2151,6 +2235,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
+            let allowFocusMutation = v2FocusAllowed()
 
             let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") ?? workspace.focusedPanelId
             guard let surfaceId else {
@@ -2280,7 +2365,7 @@ class TerminalController {
                 guard let newPanel = workspace.newBrowserSurface(
                     inPane: paneId,
                     url: browserPanel.currentURL,
-                    focus: true
+                    focus: allowFocusMutation
                 ) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
@@ -2301,7 +2386,7 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: allowFocusMutation) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
@@ -2328,7 +2413,7 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: true) else {
+                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: allowFocusMutation) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
@@ -2439,7 +2524,7 @@ class TerminalController {
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "index": index,
                     "type": panel.panelType.rawValue,
-                    "title": panel.displayTitle,
+                    "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "focused": panel.id == focusedSurfaceId,
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
@@ -2515,15 +2600,8 @@ class TerminalController {
                 return
             }
 
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-
-            // Make sure the workspace is selected so focus effects apply to the visible UI.
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             guard ws.panels[surfaceId] != nil else {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
@@ -2551,13 +2629,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let targetSurfaceId else {
@@ -2569,7 +2642,12 @@ class TerminalController {
                 return
             }
 
-            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
+            if let newId = tabManager.newSplit(
+                tabId: ws.id,
+                surfaceId: targetSurfaceId,
+                direction: direction,
+                focus: v2FocusAllowed()
+            ) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
@@ -2604,13 +2682,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let paneUUID = v2UUID(params, "pane_id")
             let paneId: PaneID? = {
@@ -2627,9 +2700,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: true)?.id
+                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
             } else {
-                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: true)?.id
+                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
 
             guard let newPanelId else {
@@ -2747,7 +2820,7 @@ class TerminalController {
         let beforeSurfaceId = v2UUID(params, "before_surface_id")
         let afterSurfaceId = v2UUID(params, "after_surface_id")
         let explicitIndex = v2Int(params, "index")
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         let anchorCount = (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
         if anchorCount > 1 {
@@ -2858,16 +2931,15 @@ class TerminalController {
                     ?? sourceWorkspace.bonsplitController.focusedPaneId
                     ?? sourceWorkspace.bonsplitController.allPaneIds.first
                 if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: true)
+                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
                 return
             }
 
             if focus {
-                _ = app.focusMainWindow(windowId: targetWindowId)
-                setActiveTabManager(targetTabManager)
-                targetTabManager.selectWorkspace(targetWorkspace)
+                v2MaybeFocusWindow(for: targetTabManager)
+                v2MaybeSelectWorkspace(targetTabManager, workspace: targetWorkspace)
             }
 
             result = .ok([
@@ -3257,14 +3329,9 @@ class TerminalController {
                 return
             }
 
-            // Ensure the flash is visible in the active UI.
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            // Only explicit focus-intent commands may mutate selection state.
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let surfaceId else {
@@ -3345,13 +3412,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
             ws.bonsplitController.focusPane(paneId)
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok(["window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "pane_id": paneId.id.uuidString, "pane_ref": v2Ref(kind: .pane, uuid: paneId.id)])
@@ -3432,13 +3494,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
             guard let focusedPanelId = ws.focusedPanelId else {
                 result = .err(code: "not_found", message: "No focused surface to split", data: nil)
                 return
@@ -3446,9 +3503,20 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = ws.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
+                newPanelId = ws.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: v2FocusAllowed()
+                )?.id
             } else {
-                newPanelId = ws.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
+                newPanelId = ws.newTerminalSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: v2FocusAllowed()
+                )?.id
             }
 
             guard let newPanelId else {
@@ -3665,7 +3733,7 @@ class TerminalController {
         if sourcePaneUUID == targetPaneUUID {
             return .err(code: "invalid_params", message: "pane_id and target_pane_id must be different", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to swap panes", data: nil)
         v2MainSync {
@@ -3748,7 +3816,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to break pane", data: nil)
         v2MainSync {
@@ -3789,7 +3857,7 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace()
+            let destinationWorkspace = tabManager.addWorkspace(select: focus)
             guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
                 ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
                 if let sourcePaneForRollback {
@@ -3797,7 +3865,7 @@ class TerminalController {
                         detached,
                         inPane: sourcePaneForRollback,
                         atIndex: sourceIndex,
-                        focus: true
+                        focus: focus
                     )
                 }
                 result = .err(code: "internal_error", message: "Destination workspace has no pane", data: nil)
@@ -3810,15 +3878,11 @@ class TerminalController {
                         detached,
                         inPane: sourcePaneForRollback,
                         atIndex: sourceIndex,
-                        focus: true
+                        focus: focus
                     )
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
                 return
-            }
-
-            if !focus {
-                tabManager.selectWorkspace(sourceWorkspace)
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
@@ -4356,13 +4420,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
@@ -4380,11 +4439,16 @@ class TerminalController {
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: v2FocusAllowed())
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+                createdPanel = ws.newBrowserSplit(
+                    from: sourceSurfaceId,
+                    orientation: .horizontal,
+                    url: url,
+                    focus: v2FocusAllowed()
+                )
             }
 
             guard let browserPanelId = createdPanel?.id else {
@@ -5639,13 +5703,8 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
 
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
@@ -6755,7 +6814,7 @@ class TerminalController {
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "index": index,
-                    "title": panel.displayTitle,
+                    "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "url": panel.currentURL?.absoluteString ?? "",
                     "focused": panel.id == ws.focusedPanelId,
                     "pane_id": v2OrNull(ws.paneId(forPanelId: panel.id)?.id.uuidString),
@@ -6800,7 +6859,7 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: true) else {
+            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: v2FocusAllowed()) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -8635,7 +8694,8 @@ class TerminalController {
         guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
             return "ERROR: Failed to create window"
         }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        if socketCommandAllowsInAppFocusMutations(),
+           let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
@@ -8655,6 +8715,7 @@ class TerminalController {
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
         var ok = false
+        let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
             guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
                   let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
@@ -8662,9 +8723,11 @@ class TerminalController {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: true)
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(dstTM)
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
             ok = true
         }
 
@@ -8689,9 +8752,10 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var newTabId: UUID?
+        let focus = socketCommandAllowsInAppFocusMutations()
         DispatchQueue.main.sync {
-            tabManager.addTab()
-            newTabId = tabManager.selectedTabId
+            let workspace = tabManager.addTab(select: focus)
+            newTabId = workspace.id
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }
@@ -8736,7 +8800,12 @@ class TerminalController {
                 return
             }
 
-            if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+            if let newPanelId = tabManager.newSplit(
+                tabId: tabId,
+                surfaceId: targetSurface,
+                direction: direction,
+                focus: socketCommandAllowsInAppFocusMutations()
+            ) {
                 result = "OK \(newPanelId.uuidString)"
             }
         }
@@ -9896,6 +9965,7 @@ class TerminalController {
 
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         var result = "ERROR: Failed to create browser panel"
         DispatchQueue.main.sync {
@@ -9905,7 +9975,12 @@ class TerminalController {
                 return
             }
 
-            if let browserPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: .horizontal, url: url)?.id {
+            if let browserPanelId = tab.newBrowserSplit(
+                from: focusedPanelId,
+                orientation: .horizontal,
+                url: url,
+                focus: shouldFocus
+            )?.id {
                 result = "OK \(browserPanelId.uuidString)"
             }
         }
@@ -10307,6 +10382,7 @@ class TerminalController {
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         var result = "ERROR: Failed to create pane"
         DispatchQueue.main.sync {
@@ -10318,9 +10394,20 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
+                newPanelId = tab.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: shouldFocus
+                )?.id
             } else {
-                newPanelId = tab.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
+                newPanelId = tab.newTerminalSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: shouldFocus
+                )?.id
             }
 
             if let id = newPanelId {
@@ -11235,6 +11322,7 @@ class TerminalController {
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var url: URL? = nil
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         let parts = args.split(separator: " ")
         for part in parts {
@@ -11279,9 +11367,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: true)?.id
+                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: shouldFocus)?.id
             } else {
-                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: true)?.id
+                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: shouldFocus)?.id
             }
 
             if let id = newPanelId {

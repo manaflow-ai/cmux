@@ -105,6 +105,12 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Commands that directly manipulate AppKit/Ghostty UI state (focus/select/open/close/send key/input, list/current queries requiring exact synchronous snapshot) are allowed to run on main actor.
 - If adding a new socket command, default to off-main handling; require an explicit reason in code comments when main-thread execution is necessary.
 
+## Socket focus policy
+
+- Socket/CLI commands must not steal macOS app focus (no app activation/window raising side effects).
+- Only explicit focus-intent commands may mutate in-app focus/selection (`window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents).
+- All non-focus commands should preserve current user focus context while still applying data/model changes.
+
 ## E2E mac UI tests
 
 Run UI tests on the UTM macOS VM (never on the host machine). Always run e2e UI tests via `ssh cmux-vm`:
