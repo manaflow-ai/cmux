@@ -2031,12 +2031,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func resolveFindShortcutRoutingState() -> FindShortcutRoutingState {
         if let panelId = browserAddressBarFocusedPanelId {
-            if let panel = browserPanel(for: panelId) {
+            if let panel = browserPanel(for: panelId),
+               tabManager?.selectedWorkspace?.focusedPanelId == panel.id {
                 return .browserAddressBar(panelId: panelId, panel: panel)
             }
-            // Recover from stale state when the address bar focus event outlives panel lifecycle.
+            // Recover from stale address-bar focus state when panel focus has moved elsewhere
+            // (e.g. terminal pane focus) or panel lifecycle changed.
             browserAddressBarFocusedPanelId = nil
             stopBrowserOmnibarSelectionRepeat()
+            browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
         }
 
         if let panel = tabManager?.focusedBrowserPanel {

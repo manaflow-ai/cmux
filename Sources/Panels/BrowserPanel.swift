@@ -2478,6 +2478,11 @@ private extension BrowserPanel {
             window[sequenceKey] = requestSequence;
           }
 
+          function isRequestStale() {
+            if (!hasRequestSequence) return false;
+            return Number(window[sequenceKey] || 0) !== requestSequence;
+          }
+
           function supportsCustomHighlights() {
             return (
               typeof CSS !== "undefined" &&
@@ -2725,9 +2730,15 @@ private extension BrowserPanel {
           }
 
           try {
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" };
+            }
             const query = (payload.query || "").trim();
             clearMarks();
             clearCustomHighlights();
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" };
+            }
             if (!query) {
               window[stateKey] = { query: "", activeIndex: 0 };
               return { matchFound: false, current: 0, total: 0 };
@@ -2735,6 +2746,9 @@ private extension BrowserPanel {
 
             ensureStyle();
             const matches = collectMatches(query);
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postcollect" };
+            }
 
             if (matches.length === 0) {
               window[stateKey] = { query, activeIndex: 0 };
@@ -2752,6 +2766,9 @@ private extension BrowserPanel {
               }
             } else {
               activeTarget = applySpanFallback(matches, activeIndex);
+            }
+            if (isRequestStale()) {
+              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" };
             }
             scrollMatchIntoView(activeTarget);
 

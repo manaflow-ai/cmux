@@ -995,6 +995,34 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertFalse(delegate.debugHandleCustomShortcut(event: ctrlNEvent))
     }
 
+    func testCmdFShortcutUsesTerminalSearchWhenBrowserAddressBarStateIsStale() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdLEvent = makeShortcutKeyDownEvent(key: "l", modifiers: [.command], keyCode: 37),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key events")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
+
+        // Simulate focus moving to terminal while the omnibar-focused panel marker lingers.
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+    }
+
 }
 #endif
 
@@ -1176,8 +1204,11 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("applySpanFallback"))
         XCTAssertTrue(highlightScript.contains("const sequenceKey = \"__cmuxInPageFindSequence\""))
         XCTAssertTrue(highlightScript.contains("const requestSequence = Number(payload.requestSequence || 0)"))
+        XCTAssertTrue(highlightScript.contains("function isRequestStale()"))
         XCTAssertTrue(highlightScript.contains("if (requestSequence < latestSequence)"))
         XCTAssertTrue(highlightScript.contains("stale: true"))
+        XCTAssertTrue(highlightScript.contains("stage: \"postcollect\""))
+        XCTAssertTrue(highlightScript.contains("stage: \"postapply\""))
 
         let staleGuardOffset = try XCTUnwrap(highlightScript.range(of: "if (requestSequence < latestSequence)"))
         let clearMarksOffset = try XCTUnwrap(highlightScript.range(of: "clearMarks();"))
