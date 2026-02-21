@@ -37,6 +37,7 @@ struct PanelContentView: View {
                     panel: browserPanel,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }

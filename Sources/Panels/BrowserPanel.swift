@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
+import Bonsplit
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
@@ -105,6 +106,164 @@ enum BrowserLinkOpenSettings {
         }
         return false
     }
+}
+
+enum BrowserInsecureHTTPSettings {
+    static let allowlistKey = "browserInsecureHTTPAllowlist"
+    static let defaultAllowlistPatterns = [
+        "127.0.0.1",
+        "localhost",
+        "*.localtest.me",
+    ]
+    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
+
+    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+    }
+
+    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
+        let source: String
+        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            source = rawValue
+        } else {
+            source = defaultAllowlistText
+        }
+        let parsed = parsePatterns(from: source)
+        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
+    }
+
+    static func isHostAllowed(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        isHostAllowed(host, rawAllowlist: defaults.string(forKey: allowlistKey))
+    }
+
+    static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
+        guard let normalizedHost = normalizeHost(host) else { return false }
+        return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
+            hostMatchesPattern(normalizedHost, pattern: pattern)
+        }
+    }
+
+    static func addAllowedHost(_ host: String, defaults: UserDefaults = .standard) {
+        guard let normalizedHost = normalizeHost(host) else { return }
+        var patterns = normalizedAllowlistPatterns(defaults: defaults)
+        guard !patterns.contains(normalizedHost) else { return }
+        patterns.append(normalizedHost)
+        defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
+    }
+
+    static func normalizeHost(_ rawHost: String) -> String? {
+        var value = rawHost
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !value.isEmpty else { return nil }
+
+        if let parsed = URL(string: value)?.host {
+            return trimHost(parsed)
+        }
+
+        if let schemeRange = value.range(of: "://") {
+            value = String(value[schemeRange.upperBound...])
+        }
+
+        if let slash = value.firstIndex(where: { $0 == "/" || $0 == "?" || $0 == "#" }) {
+            value = String(value[..<slash])
+        }
+
+        if value.hasPrefix("[") {
+            if let closing = value.firstIndex(of: "]") {
+                value = String(value[value.index(after: value.startIndex)..<closing])
+            } else {
+                value.removeFirst()
+            }
+        } else if let colon = value.lastIndex(of: ":"),
+                  value[value.index(after: colon)...].allSatisfy(\.isNumber),
+                  value.filter({ $0 == ":" }).count == 1 {
+            value = String(value[..<colon])
+        }
+
+        return trimHost(value)
+    }
+
+    private static func parsePatterns(from rawValue: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",;\n\r\t")
+        var out: [String] = []
+        var seen = Set<String>()
+        for token in rawValue.components(separatedBy: separators) {
+            guard let normalized = normalizePattern(token) else { continue }
+            guard seen.insert(normalized).inserted else { continue }
+            out.append(normalized)
+        }
+        return out
+    }
+
+    private static func normalizePattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
+
+    private static func trimHost(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+func browserShouldBlockInsecureHTTPURL(
+    _ url: URL,
+    defaults: UserDefaults = .standard
+) -> Bool {
+    browserShouldBlockInsecureHTTPURL(
+        url,
+        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
+    )
+}
+
+func browserShouldBlockInsecureHTTPURL(
+    _ url: URL,
+    rawAllowlist: String?
+) -> Bool {
+    guard url.scheme?.lowercased() == "http" else { return false }
+    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
+    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
+}
+
+func browserShouldConsumeOneTimeInsecureHTTPBypass(
+    _ url: URL,
+    bypassHostOnce: inout String?
+) -> Bool {
+    guard let bypassHost = bypassHostOnce else { return false }
+    guard url.scheme?.lowercased() == "http",
+          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+        return false
+    }
+    guard host == bypassHost else { return false }
+    bypassHostOnce = nil
+    return true
+}
+
+func browserShouldPersistInsecureHTTPAllowlistSelection(
+    response: NSApplication.ModalResponse,
+    suppressionEnabled: Bool
+) -> Bool {
+    guard suppressionEnabled else { return false }
+    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
 }
 
 enum BrowserUserAgentSettings {
@@ -801,6 +960,11 @@ actor BrowserSearchSuggestionService {
 
 /// BrowserPanel provides a WKWebView-based browser panel.
 /// All browser panels share a WKProcessPool for cookie sharing.
+private enum BrowserInsecureHTTPNavigationIntent {
+    case currentTab
+    case newTab
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
@@ -869,6 +1033,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
+    private var insecureHTTPBypassHostOnce: String?
+    // Persist user intent across WebKit detach/reattach churn (split/layout updates).
+    private var preferredDeveloperToolsVisible: Bool = false
+    private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
+    private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
+    private var developerToolsRestoreRetryAttempt: Int = 0
+    private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
+    private let developerToolsRestoreRetryMaxAttempts: Int = 40
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -888,9 +1060,10 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil) {
+    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
+        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -908,6 +1081,11 @@ final class BrowserPanel: Panel, ObservableObject {
         // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+
+        // Required for Web Inspector support on recent WebKit SDKs.
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
 
         // Match the empty-page background to the window so newly-created browsers
         // don't flash white before content loads.
@@ -939,6 +1117,12 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
+            self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
+        }
+        navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] url, intent in
+            self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+        }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
@@ -947,6 +1131,9 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
+        }
+        browserUIDelegate.requestNavigation = { [weak self] url, intent in
+            self?.requestNavigation(url, intent: intent)
         }
         webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
@@ -1240,9 +1427,20 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Navigation
 
     /// Navigate to a URL
-    func navigate(to url: URL) {
+    func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(for: url, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
+            return
+        }
+        navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+    }
+
+    private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        if recordTypedNavigation {
+            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
+        }
         navigationDelegate?.lastAttemptedURL = url
         var request = URLRequest(url: url)
         // Behave like a normal browser (respect HTTP caching). Reload is handled separately.
@@ -1258,8 +1456,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !trimmed.isEmpty else { return }
 
         if let url = resolveNavigableURL(from: trimmed) {
-            BrowserHistoryStore.shared.recordTypedNavigation(url: url)
-            navigate(to: url)
+            navigate(to: url, recordTypedNavigation: true)
             return
         }
 
@@ -1272,7 +1469,77 @@ final class BrowserPanel: Panel, ObservableObject {
         resolveBrowserNavigableURL(input)
     }
 
+    private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
+        if browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce) {
+            return false
+        }
+        return browserShouldBlockInsecureHTTPURL(url)
+    }
+
+    private func requestNavigation(_ url: URL, intent: BrowserInsecureHTTPNavigationIntent) {
+        if shouldBlockInsecureHTTPNavigation(to: url) {
+            presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
+            return
+        }
+        switch intent {
+        case .currentTab:
+            navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+        case .newTab:
+            openLinkInNewTab(url: url)
+        }
+    }
+
+    private func presentInsecureHTTPAlert(
+        for url: URL,
+        intent: BrowserInsecureHTTPNavigationIntent,
+        recordTypedNavigation: Bool
+    ) {
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Connection isn't secure"
+        alert.informativeText = """
+        \(host) uses plain HTTP, so traffic can be read or modified on the network.
+
+        Open this URL in your default browser, or proceed in cmux.
+        """
+        alert.addButton(withTitle: "Open in Default Browser")
+        alert.addButton(withTitle: "Proceed in cmux")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Always allow this host in cmux"
+
+        let response = alert.runModal()
+        if browserShouldPersistInsecureHTTPAllowlistSelection(
+            response: response,
+            suppressionEnabled: alert.suppressionButton?.state == .on
+        ) {
+            BrowserInsecureHTTPSettings.addAllowedHost(host)
+        }
+        switch response {
+        case .alertFirstButtonReturn:
+            NSWorkspace.shared.open(url)
+        case .alertSecondButtonReturn:
+            switch intent {
+            case .currentTab:
+                insecureHTTPBypassHostOnce = host
+                navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: recordTypedNavigation)
+            case .newTab:
+                openLinkInNewTab(url: url, bypassInsecureHTTPHostOnce: host)
+            }
+        default:
+            return
+        }
+    }
+
     deinit {
+        developerToolsRestoreRetryWorkItem?.cancel()
+        developerToolsRestoreRetryWorkItem = nil
+        let webView = webView
+        Task { @MainActor in
+            BrowserWindowPortalRegistry.detach(webView: webView)
+        }
         webViewObservers.removeAll()
     }
 }
@@ -1322,11 +1589,16 @@ extension BrowserPanel {
     }
 
     /// Open a link in a new browser surface in the same pane
-    func openLinkInNewTab(url: URL) {
+    func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
         guard let tabManager = AppDelegate.shared?.tabManager,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
               let paneId = workspace.paneId(forPanelId: id) else { return }
-        workspace.newBrowserSurface(inPane: paneId, url: url, focus: true)
+        workspace.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: true,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
     }
 
     /// Reload the current page
@@ -1338,6 +1610,190 @@ extension BrowserPanel {
     /// Stop loading
     func stopLoading() {
         webView.stopLoading()
+    }
+
+    @discardableResult
+    func toggleDeveloperTools() -> Bool {
+#if DEBUG
+        dlog(
+            "browser.devtools toggle.begin panel=\(id.uuidString.prefix(5)) " +
+            "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let isVisibleSelector = NSSelectorFromString("isVisible")
+        let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+        let targetVisible = !visible
+        let selector = NSSelectorFromString(targetVisible ? "show" : "close")
+        guard inspector.responds(to: selector) else { return false }
+        inspector.cmuxCallVoid(selector: selector)
+        preferredDeveloperToolsVisible = targetVisible
+        if targetVisible {
+            let visibleAfterToggle = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
+            if visibleAfterToggle {
+                cancelDeveloperToolsRestoreRetry()
+            } else {
+                developerToolsRestoreRetryAttempt = 0
+                scheduleDeveloperToolsRestoreRetry()
+            }
+        } else {
+            cancelDeveloperToolsRestoreRetry()
+            forceDeveloperToolsRefreshOnNextAttach = false
+        }
+#if DEBUG
+        dlog(
+            "browser.devtools toggle.end panel=\(id.uuidString.prefix(5)) targetVisible=\(targetVisible ? 1 : 0) " +
+            "\(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            dlog(
+                "browser.devtools toggle.tick panel=\(self.id.uuidString.prefix(5)) " +
+                "\(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
+            )
+        }
+#endif
+        return true
+    }
+
+    @discardableResult
+    func showDeveloperTools() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if !visible {
+            let showSelector = NSSelectorFromString("show")
+            guard inspector.responds(to: showSelector) else { return false }
+            inspector.cmuxCallVoid(selector: showSelector)
+        }
+        preferredDeveloperToolsVisible = true
+        if (inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false) {
+            cancelDeveloperToolsRestoreRetry()
+        } else {
+            scheduleDeveloperToolsRestoreRetry()
+        }
+        return true
+    }
+
+    @discardableResult
+    func showDeveloperToolsConsole() -> Bool {
+        guard showDeveloperTools() else { return false }
+        guard let inspector = webView.cmuxInspectorObject() else { return true }
+        // WebKit private inspector API differs by OS; try known console selectors.
+        let consoleSelectors = [
+            "showConsole",
+            "showConsoleTab",
+            "showConsoleView",
+        ]
+        for raw in consoleSelectors {
+            let selector = NSSelectorFromString(raw)
+            if inspector.responds(to: selector) {
+                inspector.cmuxCallVoid(selector: selector)
+                break
+            }
+        }
+        return true
+    }
+
+    /// Called before WKWebView detaches so manual inspector closes are respected.
+    func syncDeveloperToolsPreferenceFromInspector(preserveVisibleIntent: Bool = false) {
+        guard let inspector = webView.cmuxInspectorObject() else { return }
+        guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
+        if visible {
+            preferredDeveloperToolsVisible = true
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
+        if preserveVisibleIntent && preferredDeveloperToolsVisible {
+            return
+        }
+        preferredDeveloperToolsVisible = false
+        cancelDeveloperToolsRestoreRetry()
+    }
+
+    /// Called after WKWebView reattaches to keep inspector stable across split/layout churn.
+    func restoreDeveloperToolsAfterAttachIfNeeded() {
+        guard preferredDeveloperToolsVisible else {
+            cancelDeveloperToolsRestoreRetry()
+            forceDeveloperToolsRefreshOnNextAttach = false
+            return
+        }
+        guard let inspector = webView.cmuxInspectorObject() else {
+            scheduleDeveloperToolsRestoreRetry()
+            return
+        }
+
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        forceDeveloperToolsRefreshOnNextAttach = false
+
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if visible {
+            #if DEBUG
+            if shouldForceRefresh {
+                dlog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+            }
+            #endif
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
+
+        let selector = NSSelectorFromString("show")
+        guard inspector.responds(to: selector) else {
+            cancelDeveloperToolsRestoreRetry()
+            return
+        }
+        #if DEBUG
+        if shouldForceRefresh {
+            dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
+        }
+        #endif
+        inspector.cmuxCallVoid(selector: selector)
+        preferredDeveloperToolsVisible = true
+        let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if visibleAfterShow {
+            cancelDeveloperToolsRestoreRetry()
+        } else {
+            scheduleDeveloperToolsRestoreRetry()
+        }
+    }
+
+    @discardableResult
+    func isDeveloperToolsVisible() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        return inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+    }
+
+    @discardableResult
+    func hideDeveloperTools() -> Bool {
+        guard let inspector = webView.cmuxInspectorObject() else { return false }
+        let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
+        if visible {
+            let selector = NSSelectorFromString("close")
+            guard inspector.responds(to: selector) else { return false }
+            inspector.cmuxCallVoid(selector: selector)
+        }
+        preferredDeveloperToolsVisible = false
+        forceDeveloperToolsRefreshOnNextAttach = false
+        cancelDeveloperToolsRestoreRetry()
+        return true
+    }
+
+    /// During split/layout transitions SwiftUI can briefly mark the browser surface hidden
+    /// while its container is off-window. Avoid detaching in that transient phase if
+    /// DevTools is intended to remain open, because detach/reattach can blank inspector content.
+    func shouldPreserveWebViewAttachmentDuringTransientHide() -> Bool {
+        preferredDeveloperToolsVisible
+    }
+
+    func requestDeveloperToolsRefreshAfterNextAttach(reason: String) {
+        guard preferredDeveloperToolsVisible else { return }
+        forceDeveloperToolsRefreshOnNextAttach = true
+        #if DEBUG
+        dlog("browser.devtools refresh.request panel=\(id.uuidString.prefix(5)) reason=\(reason) \(debugDeveloperToolsStateSummary())")
+        #endif
+    }
+
+    func hasPendingDeveloperToolsRefreshAfterAttach() -> Bool {
+        forceDeveloperToolsRefreshOnNextAttach
     }
 
     @discardableResult
@@ -1449,6 +1905,84 @@ extension BrowserPanel {
 }
 
 private extension BrowserPanel {
+    func scheduleDeveloperToolsRestoreRetry() {
+        guard preferredDeveloperToolsVisible else { return }
+        guard developerToolsRestoreRetryWorkItem == nil else { return }
+        guard developerToolsRestoreRetryAttempt < developerToolsRestoreRetryMaxAttempts else { return }
+
+        developerToolsRestoreRetryAttempt += 1
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.developerToolsRestoreRetryWorkItem = nil
+            self.restoreDeveloperToolsAfterAttachIfNeeded()
+        }
+        developerToolsRestoreRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + developerToolsRestoreRetryDelay, execute: work)
+    }
+
+    func cancelDeveloperToolsRestoreRetry() {
+        developerToolsRestoreRetryWorkItem?.cancel()
+        developerToolsRestoreRetryWorkItem = nil
+        developerToolsRestoreRetryAttempt = 0
+    }
+}
+
+#if DEBUG
+extension BrowserPanel {
+    private static func debugRectDescription(_ rect: NSRect) -> String {
+        String(
+            format: "%.1f,%.1f %.1fx%.1f",
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height
+        )
+    }
+
+    private static func debugObjectToken(_ object: AnyObject?) -> String {
+        guard let object else { return "nil" }
+        return String(describing: Unmanaged.passUnretained(object).toOpaque())
+    }
+
+    private static func debugInspectorSubviewCount(in root: NSView) -> Int {
+        var stack: [NSView] = [root]
+        var count = 0
+        while let current = stack.popLast() {
+            for subview in current.subviews {
+                if String(describing: type(of: subview)).contains("WKInspector") {
+                    count += 1
+                }
+                stack.append(subview)
+            }
+        }
+        return count
+    }
+
+    func debugDeveloperToolsStateSummary() -> String {
+        let preferred = preferredDeveloperToolsVisible ? 1 : 0
+        let visible = isDeveloperToolsVisible() ? 1 : 0
+        let inspector = webView.cmuxInspectorObject() == nil ? 0 : 1
+        let attached = webView.superview == nil ? 0 : 1
+        let inWindow = webView.window == nil ? 0 : 1
+        let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh)"
+    }
+
+    func debugDeveloperToolsGeometrySummary() -> String {
+        let container = webView.superview
+        let containerBounds = container?.bounds ?? .zero
+        let webFrame = webView.frame
+        let inspectorInsets = max(0, containerBounds.height - webFrame.height)
+        let inspectorOverflow = max(0, webFrame.maxY - containerBounds.maxY)
+        let inspectorHeightApprox = max(inspectorInsets, inspectorOverflow)
+        let inspectorSubviews = container.map { Self.debugInspectorSubviewCount(in: $0) } ?? 0
+        let containerType = container.map { String(describing: type(of: $0)) } ?? "nil"
+        return "webFrame=\(Self.debugRectDescription(webFrame)) webBounds=\(Self.debugRectDescription(webView.bounds)) webWin=\(webView.window?.windowNumber ?? -1) super=\(Self.debugObjectToken(container)) superType=\(containerType) superBounds=\(Self.debugRectDescription(containerBounds)) inspectorHApprox=\(String(format: "%.1f", inspectorHeightApprox)) inspectorInsets=\(String(format: "%.1f", inspectorInsets)) inspectorOverflow=\(String(format: "%.1f", inspectorOverflow)) inspectorSubviews=\(inspectorSubviews)"
+    }
+}
+#endif
+
+private extension BrowserPanel {
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
@@ -1471,12 +2005,41 @@ private extension BrowserPanel {
     }
 }
 
+private extension WKWebView {
+    func cmuxInspectorObject() -> NSObject? {
+        let selector = NSSelectorFromString("_inspector")
+        guard responds(to: selector),
+              let inspector = perform(selector)?.takeUnretainedValue() as? NSObject else {
+            return nil
+        }
+        return inspector
+    }
+}
+
+private extension NSObject {
+    func cmuxCallBool(selector: Selector) -> Bool? {
+        guard responds(to: selector) else { return nil }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        return fn(self, selector)
+    }
+
+    func cmuxCallVoid(selector: Selector) {
+        guard responds(to: selector) else { return }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
+        fn(self, selector)
+    }
+}
+
 // MARK: - Navigation Delegate
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var openInNewTab: ((URL) -> Void)?
+    var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
+    var handleBlockedInsecureHTTPNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
@@ -1596,6 +2159,21 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           shouldBlockInsecureHTTPNavigation?(url) == true {
+            let intent: BrowserInsecureHTTPNavigationIntent
+            if navigationAction.navigationType == .linkActivated,
+               navigationAction.modifierFlags.contains(.command) {
+                intent = .newTab
+            } else {
+                intent = .currentTab
+            }
+            handleBlockedInsecureHTTPNavigation?(url, intent)
+            decisionHandler(.cancel)
+            return
+        }
+
         // target=_blank or window.open() — navigate in the current webview
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {
@@ -1621,6 +2199,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
+    var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
 
     /// Returning nil tells WebKit not to open a new window.
     /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
@@ -1631,12 +2210,32 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url {
-            if navigationAction.modifierFlags.contains(.command) {
+            if let requestNavigation {
+                let intent: BrowserInsecureHTTPNavigationIntent =
+                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                requestNavigation(url, intent)
+            } else if navigationAction.modifierFlags.contains(.command) {
                 openInNewTab?(url)
             } else {
                 webView.load(URLRequest(url: url))
             }
         }
         return nil
+    }
+
+    /// Handle <input type="file"> elements by presenting the native file picker.
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.canChooseFiles = true
+        panel.begin { result in
+            completionHandler(result == .OK ? panel.urls : nil)
+        }
     }
 }

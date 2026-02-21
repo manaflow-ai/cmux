@@ -136,6 +136,8 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 
 ### Browser
 
+Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+
 | Shortcut | Action |
 |----------|--------|
 | ⌘ ⇧ L | Open browser in split |
@@ -143,7 +145,8 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌘ [ | Back |
 | ⌘ ] | Forward |
 | ⌘ R | Reload page |
-| ⌥ ⌘ I | Open Developer Tools |
+| ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
+| ⌥ ⌘ C | Show JavaScript Console (Safari default) |
 
 ### Notifications
 
@@ -185,6 +188,14 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 [Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+
+## Community
+
+- [Discord](https://discord.com/invite/QRxkhZgY)
+- [GitHub](https://github.com/manaflow-ai/cmux)
+- [X / Twitter](https://twitter.com/manaflowai)
+- [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
+- [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 
 ## License
 

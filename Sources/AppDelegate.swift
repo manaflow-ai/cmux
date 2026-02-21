@@ -96,6 +96,13 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -187,6 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var workspaceObserver: NSObjectProtocol?
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
+    private var shortcutDefaultsObserver: NSObjectProtocol?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -336,6 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installWindowKeyEquivalentSwizzle()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
+        installShortcutDefaultsObserver()
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -694,7 +703,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -1442,6 +1451,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
                 dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
+                    self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
+                }
 #endif
                 if self.handleCustomShortcut(event: event) {
 #if DEBUG
@@ -1457,6 +1469,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
             return event
+        }
+    }
+
+    private func installShortcutDefaultsObserver() {
+        guard shortcutDefaultsObserver == nil else { return }
+        shortcutDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshSplitButtonTooltipsAcrossWorkspaces()
+        }
+    }
+
+    private func refreshSplitButtonTooltipsAcrossWorkspaces() {
+        var refreshedManagers: Set<ObjectIdentifier> = []
+        if let manager = tabManager {
+            manager.refreshSplitButtonTooltips()
+            refreshedManagers.insert(ObjectIdentifier(manager))
+        }
+        for context in mainWindowContexts.values {
+            let manager = context.tabManager
+            let identifier = ObjectIdentifier(manager)
+            guard refreshedManagers.insert(identifier).inserted else { continue }
+            manager.refreshSplitButtonTooltips()
         }
     }
 
@@ -1861,6 +1898,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+            _ = performBrowserSplitShortcut(direction: .right)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+            _ = performBrowserSplitShortcut(direction: .down)
+            return true
+        }
+
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
@@ -1882,6 +1929,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if let panelId = tabManager?.openBrowser(insertAtEnd: true) {
                 focusBrowserAddressBar(panelId: panelId)
             }
+            return true
+        }
+
+        // Safari defaults:
+        // - Option+Command+I => Show/Toggle Web Inspector
+        // - Option+Command+C => Show JavaScript Console
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
+#endif
+            let didHandle = tabManager?.toggleDeveloperToolsFocusedBrowser() ?? false
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "toggle.post", event: event, didHandle: didHandle)
+            DispatchQueue.main.async { [weak self] in
+                self?.logDeveloperToolsShortcutSnapshot(phase: "toggle.tick", didHandle: didHandle)
+            }
+#endif
+            if !didHandle { NSSound.beep() }
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
+#endif
+            let didHandle = tabManager?.showJavaScriptConsoleFocusedBrowser() ?? false
+#if DEBUG
+            logDeveloperToolsShortcutSnapshot(phase: "console.post", event: event, didHandle: didHandle)
+            DispatchQueue.main.async { [weak self] in
+                self?.logDeveloperToolsShortcutSnapshot(phase: "console.tick", didHandle: didHandle)
+            }
+#endif
+            if !didHandle { NSSound.beep() }
             return true
         }
 
@@ -2032,12 +2112,171 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func isLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        let responderType = String(describing: type(of: responder))
+        if responderType.contains("WKInspector") {
+            return true
+        }
+        guard let view = responder as? NSView else { return false }
+        var node: NSView? = view
+        var hops = 0
+        while let current = node, hops < 64 {
+            if String(describing: type(of: current)).contains("WKInspector") {
+                return true
+            }
+            node = current.superview
+            hops += 1
+        }
+        return false
+    }
+
+#if DEBUG
+    private func developerToolsShortcutProbeKind(event: NSEvent) -> String? {
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+            return "toggle.configured"
+        }
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+            return "console.configured"
+        }
+
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == [.command, .option] {
+            if chars == "i" || event.keyCode == 34 {
+                return "toggle.literal"
+            }
+            if chars == "c" || event.keyCode == 8 {
+                return "console.literal"
+            }
+        }
+        return nil
+    }
+
+    private func logDeveloperToolsShortcutSnapshot(
+        phase: String,
+        event: NSEvent? = nil,
+        didHandle: Bool? = nil
+    ) {
+        let keyWindow = NSApp.keyWindow
+        let firstResponder = keyWindow?.firstResponder
+        let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        let eventDescription = event.map(NSWindow.keyDescription) ?? "none"
+        if let browser = tabManager?.focusedBrowserPanel {
+            var line =
+                "browser.devtools shortcut=\(phase) panel=\(browser.id.uuidString.prefix(5)) " +
+                "\(browser.debugDeveloperToolsStateSummary()) \(browser.debugDeveloperToolsGeometrySummary()) " +
+                "keyWin=\(keyWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) event=\(eventDescription)"
+            if let didHandle {
+                line += " handled=\(didHandle ? 1 : 0)"
+            }
+            dlog(line)
+            return
+        }
+        var line =
+            "browser.devtools shortcut=\(phase) panel=nil keyWin=\(keyWindow?.windowNumber ?? -1) " +
+            "fr=\(firstResponderType)@\(firstResponderPtr) event=\(eventDescription)"
+        if let didHandle {
+            line += " handled=\(didHandle ? 1 : 0)"
+        }
+        dlog(line)
+    }
+#endif
+
+    private func prepareFocusedBrowserDevToolsForSplit(directionLabel: String) {
+        guard let browser = tabManager?.focusedBrowserPanel else { return }
+        guard browser.shouldPreserveWebViewAttachmentDuringTransientHide() else { return }
+        guard let keyWindow = NSApp.keyWindow else { return }
+        guard isLikelyWebInspectorResponder(keyWindow.firstResponder) else { return }
+
+        let beforeResponder = keyWindow.firstResponder
+        let movedToWebView = keyWindow.makeFirstResponder(browser.webView)
+        let movedToNil = movedToWebView ? false : keyWindow.makeFirstResponder(nil)
+
+        #if DEBUG
+        let beforeType = beforeResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let beforePtr = beforeResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        let afterResponder = keyWindow.firstResponder
+        let afterType = afterResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let afterPtr = afterResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        dlog(
+            "split.shortcut inspector.preflight dir=\(directionLabel) panel=\(browser.id.uuidString.prefix(5)) " +
+            "before=\(beforeType)@\(beforePtr) after=\(afterType)@\(afterPtr) " +
+            "moveWeb=\(movedToWebView ? 1 : 0) moveNil=\(movedToNil ? 1 : 0) \(browser.debugDeveloperToolsStateSummary())"
+        )
+        #endif
+    }
+
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+
+        #if DEBUG
+        let keyWindow = NSApp.keyWindow
+        let firstResponder = keyWindow?.firstResponder
+        let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+        let firstResponderWindow: Int = {
+            if let v = firstResponder as? NSView {
+                return v.window?.windowNumber ?? -1
+            }
+            if let w = firstResponder as? NSWindow {
+                return w.windowNumber
+            }
+            return -1
+        }()
+        let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
+        if let browser = tabManager?.focusedBrowserPanel {
+            let webWindow = browser.webView.window?.windowNumber ?? -1
+            let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+            dlog("split.shortcut dir=\(directionLabel) pre panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+        } else {
+            dlog("split.shortcut dir=\(directionLabel) pre panel=nil \(splitContext)")
+        }
+        #endif
+
+        prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         tabManager?.createSplit(direction: direction)
 #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            let keyWindow = NSApp.keyWindow
+            let firstResponder = keyWindow?.firstResponder
+            let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            let firstResponderPtr = firstResponder.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+            let firstResponderWindow: Int = {
+                if let v = firstResponder as? NSView {
+                    return v.window?.windowNumber ?? -1
+                }
+                if let w = firstResponder as? NSWindow {
+                    return w.windowNumber
+                }
+                return -1
+            }()
+            let splitContext = "keyWin=\(keyWindow?.windowNumber ?? -1) mainWin=\(NSApp.mainWindow?.windowNumber ?? -1) fr=\(firstResponderType)@\(firstResponderPtr) frWin=\(firstResponderWindow)"
+            if let browser = self?.tabManager?.focusedBrowserPanel {
+                let webWindow = browser.webView.window?.windowNumber ?? -1
+                let webSuperview = browser.webView.superview.map { String(describing: Unmanaged.passUnretained($0).toOpaque()) } ?? "nil"
+                dlog("split.shortcut dir=\(directionLabel) post panel=\(browser.id.uuidString.prefix(5)) \(browser.debugDeveloperToolsStateSummary()) webWin=\(webWindow) webSuper=\(webSuperview) \(splitContext)")
+            } else {
+                dlog("split.shortcut dir=\(directionLabel) post panel=nil \(splitContext)")
+            }
+        }
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
+        return true
+    }
+
+    @discardableResult
+    func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
 
