@@ -2560,8 +2560,8 @@ extension BrowserPanel {
         inPageFindHighlightScript(payloadJSON: payloadJSON)
     }
 
-    func debugClearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
-        clearInPageFindHighlightScript(requestSequence: requestSequence)
+    func debugClearInPageFindHighlightScript(requestSequence: Int? = nil, resetState: Bool = true) -> String {
+        clearInPageFindHighlightScript(requestSequence: requestSequence, resetState: resetState)
     }
 
     func debugShouldRetryStaleInPageFindClear() -> Bool {
@@ -2811,7 +2811,7 @@ private extension BrowserPanel {
             return true
         }
 
-        let clearScript = clearInPageFindHighlightScript(requestSequence: requestSequence)
+        let clearScript = clearInPageFindHighlightScript(requestSequence: requestSequence, resetState: false)
         let script = inPageFindHighlightScript(payloadJSON: payloadJSON)
         webView.evaluateJavaScript(clearScript) { [weak self] clearResult, clearError in
             Task { @MainActor in
@@ -3013,11 +3013,13 @@ private extension BrowserPanel {
         }
     }
 
-    private func clearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
+    private func clearInPageFindHighlightScript(requestSequence: Int? = nil, resetState: Bool = true) -> String {
         let requestSequenceJSON = requestSequence.map(String.init) ?? "null"
+        let shouldResetStateJSON = resetState ? "true" : "false"
         return """
         (function() {
           const requestSequence = \(requestSequenceJSON);
+          const shouldResetState = \(shouldResetStateJSON);
           const markClass = "cmux-inpage-find-hit";
           const controlMatchClass = "cmux-inpage-find-control-hit";
           const controlActiveClass = "cmux-inpage-find-control-active";
@@ -3096,7 +3098,9 @@ private extension BrowserPanel {
           if (style && style.parentNode) {
             style.parentNode.removeChild(style);
           }
-          window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
+          if (shouldResetState) {
+            window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
+          }
           if (hasRequestSequence) {
             window[sequenceKey] = normalizedRequestSequence;
           }
@@ -3218,11 +3222,9 @@ private extension BrowserPanel {
             style.textContent = `
               ::highlight(${allHighlightName}) {
                 background: ${payload.allBackground};
-                color: ${payload.allForeground};
               }
               ::highlight(${activeHighlightName}) {
                 background: ${payload.activeBackground};
-                color: ${payload.activeForeground};
               }
               #${overlayRootId} {
                 position: absolute;

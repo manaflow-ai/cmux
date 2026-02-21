@@ -1538,6 +1538,8 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("function withRenderMode(result, mode)"))
         XCTAssertTrue(highlightScript.contains("CSS.highlights.set(allHighlightName"))
         XCTAssertTrue(highlightScript.contains("::highlight("))
+        XCTAssertFalse(highlightScript.contains("color: ${payload.allForeground};"))
+        XCTAssertFalse(highlightScript.contains("color: ${payload.activeForeground};"))
         XCTAssertTrue(highlightScript.contains("applyOverlayFallback"))
         XCTAssertTrue(highlightScript.contains("opacity: 0.45;"))
         XCTAssertTrue(highlightScript.contains("opacity: 0.68;"))
@@ -1564,7 +1566,12 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(clearScript.contains("CSS.highlights.clear()"))
         XCTAssertTrue(clearScript.contains("CSS.highlights.set(allHighlightName, new Highlight())"))
         XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
+        XCTAssertTrue(clearScript.contains("const shouldResetState = true;"))
+        XCTAssertTrue(clearScript.contains("if (shouldResetState) {"))
         XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
+
+        let preclearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 44, resetState: false)
+        XCTAssertTrue(preclearScript.contains("const shouldResetState = false;"))
     }
 
     func testInPageFindScriptFiltersHiddenMatchesFromCounts() throws {
