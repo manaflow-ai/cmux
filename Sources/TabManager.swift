@@ -1613,21 +1613,79 @@ class TabManager: ObservableObject {
                 ?? tabs.first else {
                 return false
             }
+            let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
             if selectedTabId != targetWorkspace.id {
                 selectedTabId = targetWorkspace.id
             }
 
             if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
-                // Workspace switches defer focus restoration to the next main-queue turn.
-                // Record the reopened browser immediately so deferred restore doesn't snap
-                // back to the previously focused terminal in that workspace.
-                rememberFocusedSurface(tabId: targetWorkspace.id, surfaceId: reopenedPanelId)
+                enforceReopenedBrowserFocus(
+                    tabId: targetWorkspace.id,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
                 return true
             }
         }
 
         return false
+    }
+
+    private func enforceReopenedBrowserFocus(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        // Keep workspace-switch restoration pinned to the reopened browser panel.
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+        enforceReopenedBrowserFocusIfNeeded(
+            tabId: tabId,
+            reopenedPanelId: reopenedPanelId,
+            preReopenFocusedPanelId: preReopenFocusedPanelId
+        )
+
+        // Some stale focus callbacks can land one runloop turn later. Re-assert focus in two
+        // consecutive turns, but only when focus drifted back to the pre-reopen panel.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.enforceReopenedBrowserFocusIfNeeded(
+                tabId: tabId,
+                reopenedPanelId: reopenedPanelId,
+                preReopenFocusedPanelId: preReopenFocusedPanelId
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceReopenedBrowserFocusIfNeeded(
+                    tabId: tabId,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+            }
+        }
+    }
+
+    private func enforceReopenedBrowserFocusIfNeeded(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        guard selectedTabId == tabId,
+              let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[reopenedPanelId] != nil else {
+            return
+        }
+
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+
+        guard tab.focusedPanelId != reopenedPanelId else { return }
+
+        if let focusedPanelId = tab.focusedPanelId,
+           let preReopenFocusedPanelId,
+           focusedPanelId != preReopenFocusedPanelId {
+            return
+        }
+
+        tab.focusPanel(reopenedPanelId)
     }
 
     private func reopenClosedBrowserPanel(
