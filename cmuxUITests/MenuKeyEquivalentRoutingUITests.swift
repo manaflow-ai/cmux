@@ -185,7 +185,6 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 final class BrowserCommandReturnReloadUITests: XCTestCase {
     private var gotoSplitPath = ""
     private var keyequivPath = ""
-    private var httpServerProcess: Process?
 
     override func setUp() {
         super.setUp()
@@ -199,32 +198,20 @@ final class BrowserCommandReturnReloadUITests: XCTestCase {
     }
 
     override func tearDown() {
-        if let process = httpServerProcess {
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-            }
-            httpServerProcess = nil
-        }
-
         try? FileManager.default.removeItem(atPath: gotoSplitPath)
         try? FileManager.default.removeItem(atPath: keyequivPath)
 
         super.tearDown()
     }
 
-    func testCmdReturnDoesNotTriggerBrowserReloadWhenWebViewFocused() throws {
+    func testCmdReturnDoesNotTriggerBrowserReloadWhenWebViewFocused() {
         let fixtureRelativePath = "tests/fixtures/cmd-enter-reload-fixture.html"
         let fixtureURL = sourceRootURL().appendingPathComponent(fixtureRelativePath)
         XCTAssertTrue(
             FileManager.default.fileExists(atPath: fixtureURL.path),
             "Missing fixture HTML at \(fixtureURL.path)"
         )
-
-        let server = try startHTTPServer(rootDirectory: sourceRootURL())
-        httpServerProcess = server.process
-        let fixtureAddress = "http://127.0.0.1:\(server.port)/\(fixtureRelativePath)"
-        XCTAssertTrue(waitForHTTPFixture(address: fixtureAddress, timeout: 6.0))
+        let fixtureAddress = fixtureURL.standardizedFileURL.absoluteString
 
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
@@ -293,55 +280,6 @@ final class BrowserCommandReturnReloadUITests: XCTestCase {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // cmuxUITests
             .deletingLastPathComponent() // repo root
-    }
-
-    private func startHTTPServer(rootDirectory: URL) throws -> (process: Process, port: Int) {
-        for _ in 0..<10 {
-            let port = Int.random(in: 39000...49000)
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
-            process.arguments = [
-                "-m", "http.server",
-                String(port),
-                "--bind", "127.0.0.1",
-                "--directory", rootDirectory.path
-            ]
-            process.standardOutput = Pipe()
-            process.standardError = Pipe()
-            try process.run()
-
-            if waitForHTTPFixture(
-                address: "http://127.0.0.1:\(port)/tests/fixtures/cmd-enter-reload-fixture.html",
-                timeout: 2.5
-            ) {
-                return (process, port)
-            }
-
-            if process.isRunning {
-                process.terminate()
-                process.waitUntilExit()
-            }
-        }
-
-        throw NSError(
-            domain: "BrowserCommandReturnReloadUITests",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to start local fixture HTTP server"]
-        )
-    }
-
-    private func waitForHTTPFixture(address: String, timeout: TimeInterval) -> Bool {
-        guard let url = URL(string: address) else { return false }
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = try? Data(contentsOf: url),
-               let body = String(data: data, encoding: .utf8),
-               body.contains("cmux Cmd+Enter Reload Fixture") {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
     }
 
     private func waitForOmnibarToContain(omnibar: XCUIElement, token: String, timeout: TimeInterval) -> Bool {
