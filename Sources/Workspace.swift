@@ -105,12 +105,22 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Initialization
 
+    private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
+        BonsplitConfiguration.SplitButtonTooltips(
+            newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
+            newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
+            splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
+            splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
+        )
+    }
+
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
         bonsplitAppearance(from: config.backgroundColor)
     }
 
     private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
         BonsplitConfiguration.Appearance(
+            splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: .init(backgroundHex: backgroundColor.hexString())
         )
@@ -206,6 +216,12 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+    }
+
+    func refreshSplitButtonTooltips() {
+        var configuration = bonsplitController.configuration
+        configuration.appearance.splitButtonTooltips = Self.currentSplitButtonTooltips()
+        bonsplitController.configuration = configuration
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -571,11 +587,16 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         url: URL? = nil,
         focus: Bool? = nil,
-        insertAtEnd: Bool = false
+        insertAtEnd: Bool = false,
+        bypassInsecureHTTPHostOnce: String? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            initialURL: url,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
         panels[browserPanel.id] = browserPanel
 
         guard let newTabId = bonsplitController.createTab(

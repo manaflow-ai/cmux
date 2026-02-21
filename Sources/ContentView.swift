@@ -3,6 +3,7 @@ import Bonsplit
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
+import WebKit
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
@@ -224,6 +225,9 @@ final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
+    /// The WKWebView currently receiving forwarded drag events, so we can
+    /// synthesize draggingExited/draggingEntered as the cursor moves.
+    private weak var activeDragWebView: WKWebView?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -293,14 +297,26 @@ final class FileDropOverlayView: NSView {
     override func otherMouseDragged(with event: NSEvent) { forwardEvent(event) }
     override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
-    // MARK: NSDraggingDestination – only accept file drops over terminal views.
+    // MARK: NSDraggingDestination – accept file drops over terminal and browser views.
+    //
+    // AppKit sends draggingEntered once when the drag enters this overlay, then
+    // draggingUpdated as the cursor moves within it. We track which WKWebView (if
+    // any) is under the cursor and synthesize enter/exit calls so the browser's
+    // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender, phase: "entered")
+        return updateDragTarget(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender, phase: "updated")
+        return updateDragTarget(sender, phase: "updated")
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        if let prev = activeDragWebView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -310,44 +326,80 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
+        let webView = activeDragWebView
+        activeDragWebView = nil
 #if DEBUG
-        if shouldCapture || (types?.contains(.fileURL) ?? false) {
-            dlog(
-                "overlay.fileDrop.perform capture=\(shouldCapture ? 1 : 0) " +
-                "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-                "types=\(debugPasteboardTypes(types))"
-            )
-        }
+        dlog(
+            "overlay.fileDrop.perform capture=\(shouldCapture ? 1 : 0) " +
+            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+            "hasWebView=\(webView != nil ? 1 : 0) " +
+            "types=\(debugPasteboardTypes(types))"
+        )
 #endif
         guard shouldCapture else { return false }
+        if let webView {
+            return webView.performDragOperation(sender)
+        }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func dragOperationForSender(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+    private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+        let loc = sender.draggingLocation
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
-#if DEBUG
-        if shouldCapture || (types?.contains(.fileURL) ?? false) {
-            dlog(
-                "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
-                "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-                "types=\(debugPasteboardTypes(types))"
-            )
+        let webView = shouldCapture ? webViewUnderPoint(loc) : nil
+
+        if let prev = activeDragWebView, prev !== webView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
         }
+
+        if let webView {
+            if activeDragWebView !== webView {
+                activeDragWebView = webView
+                return webView.draggingEntered(sender)
+            }
+            return webView.draggingUpdated(sender)
+        }
+
+        let hasTerminalTarget = terminalUnderPoint(loc) != nil
+#if DEBUG
+        dlog(
+            "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
+            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+            "hasWebView=\(webView != nil ? 1 : 0) " +
+            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
+            "types=\(debugPasteboardTypes(types))"
+        )
 #endif
-        guard shouldCapture,
-              terminalUnderPoint(sender.draggingLocation) != nil else { return [] }
+        guard shouldCapture, hasTerminalTarget else { return [] }
         return .copy
     }
 
     private func debugPasteboardTypes(_ types: [NSPasteboard.PasteboardType]?) -> String {
         guard let types, !types.isEmpty else { return "-" }
         return types.map(\.rawValue).joined(separator: ",")
+    }
+
+    /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
+    private func webViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        isHidden = true
+        defer { isHidden = false }
+        let point = contentView.convert(windowPoint, from: nil)
+        let hitView = contentView.hitTest(point)
+
+        var current: NSView? = hitView
+        while let view = current {
+            if let webView = view as? WKWebView { return webView }
+            current = view.superview
+        }
+        return nil
     }
 
     /// Hit-tests the window to find the GhosttyNSView under the cursor.

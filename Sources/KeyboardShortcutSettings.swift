@@ -26,9 +26,13 @@ enum KeyboardShortcutSettings {
         case focusDown
         case splitRight
         case splitDown
+        case splitBrowserRight
+        case splitBrowserDown
 
         // Panels
         case openBrowser
+        case toggleBrowserDeveloperTools
+        case showBrowserJavaScriptConsole
 
         var id: String { rawValue }
 
@@ -51,7 +55,11 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "Focus Pane Down"
             case .splitRight: return "Split Right"
             case .splitDown: return "Split Down"
+            case .splitBrowserRight: return "Split Browser Right"
+            case .splitBrowserDown: return "Split Browser Down"
             case .openBrowser: return "Open Browser"
+            case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
+            case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
             }
         }
 
@@ -71,10 +79,14 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "shortcut.focusDown"
             case .splitRight: return "shortcut.splitRight"
             case .splitDown: return "shortcut.splitDown"
+            case .splitBrowserRight: return "shortcut.splitBrowserRight"
+            case .splitBrowserDown: return "shortcut.splitBrowserDown"
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
             case .openBrowser: return "shortcut.openBrowser"
+            case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
+            case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
             }
         }
 
@@ -108,6 +120,10 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown:
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .splitBrowserRight:
+                return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
+            case .splitBrowserDown:
+                return StoredShortcut(key: "d", command: true, shift: true, option: true, control: false)
             case .nextSurface:
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
@@ -116,6 +132,12 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+            case .toggleBrowserDeveloperTools:
+                // Safari default: Show Web Inspector.
+                return StoredShortcut(key: "i", command: true, shift: false, option: true, control: false)
+            case .showBrowserJavaScriptConsole:
+                // Safari default: Show JavaScript Console.
+                return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             }
         }
 
@@ -176,12 +198,16 @@ enum KeyboardShortcutSettings {
 
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
+    static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
+    static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
+    static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
+    static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults

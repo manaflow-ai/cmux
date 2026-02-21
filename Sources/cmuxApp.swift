@@ -15,6 +15,12 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
+    private var toggleBrowserDeveloperToolsShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
+    private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -426,6 +432,20 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
+                splitCommandButton(title: "Toggle Developer Tools", shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
+                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    if !manager.toggleDeveloperToolsFocusedBrowser() {
+                        NSSound.beep()
+                    }
+                }
+
+                splitCommandButton(title: "Show JavaScript Console", shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
+                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    if !manager.showJavaScriptConsoleFocusedBrowser() {
+                        NSSound.beep()
+                    }
+                }
+
                 Button("Zoom In") {
                     _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
                 }
@@ -461,6 +481,14 @@ struct cmuxApp: App {
 
                 splitCommandButton(title: "Split Down", shortcut: splitDownMenuShortcut) {
                     performSplitFromMenu(direction: .down)
+                }
+
+                splitCommandButton(title: "Split Browser Right", shortcut: splitBrowserRightMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .right)
+                }
+
+                splitCommandButton(title: "Split Browser Down", shortcut: splitBrowserDownMenuShortcut) {
+                    performBrowserSplitFromMenu(direction: .down)
                 }
 
                 Divider()
@@ -545,6 +573,34 @@ struct cmuxApp: App {
         decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
     }
 
+    private var toggleBrowserDeveloperToolsMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleBrowserDeveloperToolsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
+        )
+    }
+
+    private var showBrowserJavaScriptConsoleMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: showBrowserJavaScriptConsoleShortcutData,
+            fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
+    }
+
+    private var splitBrowserRightMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserRightShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserRight.defaultShortcut
+        )
+    }
+
+    private var splitBrowserDownMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: splitBrowserDownShortcutData,
+            fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
@@ -575,6 +631,13 @@ struct cmuxApp: App {
             return
         }
         tabManager.createSplit(direction: direction)
+    }
+
+    private func performBrowserSplitFromMenu(direction: SplitDirection) {
+        if AppDelegate.shared?.performBrowserSplitShortcut(direction: direction) == true {
+            return
+        }
+        _ = tabManager.createBrowserSplit(direction: direction)
     }
 
     @ViewBuilder
@@ -1132,6 +1195,7 @@ private enum DebugWindowConfigSnapshot {
         """
 
         let menuBarPayload = MenuBarIconDebugSettings.copyPayload(defaults: defaults)
+        let browserDevToolsPayload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: defaults)
 
         return """
         # Sidebar Debug
@@ -1142,6 +1206,9 @@ private enum DebugWindowConfigSnapshot {
 
         # Menu Bar Extra Debug
         \(menuBarPayload)
+
+        # Browser DevTools Button
+        \(browserDevToolsPayload)
         """
     }
 
@@ -1208,6 +1275,16 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
+    @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+
+    private var selectedDevToolsIconOption: BrowserDevToolsIconOption {
+        BrowserDevToolsIconOption(rawValue: browserDevToolsIconNameRaw) ?? BrowserDevToolsButtonDebugSettings.defaultIcon
+    }
+
+    private var selectedDevToolsColorOption: BrowserDevToolsIconColorOption {
+        BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
 
     var body: some View {
         ScrollView {
@@ -1291,12 +1368,58 @@ private struct DebugWindowControlsView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox("Browser DevTools Button") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 8) {
+                            Text("Icon")
+                            Picker("Icon", selection: $browserDevToolsIconNameRaw) {
+                                ForEach(BrowserDevToolsIconOption.allCases) { option in
+                                    Text(option.title).tag(option.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Color")
+                            Picker("Color", selection: $browserDevToolsIconColorRaw) {
+                                ForEach(BrowserDevToolsIconColorOption.allCases) { option in
+                                    Text(option.title).tag(option.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                            Spacer()
+                        }
+
+                        HStack(spacing: 8) {
+                            Text("Preview")
+                            Spacer()
+                            Image(systemName: selectedDevToolsIconOption.rawValue)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(selectedDevToolsColorOption.color)
+                        }
+
+                        HStack(spacing: 12) {
+                            Button("Reset Button") {
+                                resetBrowserDevToolsButton()
+                            }
+                            Button("Copy Button Config") {
+                                copyBrowserDevToolsButtonConfig()
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
                 GroupBox("Copy") {
                     VStack(alignment: .leading, spacing: 8) {
                         Button("Copy All Debug Config") {
                             DebugWindowConfigSnapshot.copyCombinedToPasteboard()
                         }
-                        Text("Copies sidebar, background, and menu bar debug settings as one payload.")
+                        Text("Copies sidebar, background, menu bar, and browser devtools settings as one payload.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -1353,6 +1476,18 @@ private struct DebugWindowControlsView: View {
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(paneShortcutHintYOffset)))
         shortcutHintAlwaysShow=\(alwaysShowShortcutHints)
         """
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
+    private func resetBrowserDevToolsButton() {
+        browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
+        browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+    }
+
+    private func copyBrowserDevToolsButtonConfig() {
+        let payload = BrowserDevToolsButtonDebugSettings.copyPayload(defaults: .standard)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(payload, forType: .string)
@@ -2275,14 +2410,17 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
     @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2301,6 +2439,10 @@ struct SettingsView: View {
         default:
             return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
         }
+    }
+
+    private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
+        browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
@@ -2339,6 +2481,17 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Reorder on Notification",
+                            subtitle: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions."
+                        ) {
+                            Toggle("", isOn: $workspaceAutoReorder)
+                                .labelsHidden()
+                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -2448,6 +2601,69 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+
+                        SettingsCardDivider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("HTTP Host Allowlist")
+                                .font(.system(size: 13, weight: .semibold))
+
+                            Text("HTTP loads outside this list show a warning prompt with options to open externally or proceed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            TextEditor(text: $browserInsecureHTTPAllowlistDraft)
+                                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                .frame(minHeight: 86)
+                                .padding(6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color(nsColor: .textBackgroundColor))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                )
+                                .accessibilityIdentifier("SettingsBrowserHTTPAllowlistField")
+
+                            ViewThatFits(in: .horizontal) {
+                                HStack(alignment: .center, spacing: 10) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+
+                                    Spacer(minLength: 0)
+
+                                    Button("Save") {
+                                        saveBrowserInsecureHTTPAllowlist()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                    .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                }
+
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("One host or wildcard per line (for example: localhost, 127.0.0.1, *.localtest.me).")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+
+                                    HStack {
+                                        Spacer(minLength: 0)
+                                        Button("Save") {
+                                            saveBrowserInsecureHTTPAllowlist()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(!browserInsecureHTTPAllowlistHasUnsavedChanges)
+                                        .accessibilityIdentifier("SettingsBrowserHTTPAllowlistSaveButton")
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
                         SettingsCardDivider()
 
@@ -2574,6 +2790,13 @@ struct SettingsView: View {
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
+            browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+        }
+        .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
+            // Keep draft in sync with external changes unless the user has local unsaved edits.
+            if browserInsecureHTTPAllowlistDraft == oldValue {
+                browserInsecureHTTPAllowlistDraft = newValue
+            }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
@@ -2599,10 +2822,17 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+        browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
+    }
+
+    private func saveBrowserInsecureHTTPAllowlist() {
+        browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
     }
 }
 
