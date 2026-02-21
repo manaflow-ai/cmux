@@ -35,15 +35,6 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
-    name: "Marc",
-    handle: "@prodigy00",
-    avatar:
-      "https://pbs.twimg.com/profile_images/1726697382337724417/AGafbkp1_400x400.jpg",
-    text: "This is niceeeeee!",
-    url: "https://x.com/prodigy00/status/2024946851401613399",
-    platform: "x" as const,
-  },
-  {
     name: "dchu17",
     handle: "dchu17",
     avatar: null,
