@@ -22,6 +22,7 @@ private func portalDebugFrame(_ rect: NSRect) -> String {
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
     private var cachedSidebarDividerX: CGFloat?
+    private var sidebarDividerMissCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -80,6 +81,15 @@ final class WindowTerminalHostView: NSView {
             .filter { $0 > 1 }
         if let leftMostEdge = dividerCandidates.min() {
             cachedSidebarDividerX = leftMostEdge
+            sidebarDividerMissCount = 0
+        } else if cachedSidebarDividerX != nil {
+            // Keep cache briefly for layout churn, but clear if we miss repeatedly
+            // so stale divider positions don't steal pointer routing.
+            sidebarDividerMissCount += 1
+            if sidebarDividerMissCount >= 4 {
+                cachedSidebarDividerX = nil
+                sidebarDividerMissCount = 0
+            }
         }
 
         guard let dividerX = cachedSidebarDividerX else {
@@ -101,7 +111,8 @@ final class WindowTerminalHostView: NSView {
     private static func containsSplitDivider(at windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden else { return false }
 
-        if let splitView = view as? NSSplitView {
+        if let splitView = view as? NSSplitView,
+           isBonsplitManagedSplitView(splitView) {
             let pointInSplit = splitView.convert(windowPoint, from: nil)
             if splitView.bounds.contains(pointInSplit) {
                 // Keep divider interactions reliable even when portal-hosted terminal frames
@@ -110,11 +121,14 @@ final class WindowTerminalHostView: NSView {
                 let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
                 for dividerIndex in 0..<dividerCount {
                     let first = splitView.arrangedSubviews[dividerIndex].frame
+                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
                     let thickness = splitView.dividerThickness
                     let dividerRect: NSRect
                     if splitView.isVertical {
                         // Keep divider hit-testing active even when one side is nearly collapsed,
                         // so users can drag the divider back out from the border.
+                        // But ignore transient states where both panes are effectively 0-width.
+                        guard first.width > 1 || second.width > 1 else { continue }
                         let x = max(0, first.maxX)
                         dividerRect = NSRect(
                             x: x,
@@ -124,6 +138,7 @@ final class WindowTerminalHostView: NSView {
                         )
                     } else {
                         // Same behavior for horizontal splits with a near-zero-height pane.
+                        guard first.height > 1 || second.height > 1 else { continue }
                         let y = max(0, first.maxY)
                         dividerRect = NSRect(
                             x: 0,
@@ -146,6 +161,23 @@ final class WindowTerminalHostView: NSView {
             }
         }
 
+        return false
+    }
+
+    private static func isBonsplitManagedSplitView(_ splitView: NSSplitView) -> Bool {
+        guard let delegate = splitView.delegate else { return false }
+        let delegateClassName = NSStringFromClass(type(of: delegate))
+        if delegateClassName.contains("Bonsplit") {
+            return true
+        }
+#if DEBUG
+        // Debug bonsplit uses DebugSplitView.
+        let splitClassName = NSStringFromClass(type(of: splitView))
+        if splitClassName.contains("DebugSplitView"),
+           splitClassName.contains("Bonsplit") {
+            return true
+        }
+#endif
         return false
     }
 
@@ -213,6 +245,7 @@ private final class SplitDividerOverlayView: NSView {
     private struct DividerSegment {
         let rect: NSRect
         let color: NSColor
+        let isVertical: Bool
     }
 
     override var isOpaque: Bool { false }
@@ -227,13 +260,16 @@ private final class SplitDividerOverlayView: NSView {
         var dividerSegments: [DividerSegment] = []
         collectDividerSegments(in: rootView, into: &dividerSegments)
         guard !dividerSegments.isEmpty else { return }
+        let hostedFrames = hostedFramesLikelyToOccludeDividers()
+        let visibleSegments = dividerSegments.filter { shouldRenderOverlay(for: $0, hostedFrames: hostedFrames) }
+        guard !visibleSegments.isEmpty else { return }
 
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
 
         // Keep separators visible above portal-hosted surfaces while matching each split view's
         // native divider color (avoids visible color shifts at tiny pane sizes).
-        for segment in dividerSegments where segment.rect.intersects(dirtyRect) {
+        for segment in visibleSegments where segment.rect.intersects(dirtyRect) {
             segment.color.setFill()
             let rect = segment.rect
             let pixelAligned = NSRect(
@@ -275,7 +311,13 @@ private final class SplitDividerOverlayView: NSView {
                 let dividerRectInWindow = splitView.convert(dividerRectInSplit, to: nil)
                 let dividerRectInOverlay = convert(dividerRectInWindow, from: nil)
                 if dividerRectInOverlay.intersects(bounds) {
-                    result.append(DividerSegment(rect: dividerRectInOverlay, color: dividerColor))
+                    result.append(
+                        DividerSegment(
+                            rect: dividerRectInOverlay,
+                            color: dividerColor,
+                            isVertical: splitView.isVertical
+                        )
+                    )
                 }
             }
         }
@@ -283,6 +325,37 @@ private final class SplitDividerOverlayView: NSView {
         for subview in view.subviews {
             collectDividerSegments(in: subview, into: &result)
         }
+    }
+
+    private func hostedFramesLikelyToOccludeDividers() -> [NSRect] {
+        guard let hostView = superview else { return [] }
+        return hostView.subviews.compactMap { subview -> NSRect? in
+            guard let hosted = subview as? GhosttySurfaceScrollView else { return nil }
+            guard !hosted.isHidden, hosted.window != nil else { return nil }
+            return hosted.frame
+        }
+    }
+
+    private func shouldRenderOverlay(for segment: DividerSegment, hostedFrames: [NSRect]) -> Bool {
+        // Draw only when a hosted surface actually intrudes across the divider centerline.
+        // This preserves tiny-pane visibility fixes without darkening regular dividers.
+        let axisEpsilon: CGFloat = 0.01
+        let axis = segment.isVertical ? segment.rect.midX : segment.rect.midY
+        let extentRect = segment.rect.insetBy(
+            dx: segment.isVertical ? 0 : -1,
+            dy: segment.isVertical ? -1 : 0
+        )
+
+        for frame in hostedFrames where frame.intersects(extentRect) {
+            if segment.isVertical {
+                if frame.minX < axis - axisEpsilon && frame.maxX > axis + axisEpsilon {
+                    return true
+                }
+            } else if frame.minY < axis - axisEpsilon && frame.maxY > axis + axisEpsilon {
+                return true
+            }
+        }
+        return false
     }
 
     private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {

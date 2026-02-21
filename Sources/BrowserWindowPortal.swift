@@ -23,6 +23,7 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 final class WindowBrowserHostView: NSView {
     override var isOpaque: Bool { false }
     private var cachedSidebarDividerX: CGFloat?
+    private var sidebarDividerMissCount = 0
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         if shouldPassThroughToSidebarResizer(at: point) {
@@ -48,6 +49,15 @@ final class WindowBrowserHostView: NSView {
             .filter { $0 > 1 }
         if let leftMostEdge = dividerCandidates.min() {
             cachedSidebarDividerX = leftMostEdge
+            sidebarDividerMissCount = 0
+        } else if cachedSidebarDividerX != nil {
+            // Keep cache briefly for layout churn, but clear if we miss repeatedly
+            // so stale divider positions don't steal pointer routing.
+            sidebarDividerMissCount += 1
+            if sidebarDividerMissCount >= 4 {
+                cachedSidebarDividerX = nil
+                sidebarDividerMissCount = 0
+            }
         }
 
         guard let dividerX = cachedSidebarDividerX else {
@@ -69,18 +79,22 @@ final class WindowBrowserHostView: NSView {
     private static func containsSplitDivider(at windowPoint: NSPoint, in view: NSView) -> Bool {
         guard !view.isHidden else { return false }
 
-        if let splitView = view as? NSSplitView {
+        if let splitView = view as? NSSplitView,
+           isBonsplitManagedSplitView(splitView) {
             let pointInSplit = splitView.convert(windowPoint, from: nil)
             if splitView.bounds.contains(pointInSplit) {
                 let expansion: CGFloat = 5
                 let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
                 for dividerIndex in 0..<dividerCount {
                     let first = splitView.arrangedSubviews[dividerIndex].frame
+                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
                     let thickness = splitView.dividerThickness
                     let dividerRect: NSRect
                     if splitView.isVertical {
                         // Keep divider hit-testing active even when one side is nearly collapsed,
                         // so users can drag the divider back out from the border.
+                        // But ignore transient states where both panes are effectively 0-width.
+                        guard first.width > 1 || second.width > 1 else { continue }
                         let x = max(0, first.maxX)
                         dividerRect = NSRect(
                             x: x,
@@ -90,6 +104,7 @@ final class WindowBrowserHostView: NSView {
                         )
                     } else {
                         // Same behavior for horizontal splits with a near-zero-height pane.
+                        guard first.height > 1 || second.height > 1 else { continue }
                         let y = max(0, first.maxY)
                         dividerRect = NSRect(
                             x: 0,
@@ -112,6 +127,23 @@ final class WindowBrowserHostView: NSView {
             }
         }
 
+        return false
+    }
+
+    private static func isBonsplitManagedSplitView(_ splitView: NSSplitView) -> Bool {
+        guard let delegate = splitView.delegate else { return false }
+        let delegateClassName = NSStringFromClass(type(of: delegate))
+        if delegateClassName.contains("Bonsplit") {
+            return true
+        }
+#if DEBUG
+        // Debug bonsplit uses DebugSplitView.
+        let splitClassName = NSStringFromClass(type(of: splitView))
+        if splitClassName.contains("DebugSplitView"),
+           splitClassName.contains("Bonsplit") {
+            return true
+        }
+#endif
         return false
     }
 }

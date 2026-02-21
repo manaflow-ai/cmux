@@ -2868,6 +2868,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
         }
     }
 
+    private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+
     func testHostViewPassesThroughWhenNoTerminalSubviewIsHit() {
         let host = WindowTerminalHostView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
 
@@ -2900,6 +2902,8 @@ final class WindowTerminalHostViewTests: XCTestCase {
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        let splitDelegate = BonsplitMockSplitDelegate()
+        splitView.delegate = splitDelegate
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
         let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
         splitView.addSubview(first)
@@ -2943,6 +2947,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    private final class BonsplitMockSplitDelegate: NSObject, NSSplitViewDelegate {}
+
     func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
@@ -2960,6 +2966,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
+        let splitDelegate = BonsplitMockSplitDelegate()
+        splitView.delegate = splitDelegate
         let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
         let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
         splitView.addSubview(first)
