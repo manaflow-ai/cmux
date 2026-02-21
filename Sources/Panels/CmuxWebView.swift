@@ -223,6 +223,13 @@ final class CmuxWebView: WKWebView {
 
     private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?) {
         guard let action else { return }
+        // Guard against accidental self-recursion if fallback gets overwritten.
+        if target === self,
+           action == #selector(contextMenuDownloadImage(_:))
+            || action == #selector(contextMenuDownloadLinkedFile(_:)) {
+            NSLog("CmuxWebView context fallback skipped (recursive self action)")
+            return
+        }
         _ = NSApp.sendAction(action, to: target, from: sender)
     }
 
@@ -377,8 +384,13 @@ final class CmuxWebView: WKWebView {
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadImage"
                 || item.title == "Download Image" {
                 NSLog("CmuxWebView context menu hook: download image")
-                fallbackDownloadImageTarget = item.target as AnyObject?
-                fallbackDownloadImageAction = item.action
+                // Preserve WebKit's original action/target only when not already hooked.
+                // Some menu instances are reused; blindly re-capturing can overwrite the
+                // native fallback with our own selector and break every other invocation.
+                if !(item.target === self && item.action == #selector(contextMenuDownloadImage(_:))) {
+                    fallbackDownloadImageTarget = item.target as AnyObject?
+                    fallbackDownloadImageAction = item.action
+                }
                 item.target = self
                 item.action = #selector(contextMenuDownloadImage(_:))
             }
@@ -386,8 +398,11 @@ final class CmuxWebView: WKWebView {
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile"
                 || item.title == "Download Linked File" {
                 NSLog("CmuxWebView context menu hook: download linked file")
-                fallbackDownloadLinkedFileTarget = item.target as AnyObject?
-                fallbackDownloadLinkedFileAction = item.action
+                // Preserve WebKit's original action/target only when not already hooked.
+                if !(item.target === self && item.action == #selector(contextMenuDownloadLinkedFile(_:))) {
+                    fallbackDownloadLinkedFileTarget = item.target as AnyObject?
+                    fallbackDownloadLinkedFileAction = item.action
+                }
                 item.target = self
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
             }
