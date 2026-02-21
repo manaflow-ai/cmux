@@ -146,6 +146,10 @@ def main() -> int:
             by_tab_only = c._call("tab.action", {"tab_id": tab_ref, "action": "mark_unread"}) or {}
             _must(str(by_tab_only.get("tab_ref") or "").startswith("tab:"), f"Expected tab_ref in tab_id-only result: {by_tab_only}")
             _must(str(by_tab_only.get("workspace_id") or "") == ws_id, f"tab_id-only action should resolve target workspace: {by_tab_only}")
+
+            mark_read = c._call("tab.action", {"tab_id": tab_ref, "action": "mark_read"}) or {}
+            _must(str(mark_read.get("tab_ref") or "").startswith("tab:"), f"Expected tab_ref in mark_read result: {mark_read}")
+            _must(str(mark_read.get("workspace_id") or "") == ws_id, f"mark_read should resolve target workspace: {mark_read}")
         finally:
             if ws_other:
                 try:

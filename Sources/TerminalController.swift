@@ -2046,7 +2046,7 @@ class TerminalController {
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
             "reload", "duplicate",
-            "pin", "unpin", "mark_unread"
+            "pin", "unpin", "mark_read", "mark_unread"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
@@ -2159,6 +2159,10 @@ class TerminalController {
             case "unpin":
                 workspace.setPanelPinned(panelId: surfaceId, pinned: false)
                 finish(["pinned": false])
+
+            case "mark_read", "mark_as_read":
+                workspace.markPanelRead(surfaceId)
+                finish()
 
             case "mark_unread", "mark_as_unread":
                 workspace.markPanelUnread(surfaceId)

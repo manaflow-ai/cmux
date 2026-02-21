@@ -22,13 +22,41 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 
 final class WindowBrowserHostView: NSView {
     override var isOpaque: Bool { false }
+    private var cachedSidebarDividerX: CGFloat?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if shouldPassThroughToSidebarResizer(at: point) {
+            return nil
+        }
         if shouldPassThroughToSplitDivider(at: point) {
             return nil
         }
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        // Browser portal host sits above SwiftUI content. Allow pointer/mouse events
+        // to reach the SwiftUI sidebar divider resizer zone.
+        let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
+            .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
+
+        // Ignore transient 0-origin slots during layout churn and preserve the last
+        // known-good divider edge.
+        let dividerCandidates = visibleSlots
+            .map(\.frame.minX)
+            .filter { $0 > 1 }
+        if let leftMostEdge = dividerCandidates.min() {
+            cachedSidebarDividerX = leftMostEdge
+        }
+
+        guard let dividerX = cachedSidebarDividerX else {
+            return false
+        }
+
+        let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
+        let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
+        return point.x >= regionMinX && point.x <= regionMaxX
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {

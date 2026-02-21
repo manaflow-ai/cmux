@@ -271,6 +271,44 @@ final class NotificationBurstCoalescerTests: XCTestCase {
     }
 }
 
+final class RecentlyClosedBrowserStackTests: XCTestCase {
+    func testPopReturnsEntriesInLIFOOrder() {
+        var stack = RecentlyClosedBrowserStack(capacity: 20)
+        stack.push(makeSnapshot(index: 1))
+        stack.push(makeSnapshot(index: 2))
+        stack.push(makeSnapshot(index: 3))
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 3)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 2)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 1)
+        XCTAssertNil(stack.pop())
+    }
+
+    func testPushDropsOldestEntriesWhenCapacityExceeded() {
+        var stack = RecentlyClosedBrowserStack(capacity: 3)
+        for index in 1...5 {
+            stack.push(makeSnapshot(index: index))
+        }
+
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 5)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 4)
+        XCTAssertEqual(stack.pop()?.originalTabIndex, 3)
+        XCTAssertNil(stack.pop())
+    }
+
+    private func makeSnapshot(index: Int) -> ClosedBrowserPanelRestoreSnapshot {
+        ClosedBrowserPanelRestoreSnapshot(
+            workspaceId: UUID(),
+            url: URL(string: "https://example.com/\(index)"),
+            originalPaneId: UUID(),
+            originalTabIndex: index,
+            fallbackSplitOrientation: .horizontal,
+            fallbackSplitInsertFirst: false,
+            fallbackAnchorPaneId: UUID()
+        )
+    }
+}
+
 final class TabManagerNotificationOrderingSourceTests: XCTestCase {
     func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
         let projectRoot = findProjectRoot()
@@ -314,5 +352,87 @@ final class TabManagerNotificationOrderingSourceTests: XCTestCase {
             dir = dir.deletingLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
+final class SocketControlSettingsTests: XCTestCase {
+    func testStableReleaseIgnoresAmbientSocketOverrideByDefault() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux.sock")
+    }
+
+    func testNightlyReleaseUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
+    }
+
+    func testDebugBundleHonorsSocketOverrideWithoutOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-my-tag.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.my-tag",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+    }
+
+    func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-staging-my-tag.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.staging.my-tag",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-staging-my-tag.sock")
+    }
+
+    func testStableReleaseCanOptInToSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-forced.sock",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
+    }
+
+    func testDefaultSocketPathByChannel() {
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+            "/tmp/cmux.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.nightly", isDebugBuild: false),
+            "/tmp/cmux-nightly.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.debug.tag", isDebugBuild: false),
+            "/tmp/cmux-debug.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.staging.tag", isDebugBuild: false),
+            "/tmp/cmux-staging.sock"
+        )
     }
 }

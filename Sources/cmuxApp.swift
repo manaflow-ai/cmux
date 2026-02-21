@@ -363,6 +363,11 @@ struct cmuxApp: App {
                     closeTabOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                Button("Reopen Closed Browser Panel") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).reopenMostRecentlyClosedBrowserPanel()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
 
             // Find
@@ -2570,7 +2575,7 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote("Controls access to the local Unix socket for programmatic control. In \"cmux processes only\" mode, only processes spawned inside cmux terminals can connect.")
-                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds).")
                     }
 
                     SettingsCard {
