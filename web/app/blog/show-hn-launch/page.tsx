@@ -142,16 +142,6 @@ export default function ShowHNLaunchPage() {
       </p>
 
       <p>
-        Three things I&apos;d tell someone doing a Show HN. Ship the
-        programmable API early, because the best feedback comes from people
-        who can actually build on your thing. Fix bugs in public, because 18
-        releases in 48 hours sounds chaotic but people respect the speed. And
-        don&apos;t assume your problem is local. We built cmux for our own
-        workflow and it resonated in Tokyo the same day it resonated in San
-        Francisco.
-      </p>
-
-      <p>
         If you&apos;re running multiple coding agents and want a terminal
         that keeps up,{" "}
         <a href="https://github.com/manaflow-ai/cmux">try cmux</a>.
