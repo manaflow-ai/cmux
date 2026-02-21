@@ -3066,18 +3066,6 @@ private extension BrowserPanel {
             }
           }
 
-          function clearControlHighlights() {
-            const controls = Array.from(
-              document.querySelectorAll(
-                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
-              )
-            );
-            for (const control of controls) {
-              control.classList.remove(controlMatchClass);
-              control.classList.remove(controlActiveClass);
-            }
-          }
-
           clearMarks();
           clearCustomHighlights();
           clearOverlayHighlights();
@@ -3171,6 +3159,18 @@ private extension BrowserPanel {
             const overlayRoot = document.getElementById(overlayRootId);
             if (overlayRoot && overlayRoot.parentNode) {
               overlayRoot.parentNode.removeChild(overlayRoot);
+            }
+          }
+
+          function clearControlHighlights() {
+            const controls = Array.from(
+              document.querySelectorAll(
+                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
+              )
+            );
+            for (const control of controls) {
+              control.classList.remove(controlMatchClass);
+              control.classList.remove(controlActiveClass);
             }
           }
 

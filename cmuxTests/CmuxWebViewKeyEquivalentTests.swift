@@ -1628,6 +1628,7 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("kind: \"control\""))
         XCTAssertTrue(highlightScript.contains("controlMatchClass"))
         XCTAssertTrue(highlightScript.contains("controlActiveClass"))
+        XCTAssertTrue(highlightScript.contains("function clearControlHighlights()"))
         XCTAssertTrue(highlightScript.contains("outline: 2px solid ${payload.allBackground} !important;"))
         XCTAssertTrue(highlightScript.contains("outline-color: ${payload.activeBackground} !important;"))
         XCTAssertTrue(highlightScript.contains("control.focus({ preventScroll: true });"))
