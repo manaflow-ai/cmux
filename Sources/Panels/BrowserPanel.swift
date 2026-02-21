@@ -2190,7 +2190,9 @@ private extension BrowserPanel {
         inPageFindCurrentMatchIndex = 0
         inPageFindLastQuery = ""
         clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
-        browserFindDebugLog("browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\"")
+        browserFindDebugLog(
+            "browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\" request=\(requestSequence)"
+        )
         return true
     }
 
@@ -2230,6 +2232,9 @@ private extension BrowserPanel {
             inPageFindRequestSequence &+= 1
             let requestSequence = inPageFindRequestSequence
             clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
+            browserFindDebugLog(
+                "browser.inPageFind.clearRequested panel=\(id.uuidString) reason=emptyQuery request=\(requestSequence)"
+            )
             return true
         }
 
@@ -2298,6 +2303,13 @@ private extension BrowserPanel {
                     return
                 }
 
+                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                    browserFindDebugLog(
+                        "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                    )
+                    return
+                }
+
                 let summary = self.decodeInPageFindSummary(result)
                 self.inPageFindMatchFound = summary.matchFound
                 self.inPageFindMatchCount = summary.total
@@ -2355,6 +2367,13 @@ private extension BrowserPanel {
         return (matchFound, max(0, current), max(0, total))
     }
 
+    private func extractInPageFindStaleInfo(_ result: Any?) -> (isStale: Bool, stage: String?)? {
+        guard let dictionary = result as? [String: Any] else { return nil }
+        let stale = boolValueFromJavaScript(dictionary["stale"]) ?? false
+        let stage = dictionary["stage"] as? String
+        return (stale, stage)
+    }
+
     private func intValueFromJavaScript(_ value: Any?) -> Int {
         if let intValue = value as? Int { return intValue }
         if let number = value as? NSNumber { return number.intValue }
@@ -2379,11 +2398,15 @@ private extension BrowserPanel {
                     )
                     return
                 }
-                if let dict = result as? [String: Any], let stale = dict["stale"] as? Bool, stale {
+                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
                     browserFindDebugLog(
-                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil")"
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil") stage=\(staleInfo.stage ?? "unspecified")"
                     )
+                    return
                 }
+                browserFindDebugLog(
+                    "browser.inPageFind.clear panel=\(self.id.uuidString) stale=false request=\(requestSequence.map(String.init) ?? "nil")"
+                )
             }
         }
     }

@@ -1023,6 +1023,32 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertFalse(browserPanel.isInPageFindVisible)
     }
 
+    func testEscapeShortcutHidesVisibleBrowserFind() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let escapeEvent = makeShortcutKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53) else {
+            XCTFail("Expected browser panel and escape key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        _ = browserPanel.showFindInterface()
+        browserPanel.updateInPageFindQuery("e")
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+        XCTAssertEqual(browserPanel.inPageFindQuery, "e")
+        XCTAssertEqual(browserPanel.inPageFindMatchCount, 0)
+        XCTAssertEqual(browserPanel.inPageFindCurrentMatchIndex, 0)
+    }
+
 }
 #endif
 

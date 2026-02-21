@@ -1680,6 +1680,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Browser in-page find should always close on Escape while visible, regardless
+        // of which subview in the popover currently owns first responder.
+        if flags.isEmpty,
+           event.keyCode == 53,
+           let browserPanel = tabManager?.focusedBrowserPanel,
+           browserPanel.isInPageFindVisible {
+            return browserPanel.hideInPageFindFromUI()
+        }
+
         // When the notifications popover is showing an empty state, consume plain typing
         // so key presses do not leak through into the focused terminal.
         if flags.isDisjoint(with: [.command, .control, .option]),
