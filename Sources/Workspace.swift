@@ -1062,7 +1062,13 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
     }
 
-    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
+    init(
+        title: String = "Terminal",
+        workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        initialTerminalCommand: String? = nil,
+        initialTerminalEnvironment: [String: String] = [:]
+    ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
@@ -1099,7 +1105,9 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
-            portOrdinal: portOrdinal
+            portOrdinal: portOrdinal,
+            initialCommand: initialTerminalCommand,
+            initialEnvironmentOverrides: initialTerminalEnvironment
         )
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle

@@ -1126,6 +1126,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
+    private let initialCommand: String?
+    private let initialEnvironmentOverrides: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -1166,13 +1168,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        initialCommand: String? = nil,
+        initialEnvironmentOverrides: [String: String] = [:]
     ) {
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        self.initialEnvironmentOverrides = initialEnvironmentOverrides
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -1422,6 +1429,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        if !initialEnvironmentOverrides.isEmpty {
+            for (keyRaw, valueRaw) in initialEnvironmentOverrides {
+                let key = keyRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !key.isEmpty else { continue }
+                env[key] = valueRaw
+            }
+        }
+
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)
             envStorage.reserveCapacity(env.count)
@@ -1445,14 +1460,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if let workingDirectory, !workingDirectory.isEmpty {
-            workingDirectory.withCString { cWorkingDir in
-                surfaceConfig.working_directory = cWorkingDir
+        let createWithCommandAndWorkingDirectory = { [self] in
+            if let initialCommand, !initialCommand.isEmpty {
+                initialCommand.withCString { cCommand in
+                    surfaceConfig.command = cCommand
+                    if let workingDirectory, !workingDirectory.isEmpty {
+                        workingDirectory.withCString { cWorkingDir in
+                            surfaceConfig.working_directory = cWorkingDir
+                            createSurface()
+                        }
+                    } else {
+                        createSurface()
+                    }
+                }
+            } else if let workingDirectory, !workingDirectory.isEmpty {
+                workingDirectory.withCString { cWorkingDir in
+                    surfaceConfig.working_directory = cWorkingDir
+                    createSurface()
+                }
+            } else {
                 createSurface()
             }
-        } else {
-            createSurface()
         }
+
+        createWithCommandAndWorkingDirectory()
 
         if surface == nil {
             print("Failed to create ghostty surface")
