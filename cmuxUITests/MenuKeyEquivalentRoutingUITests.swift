@@ -185,6 +185,7 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
 final class BrowserCommandReturnReloadUITests: XCTestCase {
     private var gotoSplitPath = ""
     private var keyequivPath = ""
+    private var socketPath = ""
 
     override func setUp() {
         super.setUp()
@@ -192,14 +193,17 @@ final class BrowserCommandReturnReloadUITests: XCTestCase {
 
         gotoSplitPath = "/tmp/cmux-ui-test-cmd-return-goto-split-\(UUID().uuidString).json"
         keyequivPath = "/tmp/cmux-ui-test-cmd-return-keyequiv-\(UUID().uuidString).json"
+        socketPath = "/tmp/cmux-ui-test-cmd-return-socket-\(UUID().uuidString).sock"
 
         try? FileManager.default.removeItem(atPath: gotoSplitPath)
         try? FileManager.default.removeItem(atPath: keyequivPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(atPath: gotoSplitPath)
         try? FileManager.default.removeItem(atPath: keyequivPath)
+        try? FileManager.default.removeItem(atPath: socketPath)
 
         super.tearDown()
     }
@@ -214,6 +218,7 @@ final class BrowserCommandReturnReloadUITests: XCTestCase {
         let fixtureAddress = fixtureURL.standardizedFileURL.absoluteString
 
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
