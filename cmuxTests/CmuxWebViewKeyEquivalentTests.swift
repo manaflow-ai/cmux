@@ -214,6 +214,41 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             XCTAssertTrue(panel.webView.isInspectable)
         }
     }
+
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
+        let updatedOpacity = 0.57
+
+        NotificationCenter.default.post(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: updatedColor,
+                GhosttyNotificationKey.backgroundOpacity: updatedOpacity
+            ]
+        )
+
+        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
+              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+    }
+
+    func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertEqual(panel.displayTitle, "New tab")
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertNil(panel.webView.url)
+        XCTAssertNil(panel.currentURL)
+    }
 }
 
 @MainActor
