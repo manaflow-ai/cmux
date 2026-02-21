@@ -52,6 +52,7 @@ Bootstrap:
 2. checksum-verify before exec
 3. run `cmuxd-remote serve --stdio`
 4. negotiate version/capabilities
+5. if bootstrap fails, fail `cmux ssh` with actionable error (no silent fallback to plain ssh mode)
 
 Minimum RPC surface:
 1. `hello`
@@ -86,8 +87,9 @@ States:
 Rules:
 1. transport loss moves all attached sessions to `reconnecting`
 2. successful reattach must keep same `session_id` (no duplicate shells)
-3. persistent sessions survive app restart/disconnect
-4. ephemeral sessions can be GC'd after TTL
+3. `cmux ssh` defaults to persistent sessions
+4. persistent sessions survive app restart/disconnect
+5. ephemeral sessions can be GC'd after TTL when explicitly requested
 
 ## 8. Test Matrix
 
@@ -114,6 +116,7 @@ All cases require deterministic `MUST` assertions.
 | W-004 | websocket via SOCKS5 | echo integrity |
 | W-005 | port conflict | structured conflict error + fallback behavior |
 | W-006 | concurrent PTY + proxy load | no PTY stall; proxy latency/error budget met |
+| W-007 | browser auto wiring | browser workflow uses daemon-backed proxy automatically when remote session is active |
 
 ### 8.3 Reconnect
 
@@ -137,12 +140,11 @@ All cases require deterministic `MUST` assertions.
 ## 9. CI Gates
 
 1. `remote-terminal-core`: T-001..T-005
-2. `remote-proxy-core`: W-001..W-004
+2. `remote-proxy-core`: W-001..W-004, W-007
 3. `remote-reconnect-core`: R-001..R-003
 4. `remote-multidaemon-core`: M-001..M-002
 
 ## 10. Open Decisions
 
-1. default session policy for `cmux ssh`: `ephemeral` vs `persistent`
-2. proxy endpoint scope: per daemon transport vs per workspace
-3. reconnect retry budget and backoff profile
+1. proxy endpoint scope: per daemon transport vs per workspace
+2. reconnect retry budget and backoff profile
