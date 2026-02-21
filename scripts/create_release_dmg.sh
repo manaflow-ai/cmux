@@ -6,14 +6,11 @@ if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   exit 1
 fi
 
-if ! command -v create-dmg >/dev/null 2>&1; then
-  echo "create-dmg is required but not found in PATH" >&2
-  exit 1
-fi
-
 APP_PATH="$1"
 DMG_OUTPUT="$2"
 SIGNING_IDENTITY="${3:-}"
+MODERN_CREATE_DMG_VERSION="${CMUX_CREATE_DMG_MODERN_VERSION:-8.0.0}"
+REQUIRE_MODERN="${CMUX_CREATE_DMG_REQUIRE_MODERN:-0}"
 
 if [ ! -d "$APP_PATH" ]; then
   echo "App not found: $APP_PATH" >&2
@@ -26,16 +23,17 @@ mkdir -p "$OUTPUT_DIR"
 cleanup_paths=()
 cleanup() {
   local path
-  for path in "${cleanup_paths[@]}"; do
+  for path in "${cleanup_paths[@]-}"; do
     [ -n "$path" ] && rm -rf "$path"
   done
 }
 trap cleanup EXIT
 
 detect_create_dmg_mode() {
-  local version_output major help_output
+  local bin_name version_output major help_output
+  bin_name="$1"
 
-  version_output="$(create-dmg --version 2>/dev/null || true)"
+  version_output="$("$bin_name" --version 2>/dev/null || true)"
   major="$(printf '%s\n' "$version_output" | sed -n 's/.* \([0-9][0-9]*\)\..*/\1/p' | head -n1)"
   if [ -n "$major" ]; then
     if [ "$major" -lt 2 ]; then
@@ -46,7 +44,7 @@ detect_create_dmg_mode() {
     return
   fi
 
-  help_output="$(create-dmg --help 2>&1 || true)"
+  help_output="$("$bin_name" --help 2>&1 || true)"
   if printf '%s\n' "$help_output" | grep -Fq "<output_name.dmg> <source_folder>"; then
     echo "legacy"
   else
@@ -81,13 +79,18 @@ create_dmg_legacy() {
 }
 
 create_dmg_modern() {
-  local temp_output_dir generated_dmg cmd
+  local temp_output_dir generated_dmg
+  local -a modern_bin cmd
+
+  modern_bin=("$@")
   temp_output_dir="$(mktemp -d)"
   cleanup_paths+=("$temp_output_dir")
 
-  cmd=(create-dmg --overwrite)
+  cmd=("${modern_bin[@]}" --overwrite)
   if [ -n "$SIGNING_IDENTITY" ]; then
     cmd+=(--identity="$SIGNING_IDENTITY")
+  else
+    cmd+=(--no-code-sign)
   fi
   cmd+=("$APP_PATH" "$temp_output_dir")
 
@@ -103,15 +106,30 @@ create_dmg_modern() {
   mv "$generated_dmg" "$DMG_OUTPUT"
 }
 
-case "$(detect_create_dmg_mode)" in
-  legacy)
-    create_dmg_legacy
-    ;;
-  modern)
-    create_dmg_modern
-    ;;
-  *)
-    echo "Unable to detect create-dmg mode" >&2
-    exit 1
-    ;;
-esac
+if command -v create-dmg >/dev/null 2>&1; then
+  if [ "$(detect_create_dmg_mode create-dmg)" = "modern" ]; then
+    create_dmg_modern create-dmg
+    exit 0
+  fi
+fi
+
+if command -v npx >/dev/null 2>&1; then
+  create_dmg_modern npx --yes "create-dmg@${MODERN_CREATE_DMG_VERSION}"
+  exit 0
+fi
+
+if [ "$REQUIRE_MODERN" = "1" ]; then
+  echo "Modern create-dmg is required but unavailable (need create-dmg>=2 or npx)." >&2
+  exit 1
+fi
+
+if ! command -v create-dmg >/dev/null 2>&1; then
+  echo "create-dmg is required but not found in PATH" >&2
+  exit 1
+fi
+
+if [ "$(detect_create_dmg_mode create-dmg)" = "legacy" ]; then
+  create_dmg_legacy
+else
+  create_dmg_modern create-dmg
+fi
