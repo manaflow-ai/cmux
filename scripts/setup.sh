@@ -21,6 +21,7 @@ CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
 LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
+LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
 LOCK_DIR="$CACHE_ROOT/$GHOSTTY_SHA.lock"
 
 mkdir -p "$CACHE_ROOT"
@@ -43,11 +44,25 @@ trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 if [ -d "$CACHE_XCFRAMEWORK" ]; then
     echo "==> Reusing cached GhosttyKit.xcframework"
 else
-    echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
-    (
-        cd ghostty
-        zig build -Demit-xcframework=true -Doptimize=ReleaseFast
-    )
+    # Only reuse local xcframework if its SHA stamp matches the current ghostty commit.
+    # Without this check, a stale build from a previous commit could be cached under
+    # the wrong SHA, producing ABI mismatches.
+    LOCAL_SHA=""
+    if [ -f "$LOCAL_SHA_STAMP" ]; then
+        LOCAL_SHA="$(cat "$LOCAL_SHA_STAMP")"
+    fi
+
+    if [ -d "$LOCAL_XCFRAMEWORK" ] && [ "$LOCAL_SHA" = "$GHOSTTY_SHA" ]; then
+        echo "==> Seeding cache from existing local GhosttyKit.xcframework (SHA matches)"
+    else
+        echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+        (
+            cd ghostty
+            zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+        )
+        # Stamp the build output with the SHA it was built from
+        echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
+    fi
 
     if [ ! -d "$LOCAL_XCFRAMEWORK" ]; then
         echo "Error: GhosttyKit.xcframework not found at $LOCAL_XCFRAMEWORK"
