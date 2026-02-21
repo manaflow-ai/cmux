@@ -199,41 +199,46 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Testimonials */}
-        <section data-dev="testimonials" className="mb-10">
+        {/* Community */}
+        <section data-dev="community" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
-            Testimonials
+            Community
           </h2>
-          <ul className="space-y-4 text-[15px]" style={{ lineHeight: 1.5 }}>
+          <ul className="space-y-3 text-[15px]" style={{ lineHeight: 1.5 }}>
             {testimonials.map((t) => (
-              <li key={t.url}>
-                <a
-                  href={t.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex gap-3 group"
-                >
-                  {t.avatar ? (
-                    <img
-                      src={t.avatar}
-                      alt={t.name}
-                      width={24}
-                      height={24}
-                      className="rounded-full shrink-0 mt-0.5"
-                    />
-                  ) : (
-                    <span className="text-muted shrink-0">-</span>
-                  )}
-                  <span>
+              <li key={t.url} className="flex gap-3">
+                <span className="text-muted shrink-0">-</span>
+                <span>
+                  <a
+                    href={t.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group"
+                  >
                     <span className="text-muted group-hover:text-foreground transition-colors">
                       &quot;{t.text}&quot;
                     </span>
-                    {" "}
-                    <span className="text-muted">
-                      — {t.name}
-                    </span>
-                  </span>
-                </a>
+                  </a>
+                  {" "}
+                  <a
+                    href={t.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-muted hover:text-foreground transition-colors"
+                  >
+                    —
+                    {t.avatar && (
+                      <img
+                        src={t.avatar}
+                        alt={t.name}
+                        width={16}
+                        height={16}
+                        className="rounded-full inline-block"
+                      />
+                    )}
+                    {t.name}
+                  </a>
+                </span>
               </li>
             ))}
           </ul>
