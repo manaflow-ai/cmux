@@ -43,14 +43,14 @@ export default function Home() {
           <GitHubButton />
         </div>
 
-        {/* Screenshot */}
-        <div data-dev="screenshot" className="mb-12">
+        {/* Screenshot — break out of max-w-2xl to be wider */}
+        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40">
           <Image
             src={landingImage}
             alt="cmux terminal app screenshot"
             priority
             placeholder="blur"
-            className="w-full rounded-xl border border-border"
+            className="w-full rounded-xl"
           />
         </div>
 
