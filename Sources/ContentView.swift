@@ -2341,15 +2341,15 @@ private struct TabItemView: View {
 
             // Branch + directory row
             if sidebarBranchVerticalLayout {
-                if sidebarShowGitBranch, !gitBranchSummaryLines.isEmpty {
+                if !branchDirectorySummaryLines.isEmpty {
                     HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon {
+                        if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
                             Image(systemName: "arrow.triangle.branch")
                                 .font(.system(size: 9))
                                 .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
                         }
                         VStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(gitBranchSummaryLines.enumerated()), id: \.offset) { _, line in
+                            ForEach(Array(branchDirectorySummaryLines.enumerated()), id: \.offset) { _, line in
                                 Text(line)
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
@@ -2358,14 +2358,6 @@ private struct TabItemView: View {
                             }
                         }
                     }
-                }
-
-                if let dirs = directorySummaryText {
-                    Text(dirs)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
             } else if let dirRow = branchDirectoryRow {
                 HStack(spacing: 3) {
@@ -2725,6 +2717,41 @@ private struct TabItemView: View {
     private var gitBranchSummaryLines: [String] {
         tab.sidebarGitBranchesInDisplayOrder().map { branch in
             "\(branch.branch)\(branch.isDirty ? "*" : "")"
+        }
+    }
+
+    private var verticalBranchDirectoryEntries: [SidebarBranchOrdering.BranchDirectoryEntry] {
+        tab.sidebarBranchDirectoryEntriesInDisplayOrder()
+    }
+
+    private var verticalRowsContainBranch: Bool {
+        sidebarShowGitBranch && verticalBranchDirectoryEntries.contains { $0.branch != nil }
+    }
+
+    private var branchDirectorySummaryLines: [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return verticalBranchDirectoryEntries.compactMap { entry in
+            let branchText: String? = {
+                guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
+                return "\(branch)\(entry.isDirty ? "*" : "")"
+            }()
+
+            let directoryText: String? = {
+                guard let directory = entry.directory else { return nil }
+                let shortened = shortenPath(directory, home: home)
+                return shortened.isEmpty ? nil : shortened
+            }()
+
+            switch (branchText, directoryText) {
+            case let (branch?, directory?):
+                return "\(branch) / \(directory)"
+            case let (branch?, nil):
+                return branch
+            case let (nil, directory?):
+                return directory
+            default:
+                return nil
+            }
         }
     }
 
