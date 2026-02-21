@@ -2861,6 +2861,18 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
             XCTFail("Expected non-web scheme to open externally")
         }
     }
+
+    func testResolvesHostlessHTTPSAsExternal() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https:///tmp/cmux.txt"))
+        switch target {
+        case let .external(url):
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertNil(url.host)
+            XCTAssertEqual(url.path, "/tmp/cmux.txt")
+        default:
+            XCTFail("Expected hostless HTTPS URL to open externally")
+        }
+    }
 }
 
 final class BrowserHostWhitelistTests: XCTestCase {
@@ -2930,5 +2942,22 @@ final class BrowserHostWhitelistTests: XCTestCase {
     func testDefaultWhitelistIsEmpty() {
         let patterns = BrowserLinkOpenSettings.hostWhitelist(defaults: defaults)
         XCTAssertTrue(patterns.isEmpty)
+    }
+
+    func testWildcardRequiresDotBoundary() {
+        defaults.set("*.example.com", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("badexample.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com.evil", defaults: defaults))
+    }
+
+    func testWhitelistNormalizesSchemesPortsAndTrailingDots() {
+        defaults.set("https://LOCALHOST:3000/path\n*.Example.COM:443", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost.", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("api.example.com", defaults: defaults))
+    }
+
+    func testInvalidWhitelistEntriesDoNotImplicitlyAllowAll() {
+        defaults.set("http://\n*.\n", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
     }
 }

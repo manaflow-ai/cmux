@@ -90,21 +90,39 @@ enum BrowserLinkOpenSettings {
     /// Empty whitelist means "allow all" (no filtering).
     /// Supports exact match and wildcard prefix (`*.example.com`).
     static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
-        let patterns = hostWhitelist(defaults: defaults)
-        if patterns.isEmpty { return true }
-        let lowerHost = host.lowercased()
-        for pattern in patterns {
-            let lowerPattern = pattern.lowercased()
-            if lowerPattern.hasPrefix("*.") {
-                let suffix = String(lowerPattern.dropFirst(1)) // ".example.com"
-                if lowerHost.hasSuffix(suffix) || lowerHost == String(lowerPattern.dropFirst(2)) {
-                    return true
-                }
-            } else if lowerHost == lowerPattern {
+        let rawPatterns = hostWhitelist(defaults: defaults)
+        if rawPatterns.isEmpty { return true }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
                 return true
             }
         }
         return false
+    }
+
+    private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = BrowserInsecureHTTPSettings.normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return BrowserInsecureHTTPSettings.normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
     }
 }
 

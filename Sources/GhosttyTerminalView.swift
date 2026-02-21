@@ -135,12 +135,18 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
+                return .external(parsed)
+            }
             return .embeddedBrowser(parsed)
         }
         return .external(parsed)
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
+        guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
+            return .external(webURL)
+        }
         return .embeddedBrowser(webURL)
     }
 
@@ -979,8 +985,14 @@ class GhosttyApp {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
-                // If a host whitelist is configured and this host isn't in it, open externally
-                if let host = url.host, !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+
+                // If a host whitelist is configured and this host isn't in it, open externally.
+                if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
