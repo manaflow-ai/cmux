@@ -1128,9 +1128,9 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.isInspectable = true
         }
 
-        // Match the empty-page background to the window so newly-created browsers
+        // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = .windowBackgroundColor
+        webView.underPageBackgroundColor = GhosttyApp.shared.defaultBackgroundColor
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
