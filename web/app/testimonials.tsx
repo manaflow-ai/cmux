@@ -9,15 +9,6 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
-    name: "Oliver Kri\u0161ka",
-    handle: "@quatermain32",
-    avatar:
-      "https://pbs.twimg.com/profile_images/674992361974464512/ClmHiw_P_400x400.jpg",
-    text: "I have used it for whole day and it's really great. Some bugs like opening file in integrated agent browser (yes, it has browser) but other than that it's good.",
-    url: "https://x.com/quatermain32/status/2024919743484891629",
-    platform: "x" as const,
-  },
-  {
     name: "johnthedebs",
     handle: "johnthedebs",
     avatar: null,
