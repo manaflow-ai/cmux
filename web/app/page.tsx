@@ -208,6 +208,12 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Bottom CTA */}
+        <div className="flex flex-wrap items-center gap-3 mt-12">
+          <DownloadButton location="bottom" />
+          <GitHubButton />
+        </div>
+
       </main>
 
     </div>
