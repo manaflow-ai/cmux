@@ -207,8 +207,9 @@ private final class WorkspaceRemoteSessionController {
         publishPortsSnapshotLocked()
 
         let statusCode = process.terminationStatus
-        let detail = Self.lastNonEmptyLine(in: probeStderrBuffer) ?? "SSH probe exited with status \(statusCode)"
-        publishState(.error, detail: detail)
+        let rawDetail = Self.bestErrorLine(stderr: probeStderrBuffer, stdout: probeStdoutBuffer)
+        let detail = rawDetail ?? "SSH probe exited with status \(statusCode)"
+        publishState(.error, detail: "SSH probe to \(configuration.displayTarget) failed: \(detail)")
         scheduleProbeRestartLocked(delay: 3.0)
     }
 
@@ -316,7 +317,7 @@ private final class WorkspaceRemoteSessionController {
             forwardEntries[port] = ForwardEntry(process: process, stderrPipe: stderrPipe)
             return true
         } catch {
-            publishState(.error, detail: "Failed to forward :\(port): \(error.localizedDescription)")
+            publishState(.error, detail: "Failed to forward local :\(port) to \(configuration.displayTarget): \(error.localizedDescription)")
             return false
         }
     }
@@ -331,6 +332,11 @@ private final class WorkspaceRemoteSessionController {
         publishPortsSnapshotLocked()
 
         guard desiredRemotePorts.contains(port) else { return }
+        let rawDetail = Self.bestErrorLine(stderr: probeStderrBuffer)
+        if process.terminationReason != .exit || process.terminationStatus != 0 {
+            let detail = rawDetail ?? "process exited with status \(process.terminationStatus)"
+            publishState(.error, detail: "SSH port-forward :\(port) dropped for \(configuration.displayTarget): \(detail)")
+        }
         guard Self.isLoopbackPortAvailable(port: port) else {
             portConflicts.insert(port)
             publishPortsSnapshotLocked()
@@ -354,8 +360,11 @@ private final class WorkspaceRemoteSessionController {
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            workspace.remoteConnectionState = state
-            workspace.remoteConnectionDetail = detail
+            workspace.applyRemoteConnectionStateUpdate(
+                state,
+                detail: detail,
+                target: workspace.remoteDisplayTarget ?? "remote host"
+            )
         }
     }
 
@@ -377,7 +386,10 @@ private final class WorkspaceRemoteSessionController {
         )
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            workspace.remoteDaemonStatus = status
+            workspace.applyRemoteDaemonStatusUpdate(
+                status,
+                target: workspace.remoteDisplayTarget ?? "remote host"
+            )
         }
     }
 
@@ -387,10 +399,12 @@ private final class WorkspaceRemoteSessionController {
         let conflicts = portConflicts.sorted()
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            workspace.remoteDetectedPorts = detected
-            workspace.remoteForwardedPorts = forwarded
-            workspace.remotePortConflicts = conflicts
-            workspace.recomputeListeningPorts()
+            workspace.applyRemotePortsSnapshot(
+                detected: detected,
+                forwarded: forwarded,
+                conflicts: conflicts,
+                target: workspace.remoteDisplayTarget ?? "remote host"
+            )
         }
     }
 
@@ -526,7 +540,7 @@ private final class WorkspaceRemoteSessionController {
         let command = "sh -lc \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 10)
         guard result.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: result.stderr) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 10, userInfo: [
                 NSLocalizedDescriptionKey: "failed to query remote platform: \(detail)",
             ])
@@ -600,7 +614,7 @@ private final class WorkspaceRemoteSessionController {
             timeout: 90
         )
         guard result.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: result.stderr) ?? "go build failed with status \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "go build failed with status \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 23, userInfo: [
                 NSLocalizedDescriptionKey: "failed to build cmuxd-remote: \(detail)",
             ])
@@ -621,7 +635,7 @@ private final class WorkspaceRemoteSessionController {
         let mkdirCommand = "sh -lc \(Self.shellSingleQuoted(mkdirScript))"
         let mkdirResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, mkdirCommand], timeout: 12)
         guard mkdirResult.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: mkdirResult.stderr) ?? "ssh exited \(mkdirResult.status)"
+            let detail = Self.bestErrorLine(stderr: mkdirResult.stderr, stdout: mkdirResult.stdout) ?? "ssh exited \(mkdirResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 30, userInfo: [
                 NSLocalizedDescriptionKey: "failed to create remote daemon directory: \(detail)",
             ])
@@ -643,7 +657,7 @@ private final class WorkspaceRemoteSessionController {
         scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
         let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
         guard scpResult.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: scpResult.stderr) ?? "scp exited \(scpResult.status)"
+            let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ?? "scp exited \(scpResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 31, userInfo: [
                 NSLocalizedDescriptionKey: "failed to upload cmuxd-remote: \(detail)",
             ])
@@ -656,7 +670,7 @@ private final class WorkspaceRemoteSessionController {
         let finalizeCommand = "sh -lc \(Self.shellSingleQuoted(finalizeScript))"
         let finalizeResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand], timeout: 12)
         guard finalizeResult.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: finalizeResult.stderr) ?? "ssh exited \(finalizeResult.status)"
+            let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ?? "ssh exited \(finalizeResult.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 32, userInfo: [
                 NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
             ])
@@ -669,7 +683,7 @@ private final class WorkspaceRemoteSessionController {
         let command = "sh -lc \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
-            let detail = Self.lastNonEmptyLine(in: result.stderr) ?? "ssh exited \(result.status)"
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 40, userInfo: [
                 NSLocalizedDescriptionKey: "failed to start remote daemon: \(detail)",
             ])
@@ -839,14 +853,36 @@ private final class WorkspaceRemoteSessionController {
         return nil
     }
 
-    private static func lastNonEmptyLine(in text: String) -> String? {
-        for line in text.split(separator: "\n").reversed() {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
-            }
+    private static func bestErrorLine(stderr: String, stdout: String = "") -> String? {
+        if let stderrLine = meaningfulErrorLine(in: stderr) {
+            return stderrLine
+        }
+        if let stdoutLine = meaningfulErrorLine(in: stdout) {
+            return stdoutLine
         }
         return nil
+    }
+
+    private static func meaningfulErrorLine(in text: String) -> String? {
+        let lines = text
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for line in lines.reversed() where !isNoiseLine(line) {
+            return line
+        }
+        return lines.last
+    }
+
+    private static func isNoiseLine(_ line: String) -> Bool {
+        let lowered = line.lowercased()
+        if lowered.hasPrefix("warning: permanently added") { return true }
+        if lowered.hasPrefix("debug") { return true }
+        if lowered.hasPrefix("transferred:") { return true }
+        if lowered.hasPrefix("openbsd_") { return true }
+        if lowered.contains("pseudo-terminal will not be allocated") { return true }
+        return false
     }
 
     private static func isLoopbackPortAvailable(port: Int) -> Bool {
@@ -1013,6 +1049,12 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
+    private var remoteLastErrorFingerprint: String?
+    private var remoteLastDaemonErrorFingerprint: String?
+    private var remoteLastPortConflictFingerprint: String?
+
+    private static let remoteErrorStatusKey = "remote.error"
+    private static let remotePortConflictStatusKey = "remote.port_conflicts"
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -1533,6 +1575,11 @@ final class Workspace: Identifiable, ObservableObject {
         remotePortConflicts = []
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+        remoteLastErrorFingerprint = nil
+        remoteLastDaemonErrorFingerprint = nil
+        remoteLastPortConflictFingerprint = nil
         recomputeListeningPorts()
 
         remoteSessionController?.stop()
@@ -1563,6 +1610,11 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConnectionState = .disconnected
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+        remoteLastErrorFingerprint = nil
+        remoteLastDaemonErrorFingerprint = nil
+        remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
             remoteConfiguration = nil
         }
@@ -1571,6 +1623,108 @@ final class Workspace: Identifiable, ObservableObject {
 
     func teardownRemoteConnection() {
         disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    fileprivate func applyRemoteConnectionStateUpdate(
+        _ state: WorkspaceRemoteConnectionState,
+        detail: String?,
+        target: String
+    ) {
+        remoteConnectionState = state
+        remoteConnectionDetail = detail
+
+        let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if state == .error, let trimmedDetail, !trimmedDetail.isEmpty {
+            statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
+                key: Self.remoteErrorStatusKey,
+                value: "SSH error (\(target)): \(trimmedDetail)",
+                icon: "network.slash",
+                color: nil,
+                timestamp: Date()
+            )
+
+            let fingerprint = "connection:\(trimmedDetail)"
+            if remoteLastErrorFingerprint != fingerprint {
+                remoteLastErrorFingerprint = fingerprint
+                appendSidebarLog(
+                    message: "SSH error (\(target)): \(trimmedDetail)",
+                    level: .error,
+                    source: "remote"
+                )
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: id,
+                    surfaceId: nil,
+                    title: "Remote SSH Error",
+                    subtitle: target,
+                    body: trimmedDetail
+                )
+            }
+            return
+        }
+
+        if state != .error {
+            statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+            remoteLastErrorFingerprint = nil
+        }
+    }
+
+    fileprivate func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
+        remoteDaemonStatus = status
+        guard status.state == .error else {
+            remoteLastDaemonErrorFingerprint = nil
+            return
+        }
+        let trimmedDetail = status.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "remote daemon error"
+        let fingerprint = "daemon:\(trimmedDetail)"
+        guard remoteLastDaemonErrorFingerprint != fingerprint else { return }
+        remoteLastDaemonErrorFingerprint = fingerprint
+        appendSidebarLog(
+            message: "Remote daemon error (\(target)): \(trimmedDetail)",
+            level: .error,
+            source: "remote-daemon"
+        )
+    }
+
+    fileprivate func applyRemotePortsSnapshot(detected: [Int], forwarded: [Int], conflicts: [Int], target: String) {
+        remoteDetectedPorts = detected
+        remoteForwardedPorts = forwarded
+        remotePortConflicts = conflicts
+        recomputeListeningPorts()
+
+        if conflicts.isEmpty {
+            statusEntries.removeValue(forKey: Self.remotePortConflictStatusKey)
+            remoteLastPortConflictFingerprint = nil
+            return
+        }
+
+        let conflictsList = conflicts.map { ":\($0)" }.joined(separator: ", ")
+        statusEntries[Self.remotePortConflictStatusKey] = SidebarStatusEntry(
+            key: Self.remotePortConflictStatusKey,
+            value: "SSH port conflicts (\(target)): \(conflictsList)",
+            icon: "exclamationmark.triangle.fill",
+            color: nil,
+            timestamp: Date()
+        )
+
+        let fingerprint = conflicts.map(String.init).joined(separator: ",")
+        guard remoteLastPortConflictFingerprint != fingerprint else { return }
+        remoteLastPortConflictFingerprint = fingerprint
+        appendSidebarLog(
+            message: "Port conflicts while forwarding \(target): \(conflictsList)",
+            level: .warning,
+            source: "remote-forward"
+        )
+    }
+
+    private func appendSidebarLog(message: String, level: SidebarLogLevel, source: String?) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        logEntries.append(SidebarLogEntry(message: trimmed, level: level, source: source, timestamp: Date()))
+        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+        let limit = max(1, min(500, configuredLimit))
+        if logEntries.count > limit {
+            logEntries.removeFirst(logEntries.count - limit)
+        }
     }
 
     // MARK: - Panel Operations

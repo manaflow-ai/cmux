@@ -182,6 +182,13 @@ def main() -> int:
             _must(bool(disconnected_remote.get("enabled")) is False, f"remote config should be cleared: {disconnected}")
             _must(str(disconnected_remote.get("state") or "") == "disconnected", f"remote state should be disconnected: {disconnected}")
             _must(str(disconnected_daemon.get("state") or "") == "unavailable", f"daemon state should reset to unavailable: {disconnected}")
+            try:
+                client._call("workspace.remote.reconnect", {"workspace_id": workspace_id})
+                raise cmuxError("workspace.remote.reconnect should fail when remote config was cleared")
+            except cmuxError as exc:
+                text = str(exc).lower()
+                _must("invalid_state" in text, f"workspace.remote.reconnect missing invalid_state for cleared config: {exc}")
+                _must("not configured" in text, f"workspace.remote.reconnect should explain missing remote config: {exc}")
 
             # Regression: --name is optional.
             payload2 = _run_cli_json(
@@ -215,6 +222,13 @@ def main() -> int:
                     break
             _must(row2 is not None, f"workspace created without --name missing from workspace.list: {workspace_id_without_name}")
             _must(bool(str((row2 or {}).get("title") or "").strip()), f"workspace title should not be empty without --name: {row2}")
+            reconnected = client._call("workspace.remote.reconnect", {"workspace_id": workspace_id_without_name}) or {}
+            reconnected_remote = reconnected.get("remote") or {}
+            _must(bool(reconnected_remote.get("enabled")) is True, f"workspace.remote.reconnect should keep remote enabled: {reconnected}")
+            _must(
+                str(reconnected_remote.get("state") or "") in {"connecting", "connected", "error"},
+                f"workspace.remote.reconnect should transition into an active state: {reconnected}",
+            )
 
             payload3 = _run_cli_json(
                 cli,

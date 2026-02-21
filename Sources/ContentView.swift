@@ -2444,6 +2444,10 @@ private struct TabItemView: View {
         }
         .contextMenu {
             let targetIds = contextTargetIds()
+            let targetWorkspaces = targetIds.compactMap { id in tabManager.tabs.first(where: { $0.id == id }) }
+            let remoteTargetWorkspaces = targetWorkspaces.filter { $0.isRemoteWorkspace }
+            let reconnectLabel = remoteTargetWorkspaces.count > 1 ? "Reconnect Workspaces" : "Reconnect Workspace"
+            let disconnectLabel = remoteTargetWorkspaces.count > 1 ? "Disconnect Workspaces" : "Disconnect Workspace"
             let shouldPin = !tab.isPinned
             let pinLabel = targetIds.count > 1
                 ? (shouldPin ? "Pin Workspaces" : "Unpin Workspaces")
@@ -2468,6 +2472,24 @@ private struct TabItemView: View {
                 Button("Remove Custom Workspace Name") {
                     tabManager.clearCustomTitle(tabId: tab.id)
                 }
+            }
+
+            if !remoteTargetWorkspaces.isEmpty {
+                Divider()
+
+                Button(reconnectLabel) {
+                    for workspace in remoteTargetWorkspaces {
+                        workspace.reconnectRemoteConnection()
+                    }
+                }
+                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .connecting })
+
+                Button(disconnectLabel) {
+                    for workspace in remoteTargetWorkspaces {
+                        workspace.disconnectRemoteConnection(clearConfiguration: false)
+                    }
+                }
+                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
             }
 
             Divider()
