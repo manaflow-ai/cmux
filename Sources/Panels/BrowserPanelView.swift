@@ -341,7 +341,7 @@ struct BrowserPanelView: View {
     private var inPageFindPopover: some View {
         let accent = ghosttyFindYellowColor
 
-        HStack(spacing: 0) {
+        return HStack(spacing: 0) {
             Spacer(minLength: 0)
 
             HStack(spacing: 6) {
