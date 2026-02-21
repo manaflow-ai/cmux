@@ -1037,6 +1037,13 @@ final class BrowserPanel: Panel, ObservableObject {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
+    private static func isDarkAppearance(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> Bool {
+        guard let appAppearance else { return false }
+        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
         let userInfo = notification?.userInfo
         let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
@@ -1052,6 +1059,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
+    private static func resolvedBrowserChromeBackgroundColor(
+        from notification: Notification? = nil,
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> NSColor {
+        if isDarkAppearance(appAppearance: appAppearance) {
+            return resolvedGhosttyBackgroundColor(from: notification)
+        }
+        return NSColor.windowBackgroundColor
     }
 
     let id: UUID
@@ -1187,7 +1204,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor()
+        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1359,7 +1376,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor(from: notification)
             }
             .store(in: &cancellables)
     }
@@ -2011,6 +2028,10 @@ extension BrowserPanel {
         forcedDarkModeEnabled = enabled
         forcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacity)
         applyForcedDarkModeIfNeeded()
+    }
+
+    func refreshAppearanceDrivenColors() {
+        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {

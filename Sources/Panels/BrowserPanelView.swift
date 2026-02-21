@@ -162,6 +162,7 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -224,6 +225,17 @@ struct BrowserPanelView: View {
         BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
     }
 
+    private var browserChromeBackgroundColor: NSColor {
+        switch colorScheme {
+        case .dark:
+            return GhosttyApp.shared.defaultBackgroundColor
+        case .light:
+            return .windowBackgroundColor
+        @unknown default:
+            return .windowBackgroundColor
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             addressBar
@@ -283,6 +295,7 @@ struct BrowserPanelView: View {
                 BrowserForcedDarkModeSettings.enabledKey: BrowserForcedDarkModeSettings.defaultEnabled,
                 BrowserForcedDarkModeSettings.opacityKey: BrowserForcedDarkModeSettings.defaultOpacity,
             ])
+            panel.refreshAppearanceDrivenColors()
             panel.setForcedDarkMode(
                 enabled: forcedDarkModeEnabled,
                 opacity: normalizedForcedDarkModeOpacity
@@ -323,6 +336,9 @@ struct BrowserPanelView: View {
                 enabled: forcedDarkModeEnabled,
                 opacity: normalized
             )
+        }
+        .onChange(of: colorScheme) { _ in
+            panel.refreshAppearanceDrivenColors()
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
@@ -399,7 +415,7 @@ struct BrowserPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
-        .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        .background(Color(nsColor: browserChromeBackgroundColor))
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
     }
@@ -621,7 +637,7 @@ struct BrowserPanelView: View {
                     }
                 })
             } else {
-                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                Color(nsColor: browserChromeBackgroundColor)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         onRequestPanelFocus()
