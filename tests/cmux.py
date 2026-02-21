@@ -882,6 +882,20 @@ class cmux:
             raise cmuxError(response)
         return response.strip().lower() == "true"
 
+    def portal_hit_gate(self, event_type: str) -> bool:
+        """Return whether terminal portal hit-testing should pass through to SwiftUI drag targets."""
+        response = self._send_command(f"portal_hit_gate {event_type}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
+
+    def sidebar_overlay_gate(self, state: str = "active") -> bool:
+        """Return whether sidebar outside-drop overlay would capture for drag state."""
+        response = self._send_command(f"sidebar_overlay_gate {state}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
+
     def drop_hit_test(self, x: float, y: float) -> Optional[str]:
         """Hit-test the file-drop overlay at normalised (0-1) coords.
 
@@ -892,6 +906,13 @@ class cmux:
             raise cmuxError(response)
         val = response.strip()
         return None if val == "none" else val
+
+    def drag_hit_chain(self, x: float, y: float) -> str:
+        """Return hit-view chain at normalised (0-1) coordinates."""
+        response = self._send_command(f"drag_hit_chain {x} {y}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip()
 
     def activate_app(self) -> None:
         """Bring app + main window to front (debug builds only)."""

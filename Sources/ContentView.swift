@@ -165,17 +165,32 @@ enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
+    static func hasBonsplitTabTransfer(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(bonsplitTabTransferType)
+    }
+
+    static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(sidebarTabReorderType)
+    }
+
+    static func hasFileURL(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let pasteboardTypes else { return false }
+        return pasteboardTypes.contains(.fileURL)
+    }
+
     static func shouldCaptureFileDropDestination(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLocalDraggingSource: Bool
     ) -> Bool {
         guard !hasLocalDraggingSource else { return false }
-        guard let pasteboardTypes, pasteboardTypes.contains(.fileURL) else { return false }
+        guard hasFileURL(pasteboardTypes) else { return false }
 
         // Prefer explicit non-file drag types so stale fileURL entries cannot hijack
         // Bonsplit tab drags or sidebar tab reorder drags.
-        if pasteboardTypes.contains(bonsplitTabTransferType) { return false }
-        if pasteboardTypes.contains(sidebarTabReorderType) { return false }
+        if hasBonsplitTabTransfer(pasteboardTypes) { return false }
+        if hasSidebarTabReorder(pasteboardTypes) { return false }
         return true
     }
 
@@ -198,18 +213,56 @@ enum DragOverlayRoutingPolicy {
     }
 
     static func shouldCaptureSidebarExternalOverlay(
+        hasSidebarDragState: Bool,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        guard hasSidebarDragState else { return false }
+        return hasSidebarTabReorder(pasteboardTypes)
+    }
+
+    static func shouldCaptureSidebarExternalOverlay(
         draggedTabId: UUID?,
         pasteboardTypes: [NSPasteboard.PasteboardType]?
     ) -> Bool {
-        guard draggedTabId != nil else { return false }
-        guard let pasteboardTypes else { return false }
-        return pasteboardTypes.contains(sidebarTabReorderType)
+        shouldCaptureSidebarExternalOverlay(
+            hasSidebarDragState: draggedTabId != nil,
+            pasteboardTypes: pasteboardTypes
+        )
+    }
+
+    static func shouldPassThroughPortalHitTesting(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard isPortalDragEvent(eventType) else { return false }
+        return hasBonsplitTabTransfer(pasteboardTypes) || hasSidebarTabReorder(pasteboardTypes)
     }
 
     private static func isDragMouseEvent(_ eventType: NSEvent.EventType?) -> Bool {
         eventType == .leftMouseDragged
             || eventType == .rightMouseDragged
             || eventType == .otherMouseDragged
+    }
+
+    private static func isPortalDragEvent(_ eventType: NSEvent.EventType?) -> Bool {
+        // NSDraggingDestination hit-testing can occur with no current NSEvent.
+        // Treat nil as drag-routing context so portal-hosted terminals do not
+        // swallow Bonsplit/sidebar drag payloads.
+        guard let eventType else { return true }
+        switch eventType {
+        case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            return true
+        case .flagsChanged:
+            // Real tab drags can briefly report flagsChanged while modifiers
+            // are sampled; still treat as drag-routing context.
+            return true
+        case .mouseMoved, .mouseEntered, .mouseExited, .cursorUpdate:
+            return true
+        case .appKitDefined, .systemDefined, .applicationDefined, .periodic:
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -228,6 +281,8 @@ final class FileDropOverlayView: NSView {
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     private weak var activeDragWebView: WKWebView?
+    private var lastHitTestLogSignature: String?
+    private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -243,10 +298,19 @@ final class FileDropOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let pb = NSPasteboard(name: .drag)
-        guard DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
+        let eventType = NSApp.currentEvent?.type
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropOverlay(
             pasteboardTypes: pb.types,
-            eventType: NSApp.currentEvent?.type
-        ) else { return nil }
+            eventType: eventType
+        )
+#if DEBUG
+        logHitTestDecision(
+            pasteboardTypes: pb.types,
+            eventType: eventType,
+            shouldCapture: shouldCapture
+        )
+#endif
+        guard shouldCapture else { return nil }
 
         return super.hitTest(point)
     }
@@ -328,19 +392,22 @@ final class FileDropOverlayView: NSView {
         )
         let webView = activeDragWebView
         activeDragWebView = nil
+        let terminal = terminalUnderPoint(sender.draggingLocation)
+        let hasTerminalTarget = terminal != nil
 #if DEBUG
-        dlog(
-            "overlay.fileDrop.perform capture=\(shouldCapture ? 1 : 0) " +
-            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-            "hasWebView=\(webView != nil ? 1 : 0) " +
-            "types=\(debugPasteboardTypes(types))"
+        logDragRouteDecision(
+            phase: "perform",
+            pasteboardTypes: types,
+            shouldCapture: shouldCapture,
+            hasLocalDraggingSource: hasLocalDraggingSource,
+            hasTerminalTarget: hasTerminalTarget
         )
 #endif
         guard shouldCapture else { return false }
         if let webView {
             return webView.performDragOperation(sender)
         }
-        guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
+        guard let terminal else { return false }
         return terminal.performDragOperation(sender)
     }
 
@@ -369,12 +436,12 @@ final class FileDropOverlayView: NSView {
 
         let hasTerminalTarget = terminalUnderPoint(loc) != nil
 #if DEBUG
-        dlog(
-            "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
-            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
-            "hasWebView=\(webView != nil ? 1 : 0) " +
-            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
-            "types=\(debugPasteboardTypes(types))"
+        logDragRouteDecision(
+            phase: phase,
+            pasteboardTypes: types,
+            shouldCapture: shouldCapture,
+            hasLocalDraggingSource: hasLocalDraggingSource,
+            hasTerminalTarget: hasTerminalTarget
         )
 #endif
         guard shouldCapture, hasTerminalTarget else { return [] }
@@ -402,6 +469,135 @@ final class FileDropOverlayView: NSView {
         return nil
     }
 
+    private func debugTopHitViewForCurrentEvent() -> String {
+        guard let window,
+              let currentEvent = NSApp.currentEvent,
+              let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return "-" }
+
+        let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
+        isHidden = true
+        defer { isHidden = false }
+
+        guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
+        var chain: [String] = []
+        var current: NSView? = hit
+        var depth = 0
+        while let view = current, depth < 6 {
+            chain.append(debugHitViewDescriptor(view))
+            current = view.superview
+            depth += 1
+        }
+        return chain.joined(separator: "->")
+    }
+
+    private func debugHitViewDescriptor(_ view: NSView) -> String {
+        let className = String(describing: type(of: view))
+        let ptr = String(describing: Unmanaged.passUnretained(view).toOpaque())
+        let dragTypes = debugRegisteredDragTypes(view)
+        return "\(className)@\(ptr){dragTypes=\(dragTypes)}"
+    }
+
+    private func debugRegisteredDragTypes(_ view: NSView) -> String {
+        let types = view.registeredDraggedTypes
+        guard !types.isEmpty else { return "-" }
+
+        let interestingTypes = types.filter { type in
+            let raw = type.rawValue
+            return raw == NSPasteboard.PasteboardType.fileURL.rawValue
+                || raw == DragOverlayRoutingPolicy.bonsplitTabTransferType.rawValue
+                || raw == DragOverlayRoutingPolicy.sidebarTabReorderType.rawValue
+                || raw.contains("public.text")
+                || raw.contains("public.url")
+                || raw.contains("public.data")
+        }
+        let selected = interestingTypes.isEmpty ? Array(types.prefix(3)) : interestingTypes
+        let rendered = selected.map(\.rawValue).joined(separator: ",")
+        if selected.count < types.count {
+            return "\(rendered),+\(types.count - selected.count)"
+        }
+        return rendered
+    }
+
+    private func hasRelevantDragTypes(_ types: [NSPasteboard.PasteboardType]?) -> Bool {
+        guard let types else { return false }
+        return types.contains(.fileURL)
+            || types.contains(DragOverlayRoutingPolicy.bonsplitTabTransferType)
+            || types.contains(DragOverlayRoutingPolicy.sidebarTabReorderType)
+    }
+
+    private func debugEventName(_ eventType: NSEvent.EventType?) -> String {
+        guard let eventType else { return "none" }
+        switch eventType {
+        case .cursorUpdate: return "cursorUpdate"
+        case .appKitDefined: return "appKitDefined"
+        case .systemDefined: return "systemDefined"
+        case .applicationDefined: return "applicationDefined"
+        case .periodic: return "periodic"
+        case .mouseMoved: return "mouseMoved"
+        case .mouseEntered: return "mouseEntered"
+        case .mouseExited: return "mouseExited"
+        case .flagsChanged: return "flagsChanged"
+        case .leftMouseDown: return "leftMouseDown"
+        case .leftMouseUp: return "leftMouseUp"
+        case .leftMouseDragged: return "leftMouseDragged"
+        case .rightMouseDown: return "rightMouseDown"
+        case .rightMouseUp: return "rightMouseUp"
+        case .rightMouseDragged: return "rightMouseDragged"
+        case .otherMouseDown: return "otherMouseDown"
+        case .otherMouseUp: return "otherMouseUp"
+        case .otherMouseDragged: return "otherMouseDragged"
+        case .scrollWheel: return "scrollWheel"
+        default: return "other(\(eventType.rawValue))"
+        }
+    }
+
+#if DEBUG
+    private func logHitTestDecision(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?,
+        shouldCapture: Bool
+    ) {
+        let isDragEvent = eventType == .leftMouseDragged
+            || eventType == .rightMouseDragged
+            || eventType == .otherMouseDragged
+        guard shouldCapture || isDragEvent || hasRelevantDragTypes(pasteboardTypes) else { return }
+
+        let signature = "\(shouldCapture ? 1 : 0)|\(debugEventName(eventType))|\(debugPasteboardTypes(pasteboardTypes))"
+        guard lastHitTestLogSignature != signature else { return }
+        lastHitTestLogSignature = signature
+        dlog(
+            "overlay.fileDrop.hitTest capture=\(shouldCapture ? 1 : 0) " +
+            "event=\(debugEventName(eventType)) " +
+            "topHit=\(debugTopHitViewForCurrentEvent()) " +
+            "types=\(debugPasteboardTypes(pasteboardTypes))"
+        )
+    }
+
+    private func logDragRouteDecision(
+        phase: String,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        shouldCapture: Bool,
+        hasLocalDraggingSource: Bool,
+        hasTerminalTarget: Bool
+    ) {
+        guard shouldCapture || hasRelevantDragTypes(pasteboardTypes) else { return }
+        let signature = [
+            shouldCapture ? "1" : "0",
+            hasLocalDraggingSource ? "1" : "0",
+            hasTerminalTarget ? "1" : "0",
+            debugPasteboardTypes(pasteboardTypes)
+        ].joined(separator: "|")
+        guard lastDragRouteLogSignatureByPhase[phase] != signature else { return }
+        lastDragRouteLogSignatureByPhase[phase] = signature
+        dlog(
+            "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
+            "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+            "hasTerminal=\(hasTerminalTarget ? 1 : 0) " +
+            "types=\(debugPasteboardTypes(pasteboardTypes))"
+        )
+    }
+#endif
     /// Hit-tests the window to find the GhosttyNSView under the cursor.
     func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         if let window,
@@ -1522,13 +1718,21 @@ private struct SidebarExternalDropOverlay: View {
             draggedTabId: draggedTabId,
             pasteboardTypes: dragPasteboardTypes
         )
-        Color.clear
-            .contentShape(Rectangle())
-            .allowsHitTesting(shouldCapture)
-            .onDrop(
-                of: [SidebarTabDragPayload.typeIdentifier],
-                delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
-            )
+        Group {
+            if shouldCapture {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(true)
+                    .onDrop(
+                        of: [SidebarTabDragPayload.typeIdentifier],
+                        delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
+                    )
+            } else {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 

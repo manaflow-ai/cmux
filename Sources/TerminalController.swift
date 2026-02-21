@@ -496,11 +496,20 @@ class TerminalController {
         case "drop_hit_test":
             return dropHitTest(args)
 
+        case "drag_hit_chain":
+            return dragHitChain(args)
+
         case "overlay_hit_gate":
             return overlayHitGate(args)
 
         case "overlay_drop_gate":
             return overlayDropGate(args)
+
+        case "portal_hit_gate":
+            return portalHitGate(args)
+
+        case "sidebar_overlay_gate":
+            return sidebarOverlayGate(args)
 
         case "activate_app":
             return activateApp()
@@ -6966,8 +6975,11 @@ class TerminalController {
           seed_drag_pasteboard_types <types> - Seed NSDrag pasteboard with comma/space-separated types (fileurl, tabtransfer, sidebarreorder, or raw UTI)
           clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
+          drag_hit_chain <x 0-1> <y 0-1> - Return hit-view chain at normalised coords (test-only)
           overlay_hit_gate <event|none> - Return true/false if file-drop overlay would capture hit-testing for event type (test-only)
           overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
+          portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to SwiftUI drag targets (test-only)
+          sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -7246,36 +7258,14 @@ class TerminalController {
     private func overlayHitGate(_ args: String) -> String {
         let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !token.isEmpty else {
-            return "ERROR: Usage: overlay_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
+            return "ERROR: Usage: overlay_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
         }
 
-        let eventType: NSEvent.EventType?
-        switch token {
-        case "leftmousedragged":
-            eventType = .leftMouseDragged
-        case "rightmousedragged":
-            eventType = .rightMouseDragged
-        case "othermousedragged":
-            eventType = .otherMouseDragged
-        case "leftmousedown":
-            eventType = .leftMouseDown
-        case "leftmouseup":
-            eventType = .leftMouseUp
-        case "rightmousedown":
-            eventType = .rightMouseDown
-        case "rightmouseup":
-            eventType = .rightMouseUp
-        case "othermousedown":
-            eventType = .otherMouseDown
-        case "othermouseup":
-            eventType = .otherMouseUp
-        case "scrollwheel":
-            eventType = .scrollWheel
-        case "none":
-            eventType = nil
-        default:
+        let parsedEvent = parseOverlayEventType(token)
+        guard parsedEvent.isKnown else {
             return "ERROR: Unknown event type '\(args.trimmingCharacters(in: .whitespacesAndNewlines))'"
         }
+        let eventType = parsedEvent.eventType
 
         var shouldCapture = false
         DispatchQueue.main.sync {
@@ -7310,6 +7300,98 @@ class TerminalController {
             )
         }
         return shouldCapture ? "true" : "false"
+    }
+
+    private func portalHitGate(_ args: String) -> String {
+        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !token.isEmpty else {
+            return "ERROR: Usage: portal_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
+        }
+        let parsedEvent = parseOverlayEventType(token)
+        guard parsedEvent.isKnown else {
+            return "ERROR: Unknown event type '\(args.trimmingCharacters(in: .whitespacesAndNewlines))'"
+        }
+        let eventType = parsedEvent.eventType
+
+        var shouldPassThrough = false
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard(name: .drag)
+            shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: pb.types,
+                eventType: eventType
+            )
+        }
+        return shouldPassThrough ? "true" : "false"
+    }
+
+    private func sidebarOverlayGate(_ args: String) -> String {
+        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSidebarDragState: Bool
+        switch token {
+        case "", "active":
+            hasSidebarDragState = true
+        case "inactive":
+            hasSidebarDragState = false
+        default:
+            return "ERROR: Usage: sidebar_overlay_gate [active|inactive]"
+        }
+
+        var shouldCapture = false
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard(name: .drag)
+            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
+                hasSidebarDragState: hasSidebarDragState,
+                pasteboardTypes: pb.types
+            )
+        }
+        return shouldCapture ? "true" : "false"
+    }
+
+    private func parseOverlayEventType(_ token: String) -> (isKnown: Bool, eventType: NSEvent.EventType?) {
+        switch token {
+        case "leftmousedragged":
+            return (true, .leftMouseDragged)
+        case "rightmousedragged":
+            return (true, .rightMouseDragged)
+        case "othermousedragged":
+            return (true, .otherMouseDragged)
+        case "mousemove", "mousemoved":
+            return (true, .mouseMoved)
+        case "mouseentered":
+            return (true, .mouseEntered)
+        case "mouseexited":
+            return (true, .mouseExited)
+        case "flagschanged":
+            return (true, .flagsChanged)
+        case "cursorupdate":
+            return (true, .cursorUpdate)
+        case "appkitdefined":
+            return (true, .appKitDefined)
+        case "systemdefined":
+            return (true, .systemDefined)
+        case "applicationdefined":
+            return (true, .applicationDefined)
+        case "periodic":
+            return (true, .periodic)
+        case "leftmousedown":
+            return (true, .leftMouseDown)
+        case "leftmouseup":
+            return (true, .leftMouseUp)
+        case "rightmousedown":
+            return (true, .rightMouseDown)
+        case "rightmouseup":
+            return (true, .rightMouseUp)
+        case "othermousedown":
+            return (true, .otherMouseDown)
+        case "othermouseup":
+            return (true, .otherMouseUp)
+        case "scrollwheel":
+            return (true, .scrollWheel)
+        case "none":
+            return (true, nil)
+        default:
+            return (false, nil)
+        }
     }
 
     private func dragPasteboardType(from token: String) -> NSPasteboard.PasteboardType? {
@@ -7369,6 +7451,71 @@ class TerminalController {
             result = "none"
         }
         return result
+    }
+
+    /// Return the hit-test chain at normalized (0-1) coordinates in the main window's
+    /// content area. Used by regression tests to detect root-level drag destinations
+    /// shadowing pane-local Bonsplit drop targets.
+    private func dragHitChain(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count == 2,
+              let nx = Double(parts[0]), let ny = Double(parts[1]),
+              (0...1).contains(nx), (0...1).contains(ny) else {
+            return "ERROR: Usage: drag_hit_chain <x 0-1> <y 0-1>"
+        }
+
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            guard let window = NSApp.mainWindow
+                ?? NSApp.keyWindow
+                ?? NSApp.windows.first(where: { win in
+                    guard let raw = win.identifier?.rawValue else { return false }
+                    return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+                }),
+                  let contentView = window.contentView,
+                  let themeFrame = contentView.superview else { return }
+
+            let pointInTheme = NSPoint(
+                x: contentView.frame.minX + (contentView.bounds.width * nx),
+                y: contentView.frame.maxY - (contentView.bounds.height * ny)
+            )
+
+            let overlay = objc_getAssociatedObject(window, &fileDropOverlayKey) as? NSView
+            if let overlay { overlay.isHidden = true }
+            defer { overlay?.isHidden = false }
+
+            guard let hit = themeFrame.hitTest(pointInTheme) else {
+                result = "none"
+                return
+            }
+
+            var chain: [String] = []
+            var current: NSView? = hit
+            var depth = 0
+            while let view = current, depth < 8 {
+                chain.append(debugDragHitViewDescriptor(view))
+                current = view.superview
+                depth += 1
+            }
+            result = chain.joined(separator: "->")
+        }
+        return result
+    }
+
+    private func debugDragHitViewDescriptor(_ view: NSView) -> String {
+        let className = String(describing: type(of: view))
+        let pointer = String(describing: Unmanaged.passUnretained(view).toOpaque())
+        let types = view.registeredDraggedTypes
+        let renderedTypes: String
+        if types.isEmpty {
+            renderedTypes = "-"
+        } else {
+            let raw = types.map(\.rawValue)
+            renderedTypes = raw.count <= 4
+                ? raw.joined(separator: ",")
+                : raw.prefix(4).joined(separator: ",") + ",+\(raw.count - 4)"
+        }
+        return "\(className)@\(pointer){dragTypes=\(renderedTypes)}"
     }
 
     private func unescapeSocketText(_ input: String) -> String {
