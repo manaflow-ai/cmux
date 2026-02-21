@@ -204,14 +204,6 @@ export default function Home() {
               <TestimonialCard key={t.url} testimonial={t} />
             ))}
           </div>
-          <div className="mt-2">
-            <a
-              href="/wall-of-love"
-              className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
-            >
-              See all testimonials
-            </a>
-          </div>
         </section>
 
       </main>
