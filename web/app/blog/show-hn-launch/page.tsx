@@ -134,6 +134,11 @@ export default function ShowHNLaunchPage() {
       <p>
         Everything in cmux is scriptable through the CLI: creating workspaces,
         sending keystrokes, controlling the browser, reading notifications.
+        Part of the cmux philosophy is being programmable and composable, so
+        people can customize the way they work with coding agents. The
+        state of the art for coding agents is changing fast, and you don&apos;t
+        want to be locked into an inflexible GUI orchestrator that can&apos;t
+        keep up.
       </p>
 
       <p>
