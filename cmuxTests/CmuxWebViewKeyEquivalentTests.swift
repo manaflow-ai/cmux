@@ -1514,6 +1514,18 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(clearRequests[0].allowStaleRetry)
     }
 
+    func testBrowserFindFieldHandlesShiftTabAndShiftReturnAsPreviousMatch() throws {
+        let sourceURL = findProjectRoot().appendingPathComponent("Sources/Panels/BrowserPanelView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("func navigateFindFromKeyPress(modifiers: EventModifiers) -> BackportKeyPressResult"))
+        XCTAssertTrue(source.contains(".backport.onKeyPress(.return, action: navigateFindFromKeyPress)"))
+        XCTAssertTrue(source.contains(".backport.onKeyPress(.tab, action: navigateFindFromKeyPress)"))
+        XCTAssertTrue(source.contains("if modifiers.contains(.shift) {"))
+        XCTAssertTrue(source.contains("_ = panel.inPageFindPreviousFromUI()"))
+        XCTAssertTrue(source.contains("_ = panel.inPageFindNextFromUI()"))
+    }
+
     func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {
         _ = NSApplication.shared
         let panel = BrowserPanel(workspaceId: UUID())
@@ -1644,6 +1656,18 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("if (document.activeElement !== control)"))
         XCTAssertFalse(highlightScript.contains("control.focus({ preventScroll: true });"))
         XCTAssertTrue(highlightScript.contains("control.setSelectionRange(activeMatch.start, activeMatch.end, \"none\")"))
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
 #endif

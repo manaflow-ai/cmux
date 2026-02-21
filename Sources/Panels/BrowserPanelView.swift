@@ -352,6 +352,15 @@ struct BrowserPanelView: View {
             _ = panel.hideInPageFindFromUI()
         }
 
+        func navigateFindFromKeyPress(modifiers: EventModifiers) -> BackportKeyPressResult {
+            if modifiers.contains(.shift) {
+                _ = panel.inPageFindPreviousFromUI()
+            } else {
+                _ = panel.inPageFindNextFromUI()
+            }
+            return .handled
+        }
+
         return HStack(spacing: 4) {
             let trimmedQuery = panel.inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -370,9 +379,8 @@ struct BrowserPanelView: View {
             .background(Color.primary.opacity(0.1))
             .cornerRadius(6)
             .focused($inPageFindFieldFocused)
-            .onSubmit {
-                _ = panel.inPageFindNextFromUI()
-            }
+            .backport.onKeyPress(.return, action: navigateFindFromKeyPress)
+            .backport.onKeyPress(.tab, action: navigateFindFromKeyPress)
             .accessibilityIdentifier("BrowserInPageFindField")
             .overlay(alignment: .trailing) {
                 if !trimmedQuery.isEmpty {
