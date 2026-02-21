@@ -1495,11 +1495,18 @@ struct ContentView: View {
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
             // Ghostty theme colors remain authoritative.
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
+            let shouldApplyWindowGlassFallback =
+                sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
                 && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable {
+                && !WindowGlassEffect.isAvailable
+            let shouldForceTransparentHosting =
+                shouldApplyWindowGlassFallback || GhosttyBackgroundTheme.currentColor().alphaComponent < 0.999
+
+            if shouldForceTransparentHosting {
                 window.isOpaque = false
-                window.backgroundColor = .clear
+                if shouldApplyWindowGlassFallback {
+                    window.backgroundColor = .clear
+                }
                 // Configure contentView and all subviews for transparency
                 if let contentView = window.contentView {
                     contentView.wantsLayer = true
@@ -1512,6 +1519,9 @@ struct ContentView: View {
                         subview.layer?.isOpaque = false
                     }
                 }
+            }
+
+            if shouldApplyWindowGlassFallback {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
@@ -4236,18 +4246,20 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
 }
 
 extension NSColor {
-    func hexString() -> String {
+    func hexString(includeAlpha: Bool = false) -> String {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        return String(
-            format: "#%02X%02X%02X",
-            min(255, max(0, Int(red * 255))),
-            min(255, max(0, Int(green * 255))),
-            min(255, max(0, Int(blue * 255)))
-        )
+        let redByte = min(255, max(0, Int(red * 255)))
+        let greenByte = min(255, max(0, Int(green * 255)))
+        let blueByte = min(255, max(0, Int(blue * 255)))
+        if includeAlpha {
+            let alphaByte = min(255, max(0, Int(alpha * 255)))
+            return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
+        }
+        return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
     }
 }

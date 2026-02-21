@@ -87,7 +87,7 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
-            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            workspace.applyGhosttyChrome(backgroundColor: GhosttyBackgroundTheme.currentColor())
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -103,11 +103,7 @@ struct WorkspaceContentView: View {
             refreshGhosttyAppearanceConfig()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
-            if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
-            } else {
-                workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
-            }
+            workspace.applyGhosttyChrome(backgroundColor: GhosttyBackgroundTheme.color(from: notification))
         }
     }
 
@@ -246,7 +242,7 @@ struct EmptyPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

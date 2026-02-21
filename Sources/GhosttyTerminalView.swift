@@ -10,11 +10,15 @@ import Bonsplit
 import IOSurface
 
 #if os(macOS)
-private func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
+func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     let defaults = UserDefaults.standard
     let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
     let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true
     return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
+}
+
+private func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
+    cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
 }
 #endif
 
@@ -596,7 +600,7 @@ class GhosttyApp {
         var opacity: Double = 1.0
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
-        defaultBackgroundOpacity = opacity
+        defaultBackgroundOpacity = min(1.0, max(0.0, opacity))
         let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
         if hasChanged {
@@ -1019,11 +1023,11 @@ class GhosttyApp {
 
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        if cmuxShouldUseTransparentBackgroundWindow() {
+        if cmuxShouldUseClearWindowBackground(for: defaultBackgroundOpacity) {
             window.backgroundColor = .clear
             window.isOpaque = false
             if backgroundLogEnabled {
-                logBackground("applied transparent window for behindWindow blur")
+                logBackground("applied clear window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
             }
         } else {
             let color = defaultBackgroundColor.withAlphaComponent(defaultBackgroundOpacity)
@@ -1806,7 +1810,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         let color = effectiveBackgroundColor()
-        if cmuxShouldUseTransparentBackgroundWindow() {
+        if cmuxShouldUseClearWindowBackground(for: color.alphaComponent) {
             window.backgroundColor = .clear
             window.isOpaque = false
         } else {

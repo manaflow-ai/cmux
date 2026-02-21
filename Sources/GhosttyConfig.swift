@@ -18,6 +18,7 @@ struct GhosttyConfig {
 
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
+    var backgroundOpacity: Double = 1.0
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
@@ -101,6 +102,10 @@ struct GhosttyConfig {
                 case "background":
                     if let color = NSColor(hex: value) {
                         backgroundColor = color
+                    }
+                case "background-opacity":
+                    if let opacity = Double(value) {
+                        backgroundOpacity = opacity
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {

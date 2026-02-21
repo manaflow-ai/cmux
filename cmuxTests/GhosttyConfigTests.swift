@@ -126,6 +126,12 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testParseBackgroundOpacityReadsConfigValue() {
+        var config = GhosttyConfig()
+        config.parse("background-opacity = 0.42")
+        XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+
     func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
         XCTAssertTrue(
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
@@ -205,6 +211,33 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+}
+
+@MainActor
+final class WorkspaceChromeColorTests: XCTestCase {
+    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        XCTAssertEqual(hex, "#1122337F")
+    }
+
+    func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        XCTAssertEqual(hex, "#112233")
     }
 }
 
