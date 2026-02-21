@@ -1060,6 +1060,49 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(panel.showFindInterface())
         XCTAssertEqual(responderView.receivedActionTags, [NSTextFinder.Action.showFindInterface.rawValue])
     }
+
+    func testUnchangedBrowserFindQueryDoesNotAdvanceCurrentMatch() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        let totalMatches = 13
+        var activeIndex = 0
+        var requests: [BrowserInPageFindDebugRequest] = []
+
+        panel.debugInPageFindFallbackHandler = { request in
+            requests.append(request)
+
+            if request.queryChanged {
+                activeIndex = 1
+            } else if request.direction == "next" {
+                activeIndex = (activeIndex % totalMatches) + 1
+            } else if request.direction == "prev" {
+                activeIndex = ((activeIndex - 2 + totalMatches) % totalMatches) + 1
+            }
+
+            return BrowserInPageFindDebugResult(
+                matchFound: totalMatches > 0,
+                current: activeIndex,
+                total: totalMatches
+            )
+        }
+
+        panel.updateInPageFindQuery("example")
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(panel.inPageFindMatchCount, totalMatches)
+        XCTAssertEqual(requests.map(\.direction), ["reset"])
+        XCTAssertEqual(requests.map(\.queryChanged), [true])
+
+        // Simulates repeated TextField value commits that happen around Enter submit.
+        for _ in 0..<3 {
+            panel.updateInPageFindQuery("example")
+        }
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(requests.map(\.direction), ["reset"])
+
+        XCTAssertTrue(panel.inPageFindNextFromUI())
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 2)
+        XCTAssertEqual(requests.map(\.direction), ["reset", "next"])
+    }
 }
 #endif
 

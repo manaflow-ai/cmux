@@ -4,6 +4,21 @@ import WebKit
 import AppKit
 import Bonsplit
 
+#if DEBUG
+struct BrowserInPageFindDebugRequest {
+    let query: String
+    let direction: String
+    let queryChanged: Bool
+    let requestSequence: Int
+}
+
+struct BrowserInPageFindDebugResult {
+    let matchFound: Bool
+    let current: Int
+    let total: Int
+}
+#endif
+
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
@@ -1000,6 +1015,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var webViewObservers: [NSKeyValueObservation] = []
 #if DEBUG
     var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
+    var debugInPageFindFallbackHandler: ((BrowserInPageFindDebugRequest) -> BrowserInPageFindDebugResult)?
 #endif
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -1840,8 +1856,13 @@ extension BrowserPanel {
     }
 
     func updateInPageFindQuery(_ query: String) {
+        let previousQuery = inPageFindQuery
         inPageFindQuery = query
-        browserFindDebugLog("browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\"")
+        let unchanged = previousQuery == query
+        browserFindDebugLog(
+            "browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\" unchanged=\(unchanged)"
+        )
+        guard !unchanged else { return }
         _ = runInPageFindFallback(backwards: false)
     }
 
@@ -2199,6 +2220,26 @@ private extension BrowserPanel {
         inPageFindLastQuery = query
         inPageFindRequestSequence &+= 1
         let requestSequence = inPageFindRequestSequence
+
+#if DEBUG
+        if let debugInPageFindFallbackHandler {
+            let debugResult = debugInPageFindFallbackHandler(
+                BrowserInPageFindDebugRequest(
+                    query: query,
+                    direction: direction,
+                    queryChanged: queryChanged,
+                    requestSequence: requestSequence
+                )
+            )
+            inPageFindMatchFound = debugResult.matchFound
+            inPageFindMatchCount = max(0, debugResult.total)
+            inPageFindCurrentMatchIndex = max(0, debugResult.current)
+            browserFindDebugLog(
+                "browser.inPageFind.result panel=\(id.uuidString) api=debugHandler query=\"\(query)\" direction=\(direction) matchFound=\(debugResult.matchFound) current=\(debugResult.current) total=\(debugResult.total)"
+            )
+            return true
+        }
+#endif
 
         let colors = inPageFindHighlightPalette()
         let payload: [String: Any] = [
