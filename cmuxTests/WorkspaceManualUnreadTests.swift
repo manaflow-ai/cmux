@@ -14,27 +14,67 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(
             Workspace.shouldClearManualUnread(
                 previousFocusedPanelId: previousFocusedPanelId,
-                nextFocusedPanelId: nextFocusedPanelId
+                nextFocusedPanelId: nextFocusedPanelId,
+                isManuallyUnread: true,
+                markedAt: Date()
             )
         )
     }
 
-    func testShouldNotClearManualUnreadWhenFocusStaysOnSamePanel() {
+    func testShouldNotClearManualUnreadWhenFocusStaysOnSamePanelWithinGrace() {
         let panelId = UUID()
+        let now = Date()
 
         XCTAssertFalse(
             Workspace.shouldClearManualUnread(
                 previousFocusedPanelId: panelId,
-                nextFocusedPanelId: panelId
+                nextFocusedPanelId: panelId,
+                isManuallyUnread: true,
+                markedAt: now.addingTimeInterval(-0.05),
+                now: now,
+                sameTabGraceInterval: 0.2
             )
         )
     }
 
-    func testShouldNotClearManualUnreadWhenNoPanelWasPreviouslyFocused() {
+    func testShouldClearManualUnreadWhenFocusStaysOnSamePanelAfterGrace() {
+        let panelId = UUID()
+        let now = Date()
+
+        XCTAssertTrue(
+            Workspace.shouldClearManualUnread(
+                previousFocusedPanelId: panelId,
+                nextFocusedPanelId: panelId,
+                isManuallyUnread: true,
+                markedAt: now.addingTimeInterval(-0.25),
+                now: now,
+                sameTabGraceInterval: 0.2
+            )
+        )
+    }
+
+    func testShouldNotClearManualUnreadWhenNotManuallyUnread() {
+        XCTAssertFalse(
+            Workspace.shouldClearManualUnread(
+                previousFocusedPanelId: UUID(),
+                nextFocusedPanelId: UUID(),
+                isManuallyUnread: false,
+                markedAt: Date()
+            )
+        )
+    }
+
+    func testShouldNotClearManualUnreadWhenNoPreviousFocusAndWithinGrace() {
+        let now = Date()
+
         XCTAssertFalse(
             Workspace.shouldClearManualUnread(
                 previousFocusedPanelId: nil,
-                nextFocusedPanelId: UUID()
+                nextFocusedPanelId: UUID(),
+                isManuallyUnread: true,
+                markedAt: now.addingTimeInterval(-0.05),
+                now: now,
+                sameTabGraceInterval: 0.2
             )
         )
     }
