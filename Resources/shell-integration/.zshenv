@@ -29,6 +29,19 @@ fi
     [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
 } always {
     if [[ -o interactive ]]; then
+        # Opt into Ghostty's SSH shell niceties by default so plain `ssh ...`
+        # gets TERM compatibility + remote terminfo setup.
+        if [[ -n "${GHOSTTY_SHELL_FEATURES:-}" ]]; then
+            builtin typeset _cmux_features=",$GHOSTTY_SHELL_FEATURES,"
+            if [[ "$_cmux_features" != *",ssh-env,"* ]]; then
+                builtin export GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES},ssh-env"
+                _cmux_features=",$GHOSTTY_SHELL_FEATURES,"
+            fi
+            if [[ "$_cmux_features" != *",ssh-terminfo,"* ]]; then
+                builtin export GHOSTTY_SHELL_FEATURES="${GHOSTTY_SHELL_FEATURES},ssh-terminfo"
+            fi
+        fi
+
         # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
         # zsh integration if available.
         if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
@@ -43,5 +56,5 @@ fi
         fi
     fi
 
-    builtin unset _cmux_file _cmux_ghostty _cmux_integ
+    builtin unset _cmux_file _cmux_features _cmux_ghostty _cmux_integ
 }
