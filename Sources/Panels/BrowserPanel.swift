@@ -2177,6 +2177,8 @@ extension BrowserPanel {
           const styleId = "cmux-inpage-find-style";
           const markClass = "cmux-inpage-find-hit";
           const activeClass = "cmux-inpage-find-active";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
           const overlayRootId = "cmux-inpage-find-overlay-root";
           const overlayMarkClass = "cmux-inpage-find-overlay-hit";
           const overlayActiveClass = "cmux-inpage-find-overlay-active";
@@ -2372,6 +2374,8 @@ extension BrowserPanel {
           const overlayRoot = document.getElementById(overlayRootId);
           const marks = Array.from(document.querySelectorAll("span." + markClass));
           const activeMarks = Array.from(document.querySelectorAll("span." + markClass + "." + activeClass));
+          const controlMatches = Array.from(document.querySelectorAll("input." + controlMatchClass + ", textarea." + controlMatchClass));
+          const activeControlMatches = Array.from(document.querySelectorAll("input." + controlActiveClass + ", textarea." + controlActiveClass));
           const overlayMarks = overlayRoot
             ? Array.from(overlayRoot.querySelectorAll("." + overlayMarkClass))
             : [];
@@ -2407,6 +2411,8 @@ extension BrowserPanel {
             firstActiveHighlightRange: highlightFirstRangeSummary(activeHighlightName),
             spanMarkCount: marks.length,
             spanActiveCount: activeMarks.length,
+            controlMatchCount: controlMatches.length,
+            controlActiveCount: activeControlMatches.length,
             overlayMarkCount: overlayMarks.length,
             overlayActiveCount: overlayActiveMarks.length,
             firstOverlayRect: rectSummary(firstOverlayRect),
@@ -2863,6 +2869,8 @@ private extension BrowserPanel {
         (function() {
           const requestSequence = \(requestSequenceJSON);
           const markClass = "cmux-inpage-find-hit";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
           const overlayRootId = "cmux-inpage-find-overlay-root";
           const styleId = "cmux-inpage-find-style";
           const stateKey = "__cmuxInPageFindState";
@@ -2917,9 +2925,34 @@ private extension BrowserPanel {
             }
           }
 
+          function clearControlHighlights() {
+            const controls = Array.from(
+              document.querySelectorAll(
+                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
+              )
+            );
+            for (const control of controls) {
+              control.classList.remove(controlMatchClass);
+              control.classList.remove(controlActiveClass);
+            }
+          }
+
+          function clearControlHighlights() {
+            const controls = Array.from(
+              document.querySelectorAll(
+                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
+              )
+            );
+            for (const control of controls) {
+              control.classList.remove(controlMatchClass);
+              control.classList.remove(controlActiveClass);
+            }
+          }
+
           clearMarks();
           clearCustomHighlights();
           clearOverlayHighlights();
+          clearControlHighlights();
 
           const style = document.getElementById(styleId);
           if (style && style.parentNode) {
@@ -2939,6 +2972,8 @@ private extension BrowserPanel {
         (function() {
           const payload = \(payloadJSON);
           const markClass = "cmux-inpage-find-hit";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
           const overlayRootId = "cmux-inpage-find-overlay-root";
           const overlayMarkClass = "cmux-inpage-find-overlay-hit";
           const overlayActiveClass = "cmux-inpage-find-overlay-active";
@@ -3056,6 +3091,12 @@ private extension BrowserPanel {
               #${overlayRootId} .${overlayMarkClass}.${overlayActiveClass} {
                 background-color: ${payload.activeBackground} !important;
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
+              }
+              input.${controlMatchClass}, textarea.${controlMatchClass} {
+                box-shadow: 0 0 0 2px ${payload.allBackground} inset !important;
+              }
+              input.${controlMatchClass}.${controlActiveClass}, textarea.${controlMatchClass}.${controlActiveClass} {
+                box-shadow: 0 0 0 2px ${payload.activeBackground} inset, 0 0 0 1px rgba(0, 0, 0, 0.28) !important;
               }
             `;
           }
@@ -3220,7 +3261,63 @@ private extension BrowserPanel {
             return nodes;
           }
 
-          function collectMatches(query) {
+          function isElementVisiblyRenderable(element) {
+            if (!element) return false;
+            if (typeof element.isConnected === "boolean" && !element.isConnected) return false;
+
+            let ancestor = element;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              if (ancestor.hidden) {
+                return false;
+              }
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                if (style.display === "none") return false;
+                if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+                if (style.contentVisibility === "hidden") return false;
+                const opacity = Number(style.opacity);
+                if (Number.isFinite(opacity) && opacity <= 0) return false;
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+
+            const rects = element.getClientRects ? element.getClientRects() : null;
+            if (!rects || rects.length === 0) return false;
+            const minimumRenderableArea = 4;
+            for (let index = 0; index < rects.length; index += 1) {
+              const rect = rects[index];
+              if (!rect) continue;
+              const area = rect.width * rect.height;
+              if (
+                Number.isFinite(rect.width) &&
+                Number.isFinite(rect.height) &&
+                rect.width > 0 &&
+                rect.height > 0 &&
+                Number.isFinite(area) &&
+                area >= minimumRenderableArea &&
+                rect.right > -64 &&
+                rect.bottom > -64 &&
+                isRangeRectHitVisible(element, rect)
+              ) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function isSearchableInputControl(element) {
+            if (!element || !element.tagName) return false;
+            const tagName = String(element.tagName).toUpperCase();
+            if (tagName === "TEXTAREA") return true;
+            if (tagName !== "INPUT") return false;
+
+            const type = String(element.type || "text").toLowerCase();
+            return ["text", "search", "email", "url", "tel"].includes(type);
+          }
+
+          function collectTextMatches(query) {
             const lowerQuery = query.toLocaleLowerCase();
             const queryLength = query.length;
             const matches = [];
@@ -3248,9 +3345,12 @@ private extension BrowserPanel {
                 customHighlightPaintBlocked = hasCustomHighlightPaintBlocker(textNode);
                 customHighlightPaintBlockerCache.set(textNode, customHighlightPaintBlocked);
               }
+              const anchorElement = textNode.parentElement || null;
               while (index !== -1) {
                 matches.push({
+                  kind: "text",
                   node: textNode,
+                  anchorElement,
                   start: index,
                   end: index + queryLength,
                   customHighlightPaintBlocked,
@@ -3261,6 +3361,80 @@ private extension BrowserPanel {
             }
 
             return matches;
+          }
+
+          function collectControlMatches(query) {
+            const lowerQuery = query.toLocaleLowerCase();
+            const queryLength = query.length;
+            const matches = [];
+            const visibilityCache = new WeakMap();
+            const controls = Array.from(document.querySelectorAll("input, textarea"));
+
+            for (const control of controls) {
+              if (!isSearchableInputControl(control)) {
+                continue;
+              }
+              const value = String(control.value || "");
+              if (!value) {
+                continue;
+              }
+              const lower = value.toLocaleLowerCase();
+              let cursor = 0;
+              let index = lower.indexOf(lowerQuery, cursor);
+              if (index === -1) {
+                continue;
+              }
+              let isVisible = visibilityCache.get(control);
+              if (typeof isVisible !== "boolean") {
+                isVisible = isElementVisiblyRenderable(control);
+                visibilityCache.set(control, isVisible);
+              }
+              if (!isVisible) {
+                continue;
+              }
+              while (index !== -1) {
+                matches.push({
+                  kind: "control",
+                  element: control,
+                  anchorElement: control,
+                  start: index,
+                  end: index + queryLength,
+                  customHighlightPaintBlocked: false,
+                });
+                cursor = index + queryLength;
+                index = lower.indexOf(lowerQuery, cursor);
+              }
+            }
+
+            return matches;
+          }
+
+          function compareMatchesInDocumentOrder(a, b) {
+            const aAnchor = a.anchorElement || (a.node && a.node.parentElement) || null;
+            const bAnchor = b.anchorElement || (b.node && b.node.parentElement) || null;
+            if (aAnchor === bAnchor) {
+              const aStart = Number.isFinite(a.start) ? a.start : 0;
+              const bStart = Number.isFinite(b.start) ? b.start : 0;
+              return aStart - bStart;
+            }
+            if (!aAnchor) return 1;
+            if (!bAnchor) return -1;
+
+            const position = aAnchor.compareDocumentPosition(bAnchor);
+            if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+
+            const aStart = Number.isFinite(a.start) ? a.start : 0;
+            const bStart = Number.isFinite(b.start) ? b.start : 0;
+            return aStart - bStart;
+          }
+
+          function collectMatches(query) {
+            const textMatches = collectTextMatches(query);
+            const controlMatches = collectControlMatches(query);
+            const combinedMatches = textMatches.concat(controlMatches);
+            combinedMatches.sort(compareMatchesInDocumentOrder);
+            return combinedMatches;
           }
 
           function resolveActiveIndex(query, total) {
@@ -3279,9 +3453,10 @@ private extension BrowserPanel {
 
           function scrollMatchIntoView(match) {
             if (!match) return;
-            if (!match.node) {
-              if (match.scrollIntoView) {
-                match.scrollIntoView({ block: "center", inline: "nearest" });
+            if (match.kind === "control") {
+              const element = match.element;
+              if (element && element.scrollIntoView) {
+                element.scrollIntoView({ block: "center", inline: "nearest" });
               }
               return;
             }
@@ -3380,6 +3555,31 @@ private extension BrowserPanel {
             return activeMatch;
           }
 
+          function applyControlHighlights(matches, activeIndex) {
+            clearControlHighlights();
+            const matchedControls = new Set();
+            for (const match of matches) {
+              if (match.kind !== "control" || !match.element) continue;
+              matchedControls.add(match.element);
+            }
+            for (const control of matchedControls) {
+              control.classList.add(controlMatchClass);
+            }
+
+            const activeMatch = matches[activeIndex] || null;
+            if (!activeMatch || activeMatch.kind !== "control" || !activeMatch.element) {
+              return;
+            }
+
+            const control = activeMatch.element;
+            control.classList.add(controlActiveClass);
+            if (typeof control.setSelectionRange === "function") {
+              try {
+                control.setSelectionRange(activeMatch.start, activeMatch.end, "none");
+              } catch (_) {}
+            }
+          }
+
           try {
             if (isRequestStale()) {
               return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" });
@@ -3388,6 +3588,7 @@ private extension BrowserPanel {
             clearMarks();
             clearCustomHighlights();
             clearOverlayHighlights();
+            clearControlHighlights();
             if (isRequestStale()) {
               return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" });
             }
@@ -3409,21 +3610,37 @@ private extension BrowserPanel {
             }
 
             const activeIndex = resolveActiveIndex(query, matches.length);
-            const hasCustomHighlightPaintBlockedMatch = matches.some((match) => !!match.customHighlightPaintBlocked);
-            const shouldUseCustomHighlights = canUseCustomHighlights && !hasCustomHighlightPaintBlockedMatch;
-            let renderMode = shouldUseCustomHighlights ? "customHighlight" : "overlayFallback";
+            const textMatchCount = matches.reduce((count, match) => count + (match.kind === "text" ? 1 : 0), 0);
+            const hasCustomHighlightPaintBlockedMatch = matches.some(
+              (match) => match.kind === "text" && !!match.customHighlightPaintBlocked
+            );
+            const shouldUseCustomHighlights =
+              textMatchCount > 0 &&
+              canUseCustomHighlights &&
+              !hasCustomHighlightPaintBlockedMatch;
 
-            var activeTarget = null;
-            if (shouldUseCustomHighlights) {
-              try {
-                activeTarget = applyCustomHighlights(matches, activeIndex);
-              } catch (_) {
+            let renderMode = "controlOnly";
+            if (textMatchCount > 0) {
+              renderMode = shouldUseCustomHighlights ? "customHighlight" : "overlayFallback";
+            }
+
+            let activeTarget = matches[activeIndex] || null;
+            if (textMatchCount > 0) {
+              if (shouldUseCustomHighlights) {
+                try {
+                  activeTarget = applyCustomHighlights(matches, activeIndex);
+                } catch (_) {
+                  activeTarget = applyOverlayFallback(matches, activeIndex);
+                  renderMode = "overlayFallback";
+                }
+              } else {
                 activeTarget = applyOverlayFallback(matches, activeIndex);
-                renderMode = "overlayFallback";
               }
             } else {
-              activeTarget = applyOverlayFallback(matches, activeIndex);
+              clearCustomHighlights();
+              clearOverlayHighlights();
             }
+            applyControlHighlights(matches, activeIndex);
             if (isRequestStale()) {
               return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" });
             }

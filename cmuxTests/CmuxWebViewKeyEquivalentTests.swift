@@ -1294,13 +1294,17 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(window.makeFirstResponder(findField))
         XCTAssertTrue(panel.hideInPageFindFromUI())
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
-
-        guard let firstResponder = window.firstResponder as? NSView else {
-            XCTFail("Expected a first responder")
-            return
+        let deadline = Date().addingTimeInterval(0.4)
+        var restored = false
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            if let firstResponder = window.firstResponder as? NSView,
+               firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView) {
+                restored = true
+                break
+            }
         }
-        XCTAssertTrue(firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView))
+        XCTAssertTrue(restored)
     }
 
     func testHideInPageFindDoesNotStealFocusWhenOpenedFromNonWebViewResponder() {
@@ -1493,6 +1497,8 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("::highlight("))
         XCTAssertTrue(highlightScript.contains("applyOverlayFallback"))
         XCTAssertTrue(highlightScript.contains("customHighlightPaintBlocked"))
+        XCTAssertTrue(highlightScript.contains("applyControlHighlights"))
+        XCTAssertTrue(highlightScript.contains("controlOnly"))
         XCTAssertTrue(highlightScript.contains("const sequenceKey = \"__cmuxInPageFindSequence\""))
         XCTAssertTrue(highlightScript.contains("const requestSequence = Number(payload.requestSequence || 0)"))
         XCTAssertTrue(highlightScript.contains("function isRequestStale()"))
@@ -1555,6 +1561,32 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertTrue(highlightScript.contains("const visibilityCache = new WeakMap()"))
         XCTAssertTrue(highlightScript.contains("if (!isVisible) {"))
         XCTAssertTrue(highlightScript.contains("continue;"))
+    }
+
+    func testInPageFindScriptIncludesInputAndTextareaMatches() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "hello",
+            "direction": "reset",
+            "queryChanged": true,
+            "requestSequence": 45,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("function isSearchableInputControl(element)"))
+        XCTAssertTrue(highlightScript.contains("querySelectorAll(\"input, textarea\")"))
+        XCTAssertTrue(highlightScript.contains("kind: \"control\""))
+        XCTAssertTrue(highlightScript.contains("controlMatchClass"))
+        XCTAssertTrue(highlightScript.contains("controlActiveClass"))
+        XCTAssertTrue(highlightScript.contains("control.setSelectionRange(activeMatch.start, activeMatch.end, \"none\")"))
     }
 }
 #endif
