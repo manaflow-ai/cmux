@@ -18,7 +18,7 @@ Policy target:
 - [x] Update CLI help/usage/subcommand docs for `rename-tab`.
 - [x] Add regression tests for rename-tab and no-unintended-focus-side-effects.
 - [x] Run build + targeted tests.
-- [ ] Open PR.
+- [x] Open PR.
 
 ## Explicit Focus-Intent Allowlist
 These may mutate in-app focus/selection state:
