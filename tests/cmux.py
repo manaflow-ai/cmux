@@ -851,6 +851,17 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def seed_drag_pasteboard_types(self, types: List[str]) -> None:
+        """Seed NSDrag pasteboard with comma/space-separated types in app process."""
+        if not types:
+            raise cmuxError("seed_drag_pasteboard_types requires at least one type")
+        payload = ",".join(t.strip() for t in types if t and t.strip())
+        if not payload:
+            raise cmuxError("seed_drag_pasteboard_types requires at least one non-empty type")
+        response = self._send_command(f"seed_drag_pasteboard_types {payload}")
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def clear_drag_pasteboard(self) -> None:
         """Clear NSDrag pasteboard in the app process (debug builds only)."""
         response = self._send_command("clear_drag_pasteboard")
@@ -860,6 +871,13 @@ class cmux:
     def overlay_hit_gate(self, event_type: str) -> bool:
         """Return whether FileDropOverlayView would capture hit-testing for event_type."""
         response = self._send_command(f"overlay_hit_gate {event_type}")
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response.strip().lower() == "true"
+
+    def overlay_drop_gate(self, source: str = "external") -> bool:
+        """Return whether FileDropOverlayView would capture drag-destination routing."""
+        response = self._send_command(f"overlay_drop_gate {source}")
         if response.startswith("ERROR"):
             raise cmuxError(response)
         return response.strip().lower() == "true"

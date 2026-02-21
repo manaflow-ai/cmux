@@ -164,17 +164,35 @@ enum DragOverlayRoutingPolicy {
     static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     static let sidebarTabReorderType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
 
-    static func shouldCaptureFileDropOverlay(
+    static func shouldCaptureFileDropDestination(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
-        eventType: NSEvent.EventType?
+        hasLocalDraggingSource: Bool
     ) -> Bool {
+        guard !hasLocalDraggingSource else { return false }
         guard let pasteboardTypes, pasteboardTypes.contains(.fileURL) else { return false }
-        guard isDragMouseEvent(eventType) else { return false }
 
         // Prefer explicit non-file drag types so stale fileURL entries cannot hijack
         // Bonsplit tab drags or sidebar tab reorder drags.
         if pasteboardTypes.contains(bonsplitTabTransferType) { return false }
         if pasteboardTypes.contains(sidebarTabReorderType) { return false }
+        return true
+    }
+
+    static func shouldCaptureFileDropDestination(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        shouldCaptureFileDropDestination(
+            pasteboardTypes: pasteboardTypes,
+            hasLocalDraggingSource: false
+        )
+    }
+
+    static func shouldCaptureFileDropOverlay(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        eventType: NSEvent.EventType?
+    ) -> Bool {
+        guard shouldCaptureFileDropDestination(pasteboardTypes: pasteboardTypes) else { return false }
+        guard isDragMouseEvent(eventType) else { return false }
         return true
     }
 
@@ -278,25 +296,58 @@ final class FileDropOverlayView: NSView {
     // MARK: NSDraggingDestination – only accept file drops over terminal views.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        return dragOperationForSender(sender, phase: "entered")
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        return dragOperationForSender(sender)
+        return dragOperationForSender(sender, phase: "updated")
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let hasLocalDraggingSource = sender.draggingSource != nil
+        let types = sender.draggingPasteboard.types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+            pasteboardTypes: types,
+            hasLocalDraggingSource: hasLocalDraggingSource
+        )
+#if DEBUG
+        if shouldCapture || (types?.contains(.fileURL) ?? false) {
+            dlog(
+                "overlay.fileDrop.perform capture=\(shouldCapture ? 1 : 0) " +
+                "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+                "types=\(debugPasteboardTypes(types))"
+            )
+        }
+#endif
+        guard shouldCapture else { return false }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func dragOperationForSender(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard let types = sender.draggingPasteboard.types,
-              types.contains(.fileURL),
-              terminalUnderPoint(sender.draggingLocation) != nil else {
-            return []
+    private func dragOperationForSender(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
+        let hasLocalDraggingSource = sender.draggingSource != nil
+        let types = sender.draggingPasteboard.types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+            pasteboardTypes: types,
+            hasLocalDraggingSource: hasLocalDraggingSource
+        )
+#if DEBUG
+        if shouldCapture || (types?.contains(.fileURL) ?? false) {
+            dlog(
+                "overlay.fileDrop.\(phase) capture=\(shouldCapture ? 1 : 0) " +
+                "localSource=\(hasLocalDraggingSource ? 1 : 0) " +
+                "types=\(debugPasteboardTypes(types))"
+            )
         }
+#endif
+        guard shouldCapture,
+              terminalUnderPoint(sender.draggingLocation) != nil else { return [] }
         return .copy
+    }
+
+    private func debugPasteboardTypes(_ types: [NSPasteboard.PasteboardType]?) -> String {
+        guard let types, !types.isEmpty else { return "-" }
+        return types.map(\.rawValue).joined(separator: ",")
     }
 
     /// Hit-tests the window to find the GhosttyNSView under the cursor.
