@@ -969,6 +969,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published loading state
     @Published private(set) var isLoading: Bool = false
 
+    /// Published download state for top-level navigation downloads.
+    @Published private(set) var isDownloading: Bool = false
+
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
 
@@ -988,6 +991,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
+    private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -1091,6 +1095,24 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] url, intent in
             self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
         }
+        navDelegate.onDownloadDetected = { [weak self] _ in
+            self?.isDownloading = true
+        }
+        // Set up download delegate for navigation-based downloads.
+        // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
+        // callbacks), then show NSSavePanel after the download completes.
+        let dlDelegate = BrowserDownloadDelegate()
+        dlDelegate.onDownloadStarted = { [weak self] _ in
+            self?.isDownloading = true
+        }
+        dlDelegate.onDownloadReadyToSave = { [weak self] in
+            self?.isDownloading = false
+        }
+        dlDelegate.onDownloadFailed = { [weak self] _ in
+            self?.isDownloading = false
+        }
+        navDelegate.downloadDelegate = dlDelegate
+        self.downloadDelegate = dlDelegate
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
@@ -1993,6 +2015,133 @@ private extension NSObject {
     }
 }
 
+// MARK: - Download Delegate
+
+/// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
+/// during WebKit callbacks), then showing NSSavePanel after the download finishes.
+private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+    private struct DownloadState {
+        let tempURL: URL
+        let suggestedFilename: String
+    }
+
+    /// Tracks active downloads keyed by WKDownload identity.
+    private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
+    private let activeDownloadsLock = NSLock()
+    var onDownloadStarted: ((String) -> Void)?
+    var onDownloadReadyToSave: (() -> Void)?
+    var onDownloadFailed: ((Error) -> Void)?
+
+    private static let tempDir: URL = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func sanitizedFilename(_ raw: String, fallbackURL: URL?) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = (trimmed as NSString).lastPathComponent
+        let fromURL = fallbackURL?.lastPathComponent ?? ""
+        let base = candidate.isEmpty ? fromURL : candidate
+        let replaced = base.replacingOccurrences(of: ":", with: "-")
+        let safe = replaced.trimmingCharacters(in: .whitespacesAndNewlines)
+        return safe.isEmpty ? "download" : safe
+    }
+
+    private func storeState(_ state: DownloadState, for download: WKDownload) {
+        activeDownloadsLock.lock()
+        activeDownloads[ObjectIdentifier(download)] = state
+        activeDownloadsLock.unlock()
+    }
+
+    private func removeState(for download: WKDownload) -> DownloadState? {
+        activeDownloadsLock.lock()
+        let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return state
+    }
+
+    private func notifyOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        // Save to a temp file — return synchronously so WebKit is never blocked.
+        let safeFilename = Self.sanitizedFilename(suggestedFilename, fallbackURL: response.url)
+        let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
+        let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
+        try? FileManager.default.removeItem(at: destURL)
+        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename), for: download)
+        notifyOnMain { [weak self] in
+            self?.onDownloadStarted?(safeFilename)
+        }
+        #if DEBUG
+        dlog("download.decideDestination file=\(safeFilename)")
+        #endif
+        NSLog("BrowserPanel download: temp path=%@", destURL.path)
+        completionHandler(destURL)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let info = removeState(for: download) else {
+            #if DEBUG
+            dlog("download.finished missing-state")
+            #endif
+            return
+        }
+        #if DEBUG
+        dlog("download.finished file=\(info.suggestedFilename)")
+        #endif
+        NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
+
+        // Show NSSavePanel on the next runloop iteration (safe context).
+        DispatchQueue.main.async {
+            self.onDownloadReadyToSave?()
+            let savePanel = NSSavePanel()
+            savePanel.nameFieldStringValue = info.suggestedFilename
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+            savePanel.begin { result in
+                guard result == .OK, let destURL = savePanel.url else {
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                    return
+                }
+                do {
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                    NSLog("BrowserPanel download saved: %@", destURL.path)
+                } catch {
+                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                }
+            }
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if let info = removeState(for: download) {
+            try? FileManager.default.removeItem(at: info.tempURL)
+        }
+        notifyOnMain { [weak self] in
+            self?.onDownloadFailed?(error)
+        }
+        #if DEBUG
+        dlog("download.failed error=\(error.localizedDescription)")
+        #endif
+        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
+    }
+}
+
 // MARK: - Navigation Delegate
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
@@ -2001,6 +2150,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    /// Called when navigation response policy decides to route to WKDownload.
+    var onDownloadDetected: ((String?) -> Void)?
+    /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
+    var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
@@ -2023,6 +2176,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+
+        // "Frame load interrupted" (WebKitErrorDomain code 102) fires when a
+        // navigation response is converted into a download via .download policy.
+        // This is expected and should not show an error page.
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
             return
         }
 
@@ -2154,6 +2314,76 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         decisionHandler(.allow)
     }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if !navigationResponse.isForMainFrame {
+            decisionHandler(.allow)
+            return
+        }
+
+        let mime = navigationResponse.response.mimeType ?? "unknown"
+        let canShow = navigationResponse.canShowMIMEType
+        let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
+
+        // Only classify HTTP(S) top-level responses as downloads.
+        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
+           scheme != "http", scheme != "https" {
+            decisionHandler(.allow)
+            return
+        }
+
+        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
+              responseURL, mime, canShow ? 1 : 0,
+              navigationResponse.isForMainFrame ? 1 : 0)
+
+        // Check if this response should be treated as a download.
+        // Criteria: explicit Content-Disposition: attachment, or a MIME type
+        // that WebKit cannot render inline.
+        if let response = navigationResponse.response as? HTTPURLResponse {
+            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+            if contentDisposition.lowercased().hasPrefix("attachment") {
+                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
+                #if DEBUG
+                dlog("download.policy=download reason=content-disposition mime=\(mime)")
+                #endif
+                onDownloadDetected?(response.suggestedFilename)
+                decisionHandler(.download)
+                return
+            }
+        }
+
+        if !canShow {
+            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
+            #if DEBUG
+            dlog("download.policy=download reason=cannotShowMIME mime=\(mime)")
+            #endif
+            onDownloadDetected?(navigationResponse.response.suggestedFilename)
+            decisionHandler(.download)
+            return
+        }
+
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        #if DEBUG
+        dlog("download.didBecome source=navigationAction")
+        #endif
+        NSLog("BrowserPanel download didBecome from navigationAction")
+        download.delegate = downloadDelegate
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        #if DEBUG
+        dlog("download.didBecome source=navigationResponse")
+        #endif
+        NSLog("BrowserPanel download didBecome from navigationResponse")
+        download.delegate = downloadDelegate
+    }
 }
 
 // MARK: - UI Delegate
@@ -2161,7 +2391,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
-
     /// Returning nil tells WebKit not to open a new window.
     /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
     func webView(

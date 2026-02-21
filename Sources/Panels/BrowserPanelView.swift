@@ -394,6 +394,18 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .help(panel.isLoading ? "Stop" : "Reload")
+
+            if panel.isDownloading {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Downloading...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.leading, 6)
+                .help("Download in progress")
+            }
         }
     }
 

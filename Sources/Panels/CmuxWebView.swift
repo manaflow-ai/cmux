@@ -109,6 +109,110 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    // MARK: - Context menu download point
+
+    /// The last right-click point (in view coordinates) for context menu downloads.
+    private var lastContextMenuPoint: NSPoint = .zero
+
+    override func rightMouseDown(with event: NSEvent) {
+        lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        super.rightMouseDown(with: event)
+    }
+
+    /// Use JavaScript to find the image src at the given view-local point.
+    private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
+        let flippedY = bounds.height - point.y
+        let js = """
+        (() => {
+            let el = document.elementFromPoint(\(point.x), \(flippedY));
+            while (el) {
+                if (el.tagName === 'IMG' && el.src) return el.src;
+                if (el.tagName === 'PICTURE') {
+                    const img = el.querySelector('img');
+                    if (img && img.src) return img.src;
+                }
+                el = el.parentElement;
+            }
+            return '';
+        })();
+        """
+        evaluateJavaScript(js) { result, _ in
+            guard let src = result as? String, !src.isEmpty,
+                  let url = URL(string: src) else {
+                completion(nil)
+                return
+            }
+            completion(url)
+        }
+    }
+
+    /// Use JavaScript to find the link href at the given view-local point.
+    private func findLinkURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
+        let flippedY = bounds.height - point.y
+        let js = """
+        (() => {
+            let el = document.elementFromPoint(\(point.x), \(flippedY));
+            while (el) {
+                if (el.tagName === 'A' && el.href) return el.href;
+                el = el.parentElement;
+            }
+            return '';
+        })();
+        """
+        evaluateJavaScript(js) { result, _ in
+            guard let href = result as? String, !href.isEmpty,
+                  let url = URL(string: href) else {
+                completion(nil)
+                return
+            }
+            completion(url)
+        }
+    }
+
+    /// Download a URL to disk: fetch data first (with forwarded WKWebView cookies),
+    /// then show NSSavePanel once the data is ready.
+    private func downloadURL(_ url: URL, suggestedFilename: String?) {
+        NSLog("CmuxWebView download: %@", url.absoluteString)
+
+        // Forward cookies from WKWebView so authenticated downloads work.
+        let cookieStore = configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            var request = URLRequest(url: url)
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            for (key, value) in cookieHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+
+            let task = URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async {
+                    guard let data, error == nil else {
+                        NSLog("CmuxWebView download failed: %@", error?.localizedDescription ?? "unknown")
+                        return
+                    }
+                    let filename = suggestedFilename
+                        ?? response?.suggestedFilename
+                        ?? url.lastPathComponent
+
+                    let savePanel = NSSavePanel()
+                    savePanel.nameFieldStringValue = filename
+                    savePanel.canCreateDirectories = true
+                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+                    savePanel.begin { result in
+                        guard result == .OK, let destURL = savePanel.url else { return }
+                        do {
+                            try data.write(to: destURL, options: .atomic)
+                            NSLog("CmuxWebView download saved: %@", destURL.path)
+                        } catch {
+                            NSLog("CmuxWebView download save failed: %@", error.localizedDescription)
+                        }
+                    }
+                }
+            }
+            task.resume()
+        }
+    }
+
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
@@ -145,6 +249,40 @@ final class CmuxWebView: WKWebView {
                 || item.title.contains("Open Link in New Window") {
                 item.title = "Open Link in New Tab"
             }
+
+            // Intercept "Download Image" — WebKit's built-in handler silently fails
+            // because WKWebView doesn't expose the private contextMenuDidCreateDownload
+            // callback. Replace with our own URLSession-based download.
+            if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadImage"
+                || item.title == "Download Image" {
+                item.target = self
+                item.action = #selector(contextMenuDownloadImage(_:))
+            }
+
+            // Intercept "Download Linked File" for the same reason.
+            if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile"
+                || item.title == "Download Linked File" {
+                item.target = self
+                item.action = #selector(contextMenuDownloadLinkedFile(_:))
+            }
+        }
+    }
+
+    @objc private func contextMenuDownloadImage(_ sender: Any?) {
+        findImageURLAtPoint(lastContextMenuPoint) { [weak self] url in
+            guard let self, let url else {
+                return
+            }
+            self.downloadURL(url, suggestedFilename: nil)
+        }
+    }
+
+    @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
+        findLinkURLAtPoint(lastContextMenuPoint) { [weak self] url in
+            guard let self, let url else {
+                return
+            }
+            self.downloadURL(url, suggestedFilename: nil)
         }
     }
 }
