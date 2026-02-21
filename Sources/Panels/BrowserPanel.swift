@@ -2237,6 +2237,90 @@ extension BrowserPanel {
             }
           }
 
+          function elementPath(element, limit) {
+            const parts = [];
+            let current = element;
+            let depth = 0;
+            const maxDepth = Number(limit || 8);
+            while (current && depth < maxDepth) {
+              const tag = String(current.tagName || "").toLowerCase();
+              if (!tag) break;
+              const id = current.id ? "#" + current.id : "";
+              const className = typeof current.className === "string"
+                ? current.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2).map((value) => "." + value).join("")
+                : "";
+              parts.push(tag + id + className);
+              current = current.parentElement;
+              depth += 1;
+            }
+            return parts;
+          }
+
+          function detailedStyleSummary(element) {
+            if (!element || typeof getComputedStyle !== "function") return null;
+            const style = getComputedStyle(element);
+            return {
+              display: style.display || "",
+              visibility: style.visibility || "",
+              opacity: style.opacity || "",
+              color: style.color || "",
+              backgroundColor: style.backgroundColor || "",
+              webkitTextFillColor: style.webkitTextFillColor || "",
+              zIndex: style.zIndex || "",
+              position: style.position || "",
+              overflowX: style.overflowX || "",
+              overflowY: style.overflowY || "",
+              clip: style.clip || "",
+              clipPath: style.clipPath || "",
+              textIndent: style.textIndent || "",
+              pointerEvents: style.pointerEvents || "",
+            };
+          }
+
+          function elementSummary(element) {
+            if (!element) return null;
+            const rect = typeof element.getBoundingClientRect === "function"
+              ? element.getBoundingClientRect()
+              : null;
+            return {
+              tagName: element.tagName || "",
+              id: element.id || "",
+              className: typeof element.className === "string" ? element.className : "",
+              role: element.getAttribute ? (element.getAttribute("role") || "") : "",
+              text: clip(element.textContent || "", 120),
+              rect: rectSummary(rect),
+              style: detailedStyleSummary(element),
+              path: elementPath(element, 8),
+            };
+          }
+
+          function rangeAnchorElement(range) {
+            if (!range) return null;
+            const container = range.startContainer || range.commonAncestorContainer || null;
+            if (!container) return null;
+            if (container.nodeType === Node.ELEMENT_NODE) {
+              return container;
+            }
+            return container.parentElement || null;
+          }
+
+          function rangeHitTestSummary(rect, anchorElement) {
+            if (!rect || typeof document.elementFromPoint !== "function") return null;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+
+            const x = Math.min(Math.max(rect.x + rect.width / 2, 0), viewportWidth - 1);
+            const y = Math.min(Math.max(rect.y + rect.height / 2, 0), viewportHeight - 1);
+            const hit = document.elementFromPoint(x, y);
+            return {
+              point: { x, y },
+              hitElement: elementSummary(hit),
+              hitContainsAnchor: !!(hit && anchorElement && hit.contains(anchorElement)),
+              anchorContainsHit: !!(hit && anchorElement && anchorElement.contains(hit)),
+            };
+          }
+
           function highlightFirstRangeSummary(name) {
             try {
               if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.get !== "function") {
@@ -2255,9 +2339,12 @@ extension BrowserPanel {
               const rect = (range && typeof range.getBoundingClientRect === "function")
                 ? range.getBoundingClientRect()
                 : null;
+              const anchor = rangeAnchorElement(range);
               return {
                 text: clip((range && typeof range.toString === "function") ? range.toString() : "", 120),
                 rect: rectSummary(rect),
+                anchorElement: elementSummary(anchor),
+                centerHitTest: rangeHitTestSummary(rect, anchor),
               };
             } catch (_) {
               return null;
@@ -2295,6 +2382,7 @@ extension BrowserPanel {
             bodyTextLength: Number((document.body && document.body.innerText && document.body.innerText.length) || 0),
             styleTagPresent: !!styleElement,
             styleTagLength: Number((styleElement && styleElement.textContent && styleElement.textContent.length) || 0),
+            styleTagTextSample: clip((styleElement && styleElement.textContent) || "", 400),
             supportsCustomHighlights: hasCustomHighlights,
             highlightNames: highlightNames(),
             allHighlightRangeCount: highlightSize(allHighlightName),
@@ -2913,9 +3001,37 @@ private extension BrowserPanel {
             return false;
           }
 
+          function isRangeRectHitVisible(nodeElement, rect) {
+            if (!nodeElement || !rect || typeof document.elementFromPoint !== "function") return false;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+
+            const left = Math.max(0, rect.left);
+            const right = Math.min(viewportWidth - 1, rect.right);
+            const top = Math.max(0, rect.top);
+            const bottom = Math.min(viewportHeight - 1, rect.bottom);
+            if (!(right >= left && bottom >= top)) return false;
+
+            const points = [
+              { x: left + (right - left) * 0.5, y: top + (bottom - top) * 0.5 },
+              { x: left + (right - left) * 0.2, y: top + (bottom - top) * 0.5 },
+              { x: left + (right - left) * 0.8, y: top + (bottom - top) * 0.5 },
+            ];
+            for (const point of points) {
+              const hit = document.elementFromPoint(point.x, point.y);
+              if (!hit) continue;
+              if (hit === nodeElement || hit.contains(nodeElement) || nodeElement.contains(hit)) {
+                return true;
+              }
+            }
+            return false;
+          }
+
           function isTextNodeVisiblyRenderable(node) {
             if (!node || !node.parentElement) return false;
             if (typeof node.isConnected === "boolean" && !node.isConnected) return false;
+            const nodeElement = node.parentElement;
 
             let ancestor = node.parentElement;
             let depth = 0;
@@ -2975,7 +3091,8 @@ private extension BrowserPanel {
                   Number.isFinite(area) &&
                   area >= minimumRenderableArea &&
                   rect.right > -64 &&
-                  rect.bottom > -64
+                  rect.bottom > -64 &&
+                  isRangeRectHitVisible(nodeElement, rect)
                 ) {
                   return true;
                 }
