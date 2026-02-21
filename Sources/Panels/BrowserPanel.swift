@@ -4,6 +4,21 @@ import WebKit
 import AppKit
 import Bonsplit
 
+#if DEBUG
+struct BrowserInPageFindDebugRequest {
+    let query: String
+    let direction: String
+    let queryChanged: Bool
+    let requestSequence: Int
+}
+
+struct BrowserInPageFindDebugResult {
+    let matchFound: Bool
+    let current: Int
+    let total: Int
+}
+#endif
+
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
@@ -1048,6 +1063,16 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
 
+    /// Fallback in-page find UI state for browser surfaces when AppKit text-finder dispatch
+    /// cannot resolve a native responder in the current focus chain.
+    @Published private(set) var isInPageFindVisible: Bool = false
+    @Published private(set) var inPageFindQuery: String = ""
+    @Published private(set) var inPageFindMatchFound: Bool?
+    @Published private(set) var inPageFindMatchCount: Int = 0
+    @Published private(set) var inPageFindCurrentMatchIndex: Int = 0
+    @Published private(set) var inPageFindRenderMode: String = "unknown"
+    @Published private(set) var inPageFindFocusToken: Int = 0
+
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -1060,6 +1085,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
+#if DEBUG
+    var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
+    var debugInPageFindFallbackHandler: ((BrowserInPageFindDebugRequest) -> BrowserInPageFindDebugResult)?
+    var debugInPageFindClearHandler: ((Int?, Bool) -> Void)?
+    var debugInPageFindDiagnosticsHandler: (() -> [String: Any])?
+#endif
     private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -1082,6 +1113,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
+    private var inPageFindLastQuery: String = ""
+    private var inPageFindRequestSequence: Int = 0
+    private var inPageFindFocusRestoreState: InPageFindFocusRestoreState = .idle
+
+    private enum InPageFindFocusRestoreState {
+        case idle
+        case returnToWebViewOnDismiss
+    }
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1919,6 +1958,81 @@ extension BrowserPanel {
         applyPageZoom(1.0)
     }
 
+    @discardableResult
+    func showFindInterface() -> Bool {
+        let fallbackHandled = showInPageFindFallback(focusField: true)
+        if !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = runInPageFindFallback(backwards: false)
+        }
+        browserFindDebugLog(
+            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return fallbackHandled
+    }
+
+    @discardableResult
+    func findNextMatch() -> Bool {
+        let fallbackHandled = runInPageFindFallback(backwards: false)
+        browserFindDebugLog(
+            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return fallbackHandled
+    }
+
+    @discardableResult
+    func findPreviousMatch() -> Bool {
+        let fallbackHandled = runInPageFindFallback(backwards: true)
+        browserFindDebugLog(
+            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return fallbackHandled
+    }
+
+    @discardableResult
+    func hideFindInterface() -> Bool {
+        let fallbackHandled = hideInPageFindFallback()
+        browserFindDebugLog(
+            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
+        )
+        return fallbackHandled
+    }
+
+    @discardableResult
+    func useSelectionForFind() -> Bool {
+        let fallbackHandled = useSelectionForInPageFindFallback()
+        browserFindDebugLog(
+            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled)"
+        )
+        return fallbackHandled
+    }
+
+    func updateInPageFindQuery(_ query: String) {
+        let previousQuery = inPageFindQuery
+        inPageFindQuery = query
+        let unchanged = previousQuery == query
+        browserFindDebugLog(
+            "browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\" unchanged=\(unchanged)"
+        )
+        // SwiftUI can emit duplicate value updates while editing; always rerun with reset
+        // semantics so stale highlights are replaced without advancing to the next match.
+        _ = runInPageFindFallback(backwards: false, forceReset: true)
+    }
+
+    @discardableResult
+    func inPageFindNextFromUI() -> Bool {
+        runInPageFindFallback(backwards: false)
+    }
+
+    @discardableResult
+    func inPageFindPreviousFromUI() -> Bool {
+        runInPageFindFallback(backwards: true)
+    }
+
+    @discardableResult
+    func hideInPageFindFromUI() -> Bool {
+        hideInPageFindFallback()
+    }
+
     /// Take a snapshot of the web view
     func takeSnapshot(completion: @escaping (NSImage?) -> Void) {
         let config = WKSnapshotConfiguration()
@@ -2090,7 +2204,1598 @@ extension BrowserPanel {
 }
 #endif
 
+#if DEBUG
+extension BrowserPanel {
+    private static let debugInPageFindISO8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static func debugInPageFindJSONString(_ payload: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "Failed to serialize browser find diagnostics payload."
+        }
+        return text + "\n"
+    }
+
+    private static func debugResponderChainSummary(_ responder: NSResponder?) -> [String: Any] {
+        var chain: [String] = []
+        var current = responder
+        var hops = 0
+        while let value = current, hops < 16 {
+            chain.append(String(describing: type(of: value)))
+            current = value.nextResponder
+            hops += 1
+        }
+        return [
+            "firstResponderType": describeResponderForFindDispatch(responder),
+            "chain": chain,
+        ]
+    }
+
+    func debugCaptureInPageFindDiagnostics(completion: @escaping (String) -> Void) {
+        let finalize: (_ pageDiagnostics: [String: Any]?, _ pageError: String?) -> Void = { [weak self] pageDiagnostics, pageError in
+            guard let self else { return }
+            let matchFoundValue: Any = self.inPageFindMatchFound.map { NSNumber(value: $0) } ?? NSNull()
+            let window = self.webView.window
+            var payload: [String: Any] = [
+                "capturedAt": Self.debugInPageFindISO8601.string(from: Date()),
+                "workspaceId": self.workspaceId.uuidString,
+                "panelId": self.id.uuidString,
+                "url": self.currentURL?.absoluteString ?? "",
+                "title": self.pageTitle,
+                "isInPageFindVisible": self.isInPageFindVisible,
+                "inPageFindQuery": self.inPageFindQuery,
+                "inPageFindLastQuery": self.inPageFindLastQuery,
+                "inPageFindMatchFound": matchFoundValue,
+                "inPageFindMatchCount": self.inPageFindMatchCount,
+                "inPageFindCurrentMatchIndex": self.inPageFindCurrentMatchIndex,
+                "inPageFindRenderMode": self.inPageFindRenderMode,
+                "inPageFindRequestSequence": self.inPageFindRequestSequence,
+                "inPageFindFocusToken": self.inPageFindFocusToken,
+                "webViewFrame": Self.debugRectDescription(self.webView.frame),
+                "webViewBounds": Self.debugRectDescription(self.webView.bounds),
+                "webViewIsHidden": self.webView.isHidden,
+                "webViewHasHiddenAncestor": self.webView.isHiddenOrHasHiddenAncestor,
+                "windowNumber": window?.windowNumber ?? -1,
+                "keyWindowNumber": NSApp.keyWindow?.windowNumber ?? -1,
+                "mainWindowNumber": NSApp.mainWindow?.windowNumber ?? -1,
+                "responder": Self.debugResponderChainSummary(window?.firstResponder),
+                "developerToolsState": self.debugDeveloperToolsStateSummary(),
+                "developerToolsGeometry": self.debugDeveloperToolsGeometrySummary(),
+            ]
+
+            if let pageDiagnostics {
+                payload["pageDiagnostics"] = pageDiagnostics
+            } else {
+                payload["pageDiagnostics"] = NSNull()
+            }
+            payload["pageDiagnosticsError"] = pageError ?? NSNull()
+
+            completion(Self.debugInPageFindJSONString(payload))
+        }
+
+        if let debugInPageFindDiagnosticsHandler {
+            finalize(debugInPageFindDiagnosticsHandler(), nil)
+            return
+        }
+
+        webView.evaluateJavaScript(debugInPageFindDiagnosticsScript()) { result, error in
+            DispatchQueue.main.async {
+                if let error {
+                    finalize(nil, error.localizedDescription)
+                    return
+                }
+                if let dictionary = result as? [String: Any] {
+                    finalize(dictionary, nil)
+                    return
+                }
+                if result == nil {
+                    finalize(nil, "JavaScript returned nil diagnostics payload.")
+                    return
+                }
+                finalize(
+                    nil,
+                    "Unexpected JavaScript diagnostics payload type: \(String(describing: type(of: result as AnyObject)))."
+                )
+            }
+        }
+    }
+
+    private func debugInPageFindDiagnosticsScript() -> String {
+        """
+        (function() {
+          const styleId = "cmux-inpage-find-style";
+          const markClass = "cmux-inpage-find-hit";
+          const activeClass = "cmux-inpage-find-active";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
+          const overlayMarkClass = "cmux-inpage-find-overlay-hit";
+          const overlayActiveClass = "cmux-inpage-find-overlay-active";
+          const stateKey = "__cmuxInPageFindState";
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+
+          function clip(value, limit) {
+            const text = String(value || "");
+            if (text.length <= limit) return text;
+            return text.slice(0, limit) + "…";
+          }
+
+          function rectSummary(rect) {
+            if (!rect) return null;
+            return {
+              x: Number(rect.x || 0),
+              y: Number(rect.y || 0),
+              width: Number(rect.width || 0),
+              height: Number(rect.height || 0),
+            };
+          }
+
+          function styleSummary(element) {
+            if (!element || typeof getComputedStyle !== "function") return null;
+            const style = getComputedStyle(element);
+            return {
+              backgroundColor: style.backgroundColor || "",
+              color: style.color || "",
+              boxShadow: style.boxShadow || "",
+              outline: style.outline || "",
+            };
+          }
+
+          function highlightNames() {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.keys !== "function") {
+                return [];
+              }
+              return Array.from(CSS.highlights.keys()).map((value) => String(value));
+            } catch (_) {
+              return [];
+            }
+          }
+
+          function highlightSize(name) {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.get !== "function") {
+                return null;
+              }
+              const highlight = CSS.highlights.get(name);
+              if (!highlight) return 0;
+              if (typeof highlight.size === "number") return highlight.size;
+              if (typeof highlight[Symbol.iterator] !== "function") return null;
+              let count = 0;
+              for (const _range of highlight) {
+                count += 1;
+              }
+              return count;
+            } catch (_) {
+              return null;
+            }
+          }
+
+          function elementPath(element, limit) {
+            const parts = [];
+            let current = element;
+            let depth = 0;
+            const maxDepth = Number(limit || 8);
+            while (current && depth < maxDepth) {
+              const tag = String(current.tagName || "").toLowerCase();
+              if (!tag) break;
+              const id = current.id ? "#" + current.id : "";
+              const className = typeof current.className === "string"
+                ? current.className.trim().split(/\\s+/).filter(Boolean).slice(0, 2).map((value) => "." + value).join("")
+                : "";
+              parts.push(tag + id + className);
+              current = current.parentElement;
+              depth += 1;
+            }
+            return parts;
+          }
+
+          function detailedStyleSummary(element) {
+            if (!element || typeof getComputedStyle !== "function") return null;
+            const style = getComputedStyle(element);
+            return {
+              display: style.display || "",
+              visibility: style.visibility || "",
+              opacity: style.opacity || "",
+              color: style.color || "",
+              backgroundColor: style.backgroundColor || "",
+              webkitTextFillColor: style.webkitTextFillColor || "",
+              zIndex: style.zIndex || "",
+              position: style.position || "",
+              overflowX: style.overflowX || "",
+              overflowY: style.overflowY || "",
+              clip: style.clip || "",
+              clipPath: style.clipPath || "",
+              textIndent: style.textIndent || "",
+              pointerEvents: style.pointerEvents || "",
+            };
+          }
+
+          function elementSummary(element) {
+            if (!element) return null;
+            const rect = typeof element.getBoundingClientRect === "function"
+              ? element.getBoundingClientRect()
+              : null;
+            return {
+              tagName: element.tagName || "",
+              id: element.id || "",
+              className: typeof element.className === "string" ? element.className : "",
+              role: element.getAttribute ? (element.getAttribute("role") || "") : "",
+              text: clip(element.textContent || "", 120),
+              rect: rectSummary(rect),
+              style: detailedStyleSummary(element),
+              path: elementPath(element, 8),
+            };
+          }
+
+          function rangeAnchorElement(range) {
+            if (!range) return null;
+            const container = range.startContainer || range.commonAncestorContainer || null;
+            if (!container) return null;
+            if (container.nodeType === Node.ELEMENT_NODE) {
+              return container;
+            }
+            return container.parentElement || null;
+          }
+
+          function rangeHitTestSummary(rect, anchorElement) {
+            if (!rect || typeof document.elementFromPoint !== "function") return null;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewportWidth <= 0 || viewportHeight <= 0) return null;
+
+            const x = Math.min(Math.max(rect.x + rect.width / 2, 0), viewportWidth - 1);
+            const y = Math.min(Math.max(rect.y + rect.height / 2, 0), viewportHeight - 1);
+            const hit = document.elementFromPoint(x, y);
+            return {
+              point: { x, y },
+              hitElement: elementSummary(hit),
+              hitContainsAnchor: !!(hit && anchorElement && hit.contains(anchorElement)),
+              anchorContainsHit: !!(hit && anchorElement && anchorElement.contains(hit)),
+            };
+          }
+
+          function highlightFirstRangeSummary(name) {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.get !== "function") {
+                return null;
+              }
+              const highlight = CSS.highlights.get(name);
+              if (!highlight || typeof highlight[Symbol.iterator] !== "function") {
+                return null;
+              }
+              const iterator = highlight[Symbol.iterator]();
+              const first = iterator.next();
+              if (!first || first.done || !first.value) {
+                return null;
+              }
+              const range = first.value;
+              const rect = (range && typeof range.getBoundingClientRect === "function")
+                ? range.getBoundingClientRect()
+                : null;
+              const anchor = rangeAnchorElement(range);
+              return {
+                text: clip((range && typeof range.toString === "function") ? range.toString() : "", 120),
+                rect: rectSummary(rect),
+                anchorElement: elementSummary(anchor),
+                centerHitTest: rangeHitTestSummary(rect, anchor),
+              };
+            } catch (_) {
+              return null;
+            }
+          }
+
+          function activeElementSummary() {
+            const active = document.activeElement;
+            if (!active) return null;
+            return {
+              tagName: active.tagName || "",
+              id: active.id || "",
+              className: typeof active.className === "string" ? active.className : "",
+              role: active.getAttribute ? (active.getAttribute("role") || "") : "",
+              text: clip(active.textContent || "", 120),
+            };
+          }
+
+          const styleElement = document.getElementById(styleId);
+          const overlayRoot = document.getElementById(overlayRootId);
+          const marks = Array.from(document.querySelectorAll("span." + markClass));
+          const activeMarks = Array.from(document.querySelectorAll("span." + markClass + "." + activeClass));
+          const controlMatches = Array.from(document.querySelectorAll("input." + controlMatchClass + ", textarea." + controlMatchClass));
+          const activeControlMatches = Array.from(document.querySelectorAll("input." + controlActiveClass + ", textarea." + controlActiveClass));
+          const overlayMarks = overlayRoot
+            ? Array.from(overlayRoot.querySelectorAll("." + overlayMarkClass))
+            : [];
+          const overlayActiveMarks = overlayRoot
+            ? Array.from(overlayRoot.querySelectorAll("." + overlayMarkClass + "." + overlayActiveClass))
+            : [];
+          const firstMark = marks.length > 0 ? marks[0] : null;
+          const firstOverlayMark = overlayMarks.length > 0 ? overlayMarks[0] : null;
+          const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+          const firstMarkRect = firstMark && typeof firstMark.getBoundingClientRect === "function"
+            ? firstMark.getBoundingClientRect()
+            : null;
+          const firstOverlayRect = firstOverlayMark && typeof firstOverlayMark.getBoundingClientRect === "function"
+            ? firstOverlayMark.getBoundingClientRect()
+            : null;
+          const state = window[stateKey] || null;
+          const hasCustomHighlights = (typeof CSS !== "undefined" && !!CSS.highlights);
+
+          return {
+            href: String((typeof location !== "undefined" && location.href) || ""),
+            title: String(document.title || ""),
+            readyState: String(document.readyState || ""),
+            visibilityState: String(document.visibilityState || ""),
+            bodyTextLength: Number((document.body && document.body.innerText && document.body.innerText.length) || 0),
+            styleTagPresent: !!styleElement,
+            styleTagLength: Number((styleElement && styleElement.textContent && styleElement.textContent.length) || 0),
+            styleTagTextSample: clip((styleElement && styleElement.textContent) || "", 400),
+            supportsCustomHighlights: hasCustomHighlights,
+            highlightNames: highlightNames(),
+            allHighlightRangeCount: highlightSize(allHighlightName),
+            activeHighlightRangeCount: highlightSize(activeHighlightName),
+            firstAllHighlightRange: highlightFirstRangeSummary(allHighlightName),
+            firstActiveHighlightRange: highlightFirstRangeSummary(activeHighlightName),
+            spanMarkCount: marks.length,
+            spanActiveCount: activeMarks.length,
+            controlMatchCount: controlMatches.length,
+            controlActiveCount: activeControlMatches.length,
+            overlayMarkCount: overlayMarks.length,
+            overlayActiveCount: overlayActiveMarks.length,
+            firstOverlayRect: rectSummary(firstOverlayRect),
+            firstOverlayStyle: styleSummary(firstOverlayMark),
+            firstMarkText: firstMark ? clip(firstMark.textContent || "", 120) : "",
+            firstMarkRect: rectSummary(firstMarkRect),
+            firstMarkStyle: styleSummary(firstMark),
+            selectionText: selection ? clip(selection.toString() || "", 120) : "",
+            activeElement: activeElementSummary(),
+            findState: state ? {
+              query: String(state.query || ""),
+              activeIndex: Number.isFinite(state.activeIndex) ? Number(state.activeIndex) : null,
+              renderMode: String(state.renderMode || ""),
+            } : null,
+            findSequence: Number(window[sequenceKey] || 0),
+          };
+        })();
+        """
+    }
+
+    func debugInPageFindHighlightScript(payloadJSON: String) -> String {
+        inPageFindHighlightScript(payloadJSON: payloadJSON)
+    }
+
+    func debugClearInPageFindHighlightScript(requestSequence: Int? = nil, resetState: Bool = true) -> String {
+        clearInPageFindHighlightScript(requestSequence: requestSequence, resetState: resetState)
+    }
+
+    func debugShouldRetryStaleInPageFindClear() -> Bool {
+        shouldRetryStaleInPageFindClear()
+    }
+}
+#endif
+
 private extension BrowserPanel {
+    @discardableResult
+    func performTextFinderAction(_ action: NSTextFinder.Action) -> Bool {
+#if DEBUG
+        if let debugTextFinderActionHandler {
+            return debugTextFinderActionHandler(action)
+        }
+#endif
+        let selector = #selector(NSResponder.performTextFinderAction(_:))
+        let actionName = textFinderActionName(action)
+        let targetWindow = webView.window ?? NSApp.keyWindow
+        browserFindDebugLog("browser.performTextFinderAction action=\(actionName) workspace=\(workspaceId.uuidString) panel=\(id.uuidString)")
+        browserLogFindDebugSnapshot(
+            label: "browser.find.\(actionName).pre",
+            window: targetWindow,
+            focusView: webView
+        )
+
+        let initialFirstResponder = Self.describeResponderForFindDispatch(targetWindow?.firstResponder)
+        var descendantResponder = Self.firstDescendantView(in: webView) { view in
+            view.responds(to: selector)
+        }
+        var prepMakeFirstResponder = false
+
+        if let window = targetWindow {
+            if let firstResponderView = window.firstResponder as? NSView,
+               firstResponderView.isDescendant(of: webView),
+               firstResponderView.responds(to: selector) {
+                descendantResponder = firstResponderView
+            } else if let descendantResponder,
+                      descendantResponder.window === window {
+                prepMakeFirstResponder = window.makeFirstResponder(descendantResponder)
+                browserFindDebugLog(
+                    "browser.performTextFinderAction action=\(actionName) prepDescendant=\(Self.describeResponderForFindDispatch(descendantResponder)) makeFirstResponder=\(prepMakeFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(window.firstResponder))"
+                )
+            } else if webView.window === window,
+                      !Self.responderChainContains(window.firstResponder, target: webView) {
+                prepMakeFirstResponder = window.makeFirstResponder(webView)
+                browserFindDebugLog(
+                    "browser.performTextFinderAction action=\(actionName) prepWebView makeFirstResponder=\(prepMakeFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(window.firstResponder))"
+                )
+            }
+        }
+
+        let item = NSMenuItem(
+            title: "",
+            action: #selector(NSResponder.performTextFinderAction(_:)),
+            keyEquivalent: ""
+        )
+        item.tag = action.rawValue
+
+        let sendViaFirstResponder = NSApp.sendAction(selector, to: nil, from: item)
+        var sendViaCurrentResponder = false
+        var sendViaDescendantResponder = false
+        var sendViaWindow = false
+        var handled = sendViaFirstResponder
+
+        if !handled,
+           let currentResponder = targetWindow?.firstResponder,
+           currentResponder.responds(to: selector) {
+            sendViaCurrentResponder = NSApp.sendAction(selector, to: currentResponder, from: item)
+            handled = sendViaCurrentResponder
+        }
+
+        if !handled, let descendantResponder {
+            sendViaDescendantResponder = NSApp.sendAction(selector, to: descendantResponder, from: item)
+            handled = sendViaDescendantResponder
+        }
+
+        if !handled,
+           let window = targetWindow,
+           window.responds(to: selector) {
+            sendViaWindow = NSApp.sendAction(selector, to: window, from: item)
+            handled = sendViaWindow
+        }
+
+        browserFindDebugLog(
+            "browser.performTextFinderAction action=\(actionName) webViewResponds=\(webView.responds(to: selector)) firstResponderBefore=\(initialFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(targetWindow?.firstResponder)) descendantResponder=\(Self.describeResponderForFindDispatch(descendantResponder)) prepMakeFirstResponder=\(prepMakeFirstResponder) handled=\(handled) viaFirstResponder=\(sendViaFirstResponder) viaCurrentResponder=\(sendViaCurrentResponder) viaDescendantResponder=\(sendViaDescendantResponder) viaWindow=\(sendViaWindow)"
+        )
+
+        let webViewForSnapshot = webView
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+            Task { @MainActor in
+                browserLogFindDebugSnapshot(
+                    label: "browser.find.\(actionName).post",
+                    window: webViewForSnapshot.window ?? targetWindow ?? NSApp.keyWindow,
+                    focusView: webViewForSnapshot
+                )
+            }
+        }
+
+        return handled
+    }
+
+    @discardableResult
+    func showInPageFindFallback(focusField: Bool) -> Bool {
+        let wasVisible = isInPageFindVisible
+        if focusField, !wasVisible {
+            if let window = webView.window,
+               Self.responderChainContains(window.firstResponder, target: webView) {
+                inPageFindFocusRestoreState = .returnToWebViewOnDismiss
+            } else {
+                inPageFindFocusRestoreState = .idle
+            }
+        }
+        let tokenBefore = inPageFindFocusToken
+        isInPageFindVisible = true
+        if focusField {
+            inPageFindFocusToken &+= 1
+        }
+        if inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            inPageFindMatchFound = nil
+            inPageFindMatchCount = 0
+            inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "none"
+        }
+        browserFindDebugLog(
+            "browser.inPageFind.show panel=\(id.uuidString) wasVisible=\(wasVisible) focusField=\(focusField) focusTokenBefore=\(tokenBefore) focusTokenAfter=\(inPageFindFocusToken) query=\"\(inPageFindQuery)\""
+        )
+        return true
+    }
+
+    @discardableResult
+    func hideInPageFindFallback() -> Bool {
+        let wasVisible = isInPageFindVisible
+        let hasQuery = !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasStateToClear =
+            wasVisible ||
+            hasQuery ||
+            inPageFindMatchFound != nil ||
+            inPageFindMatchCount > 0 ||
+            inPageFindCurrentMatchIndex > 0 ||
+            !inPageFindLastQuery.isEmpty
+        guard hasStateToClear else { return false }
+
+        inPageFindRequestSequence &+= 1
+        let requestSequence = inPageFindRequestSequence
+        isInPageFindVisible = false
+        inPageFindMatchFound = nil
+        inPageFindMatchCount = 0
+        inPageFindCurrentMatchIndex = 0
+        inPageFindRenderMode = "none"
+        inPageFindLastQuery = ""
+        clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
+        restoreWebViewFocusAfterFindDismissIfNeeded()
+        browserFindDebugLog(
+            "browser.inPageFind.hide panel=\(id.uuidString) wasVisible=\(wasVisible) hasQuery=\(hasQuery) query=\"\(inPageFindQuery)\" request=\(requestSequence)"
+        )
+        return true
+    }
+
+    @discardableResult
+    func useSelectionForInPageFindFallback() -> Bool {
+        _ = showInPageFindFallback(focusField: true)
+        webView.evaluateJavaScript("window.getSelection ? String(window.getSelection()) : ''") { [weak self] result, _ in
+            Task { @MainActor in
+                guard let self else { return }
+                let selected = (result as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                browserFindDebugLog(
+                    "browser.inPageFind.useSelection panel=\(self.id.uuidString) selectedLength=\(selected.count)"
+                )
+                guard !selected.isEmpty else { return }
+                self.inPageFindQuery = selected
+                _ = self.runInPageFindFallback(backwards: false)
+            }
+        }
+        return true
+    }
+
+    @discardableResult
+    func runInPageFindFallback(backwards: Bool, forceReset: Bool = false) -> Bool {
+        _ = showInPageFindFallback(focusField: inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        let query = inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let queryChanged = query != inPageFindLastQuery
+        let shouldReset = forceReset || queryChanged
+        let direction = shouldReset ? "reset" : (backwards ? "prev" : "next")
+        browserFindDebugLog(
+            "browser.inPageFind.run panel=\(id.uuidString) backwards=\(backwards) queryChanged=\(queryChanged) forceReset=\(forceReset) direction=\(direction) query=\"\(query)\""
+        )
+        guard !query.isEmpty else {
+            inPageFindMatchFound = nil
+            inPageFindMatchCount = 0
+            inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "none"
+            inPageFindLastQuery = ""
+            inPageFindRequestSequence &+= 1
+            let requestSequence = inPageFindRequestSequence
+            clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
+            browserFindDebugLog(
+                "browser.inPageFind.clearRequested panel=\(id.uuidString) reason=emptyQuery request=\(requestSequence)"
+            )
+            return true
+        }
+
+        inPageFindLastQuery = query
+        inPageFindRequestSequence &+= 1
+        let requestSequence = inPageFindRequestSequence
+
+#if DEBUG
+        if let debugInPageFindFallbackHandler {
+            let debugResult = debugInPageFindFallbackHandler(
+                BrowserInPageFindDebugRequest(
+                    query: query,
+                    direction: direction,
+                    queryChanged: shouldReset,
+                    requestSequence: requestSequence
+                )
+            )
+            inPageFindMatchFound = debugResult.matchFound
+            inPageFindMatchCount = max(0, debugResult.total)
+            inPageFindCurrentMatchIndex = max(0, debugResult.current)
+            inPageFindRenderMode = "debugHandler"
+            browserFindDebugLog(
+                "browser.inPageFind.result panel=\(id.uuidString) api=debugHandler query=\"\(query)\" direction=\(direction) matchFound=\(debugResult.matchFound) current=\(debugResult.current) total=\(debugResult.total)"
+            )
+            return true
+        }
+#endif
+
+        let colors = inPageFindHighlightPalette()
+        let payload: [String: Any] = [
+            "query": query,
+            "direction": direction,
+            "queryChanged": shouldReset,
+            "requestSequence": requestSequence,
+            "allBackground": colors.allBackground,
+            "allForeground": colors.allForeground,
+            "activeBackground": colors.activeBackground,
+            "activeForeground": colors.activeForeground,
+        ]
+        guard let payloadData = try? JSONSerialization.data(withJSONObject: payload, options: []),
+              let payloadJSON = String(data: payloadData, encoding: .utf8) else {
+            inPageFindMatchFound = false
+            inPageFindMatchCount = 0
+            inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "encodeFailure"
+            browserFindDebugLog("browser.inPageFind.result panel=\(id.uuidString) api=customHighlight payloadEncodeFailed=true")
+            return true
+        }
+
+        let clearScript = clearInPageFindHighlightScript(requestSequence: requestSequence, resetState: false)
+        let script = inPageFindHighlightScript(payloadJSON: payloadJSON)
+        webView.evaluateJavaScript(clearScript) { [weak self] clearResult, clearError in
+            Task { @MainActor in
+                guard let self else { return }
+                guard requestSequence == self.inPageFindRequestSequence else {
+                    browserFindDebugLog(
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) stale=true request=\(requestSequence) current=\(self.inPageFindRequestSequence)"
+                    )
+                    return
+                }
+
+                if let staleInfo = self.extractInPageFindStaleInfo(clearResult), staleInfo.isStale {
+                    browserFindDebugLog(
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                    )
+                    return
+                }
+
+                if let clearError {
+                    browserFindDebugLog(
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) request=\(requestSequence) error=\(clearError.localizedDescription)"
+                    )
+                }
+
+                self.webView.evaluateJavaScript(script) { [weak self] result, error in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        guard requestSequence == self.inPageFindRequestSequence else {
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) current=\(self.inPageFindRequestSequence)"
+                            )
+                            return
+                        }
+
+                        if let error {
+                            self.inPageFindMatchFound = false
+                            self.inPageFindMatchCount = 0
+                            self.inPageFindCurrentMatchIndex = 0
+                            self.inPageFindRenderMode = "error"
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight query=\"\(query)\" direction=\(direction) error=\(error.localizedDescription)"
+                            )
+                            return
+                        }
+
+                        if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                            )
+                            return
+                        }
+
+                        let summary = self.decodeInPageFindSummary(result)
+                        self.inPageFindMatchFound = summary.matchFound
+                        self.inPageFindMatchCount = summary.total
+                        self.inPageFindCurrentMatchIndex = summary.current
+                        self.inPageFindRenderMode = summary.renderMode ?? "unknown"
+                        browserFindDebugLog(
+                            "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight mode=\(summary.renderMode ?? "unknown") query=\"\(query)\" direction=\(direction) matchFound=\(summary.matchFound) current=\(summary.current) total=\(summary.total)"
+                        )
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    private func inPageFindHighlightPalette() -> (
+        allBackground: String,
+        allForeground: String,
+        activeBackground: String,
+        activeForeground: String
+    ) {
+        let config = GhosttyConfig.load()
+        let allBackground = config.searchBackground
+        let allForeground = config.searchForeground
+        let activeBackground = config.searchSelectedBackground
+        let activeForeground = config.searchSelectedForeground
+        return (
+            allBackground: cssRGBString(for: allBackground),
+            allForeground: cssRGBString(for: allForeground),
+            activeBackground: cssRGBString(for: activeBackground),
+            activeForeground: cssRGBString(for: activeForeground)
+        )
+    }
+
+    private func cssRGBString(for color: NSColor) -> String {
+        let srgb = color.usingColorSpace(.sRGB) ?? color
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var componentAlpha: CGFloat = 0
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &componentAlpha)
+        return String(
+            format: "rgb(%d,%d,%d)",
+            Int(max(0, min(255, round(red * 255)))),
+            Int(max(0, min(255, round(green * 255)))),
+            Int(max(0, min(255, round(blue * 255))))
+        )
+    }
+
+    private func decodeInPageFindSummary(_ result: Any?) -> (
+        matchFound: Bool,
+        current: Int,
+        total: Int,
+        renderMode: String?
+    ) {
+        guard let dictionary = result as? [String: Any] else {
+            return (false, 0, 0, nil)
+        }
+        let total = intValueFromJavaScript(dictionary["total"])
+        let current = intValueFromJavaScript(dictionary["current"])
+        let explicitMatch = boolValueFromJavaScript(dictionary["matchFound"])
+        let matchFound = explicitMatch ?? (total > 0)
+        let renderMode = (dictionary["renderMode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (matchFound, max(0, current), max(0, total), renderMode?.isEmpty == false ? renderMode : nil)
+    }
+
+    private func extractInPageFindStaleInfo(_ result: Any?) -> (isStale: Bool, stage: String?)? {
+        guard let dictionary = result as? [String: Any] else { return nil }
+        let stale = boolValueFromJavaScript(dictionary["stale"]) ?? false
+        let stage = dictionary["stage"] as? String
+        return (stale, stage)
+    }
+
+    private func intValueFromJavaScript(_ value: Any?) -> Int {
+        if let intValue = value as? Int { return intValue }
+        if let number = value as? NSNumber { return number.intValue }
+        if let doubleValue = value as? Double { return Int(doubleValue) }
+        if let stringValue = value as? String, let parsed = Int(stringValue) { return parsed }
+        return 0
+    }
+
+    private func boolValueFromJavaScript(_ value: Any?) -> Bool? {
+        if let boolValue = value as? Bool { return boolValue }
+        if let number = value as? NSNumber { return number.boolValue }
+        return nil
+    }
+
+    private func shouldRetryStaleInPageFindClear() -> Bool {
+        if !isInPageFindVisible {
+            return true
+        }
+        return inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clearInPageFindHighlightsInWebView(
+        requestSequence: Int? = nil,
+        allowStaleRetry: Bool = true
+    ) {
+#if DEBUG
+        if let debugInPageFindClearHandler {
+            debugInPageFindClearHandler(requestSequence, allowStaleRetry)
+            return
+        }
+#endif
+        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] result, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) error=\(error.localizedDescription)"
+                    )
+                    return
+                }
+                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                    let retry = allowStaleRetry && self.shouldRetryStaleInPageFindClear()
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil") stage=\(staleInfo.stage ?? "unspecified") retry=\(retry)"
+                    )
+                    if retry {
+                        self.clearInPageFindHighlightsInWebView(requestSequence: nil, allowStaleRetry: false)
+                    }
+                    return
+                }
+                browserFindDebugLog(
+                    "browser.inPageFind.clear panel=\(self.id.uuidString) stale=false request=\(requestSequence.map(String.init) ?? "nil")"
+                )
+            }
+        }
+    }
+
+    private func restoreWebViewFocusAfterFindDismissIfNeeded() {
+        let shouldRestore = inPageFindFocusRestoreState == .returnToWebViewOnDismiss
+        inPageFindFocusRestoreState = .idle
+        guard shouldRestore else { return }
+        guard !shouldSuppressWebViewFocus() else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.shouldSuppressWebViewFocus() else { return }
+            guard let window = self.webView.window,
+                  !self.webView.isHiddenOrHasHiddenAncestor else { return }
+            guard !Self.responderChainContains(window.firstResponder, target: self.webView) else { return }
+            let moved = window.makeFirstResponder(self.webView)
+            browserFindDebugLog(
+                "browser.inPageFind.restoreFocus panel=\(self.id.uuidString) moved=\(moved)"
+            )
+        }
+    }
+
+    private func clearInPageFindHighlightScript(requestSequence: Int? = nil, resetState: Bool = true) -> String {
+        let requestSequenceJSON = requestSequence.map(String.init) ?? "null"
+        let shouldResetStateJSON = resetState ? "true" : "false"
+        return """
+        (function() {
+          const requestSequence = \(requestSequenceJSON);
+          const shouldResetState = \(shouldResetStateJSON);
+          const markClass = "cmux-inpage-find-hit";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
+          const styleId = "cmux-inpage-find-style";
+          const stateKey = "__cmuxInPageFindState";
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+          const normalizedRequestSequence = Number(requestSequence);
+          const hasRequestSequence = Number.isFinite(normalizedRequestSequence) && normalizedRequestSequence > 0;
+
+          if (hasRequestSequence) {
+            const latestSequence = Number(window[sequenceKey] || 0);
+            if (normalizedRequestSequence < latestSequence) {
+              return { stale: true };
+            }
+            window[sequenceKey] = normalizedRequestSequence;
+          }
+
+          function clearMarks() {
+            const marks = Array.from(document.querySelectorAll("span." + markClass));
+            const parents = new Set();
+            for (const mark of marks) {
+              const parent = mark.parentNode;
+              if (parent) {
+                parents.add(parent);
+              }
+              mark.replaceWith(document.createTextNode(mark.textContent || ""));
+            }
+            parents.forEach((parent) => {
+              if (parent && parent.normalize) {
+                parent.normalize();
+              }
+            });
+          }
+
+          function clearCustomHighlights() {
+            if (typeof CSS === "undefined" || !CSS.highlights) return;
+            try {
+              if (typeof Highlight !== "undefined" && typeof CSS.highlights.set === "function") {
+                CSS.highlights.set(allHighlightName, new Highlight());
+                CSS.highlights.set(activeHighlightName, new Highlight());
+              }
+            } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(activeHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.clear === "function") CSS.highlights.clear(); } catch (_) {}
+          }
+
+          function clearOverlayHighlights() {
+            const overlayRoot = document.getElementById(overlayRootId);
+            if (overlayRoot && overlayRoot.parentNode) {
+              overlayRoot.parentNode.removeChild(overlayRoot);
+            }
+          }
+
+          function clearControlHighlights() {
+            const controls = Array.from(
+              document.querySelectorAll(
+                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
+              )
+            );
+            for (const control of controls) {
+              control.classList.remove(controlMatchClass);
+              control.classList.remove(controlActiveClass);
+            }
+          }
+
+          clearMarks();
+          clearCustomHighlights();
+          clearOverlayHighlights();
+          clearControlHighlights();
+
+          const style = document.getElementById(styleId);
+          if (style && style.parentNode) {
+            style.parentNode.removeChild(style);
+          }
+          if (shouldResetState) {
+            window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
+          }
+          if (hasRequestSequence) {
+            window[sequenceKey] = normalizedRequestSequence;
+          }
+          return true;
+        })();
+        """
+    }
+
+    private func inPageFindHighlightScript(payloadJSON: String) -> String {
+        """
+        (function() {
+          const payload = \(payloadJSON);
+          const markClass = "cmux-inpage-find-hit";
+          const controlMatchClass = "cmux-inpage-find-control-hit";
+          const controlActiveClass = "cmux-inpage-find-control-active";
+          const overlayRootId = "cmux-inpage-find-overlay-root";
+          const overlayMarkClass = "cmux-inpage-find-overlay-hit";
+          const overlayActiveClass = "cmux-inpage-find-overlay-active";
+          const styleId = "cmux-inpage-find-style";
+          const stateKey = "__cmuxInPageFindState";
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+          const requestSequence = Number(payload.requestSequence || 0);
+          const hasRequestSequence = Number.isFinite(requestSequence) && requestSequence > 0;
+
+          if (hasRequestSequence) {
+            const latestSequence = Number(window[sequenceKey] || 0);
+            if (requestSequence < latestSequence) {
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true });
+            }
+            window[sequenceKey] = requestSequence;
+          }
+
+          function isRequestStale() {
+            if (!hasRequestSequence) return false;
+            return Number(window[sequenceKey] || 0) !== requestSequence;
+          }
+
+          function supportsCustomHighlights() {
+            return (
+              typeof CSS !== "undefined" &&
+              CSS.highlights &&
+              typeof Highlight !== "undefined" &&
+              typeof Range !== "undefined"
+            );
+          }
+          // Prefer non-DOM-mutating highlights to avoid layout shift.
+          const customHighlightEnabled = true;
+          const canUseCustomHighlights = customHighlightEnabled && supportsCustomHighlights();
+          const defaultRenderMode = canUseCustomHighlights ? "customHighlight" : "overlayFallback";
+
+          function withRenderMode(result, mode) {
+            return Object.assign({ renderMode: mode || defaultRenderMode }, result);
+          }
+
+          function clearMarks() {
+            const marks = Array.from(document.querySelectorAll("span." + markClass));
+            const parents = new Set();
+            for (const mark of marks) {
+              const parent = mark.parentNode;
+              if (parent) {
+                parents.add(parent);
+              }
+              mark.replaceWith(document.createTextNode(mark.textContent || ""));
+            }
+            parents.forEach((parent) => {
+              if (parent && parent.normalize) {
+                parent.normalize();
+              }
+            });
+          }
+
+          function clearCustomHighlights() {
+            if (!canUseCustomHighlights) return;
+            try { CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
+          }
+
+          function clearOverlayHighlights() {
+            const overlayRoot = document.getElementById(overlayRootId);
+            if (overlayRoot && overlayRoot.parentNode) {
+              overlayRoot.parentNode.removeChild(overlayRoot);
+            }
+          }
+
+          function clearControlHighlights() {
+            const controls = Array.from(
+              document.querySelectorAll(
+                "input." + controlMatchClass + ", textarea." + controlMatchClass + ", input." + controlActiveClass + ", textarea." + controlActiveClass
+              )
+            );
+            for (const control of controls) {
+              control.classList.remove(controlMatchClass);
+              control.classList.remove(controlActiveClass);
+            }
+          }
+
+          function ensureOverlayRoot() {
+            let overlayRoot = document.getElementById(overlayRootId);
+            if (!overlayRoot) {
+              overlayRoot = document.createElement("div");
+              overlayRoot.id = overlayRootId;
+              overlayRoot.setAttribute("aria-hidden", "true");
+              (document.body || document.documentElement).appendChild(overlayRoot);
+            } else {
+              overlayRoot.textContent = "";
+            }
+            return overlayRoot;
+          }
+
+          function ensureStyle() {
+            let style = document.getElementById(styleId);
+            if (!style) {
+              style = document.createElement("style");
+              style.id = styleId;
+              (document.head || document.documentElement).appendChild(style);
+            }
+            style.textContent = `
+              ::highlight(${allHighlightName}) {
+                background: ${payload.allBackground};
+              }
+              ::highlight(${activeHighlightName}) {
+                background: ${payload.activeBackground};
+              }
+              #${overlayRootId} {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 0;
+                height: 0;
+                pointer-events: none;
+                z-index: 2147483647;
+              }
+              #${overlayRootId} .${overlayMarkClass} {
+                position: absolute;
+                background-color: ${payload.allBackground};
+                border-radius: 2px;
+                opacity: 0.32;
+              }
+              #${overlayRootId} .${overlayMarkClass}.${overlayActiveClass} {
+                background-color: ${payload.activeBackground} !important;
+                opacity: 0.56;
+                box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
+              }
+            `;
+          }
+
+          function shouldSkipNode(node) {
+            if (!node || !node.parentElement) return true;
+            const parent = node.parentElement;
+            const tag = parent.tagName;
+            if (!tag) return true;
+            if (["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT", "SELECT", "OPTION"].includes(tag)) {
+              return true;
+            }
+            if (parent.closest("span." + markClass)) {
+              return true;
+            }
+            if (parent.closest("#" + overlayRootId)) {
+              return true;
+            }
+            return false;
+          }
+
+          function isRangeRectHitVisible(nodeElement, rect) {
+            if (!nodeElement || !rect || typeof document.elementFromPoint !== "function") return false;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewportWidth <= 0 || viewportHeight <= 0) return false;
+
+            const left = Math.max(0, rect.left);
+            const right = Math.min(viewportWidth - 1, rect.right);
+            const top = Math.max(0, rect.top);
+            const bottom = Math.min(viewportHeight - 1, rect.bottom);
+            if (!(right >= left && bottom >= top)) return false;
+
+            const points = [
+              { x: left + (right - left) * 0.5, y: top + (bottom - top) * 0.5 },
+              { x: left + (right - left) * 0.2, y: top + (bottom - top) * 0.5 },
+              { x: left + (right - left) * 0.8, y: top + (bottom - top) * 0.5 },
+            ];
+            for (const point of points) {
+              const hit = document.elementFromPoint(point.x, point.y);
+              if (!hit) continue;
+              if (hit === nodeElement || hit.contains(nodeElement) || nodeElement.contains(hit)) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function isTextNodeVisiblyRenderable(node) {
+            if (!node || !node.parentElement) return false;
+            if (typeof node.isConnected === "boolean" && !node.isConnected) return false;
+            const nodeElement = node.parentElement;
+
+            let ancestor = node.parentElement;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              if (ancestor.hidden) {
+                return false;
+              }
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                if (style.display === "none") return false;
+                if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+                if (style.contentVisibility === "hidden") return false;
+                const opacity = Number(style.opacity);
+                if (Number.isFinite(opacity) && opacity <= 0) return false;
+
+                const clip = style.clip || "auto";
+                if (clip !== "auto") return false;
+
+                const clipPath = style.clipPath || "none";
+                const width = Number.parseFloat(style.width || "");
+                const height = Number.parseFloat(style.height || "");
+                const overflowX = style.overflowX || style.overflow || "";
+                const overflowY = style.overflowY || style.overflow || "";
+                const isTinyBox =
+                  (Number.isFinite(width) && width <= 1.5) ||
+                  (Number.isFinite(height) && height <= 1.5);
+                if (clipPath !== "none" && (isTinyBox || overflowX === "hidden" || overflowY === "hidden")) {
+                  return false;
+                }
+                if (isTinyBox && (overflowX === "hidden" || overflowY === "hidden")) {
+                  return false;
+                }
+
+                const textIndent = Number.parseFloat(style.textIndent || "0");
+                if (Number.isFinite(textIndent) && textIndent <= -500) {
+                  return false;
+                }
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+
+            try {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              const rects = range.getClientRects();
+              const minimumRenderableArea = 4;
+              for (let index = 0; index < rects.length; index += 1) {
+                const rect = rects[index];
+                if (!rect) continue;
+                const area = rect.width * rect.height;
+                if (
+                  Number.isFinite(rect.width) &&
+                  Number.isFinite(rect.height) &&
+                  rect.width > 0 &&
+                  rect.height > 0 &&
+                  Number.isFinite(area) &&
+                  area >= minimumRenderableArea &&
+                  rect.right > -64 &&
+                  rect.bottom > -64 &&
+                  isRangeRectHitVisible(nodeElement, rect)
+                ) {
+                  return true;
+                }
+              }
+            } catch (_) {
+              return false;
+            }
+            return false;
+          }
+
+          function hasCustomHighlightPaintBlocker(node) {
+            if (!node || !node.parentElement) return false;
+            let ancestor = node.parentElement;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                const userSelect = (style.userSelect || style.webkitUserSelect || "").toLowerCase();
+                // WebKit can fail to paint CSS custom highlights under user-select:none.
+                if (userSelect === "none") {
+                  return true;
+                }
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+            return false;
+          }
+
+          function collectTextNodes() {
+            const root = document.body || document.documentElement;
+            if (!root) return [];
+            const walker = document.createTreeWalker(
+              root,
+              NodeFilter.SHOW_TEXT,
+              {
+                acceptNode: (node) => {
+                  if (!node || !node.nodeValue || node.nodeValue.length === 0) {
+                    return NodeFilter.FILTER_REJECT;
+                  }
+                  return shouldSkipNode(node) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+                },
+              }
+            );
+            const nodes = [];
+            while (walker.nextNode()) {
+              nodes.push(walker.currentNode);
+            }
+            return nodes;
+          }
+
+          function isElementVisiblyRenderable(element) {
+            if (!element) return false;
+            if (typeof element.isConnected === "boolean" && !element.isConnected) return false;
+
+            let ancestor = element;
+            let depth = 0;
+            while (ancestor && depth < 96) {
+              if (ancestor.hidden) {
+                return false;
+              }
+              const style = window.getComputedStyle ? window.getComputedStyle(ancestor) : null;
+              if (style) {
+                if (style.display === "none") return false;
+                if (style.visibility === "hidden" || style.visibility === "collapse") return false;
+                if (style.contentVisibility === "hidden") return false;
+                const opacity = Number(style.opacity);
+                if (Number.isFinite(opacity) && opacity <= 0) return false;
+              }
+              ancestor = ancestor.parentElement;
+              depth += 1;
+            }
+
+            const rects = element.getClientRects ? element.getClientRects() : null;
+            if (!rects || rects.length === 0) return false;
+            const minimumRenderableArea = 4;
+            for (let index = 0; index < rects.length; index += 1) {
+              const rect = rects[index];
+              if (!rect) continue;
+              const area = rect.width * rect.height;
+              if (
+                Number.isFinite(rect.width) &&
+                Number.isFinite(rect.height) &&
+                rect.width > 0 &&
+                rect.height > 0 &&
+                Number.isFinite(area) &&
+                area >= minimumRenderableArea &&
+                rect.right > -64 &&
+                rect.bottom > -64 &&
+                isRangeRectHitVisible(element, rect)
+              ) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          function isSearchableInputControl(element) {
+            if (!element || !element.tagName) return false;
+            const tagName = String(element.tagName).toUpperCase();
+            if (tagName === "TEXTAREA") return true;
+            if (tagName !== "INPUT") return false;
+
+            const type = String(element.type || "text").toLowerCase();
+            return ["text", "search", "email", "url", "tel"].includes(type);
+          }
+
+          function collectTextMatches(query) {
+            const lowerQuery = query.toLocaleLowerCase();
+            const queryLength = query.length;
+            const matches = [];
+            const visibilityCache = new WeakMap();
+            const customHighlightPaintBlockerCache = new WeakMap();
+
+            for (const textNode of collectTextNodes()) {
+              const original = textNode.nodeValue || "";
+              const lower = original.toLocaleLowerCase();
+              let cursor = 0;
+              let index = lower.indexOf(lowerQuery, cursor);
+              if (index === -1) {
+                continue;
+              }
+              let isVisible = visibilityCache.get(textNode);
+              if (typeof isVisible !== "boolean") {
+                isVisible = isTextNodeVisiblyRenderable(textNode);
+                visibilityCache.set(textNode, isVisible);
+              }
+              if (!isVisible) {
+                continue;
+              }
+              let customHighlightPaintBlocked = customHighlightPaintBlockerCache.get(textNode);
+              if (typeof customHighlightPaintBlocked !== "boolean") {
+                customHighlightPaintBlocked = hasCustomHighlightPaintBlocker(textNode);
+                customHighlightPaintBlockerCache.set(textNode, customHighlightPaintBlocked);
+              }
+              const anchorElement = textNode.parentElement || null;
+              while (index !== -1) {
+                matches.push({
+                  kind: "text",
+                  node: textNode,
+                  anchorElement,
+                  start: index,
+                  end: index + queryLength,
+                  customHighlightPaintBlocked,
+                });
+                cursor = index + queryLength;
+                index = lower.indexOf(lowerQuery, cursor);
+              }
+            }
+
+            return matches;
+          }
+
+          function collectControlMatches(query) {
+            const lowerQuery = query.toLocaleLowerCase();
+            const queryLength = query.length;
+            const matches = [];
+            const visibilityCache = new WeakMap();
+            const controls = Array.from(document.querySelectorAll("input, textarea"));
+
+            for (const control of controls) {
+              if (!isSearchableInputControl(control)) {
+                continue;
+              }
+              const value = String(control.value || "");
+              if (!value) {
+                continue;
+              }
+              const lower = value.toLocaleLowerCase();
+              let cursor = 0;
+              let index = lower.indexOf(lowerQuery, cursor);
+              if (index === -1) {
+                continue;
+              }
+              let isVisible = visibilityCache.get(control);
+              if (typeof isVisible !== "boolean") {
+                isVisible = isElementVisiblyRenderable(control);
+                visibilityCache.set(control, isVisible);
+              }
+              if (!isVisible) {
+                continue;
+              }
+              while (index !== -1) {
+                matches.push({
+                  kind: "control",
+                  element: control,
+                  anchorElement: control,
+                  start: index,
+                  end: index + queryLength,
+                  customHighlightPaintBlocked: false,
+                });
+                cursor = index + queryLength;
+                index = lower.indexOf(lowerQuery, cursor);
+              }
+            }
+
+            return matches;
+          }
+
+          function compareMatchesInDocumentOrder(a, b) {
+            const aAnchor = a.anchorElement || (a.node && a.node.parentElement) || null;
+            const bAnchor = b.anchorElement || (b.node && b.node.parentElement) || null;
+            if (aAnchor === bAnchor) {
+              const aStart = Number.isFinite(a.start) ? a.start : 0;
+              const bStart = Number.isFinite(b.start) ? b.start : 0;
+              return aStart - bStart;
+            }
+            if (!aAnchor) return 1;
+            if (!bAnchor) return -1;
+
+            const position = aAnchor.compareDocumentPosition(bAnchor);
+            if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+            if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+
+            const aStart = Number.isFinite(a.start) ? a.start : 0;
+            const bStart = Number.isFinite(b.start) ? b.start : 0;
+            return aStart - bStart;
+          }
+
+          function collectMatches(query) {
+            const textMatches = collectTextMatches(query);
+            const controlMatches = collectControlMatches(query);
+            const combinedMatches = textMatches.concat(controlMatches);
+            combinedMatches.sort(compareMatchesInDocumentOrder);
+            return combinedMatches;
+          }
+
+          function resolveActiveIndex(query, total) {
+            const previous = window[stateKey] || { query: "", activeIndex: 0 };
+            let activeIndex = 0;
+            if (!payload.queryChanged && previous.query === query) {
+              activeIndex = Number.isInteger(previous.activeIndex) ? previous.activeIndex : 0;
+              if (payload.direction === "next") {
+                activeIndex += 1;
+              } else if (payload.direction === "prev") {
+                activeIndex -= 1;
+              }
+            }
+            return ((activeIndex % total) + total) % total;
+          }
+
+          function scrollMatchIntoView(match) {
+            if (!match) return;
+            if (match.kind === "control") {
+              const element = match.element;
+              if (element && element.scrollIntoView) {
+                element.scrollIntoView({ block: "center", inline: "nearest" });
+              }
+              return;
+            }
+            const range = document.createRange();
+            range.setStart(match.node, match.start);
+            range.setEnd(match.node, match.end);
+            const rect = range.getBoundingClientRect();
+
+            if (!rect || (rect.width === 0 && rect.height === 0)) {
+              const anchor = match.node.parentElement;
+              if (anchor && anchor.scrollIntoView) {
+                anchor.scrollIntoView({ block: "center", inline: "nearest" });
+              }
+              return;
+            }
+
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const nextTop = rect.top + window.scrollY - Math.max(0, (viewportHeight - rect.height) / 2);
+            const nextLeft = rect.left + window.scrollX - Math.max(0, (viewportWidth - rect.width) / 2);
+            window.scrollTo({
+              top: Math.max(0, nextTop),
+              left: Math.max(0, nextLeft),
+              behavior: "auto",
+            });
+          }
+
+          function rangeForMatch(match) {
+            if (!match || !match.node) return null;
+            const range = document.createRange();
+            range.setStart(match.node, match.start);
+            range.setEnd(match.node, match.end);
+            return range;
+          }
+
+          function applyCustomHighlights(matches, activeIndex) {
+            clearCustomHighlights();
+
+            const allHighlight = new Highlight();
+            for (const match of matches) {
+              const range = rangeForMatch(match);
+              if (!range) continue;
+              allHighlight.add(range);
+            }
+            CSS.highlights.set(allHighlightName, allHighlight);
+
+            const activeHighlight = new Highlight();
+            const activeMatch = matches[activeIndex];
+            if (activeMatch) {
+              const activeRange = rangeForMatch(activeMatch);
+              if (!activeRange) {
+                CSS.highlights.set(activeHighlightName, activeHighlight);
+                return activeMatch || null;
+              }
+              activeHighlight.add(activeRange);
+            }
+            CSS.highlights.set(activeHighlightName, activeHighlight);
+            return activeMatch || null;
+          }
+
+          function applyOverlayFallback(matches, activeIndex) {
+            clearOverlayHighlights();
+            const overlayRoot = ensureOverlayRoot();
+            const activeMatch = matches[activeIndex] || null;
+            const minimumRenderableArea = 2;
+
+            for (let idx = 0; idx < matches.length; idx += 1) {
+              const match = matches[idx];
+              const range = rangeForMatch(match);
+              if (!range) continue;
+              const rects = range.getClientRects();
+              for (let rectIndex = 0; rectIndex < rects.length; rectIndex += 1) {
+                const rect = rects[rectIndex];
+                if (!rect) continue;
+                const area = rect.width * rect.height;
+                if (
+                  !Number.isFinite(rect.width) ||
+                  !Number.isFinite(rect.height) ||
+                  rect.width <= 0 ||
+                  rect.height <= 0 ||
+                  !Number.isFinite(area) ||
+                  area < minimumRenderableArea
+                ) {
+                  continue;
+                }
+                const mark = document.createElement("div");
+                mark.className = overlayMarkClass + (idx === activeIndex ? " " + overlayActiveClass : "");
+                mark.style.left = `${rect.left + window.scrollX}px`;
+                mark.style.top = `${rect.top + window.scrollY}px`;
+                mark.style.width = `${rect.width}px`;
+                mark.style.height = `${rect.height}px`;
+                overlayRoot.appendChild(mark);
+              }
+            }
+
+            return activeMatch;
+          }
+
+          function applyControlHighlights(matches, activeIndex) {
+            clearControlHighlights();
+            const activeMatch = matches[activeIndex] || null;
+            if (!activeMatch || activeMatch.kind !== "control" || !activeMatch.element) {
+              return;
+            }
+
+            const control = activeMatch.element;
+            if (document.activeElement !== control) {
+              return;
+            }
+            if (typeof control.setSelectionRange === "function") {
+              try {
+                control.setSelectionRange(activeMatch.start, activeMatch.end, "none");
+              } catch (_) {}
+            }
+          }
+
+          try {
+            if (isRequestStale()) {
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" });
+            }
+            const query = (payload.query || "").trim();
+            clearMarks();
+            clearCustomHighlights();
+            clearOverlayHighlights();
+            clearControlHighlights();
+            if (isRequestStale()) {
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" });
+            }
+            if (!query) {
+              window[stateKey] = { query: "", activeIndex: 0, renderMode: "none" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 }, "none");
+            }
+
+            ensureStyle();
+            const matches = collectMatches(query);
+            if (isRequestStale()) {
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postcollect" });
+            }
+
+            if (matches.length === 0) {
+              const renderMode = "overlayFallback";
+              window[stateKey] = { query, activeIndex: 0, renderMode };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 }, renderMode);
+            }
+
+            const activeIndex = resolveActiveIndex(query, matches.length);
+            const textMatchCount = matches.reduce((count, match) => count + (match.kind === "text" ? 1 : 0), 0);
+
+            let renderMode = "controlOnly";
+            if (textMatchCount > 0) {
+              renderMode = "overlayFallback";
+            }
+
+            let activeTarget = matches[activeIndex] || null;
+            if (textMatchCount > 0) {
+              activeTarget = applyOverlayFallback(matches, activeIndex);
+            } else {
+              clearCustomHighlights();
+              clearOverlayHighlights();
+            }
+            applyControlHighlights(matches, activeIndex);
+            if (isRequestStale()) {
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" });
+            }
+            scrollMatchIntoView(activeTarget);
+
+            window[stateKey] = { query, activeIndex, renderMode };
+            return withRenderMode({ matchFound: true, current: activeIndex + 1, total: matches.length }, renderMode);
+          } catch (error) {
+            return withRenderMode({
+              matchFound: false,
+              current: 0,
+              total: 0,
+              error: String(error && error.message ? error.message : error),
+            });
+          }
+        })();
+        """
+    }
+
     @discardableResult
     func applyPageZoom(_ candidate: CGFloat) -> Bool {
         let clamped = max(minPageZoom, min(maxPageZoom, candidate))
@@ -2110,6 +3815,46 @@ private extension BrowserPanel {
             hops += 1
         }
         return false
+    }
+
+    static func firstDescendantView(
+        in root: NSView,
+        matching predicate: (NSView) -> Bool
+    ) -> NSView? {
+        if predicate(root) {
+            return root
+        }
+        for subview in root.subviews {
+            if let match = firstDescendantView(in: subview, matching: predicate) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    static func describeResponderForFindDispatch(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        if let view = responder as? NSView {
+            return "\(type(of: view))"
+        }
+        return String(describing: type(of: responder))
+    }
+
+    func textFinderActionName(_ action: NSTextFinder.Action) -> String {
+        switch action {
+        case .showFindInterface:
+            return "showFindInterface"
+        case .nextMatch:
+            return "nextMatch"
+        case .previousMatch:
+            return "previousMatch"
+        case .hideFindInterface:
+            return "hideFindInterface"
+        case .setSearchString:
+            return "setSearchString"
+        default:
+            return "raw\(action.rawValue)"
+        }
     }
 }
 
@@ -2138,6 +3883,28 @@ private extension NSObject {
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
     }
+}
+
+@MainActor
+private func browserFindDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
+#endif
+}
+
+@MainActor
+private func browserLogFindDebugSnapshot(
+    label: String,
+    window: NSWindow?,
+    focusView: NSView? = nil
+) {
+    // Browser find fallback debug runs on branches that may not include the
+    // shared find-layer snapshot helpers yet. Keep this hook lightweight.
+    _ = label
+    _ = window
+    _ = focusView
 }
 
 // MARK: - Download Delegate

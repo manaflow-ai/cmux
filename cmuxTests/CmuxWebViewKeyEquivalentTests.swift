@@ -97,6 +97,18 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testCmdFRoutesToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "f", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) // kVK_ANSI_F
+        XCTAssertNotNil(event)
+
+        XCTAssertTrue(webView.performKeyEquivalent(with: event!))
+        XCTAssertTrue(spy.invoked)
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
@@ -782,54 +794,26 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
-final class UpdateChannelSettingsTests: XCTestCase {
-    func testDefaultNightlyPreferenceIsDisabled() {
-        XCTAssertFalse(UpdateChannelSettings.defaultIncludeNightlyBuilds)
-    }
-
-    func testResolvedFeedFallsBackToStableWhenInfoFeedMissing() {
-        let suiteName = "UpdateChannelSettingsTests.MissingInfo.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: nil, defaults: defaults)
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.stableFeedURL)
+final class UpdateFeedResolverTests: XCTestCase {
+    func testResolvedFeedFallsBackWhenInfoFeedMissing() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertTrue(resolved.usedFallback)
     }
 
     func testResolvedFeedUsesInfoFeedForStableChannel() {
-        let suiteName = "UpdateChannelSettingsTests.InfoFeed.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         let infoFeed = "https://example.com/custom/appcast.xml"
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(infoFeedURL: infoFeed, defaults: defaults)
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
         XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertFalse(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
 
-    func testResolvedFeedUsesNightlyWhenPreferenceEnabled() {
-        let suiteName = "UpdateChannelSettingsTests.Nightly.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
-        let resolved = UpdateChannelSettings.resolvedFeedURLString(
-            infoFeedURL: "https://example.com/custom/appcast.xml",
-            defaults: defaults
-        )
-        XCTAssertEqual(resolved.url, UpdateChannelSettings.nightlyFeedURL)
+    func testResolvedFeedMarksNightlyWhenInfoFeedContainsNightlyPath() {
+        let infoFeed = "https://example.com/nightly/appcast.xml"
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
+        XCTAssertEqual(resolved.url, infoFeed)
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
@@ -952,6 +936,741 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
 }
+
+private func makeShortcutKeyDownEvent(
+    key: String,
+    modifiers: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> NSEvent? {
+    NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: 0,
+        context: nil,
+        characters: key,
+        charactersIgnoringModifiers: key,
+        isARepeat: false,
+        keyCode: keyCode
+    )
+}
+
+@MainActor
+final class TabManagerFindRoutingTests: XCTestCase {
+    func testBrowserFocusedRoutesFindActionsToInPageFindFallback() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+#if DEBUG
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+#endif
+
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        browserPanel.updateInPageFindQuery("example")
+        XCTAssertTrue(manager.findNext())
+        XCTAssertTrue(manager.findPrevious())
+        XCTAssertTrue(manager.searchSelection())
+        XCTAssertTrue(manager.hideFind())
+
+#if DEBUG
+        XCTAssertTrue(actions.isEmpty)
+#endif
+    }
+
+    func testBrowserFocusedStartSearchShowsInPageFindFallbackUI() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+    }
+}
+
+#if DEBUG
+@MainActor
+final class AppDelegateFindShortcutTests: XCTestCase {
+    override func tearDown() {
+        super.tearDown()
+        AppDelegate.shared = nil
+    }
+
+    func testCmdFShortcutStartsTerminalSearchWhenTerminalPanelFocused() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+        guard let event = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Failed to create key event")
+            return
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
+        XCTAssertNotNil(manager.selectedTerminalPanel?.searchState)
+    }
+
+    func testCmdFShortcutStartsBrowserFindWhenBrowserPanelFocused() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let event = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel and key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
+    }
+    func testCmdLThenCmdFRoutesAddressBarStateToBrowserFindAndClearsOmnibarMode() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdLEvent = makeShortcutKeyDownEvent(key: "l", modifiers: [.command], keyCode: 37),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3),
+              let ctrlNEvent = makeShortcutKeyDownEvent(key: "n", modifiers: [.control], keyCode: 45) else {
+            XCTFail("Expected browser panel and key events")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        var actions: [NSTextFinder.Action] = []
+        browserPanel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
+
+        // After Cmd+F handoff, omnibar navigation shortcuts should no longer be consumed.
+        XCTAssertFalse(delegate.debugHandleCustomShortcut(event: ctrlNEvent))
+    }
+
+    func testCmdFShortcutUsesTerminalSearchWhenBrowserAddressBarStateIsStale() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdLEvent = makeShortcutKeyDownEvent(key: "l", modifiers: [.command], keyCode: 37),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key events")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
+
+        // Simulate focus moving to terminal while the omnibar-focused panel marker lingers.
+        workspace.focusPanel(terminalPanel.id)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+    }
+
+    func testCmdFShortcutUsesTerminalSearchWhenFirstResponderReportsTerminalPanel() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        delegate.debugFindShortcutTerminalPanelIdOverride = { terminalPanel.id }
+        defer { delegate.debugFindShortcutTerminalPanelIdOverride = nil }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+    }
+
+    func testEscapeShortcutHidesVisibleBrowserFind() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let escapeEvent = makeShortcutKeyDownEvent(key: "\u{1b}", modifiers: [], keyCode: 53) else {
+            XCTFail("Expected browser panel and escape key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        _ = browserPanel.showFindInterface()
+        browserPanel.updateInPageFindQuery("e")
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: escapeEvent))
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+        XCTAssertEqual(browserPanel.inPageFindQuery, "e")
+        XCTAssertEqual(browserPanel.inPageFindMatchCount, 0)
+        XCTAssertEqual(browserPanel.inPageFindCurrentMatchIndex, 0)
+    }
+
+    func testCopyBrowserFindDiagnosticsWithoutFocusedBrowserPanelProducesFallbackPayload() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        var copiedPayload: String?
+        delegate.debugCopyBrowserFindDiagnosticsSink = { payload in
+            copiedPayload = payload
+        }
+        defer { delegate.debugCopyBrowserFindDiagnosticsSink = nil }
+
+        delegate.copyBrowserFindDiagnostics(nil)
+
+        guard let copiedPayload else {
+            XCTFail("Expected diagnostics payload to be copied")
+            return
+        }
+        XCTAssertTrue(copiedPayload.contains("No focused browser panel found"))
+        XCTAssertTrue(copiedPayload.contains("selectedWorkspaceId"))
+    }
+
+    func testCopyBrowserFindDiagnosticsCapturesFocusedBrowserPanelSnapshot() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        _ = browserPanel.showFindInterface()
+        browserPanel.updateInPageFindQuery("needle")
+        browserPanel.debugInPageFindDiagnosticsHandler = {
+            [
+                "spanMarkCount": 10,
+                "activeHighlightRangeCount": 1,
+                "supportsCustomHighlights": true,
+                "title": "Example Domain",
+            ]
+        }
+
+        let copied = expectation(description: "copy browser find diagnostics")
+        var copiedPayload: String?
+        delegate.debugCopyBrowserFindDiagnosticsSink = { payload in
+            copiedPayload = payload
+            copied.fulfill()
+        }
+        defer { delegate.debugCopyBrowserFindDiagnosticsSink = nil }
+
+        delegate.copyBrowserFindDiagnostics(nil)
+        wait(for: [copied], timeout: 1.0)
+
+        guard let copiedPayload else {
+            XCTFail("Expected diagnostics payload to be copied")
+            return
+        }
+        XCTAssertTrue(copiedPayload.contains("\"inPageFindQuery\" : \"needle\""))
+        XCTAssertTrue(copiedPayload.contains("\"pageDiagnostics\""))
+        XCTAssertTrue(copiedPayload.contains("\"spanMarkCount\" : 10"))
+    }
+
+}
+#endif
+
+#if DEBUG
+@MainActor
+final class BrowserPanelTextFinderDispatchTests: XCTestCase {
+    private final class FinderResponderView: NSView {
+        private(set) var receivedActionTags: [Int] = []
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func performTextFinderAction(_ sender: Any?) {
+            if let item = sender as? NSMenuItem {
+                receivedActionTags.append(item.tag)
+            }
+        }
+    }
+
+    func testShowFindInterfaceFallsBackToInPageFindUIWhenNoTextFinderResponderExists() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertFalse(panel.webView.responds(to: #selector(NSResponder.performTextFinderAction(_:))))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(panel.isInPageFindVisible)
+    }
+
+    func testShowFindInterfaceAlsoShowsFallbackWhenTextFinderActionHandled() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        var actions: [NSTextFinder.Action] = []
+
+        panel.debugTextFinderActionHandler = { action in
+            actions.append(action)
+            return true
+        }
+
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
+    }
+
+    func testShowFindInterfaceDoesNotDispatchToDescendantResponder() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        let responderView = FinderResponderView(frame: .zero)
+        panel.webView.addSubview(responderView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.orderOut(nil)
+        }
+
+        _ = window.makeFirstResponder(panel.webView)
+
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(responderView.receivedActionTags.isEmpty)
+    }
+
+    func testHideInPageFindRestoresWebViewFocusWhenOpenedFromWebView() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        let findField = NSTextField(frame: NSRect(x: 12, y: 12, width: 200, height: 24))
+        host.addSubview(findField)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(panel.webView))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(window.makeFirstResponder(findField))
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+
+        let deadline = Date().addingTimeInterval(0.4)
+        var restored = false
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+            if let firstResponder = window.firstResponder as? NSView,
+               firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView) {
+                restored = true
+                break
+            }
+        }
+        XCTAssertTrue(restored)
+    }
+
+    func testHideInPageFindDoesNotStealFocusWhenOpenedFromNonWebViewResponder() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let host = NSView(frame: window.contentView?.bounds ?? .zero)
+        host.autoresizingMask = [.width, .height]
+        window.contentView = host
+
+        panel.webView.frame = host.bounds
+        panel.webView.autoresizingMask = [.width, .height]
+        host.addSubview(panel.webView)
+
+        let addressLikeField = NSTextField(frame: NSRect(x: 12, y: 12, width: 200, height: 24))
+        let focusAfterDismissField = NSTextField(frame: NSRect(x: 12, y: 44, width: 200, height: 24))
+        host.addSubview(addressLikeField)
+        host.addSubview(focusAfterDismissField)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(addressLikeField))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(window.makeFirstResponder(focusAfterDismissField))
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+
+        guard let firstResponder = window.firstResponder as? NSView else {
+            XCTFail("Expected a first responder")
+            return
+        }
+        XCTAssertFalse(firstResponder === panel.webView || firstResponder.isDescendant(of: panel.webView))
+    }
+
+    func testUnchangedBrowserFindQueryDoesNotAdvanceCurrentMatch() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        let totalMatches = 13
+        var activeIndex = 0
+        var requests: [BrowserInPageFindDebugRequest] = []
+
+        panel.debugInPageFindFallbackHandler = { request in
+            requests.append(request)
+
+            if request.queryChanged {
+                activeIndex = 1
+            } else if request.direction == "next" {
+                activeIndex = (activeIndex % totalMatches) + 1
+            } else if request.direction == "prev" {
+                activeIndex = ((activeIndex - 2 + totalMatches) % totalMatches) + 1
+            }
+
+            return BrowserInPageFindDebugResult(
+                matchFound: totalMatches > 0,
+                current: activeIndex,
+                total: totalMatches
+            )
+        }
+
+        panel.updateInPageFindQuery("example")
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(panel.inPageFindMatchCount, totalMatches)
+        XCTAssertEqual(requests.map(\.direction), ["reset"])
+        XCTAssertEqual(requests.map(\.queryChanged), [true])
+
+        // Simulates repeated TextField value commits that happen around Enter submit.
+        for _ in 0..<3 {
+            panel.updateInPageFindQuery("example")
+        }
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(requests.map(\.direction), ["reset", "reset", "reset", "reset"])
+        XCTAssertEqual(requests.map(\.queryChanged), [true, true, true, true])
+
+        XCTAssertTrue(panel.inPageFindNextFromUI())
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 2)
+        XCTAssertEqual(requests.map(\.direction), ["reset", "reset", "reset", "reset", "next"])
+    }
+
+    func testClearingBrowserFindQueryResetsFallbackState() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        var requests: [BrowserInPageFindDebugRequest] = []
+
+        panel.debugInPageFindFallbackHandler = { request in
+            requests.append(request)
+            return BrowserInPageFindDebugResult(matchFound: true, current: 1, total: 5)
+        }
+
+        panel.updateInPageFindQuery("e")
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 1)
+        XCTAssertEqual(panel.inPageFindMatchCount, 5)
+        XCTAssertEqual(requests.count, 1)
+
+        panel.updateInPageFindQuery("")
+        XCTAssertEqual(panel.inPageFindQuery, "")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        // Empty query clears highlights/state in WebKit instead of routing through the match handler.
+        XCTAssertEqual(requests.count, 1)
+
+        let tokenAfterFirstClear = panel.inPageFindFocusToken
+        panel.updateInPageFindQuery("")
+        XCTAssertEqual(panel.inPageFindQuery, "")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(panel.inPageFindFocusToken, tokenAfterFirstClear + 1)
+
+        panel.updateInPageFindQuery("   ")
+        XCTAssertEqual(panel.inPageFindQuery, "   ")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
+    }
+
+    func testStaleClearRetryPolicyForHiddenOrEmptyFindState() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        _ = panel.showFindInterface()
+        panel.updateInPageFindQuery("e")
+        XCTAssertFalse(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("")
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("e")
+        _ = panel.hideInPageFindFromUI()
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
+    }
+
+    func testHideInPageFindRequestsHighlightClearWhenVisibleAndWhenAlreadyHidden() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+        var clearRequests: [(sequence: Int?, allowStaleRetry: Bool)] = []
+        panel.debugInPageFindClearHandler = { requestSequence, allowStaleRetry in
+            clearRequests.append((requestSequence, allowStaleRetry))
+        }
+
+        _ = panel.showFindInterface()
+        panel.updateInPageFindQuery("e")
+        clearRequests.removeAll()
+
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+        XCTAssertFalse(panel.isInPageFindVisible)
+        XCTAssertEqual(clearRequests.count, 1)
+        XCTAssertNotNil(clearRequests[0].sequence)
+        XCTAssertTrue(clearRequests[0].allowStaleRetry)
+
+        clearRequests.removeAll()
+        XCTAssertTrue(panel.hideInPageFindFromUI())
+        XCTAssertEqual(clearRequests.count, 1)
+        XCTAssertNotNil(clearRequests[0].sequence)
+        XCTAssertTrue(clearRequests[0].allowStaleRetry)
+    }
+
+    func testBrowserFindFieldHandlesShiftTabAndShiftReturnAsPreviousMatch() throws {
+        let sourceURL = findProjectRoot().appendingPathComponent("Sources/Panels/BrowserPanelView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("func navigateFindFromKeyPress(modifiers: EventModifiers) -> BackportKeyPressResult"))
+        XCTAssertTrue(source.contains(".backport.onKeyPress(.return, action: navigateFindFromKeyPress)"))
+        XCTAssertTrue(source.contains(".backport.onKeyPress(.tab, action: navigateFindFromKeyPress)"))
+        XCTAssertTrue(source.contains("if modifiers.contains(.shift) {"))
+        XCTAssertTrue(source.contains("_ = panel.inPageFindPreviousFromUI()"))
+        XCTAssertTrue(source.contains("_ = panel.inPageFindNextFromUI()"))
+    }
+
+    func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "example",
+            "direction": "next",
+            "queryChanged": true,
+            "requestSequence": 42,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("supportsCustomHighlights"))
+        XCTAssertTrue(highlightScript.contains("const customHighlightEnabled = true"))
+        XCTAssertTrue(highlightScript.contains("const defaultRenderMode = canUseCustomHighlights ? \"customHighlight\" : \"overlayFallback\""))
+        XCTAssertTrue(highlightScript.contains("function withRenderMode(result, mode)"))
+        XCTAssertTrue(highlightScript.contains("CSS.highlights.set(allHighlightName"))
+        XCTAssertTrue(highlightScript.contains("::highlight("))
+        XCTAssertFalse(highlightScript.contains("color: ${payload.allForeground};"))
+        XCTAssertFalse(highlightScript.contains("color: ${payload.activeForeground};"))
+        XCTAssertTrue(highlightScript.contains("applyOverlayFallback"))
+        XCTAssertTrue(highlightScript.contains("opacity: 0.32;"))
+        XCTAssertTrue(highlightScript.contains("opacity: 0.56;"))
+        XCTAssertTrue(highlightScript.contains("customHighlightPaintBlocked"))
+        XCTAssertTrue(highlightScript.contains("applyControlHighlights"))
+        XCTAssertTrue(highlightScript.contains("controlOnly"))
+        XCTAssertTrue(highlightScript.contains("const sequenceKey = \"__cmuxInPageFindSequence\""))
+        XCTAssertTrue(highlightScript.contains("const requestSequence = Number(payload.requestSequence || 0)"))
+        XCTAssertTrue(highlightScript.contains("function isRequestStale()"))
+        XCTAssertTrue(highlightScript.contains("if (requestSequence < latestSequence)"))
+        XCTAssertTrue(highlightScript.contains("stale: true"))
+        XCTAssertTrue(highlightScript.contains("stage: \"postcollect\""))
+        XCTAssertTrue(highlightScript.contains("stage: \"postapply\""))
+
+        let staleGuardOffset = try XCTUnwrap(highlightScript.range(of: "if (requestSequence < latestSequence)"))
+        let clearMarksOffset = try XCTUnwrap(highlightScript.range(of: "clearMarks();"))
+        let staleGuardLocation = highlightScript.distance(from: highlightScript.startIndex, to: staleGuardOffset.lowerBound)
+        let clearMarksLocation = highlightScript.distance(from: highlightScript.startIndex, to: clearMarksOffset.lowerBound)
+        XCTAssertLessThan(staleGuardLocation, clearMarksLocation)
+
+        let clearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 43)
+        XCTAssertTrue(clearScript.contains("CSS.highlights.delete(allHighlightName)"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.delete(activeHighlightName)"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.clear()"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.set(allHighlightName, new Highlight())"))
+        XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
+        XCTAssertTrue(clearScript.contains("const shouldResetState = true;"))
+        XCTAssertTrue(clearScript.contains("if (shouldResetState) {"))
+        XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
+
+        let preclearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 44, resetState: false)
+        XCTAssertTrue(preclearScript.contains("const shouldResetState = false;"))
+    }
+
+    func testInPageFindScriptFiltersHiddenMatchesFromCounts() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "hidden",
+            "direction": "reset",
+            "queryChanged": true,
+            "requestSequence": 44,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("function isTextNodeVisiblyRenderable(node)"))
+        XCTAssertTrue(highlightScript.contains("range.getClientRects()"))
+        XCTAssertTrue(highlightScript.contains("const minimumRenderableArea = 4"))
+        XCTAssertTrue(highlightScript.contains("const clip = style.clip || \"auto\""))
+        XCTAssertTrue(highlightScript.contains("if (clip !== \"auto\") return false"))
+        XCTAssertTrue(highlightScript.contains("const clipPath = style.clipPath || \"none\""))
+        XCTAssertTrue(highlightScript.contains("const isTinyBox ="))
+        XCTAssertTrue(highlightScript.contains("if (clipPath !== \"none\" && (isTinyBox || overflowX === \"hidden\" || overflowY === \"hidden\"))"))
+        XCTAssertTrue(highlightScript.contains("const textIndent = Number.parseFloat(style.textIndent || \"0\")"))
+        XCTAssertTrue(highlightScript.contains("function isRangeRectHitVisible(nodeElement, rect)"))
+        XCTAssertTrue(highlightScript.contains("document.elementFromPoint(point.x, point.y)"))
+        XCTAssertTrue(highlightScript.contains("hit.contains(nodeElement) || nodeElement.contains(hit)"))
+        XCTAssertTrue(highlightScript.contains("rect.right > -64"))
+        XCTAssertTrue(highlightScript.contains("rect.bottom > -64"))
+        XCTAssertTrue(highlightScript.contains("isRangeRectHitVisible(nodeElement, rect)"))
+        XCTAssertTrue(highlightScript.contains("style.display === \"none\""))
+        XCTAssertTrue(highlightScript.contains("style.visibility === \"hidden\""))
+        XCTAssertTrue(highlightScript.contains("style.contentVisibility === \"hidden\""))
+        XCTAssertTrue(highlightScript.contains("const visibilityCache = new WeakMap()"))
+        XCTAssertTrue(highlightScript.contains("if (!isVisible) {"))
+        XCTAssertTrue(highlightScript.contains("continue;"))
+    }
+
+    func testInPageFindScriptIncludesInputAndTextareaMatches() throws {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        let payload: [String: Any] = [
+            "query": "hello",
+            "direction": "reset",
+            "queryChanged": true,
+            "requestSequence": 45,
+            "allBackground": "rgb(255,255,0)",
+            "allForeground": "rgb(0,0,0)",
+            "activeBackground": "rgb(255,200,0)",
+            "activeForeground": "rgb(0,0,0)",
+        ]
+        let payloadData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let payloadJSON = try XCTUnwrap(String(data: payloadData, encoding: .utf8))
+
+        let highlightScript = panel.debugInPageFindHighlightScript(payloadJSON: payloadJSON)
+        XCTAssertTrue(highlightScript.contains("function isSearchableInputControl(element)"))
+        XCTAssertTrue(highlightScript.contains("querySelectorAll(\"input, textarea\")"))
+        XCTAssertTrue(highlightScript.contains("kind: \"control\""))
+        XCTAssertTrue(highlightScript.contains("controlMatchClass"))
+        XCTAssertTrue(highlightScript.contains("controlActiveClass"))
+        XCTAssertTrue(highlightScript.contains("function clearControlHighlights()"))
+        XCTAssertFalse(highlightScript.contains("box-shadow: 0 0 0 1px ${payload.allBackground} !important;"))
+        XCTAssertFalse(highlightScript.contains("box-shadow: 0 0 0 2px ${payload.activeBackground} !important;"))
+        XCTAssertTrue(highlightScript.contains("if (document.activeElement !== control)"))
+        XCTAssertFalse(highlightScript.contains("control.focus({ preventScroll: true });"))
+        XCTAssertTrue(highlightScript.contains("control.setSelectionRange(activeMatch.start, activeMatch.end, \"none\")"))
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+#endif
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
@@ -2404,6 +3123,24 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
+    }
+
+    func testSearchOverlayMountsAndUnmountsWithSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(surface: surface, searchState: searchState)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(surface: surface, searchState: nil)
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 }
 

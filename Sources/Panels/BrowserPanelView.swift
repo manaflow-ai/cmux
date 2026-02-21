@@ -147,6 +147,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @FocusState private var inPageFindFieldFocused: Bool
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 32
@@ -217,6 +218,14 @@ struct BrowserPanelView: View {
                 .zIndex(1000)
             }
         }
+        .overlay(alignment: .topTrailing) {
+            if panel.isInPageFindVisible {
+                inPageFindPopover
+                    .padding(.trailing, 10)
+                    .offset(y: max(omnibarPillFrame.maxY + 6, 40))
+                    .zIndex(900)
+            }
+        }
         .coordinateSpace(name: "BrowserPanelViewSpace")
         .onPreferenceChange(OmnibarPillFramePreferenceKey.self) { frame in
             omnibarPillFrame = frame
@@ -264,6 +273,17 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
+        }
+        .onChange(of: panel.inPageFindFocusToken) { _ in
+            inPageFindFieldFocused = true
+        }
+        .onChange(of: panel.isInPageFindVisible) { visible in
+            browserFindViewDebugLog(
+                "browser.findPopover.visible panel=\(panel.id.uuidString) visible=\(visible) query=\"\(panel.inPageFindQuery)\""
+            )
+            if visible {
+                inPageFindFieldFocused = true
+            }
         }
         .onChange(of: isFocused) { focused in
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
@@ -322,6 +342,97 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
+    }
+
+    private var inPageFindPopover: some View {
+        func dismissFindPopoverFromEscape() {
+            browserFindViewDebugLog(
+                "browser.findPopover.escape panel=\(panel.id.uuidString) query=\"\(panel.inPageFindQuery)\""
+            )
+            _ = panel.hideInPageFindFromUI()
+        }
+
+        func navigateFindFromKeyPress(modifiers: EventModifiers) -> BackportKeyPressResult {
+            if modifiers.contains(.shift) {
+                _ = panel.inPageFindPreviousFromUI()
+            } else {
+                _ = panel.inPageFindNextFromUI()
+            }
+            return .handled
+        }
+
+        return HStack(spacing: 4) {
+            let trimmedQuery = panel.inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            TextField(
+                "Find in page",
+                text: Binding(
+                    get: { panel.inPageFindQuery },
+                    set: { panel.updateInPageFindQuery($0) }
+                )
+            )
+            .textFieldStyle(.plain)
+            .frame(width: 220)
+            .padding(.leading, 8)
+            .padding(.trailing, 50)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.1))
+            .cornerRadius(6)
+            .focused($inPageFindFieldFocused)
+            .backport.onKeyPress(.return, action: navigateFindFromKeyPress)
+            .backport.onKeyPress(.tab, action: navigateFindFromKeyPress)
+            .accessibilityIdentifier("BrowserInPageFindField")
+            .overlay(alignment: .trailing) {
+                if !trimmedQuery.isEmpty {
+                    Text("\(panel.inPageFindCurrentMatchIndex)/\(panel.inPageFindMatchCount)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                        .padding(.trailing, 8)
+                }
+            }
+
+            Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(SearchButtonStyle())
+            .help("Previous match")
+            .disabled(panel.inPageFindMatchCount == 0)
+
+            Button(action: { _ = panel.inPageFindNextFromUI() }) {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(SearchButtonStyle())
+            .help("Next match")
+            .disabled(panel.inPageFindMatchCount == 0)
+
+            Button(action: {
+                _ = panel.hideInPageFindFromUI()
+            }) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(SearchButtonStyle())
+            .help("Close find")
+        }
+        .padding(8)
+        .background(.background)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(radius: 4)
+        .onExitCommand {
+            dismissFindPopoverFromEscape()
+        }
+        .onAppear {
+            browserFindViewDebugLog(
+                "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
+            )
+            inPageFindFieldFocused = true
+        }
+        .onDisappear {
+            browserFindViewDebugLog(
+                "browser.findPopover.disappear panel=\(panel.id.uuidString)"
+            )
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var addressBar: some View {
@@ -3263,4 +3374,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             #endif
         }
     }
+}
+
+@MainActor
+private func browserFindViewDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
+#endif
 }

@@ -422,36 +422,59 @@ class TabManager: ObservableObject {
         selectedTerminalPanel?.hasSelection() == true
     }
 
-    func startSearch() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
+    @discardableResult
+    func startSearch() -> Bool {
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
+            NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("start_search")
+            return true
         }
-        NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("start_search")
+
+        return focusedBrowserPanel?.showFindInterface() ?? false
     }
 
-    func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
-            panel.searchState = TerminalSurface.SearchState()
+    @discardableResult
+    func searchSelection() -> Bool {
+        if let panel = selectedTerminalPanel {
+            if panel.searchState == nil {
+                panel.searchState = TerminalSurface.SearchState()
+            }
+            NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+            NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
+            _ = panel.performBindingAction("search_selection")
+            return true
         }
-        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
-        NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+
+        return focusedBrowserPanel?.useSelectionForFind() ?? false
     }
 
-    func findNext() {
-        _ = selectedTerminalPanel?.performBindingAction("search:next")
+    @discardableResult
+    func findNext() -> Bool {
+        if let panel = selectedTerminalPanel {
+            return panel.performBindingAction("search:next")
+        }
+        return focusedBrowserPanel?.findNextMatch() ?? false
     }
 
-    func findPrevious() {
-        _ = selectedTerminalPanel?.performBindingAction("search:previous")
+    @discardableResult
+    func findPrevious() -> Bool {
+        if let panel = selectedTerminalPanel {
+            return panel.performBindingAction("search:previous")
+        }
+        return focusedBrowserPanel?.findPreviousMatch() ?? false
     }
 
-    func hideFind() {
-        selectedTerminalPanel?.searchState = nil
+    @discardableResult
+    func hideFind() -> Bool {
+        if let panel = selectedTerminalPanel {
+            panel.searchState = nil
+            return true
+        }
+        return focusedBrowserPanel?.hideFindInterface() ?? false
     }
 
     @discardableResult

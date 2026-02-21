@@ -287,6 +287,10 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                Button("Copy Browser Find Diagnostics") {
+                    appDelegate.copyBrowserFindDiagnostics(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
