@@ -2413,6 +2413,7 @@ struct SettingsView: View {
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2480,6 +2481,17 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Reorder on Notification",
+                            subtitle: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions."
+                        ) {
+                            Toggle("", isOn: $workspaceAutoReorder)
+                                .labelsHidden()
+                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -2814,6 +2826,7 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }
