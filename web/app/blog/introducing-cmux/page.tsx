@@ -5,6 +5,35 @@ export const metadata: Metadata = {
   title: "Introducing cmux",
   description:
     "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+  keywords: [
+    "cmux",
+    "terminal",
+    "macOS",
+    "Ghostty",
+    "libghostty",
+    "AI coding agents",
+    "Claude Code",
+    "vertical tabs",
+    "split panes",
+    "socket API",
+  ],
+  openGraph: {
+    title: "Introducing cmux",
+    description:
+      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+    type: "article",
+    publishedTime: "2026-02-12T00:00:00Z",
+    url: "https://cmux.dev/blog/introducing-cmux",
+  },
+  twitter: {
+    card: "summary",
+    title: "Introducing cmux",
+    description:
+      "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
+  },
+  alternates: {
+    canonical: "https://cmux.dev/blog/introducing-cmux",
+  },
 };
 
 export default function IntroducingCmuxPage() {
@@ -20,7 +49,7 @@ export default function IntroducingCmuxPage() {
       </div>
 
       <h1>Introducing cmux</h1>
-      <time className="text-sm text-muted">February 12, 2026</time>
+      <time dateTime="2026-02-12" className="text-sm text-muted">February 12, 2026</time>
 
       <p className="mt-6">
         cmux is a native macOS terminal application built on top of Ghostty,
@@ -31,7 +60,7 @@ export default function IntroducingCmuxPage() {
       <h2>Why cmux?</h2>
       <p>
         Modern development workflows often involve running several agents at
-        once &mdash; Claude Code, Codex, and other tools each in their own
+        once. Claude Code, Codex, and other tools each in their own
         terminal. Keeping track of which ones need attention and switching
         between them quickly is the problem cmux solves.
       </p>
@@ -39,23 +68,23 @@ export default function IntroducingCmuxPage() {
       <h2>Key features</h2>
       <ul>
         <li>
-          <strong>Vertical tabs</strong> &mdash; see all your terminals at a
+          <strong>Vertical tabs</strong> : see all your terminals at a
           glance in a sidebar
         </li>
         <li>
-          <strong>Notification rings</strong> &mdash; tabs flash when an agent
+          <strong>Notification rings</strong> : tabs flash when an agent
           needs your input
         </li>
         <li>
-          <strong>Split panes</strong> &mdash; horizontal and vertical splits
+          <strong>Split panes</strong> : horizontal and vertical splits
           within each workspace
         </li>
         <li>
-          <strong>Socket API</strong> &mdash; programmatic control for creating
+          <strong>Socket API</strong> : programmatic control for creating
           tabs and sending input
         </li>
         <li>
-          <strong>GPU-accelerated</strong> &mdash; powered by libghostty for
+          <strong>GPU-accelerated</strong> : powered by libghostty for
           smooth rendering
         </li>
       </ul>
