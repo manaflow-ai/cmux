@@ -152,7 +152,7 @@ final class Workspace: Identifiable, ObservableObject {
             : FileManager.default.homeDirectoryForCurrentUser.path
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
-        // Disable split animations for instant response
+        // and keep split entry instantaneous.
         let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
         let config = BonsplitConfiguration(
             allowSplits: true,
@@ -1458,10 +1458,28 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
 #if DEBUG
+        let panelKindForTab: (TabID) -> String = { tabId in
+            guard let panelId = self.panelIdFromSurfaceId(tabId),
+                  let panel = self.panels[panelId] else { return "placeholder" }
+            if panel is TerminalPanel { return "terminal" }
+            if panel is BrowserPanel { return "browser" }
+            return String(describing: type(of: panel))
+        }
+        let paneKindSummary: (PaneID) -> String = { paneId in
+            let tabs = controller.tabs(inPane: paneId)
+            guard !tabs.isEmpty else { return "-" }
+            return tabs.map { tab in
+                String(panelKindForTab(tab.id).prefix(1))
+            }.joined(separator: ",")
+        }
+        let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { panelKindForTab($0.id) } ?? "none"
+        let newSelectedKind = controller.selectedTab(inPane: newPane).map { panelKindForTab($0.id) } ?? "none"
         dlog(
             "split.didSplit original=\(originalPane.id.uuidString.prefix(5)) new=\(newPane.id.uuidString.prefix(5)) " +
             "orientation=\(orientation) programmatic=\(isProgrammaticSplit ? 1 : 0) " +
-            "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count)"
+            "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count) " +
+            "originalSelected=\(originalSelectedKind) newSelected=\(newSelectedKind) " +
+            "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
         )
 #endif
         // Only auto-create a terminal if the split came from bonsplit UI.
@@ -1486,7 +1504,8 @@ extension Workspace: BonsplitDelegate {
             dlog(
                 "split.didSplit.drag original=\(originalPane.id.uuidString.prefix(5)) " +
                 "new=\(newPane.id.uuidString.prefix(5)) originalTabs=\(originalTabs.count) " +
-                "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0)"
+                "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0) " +
+                "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
             )
 #endif
             if !hasRealSurface {
