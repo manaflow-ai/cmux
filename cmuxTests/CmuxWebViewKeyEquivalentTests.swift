@@ -241,13 +241,13 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
     }
 
-    func testBrowserPanelThemedBlankHTMLIncludesMarkerAndResolvedBackground() {
-        let color = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 0.57)
+    func testBrowserPanelStartsAsNewTabWithoutLoadingAboutBlank() {
+        let panel = BrowserPanel(workspaceId: UUID())
 
-        let html = BrowserPanel.themedBlankHTML(backgroundColor: color)
-
-        XCTAssertTrue(html.contains("data-cmux-themed-blank=\"1\""))
-        XCTAssertTrue(html.contains("rgba(46, 74, 112, 0.570)"))
+        XCTAssertEqual(panel.displayTitle, "New tab")
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertNil(panel.webView.url)
+        XCTAssertNil(panel.currentURL)
     }
 }
 

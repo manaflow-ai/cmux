@@ -514,25 +514,38 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
-        WebViewRepresentable(
-            panel: panel,
-            shouldAttachWebView: isVisibleInUI,
-            shouldFocusWebView: isFocused && !addressBarFocused,
-            isPanelFocused: isFocused,
-            portalZPriority: portalPriority
-        )
-            // Keep the representable identity stable across bonsplit structural updates.
-            // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
-            .id(panel.id)
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded {
-                // Chrome-like behavior: clicking web content while editing the
-                // omnibar should commit blur and revert transient edits.
-                if addressBarFocused {
-                    addressBarFocused = false
-                }
-            })
-            .zIndex(0)
+        Group {
+            if panel.shouldRenderWebView {
+                WebViewRepresentable(
+                    panel: panel,
+                    shouldAttachWebView: isVisibleInUI,
+                    shouldFocusWebView: isFocused && !addressBarFocused,
+                    isPanelFocused: isFocused,
+                    portalZPriority: portalPriority
+                )
+                // Keep the representable identity stable across bonsplit structural updates.
+                // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
+                .id(panel.id)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    // Chrome-like behavior: clicking web content while editing the
+                    // omnibar should commit blur and revert transient edits.
+                    if addressBarFocused {
+                        addressBarFocused = false
+                    }
+                })
+            } else {
+                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            addressBarFocused = false
+                        }
+                    }
+            }
+        }
+        .zIndex(0)
     }
 
     private func triggerFocusFlashAnimation() {
