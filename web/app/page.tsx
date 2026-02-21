@@ -54,7 +54,7 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Notification rings</strong>
                 <span className="text-muted">
-                  : panes get a blue ring and tabs light up when agents need your attention
+                  : panes and tabs light up when agents need attention
                 </span>
               </span>
             </li>
@@ -63,7 +63,7 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Notification panel</strong>
                 <span className="text-muted">
-                  : see all pending notifications in one place, jump to the most recent unread
+                  : all pending notifications in one place, jump to most recent unread
                 </span>
               </span>
             </li>
