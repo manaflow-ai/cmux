@@ -3349,6 +3349,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 @MainActor
 private func browserFindViewDebugLog(_ message: @autoclosure () -> String) {
 #if DEBUG
-    NSLog("FindDebug: %@", message())
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
 #endif
 }

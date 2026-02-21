@@ -230,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    var debugFindShortcutTerminalPanelIdOverride: (() -> UUID?)?
 
     private func childExitKeyboardProbePath() -> String? {
         let env = ProcessInfo.processInfo.environment
@@ -1745,7 +1746,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // App-level fallback for Find. This avoids responder-chain gaps where
         // SwiftUI/AppKit key-equivalent dispatch can consume Cmd+F without
         // invoking our Find command when focus temporarily drifts.
-        if flags == [.command], chars == "f" {
+        if flags == [.command], (chars == "f" || event.keyCode == 3) {
             let handled = handleFindShortcutViaStateMachine()
             return handled
         }
@@ -2038,6 +2039,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case fallback
     }
 
+    private func firstResponderTerminalPanelIdForFindShortcut() -> UUID? {
+#if DEBUG
+        if let debugFindShortcutTerminalPanelIdOverride {
+            return debugFindShortcutTerminalPanelIdOverride()
+        }
+#endif
+        var responder = NSApp.keyWindow?.firstResponder
+        var hops = 0
+        while let current = responder, hops < 64 {
+            if let ghostty = current as? GhosttyNSView {
+                return ghostty.terminalSurface?.id
+            }
+            responder = current.nextResponder
+            hops += 1
+        }
+        return nil
+    }
+
     private func resolveFindShortcutRoutingState() -> FindShortcutRoutingState {
         if let panelId = browserAddressBarFocusedPanelId {
             if let panel = browserPanel(for: panelId),
@@ -2067,14 +2086,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleFindShortcutViaStateMachine() -> Bool {
+        if let terminalPanelId = firstResponderTerminalPanelIdForFindShortcut() {
+#if DEBUG
+            dlog(
+                "find.route target=terminal reason=firstResponderContainsGhostty panel=\(terminalPanelId.uuidString.prefix(8)) addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
+            )
+#endif
+            if let workspace = tabManager?.selectedWorkspace,
+               workspace.terminalPanel(for: terminalPanelId) != nil {
+                workspace.focusPanel(terminalPanelId)
+            }
+            if let panelId = browserAddressBarFocusedPanelId {
+                transitionAddressBarFocusToFind(panelId: panelId)
+            }
+            return tabManager?.startSearch() ?? false
+        }
+
         switch resolveFindShortcutRoutingState() {
         case .browserAddressBar(let panelId, let panel):
+#if DEBUG
+            dlog("find.route target=browser reason=addressBar panel=\(panel.id.uuidString.prefix(8))")
+#endif
             tabManager?.selectedWorkspace?.focusPanel(panel.id)
             transitionAddressBarFocusToFind(panelId: panelId)
             return panel.showFindInterface()
         case .browserPanel(let panel):
+#if DEBUG
+            dlog("find.route target=browser reason=focusedPanel panel=\(panel.id.uuidString.prefix(8))")
+#endif
             return panel.showFindInterface()
         case .fallback:
+#if DEBUG
+            dlog("find.route target=terminal reason=fallback")
+#endif
             return tabManager?.startSearch() ?? false
         }
     }

@@ -1023,6 +1023,30 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertFalse(browserPanel.isInPageFindVisible)
     }
 
+    func testCmdFShortcutUsesTerminalSearchWhenFirstResponderReportsTerminalPanel() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = manager.selectedTerminalPanel,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId),
+              let cmdFEvent = makeShortcutKeyDownEvent(key: "f", modifiers: [.command], keyCode: 3) else {
+            XCTFail("Expected browser panel, terminal panel, and key event")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        delegate.debugFindShortcutTerminalPanelIdOverride = { terminalPanel.id }
+        defer { delegate.debugFindShortcutTerminalPanelIdOverride = nil }
+
+        XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
+        XCTAssertNotNil(terminalPanel.searchState)
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+    }
+
     func testEscapeShortcutHidesVisibleBrowserFind() {
         _ = NSApplication.shared
         let manager = TabManager()
@@ -1204,6 +1228,22 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertEqual(panel.inPageFindMatchCount, 0)
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
         XCTAssertEqual(requests.count, 1)
+    }
+
+    func testStaleClearRetryPolicyForHiddenOrEmptyFindState() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        _ = panel.showFindInterface()
+        panel.updateInPageFindQuery("e")
+        XCTAssertFalse(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("")
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
+
+        panel.updateInPageFindQuery("e")
+        _ = panel.hideInPageFindFromUI()
+        XCTAssertTrue(panel.debugShouldRetryStaleInPageFindClear())
     }
 
     func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {

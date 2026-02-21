@@ -2063,6 +2063,10 @@ extension BrowserPanel {
     func debugClearInPageFindHighlightScript(requestSequence: Int? = nil) -> String {
         clearInPageFindHighlightScript(requestSequence: requestSequence)
     }
+
+    func debugShouldRetryStaleInPageFindClear() -> Bool {
+        shouldRetryStaleInPageFindClear()
+    }
 }
 #endif
 
@@ -2388,7 +2392,17 @@ private extension BrowserPanel {
         return nil
     }
 
-    private func clearInPageFindHighlightsInWebView(requestSequence: Int? = nil) {
+    private func shouldRetryStaleInPageFindClear() -> Bool {
+        if !isInPageFindVisible {
+            return true
+        }
+        return inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func clearInPageFindHighlightsInWebView(
+        requestSequence: Int? = nil,
+        allowStaleRetry: Bool = true
+    ) {
         webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
@@ -2399,9 +2413,13 @@ private extension BrowserPanel {
                     return
                 }
                 if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                    let retry = allowStaleRetry && self.shouldRetryStaleInPageFindClear()
                     browserFindDebugLog(
-                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil") stage=\(staleInfo.stage ?? "unspecified")"
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil") stage=\(staleInfo.stage ?? "unspecified") retry=\(retry)"
                     )
+                    if retry {
+                        self.clearInPageFindHighlightsInWebView(requestSequence: nil, allowStaleRetry: false)
+                    }
                     return
                 }
                 browserFindDebugLog(
@@ -2901,7 +2919,9 @@ private extension NSObject {
 @MainActor
 private func browserFindDebugLog(_ message: @autoclosure () -> String) {
 #if DEBUG
-    NSLog("FindDebug: %@", message())
+    let line = message()
+    dlog("FindDebug: \(line)")
+    NSLog("FindDebug: %@", line)
 #endif
 }
 
