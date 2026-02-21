@@ -129,9 +129,8 @@ export default function ShowHNLaunchPage() {
       </p>
 
       <p>
-        If you&apos;re running multiple coding agents and want a terminal
-        that keeps up,{" "}
-        <a href="https://github.com/manaflow-ai/cmux">try cmux</a>.
+        If you&apos;re running multiple coding agents,{" "}
+        <a href="https://github.com/manaflow-ai/cmux">give cmux a try</a>.
       </p>
 
       <div className="my-6">
