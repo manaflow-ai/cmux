@@ -2164,6 +2164,7 @@ private struct TabItemView: View {
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
+    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
@@ -2339,7 +2340,34 @@ private struct TabItemView: View {
             }
 
             // Branch + directory row
-            if let dirRow = branchDirectoryRow {
+            if sidebarBranchVerticalLayout {
+                if sidebarShowGitBranch, !gitBranchSummaryLines.isEmpty {
+                    HStack(alignment: .top, spacing: 3) {
+                        if sidebarShowGitBranchIcon {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            ForEach(Array(gitBranchSummaryLines.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            }
+                        }
+                    }
+                }
+
+                if let dirs = directorySummaryText {
+                    Text(dirs)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            } else if let dirRow = branchDirectoryRow {
                 HStack(spacing: 3) {
                     if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                         Image(systemName: "arrow.triangle.branch")
@@ -2689,13 +2717,15 @@ private struct TabItemView: View {
     }
 
     private var gitBranchSummaryText: String? {
-        let branches = tab.sidebarGitBranchesInDisplayOrder()
-        guard !branches.isEmpty else { return nil }
-        return branches
-            .map { branch in
-                "\(branch.branch)\(branch.isDirty ? "*" : "")"
-            }
-            .joined(separator: " | ")
+        let lines = gitBranchSummaryLines
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: " | ")
+    }
+
+    private var gitBranchSummaryLines: [String] {
+        tab.sidebarGitBranchesInDisplayOrder().map { branch in
+            "\(branch.branch)\(branch.isDirty ? "*" : "")"
+        }
     }
 
     private var directorySummaryText: String? {

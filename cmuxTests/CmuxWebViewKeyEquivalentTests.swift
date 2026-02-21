@@ -765,6 +765,34 @@ final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     }
 }
 
+final class SidebarBranchLayoutSettingsTests: XCTestCase {
+    func testDefaultUsesVerticalLayout() {
+        let suiteName = "SidebarBranchLayoutSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+
+    func testStoredPreferenceOverridesDefault() {
+        let suiteName = "SidebarBranchLayoutSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: SidebarBranchLayoutSettings.key)
+        XCTAssertFalse(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+
+        defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
+        XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+}
+
 final class AppearanceSettingsTests: XCTestCase {
     func testResolvedModeDefaultsToSystemWhenUnset() {
         let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
