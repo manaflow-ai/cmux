@@ -2811,43 +2811,69 @@ private extension BrowserPanel {
             return true
         }
 
+        let clearScript = clearInPageFindHighlightScript(requestSequence: requestSequence)
         let script = inPageFindHighlightScript(payloadJSON: payloadJSON)
-        webView.evaluateJavaScript(script) { [weak self] result, error in
+        webView.evaluateJavaScript(clearScript) { [weak self] clearResult, clearError in
             Task { @MainActor in
                 guard let self else { return }
                 guard requestSequence == self.inPageFindRequestSequence else {
                     browserFindDebugLog(
-                        "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) current=\(self.inPageFindRequestSequence)"
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) stale=true request=\(requestSequence) current=\(self.inPageFindRequestSequence)"
                     )
                     return
                 }
 
-                if let error {
-                    self.inPageFindMatchFound = false
-                    self.inPageFindMatchCount = 0
-                    self.inPageFindCurrentMatchIndex = 0
-                    self.inPageFindRenderMode = "error"
+                if let staleInfo = self.extractInPageFindStaleInfo(clearResult), staleInfo.isStale {
                     browserFindDebugLog(
-                        "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight query=\"\(query)\" direction=\(direction) error=\(error.localizedDescription)"
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
                     )
                     return
                 }
 
-                if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                if let clearError {
                     browserFindDebugLog(
-                        "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                        "browser.inPageFind.preclear panel=\(self.id.uuidString) request=\(requestSequence) error=\(clearError.localizedDescription)"
                     )
-                    return
                 }
 
-                let summary = self.decodeInPageFindSummary(result)
-                self.inPageFindMatchFound = summary.matchFound
-                self.inPageFindMatchCount = summary.total
-                self.inPageFindCurrentMatchIndex = summary.current
-                self.inPageFindRenderMode = summary.renderMode ?? "unknown"
-                browserFindDebugLog(
-                    "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight mode=\(summary.renderMode ?? "unknown") query=\"\(query)\" direction=\(direction) matchFound=\(summary.matchFound) current=\(summary.current) total=\(summary.total)"
-                )
+                self.webView.evaluateJavaScript(script) { [weak self] result, error in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        guard requestSequence == self.inPageFindRequestSequence else {
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) current=\(self.inPageFindRequestSequence)"
+                            )
+                            return
+                        }
+
+                        if let error {
+                            self.inPageFindMatchFound = false
+                            self.inPageFindMatchCount = 0
+                            self.inPageFindCurrentMatchIndex = 0
+                            self.inPageFindRenderMode = "error"
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight query=\"\(query)\" direction=\(direction) error=\(error.localizedDescription)"
+                            )
+                            return
+                        }
+
+                        if let staleInfo = self.extractInPageFindStaleInfo(result), staleInfo.isStale {
+                            browserFindDebugLog(
+                                "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight stale=true request=\(requestSequence) stage=\(staleInfo.stage ?? "unspecified")"
+                            )
+                            return
+                        }
+
+                        let summary = self.decodeInPageFindSummary(result)
+                        self.inPageFindMatchFound = summary.matchFound
+                        self.inPageFindMatchCount = summary.total
+                        self.inPageFindCurrentMatchIndex = summary.current
+                        self.inPageFindRenderMode = summary.renderMode ?? "unknown"
+                        browserFindDebugLog(
+                            "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight mode=\(summary.renderMode ?? "unknown") query=\"\(query)\" direction=\(direction) matchFound=\(summary.matchFound) current=\(summary.current) total=\(summary.total)"
+                        )
+                    }
+                }
             }
         }
         return true
@@ -3211,19 +3237,18 @@ private extension BrowserPanel {
                 position: absolute;
                 background-color: ${payload.allBackground};
                 border-radius: 2px;
+                opacity: 0.45;
               }
               #${overlayRootId} .${overlayMarkClass}.${overlayActiveClass} {
                 background-color: ${payload.activeBackground} !important;
+                opacity: 0.68;
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
               }
               input.${controlMatchClass}, textarea.${controlMatchClass} {
-                outline: 2px solid ${payload.allBackground} !important;
-                outline-offset: 1px !important;
-                box-shadow: 0 0 0 2px ${payload.allBackground} inset !important;
+                box-shadow: 0 0 0 1px ${payload.allBackground} !important;
               }
               input.${controlMatchClass}.${controlActiveClass}, textarea.${controlMatchClass}.${controlActiveClass} {
-                outline-color: ${payload.activeBackground} !important;
-                box-shadow: 0 0 0 2px ${payload.activeBackground} inset, 0 0 0 1px rgba(0, 0, 0, 0.28) !important;
+                box-shadow: 0 0 0 2px ${payload.activeBackground} !important;
               }
             `;
           }
@@ -3689,17 +3714,22 @@ private extension BrowserPanel {
               if (match.kind !== "control" || !match.element) continue;
               matchedControls.add(match.element);
             }
+            const activeMatch = matches[activeIndex] || null;
+            const activeControl =
+              activeMatch && activeMatch.kind === "control" && activeMatch.element
+                ? activeMatch.element
+                : null;
             for (const control of matchedControls) {
+              if (control === activeControl) {
+                continue;
+              }
               control.classList.add(controlMatchClass);
             }
-
-            const activeMatch = matches[activeIndex] || null;
-            if (!activeMatch || activeMatch.kind !== "control" || !activeMatch.element) {
+            if (!activeControl) {
               return;
             }
 
-            const control = activeMatch.element;
-            control.classList.add(controlActiveClass);
+            const control = activeControl;
             if (typeof control.focus === "function" && !control.disabled) {
               try {
                 control.focus({ preventScroll: true });
