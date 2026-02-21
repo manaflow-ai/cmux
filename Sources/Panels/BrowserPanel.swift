@@ -1164,28 +1164,26 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
-        navDelegate.onDownloadDetected = { [weak self] _ in
-            self?.beginDownloadActivity()
-        }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        // Download activity is already started at policy-detection time.
-        dlDelegate.onDownloadStarted = { _ in }
+        dlDelegate.onDownloadStarted = { [weak self] _ in
+            self?.beginDownloadActivity(reason: "wkdownload.started")
+        }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
-            self?.endDownloadActivity()
+            self?.endDownloadActivity(reason: "wkdownload.readyToSave")
         }
         dlDelegate.onDownloadFailed = { [weak self] _ in
-            self?.endDownloadActivity()
+            self?.endDownloadActivity(reason: "wkdownload.failed")
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
-                self?.beginDownloadActivity()
+                self?.beginDownloadActivity(reason: "contextMenu.state.true")
             } else {
-                self?.endDownloadActivity()
+                self?.endDownloadActivity(reason: "contextMenu.state.false")
             }
         }
         webView.navigationDelegate = navDelegate
@@ -1212,10 +1210,14 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func beginDownloadActivity() {
+    private func beginDownloadActivity(reason: String = "unknown") {
         let apply = {
+            let before = self.activeDownloadCount
             self.activeDownloadCount += 1
             self.isDownloading = self.activeDownloadCount > 0
+            #if DEBUG
+            dlog("download.activity event=begin reason=\(reason) count=\(before)->\(self.activeDownloadCount)")
+            #endif
         }
         if Thread.isMainThread {
             apply()
@@ -1224,10 +1226,14 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func endDownloadActivity() {
+    private func endDownloadActivity(reason: String = "unknown") {
         let apply = {
+            let before = self.activeDownloadCount
             self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
             self.isDownloading = self.activeDownloadCount > 0
+            #if DEBUG
+            dlog("download.activity event=end reason=\(reason) count=\(before)->\(self.activeDownloadCount)")
+            #endif
         }
         if Thread.isMainThread {
             apply()
@@ -2175,16 +2181,28 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
         return safe.isEmpty ? "download" : safe
     }
 
+    private static func downloadToken(_ download: WKDownload) -> String {
+        String(describing: Unmanaged.passUnretained(download).toOpaque())
+    }
+
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
+        let count = activeDownloads.count
         activeDownloadsLock.unlock()
+        #if DEBUG
+        dlog("download.state event=store token=\(Self.downloadToken(download)) count=\(count) file=\(state.suggestedFilename)")
+        #endif
     }
 
     private func removeState(for download: WKDownload) -> DownloadState? {
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        let count = activeDownloads.count
         activeDownloadsLock.unlock()
+        #if DEBUG
+        dlog("download.state event=remove token=\(Self.downloadToken(download)) count=\(count) hadState=\(state == nil ? 0 : 1)")
+        #endif
         return state
     }
 
@@ -2212,7 +2230,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             self?.onDownloadStarted?(safeFilename)
         }
         #if DEBUG
-        dlog("download.decideDestination file=\(safeFilename)")
+        dlog("download.decideDestination token=\(Self.downloadToken(download)) file=\(safeFilename) responseURL=\(response.url?.absoluteString ?? "nil")")
         #endif
         NSLog("BrowserPanel download: temp path=%@", destURL.path)
         completionHandler(destURL)
@@ -2226,7 +2244,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             return
         }
         #if DEBUG
-        dlog("download.finished file=\(info.suggestedFilename)")
+        dlog("download.finished token=\(Self.downloadToken(download)) file=\(info.suggestedFilename)")
         #endif
         NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
 
@@ -2237,9 +2255,15 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             savePanel.nameFieldStringValue = info.suggestedFilename
             savePanel.canCreateDirectories = true
             savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            #if DEBUG
+            dlog("download.savePanel.present token=\(Self.downloadToken(download)) file=\(info.suggestedFilename)")
+            #endif
 
             savePanel.begin { result in
                 guard result == .OK, let destURL = savePanel.url else {
+                    #if DEBUG
+                    dlog("download.savePanel.cancel token=\(Self.downloadToken(download))")
+                    #endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                     return
                 }
@@ -2247,8 +2271,14 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
                     try? FileManager.default.removeItem(at: destURL)
                     try FileManager.default.moveItem(at: info.tempURL, to: destURL)
                     NSLog("BrowserPanel download saved: %@", destURL.path)
+                    #if DEBUG
+                    dlog("download.savePanel.write token=\(Self.downloadToken(download)) path=\(destURL.path)")
+                    #endif
                 } catch {
                     NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                    #if DEBUG
+                    dlog("download.savePanel.error token=\(Self.downloadToken(download)) error=\(error.localizedDescription)")
+                    #endif
                     try? FileManager.default.removeItem(at: info.tempURL)
                 }
             }
@@ -2263,7 +2293,7 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
             self?.onDownloadFailed?(error)
         }
         #if DEBUG
-        dlog("download.failed error=\(error.localizedDescription)")
+        dlog("download.failed token=\(Self.downloadToken(download)) resumeData=\(resumeData?.count ?? 0) error=\(error.localizedDescription)")
         #endif
         NSLog("BrowserPanel download failed: %@", error.localizedDescription)
     }
@@ -2277,8 +2307,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
-    /// Called when navigation response policy decides to route to WKDownload.
-    var onDownloadDetected: ((String?) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -2477,7 +2505,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 #if DEBUG
                 dlog("download.policy=download reason=content-disposition mime=\(mime)")
                 #endif
-                onDownloadDetected?(response.suggestedFilename)
                 decisionHandler(.download)
                 return
             }
@@ -2488,7 +2515,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             #if DEBUG
             dlog("download.policy=download reason=cannotShowMIME mime=\(mime)")
             #endif
-            onDownloadDetected?(navigationResponse.response.suggestedFilename)
             decisionHandler(.download)
             return
         }
