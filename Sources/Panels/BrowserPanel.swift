@@ -3770,38 +3770,22 @@ private extension BrowserPanel {
             }
 
             if (matches.length === 0) {
-              const renderMode = canUseCustomHighlights ? "customHighlight" : "overlayFallback";
+              const renderMode = "overlayFallback";
               window[stateKey] = { query, activeIndex: 0, renderMode };
               return withRenderMode({ matchFound: false, current: 0, total: 0 }, renderMode);
             }
 
             const activeIndex = resolveActiveIndex(query, matches.length);
             const textMatchCount = matches.reduce((count, match) => count + (match.kind === "text" ? 1 : 0), 0);
-            const hasCustomHighlightPaintBlockedMatch = matches.some(
-              (match) => match.kind === "text" && !!match.customHighlightPaintBlocked
-            );
-            const shouldUseCustomHighlights =
-              textMatchCount > 0 &&
-              canUseCustomHighlights &&
-              !hasCustomHighlightPaintBlockedMatch;
 
             let renderMode = "controlOnly";
             if (textMatchCount > 0) {
-              renderMode = shouldUseCustomHighlights ? "customHighlight" : "overlayFallback";
+              renderMode = "overlayFallback";
             }
 
             let activeTarget = matches[activeIndex] || null;
             if (textMatchCount > 0) {
-              if (shouldUseCustomHighlights) {
-                try {
-                  activeTarget = applyCustomHighlights(matches, activeIndex);
-                } catch (_) {
-                  activeTarget = applyOverlayFallback(matches, activeIndex);
-                  renderMode = "overlayFallback";
-                }
-              } else {
-                activeTarget = applyOverlayFallback(matches, activeIndex);
-              }
+              activeTarget = applyOverlayFallback(matches, activeIndex);
             } else {
               clearCustomHighlights();
               clearOverlayHighlights();
