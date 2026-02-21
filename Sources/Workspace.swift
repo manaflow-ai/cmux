@@ -475,6 +475,11 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    static func shouldClearManualUnread(previousFocusedPanelId: UUID?, nextFocusedPanelId: UUID) -> Bool {
+        guard let previousFocusedPanelId else { return false }
+        return previousFocusedPanelId != nextFocusedPanelId
+    }
+
     // MARK: - Title Management
 
     var hasCustomTitle: Bool {
@@ -1488,6 +1493,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func applyTabSelectionNow(tabId: TabID, inPane pane: PaneID) {
+        let previousFocusedPanelId = focusedPanelId
         if bonsplitController.allPaneIds.contains(pane) {
             if bonsplitController.focusedPaneId != pane {
                 bonsplitController.focusPane(pane)
@@ -1527,7 +1533,9 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
-        clearManualUnread(panelId: panelId)
+        if Self.shouldClearManualUnread(previousFocusedPanelId: previousFocusedPanelId, nextFocusedPanelId: panelId) {
+            clearManualUnread(panelId: panelId)
+        }
 
         // Converge AppKit first responder with bonsplit's selected tab in the focused pane.
         // Without this, keyboard input can remain on a different terminal than the blue tab indicator.
