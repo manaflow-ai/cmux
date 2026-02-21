@@ -372,14 +372,14 @@ struct BrowserPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Previous match")
-                .foregroundStyle(accent.opacity(0.95))
+                .foregroundStyle(accent.opacity(0.82))
 
                 Button(action: { _ = panel.inPageFindNextFromUI() }) {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(.plain)
                 .help("Next match")
-                .foregroundStyle(accent.opacity(0.95))
+                .foregroundStyle(accent.opacity(0.82))
 
                 Button(action: {
                     _ = panel.hideInPageFindFromUI()
@@ -388,7 +388,7 @@ struct BrowserPanelView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Close find")
-                .foregroundStyle(accent.opacity(0.95))
+                .foregroundStyle(accent.opacity(0.82))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -397,11 +397,11 @@ struct BrowserPanelView: View {
                     .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(accent.opacity(0.16))
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(accent.opacity(0.90), lineWidth: 1)
+                            .stroke(accent.opacity(0.40), lineWidth: 1)
                     )
             )
             .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
