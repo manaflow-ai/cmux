@@ -37,6 +37,163 @@ struct SidebarGitBranchState {
     let isDirty: Bool
 }
 
+enum SidebarBranchOrdering {
+    struct BranchEntry: Equatable {
+        let name: String
+        let isDirty: Bool
+    }
+
+    struct BranchDirectoryEntry: Equatable {
+        let branch: String?
+        let isDirty: Bool
+        let directory: String?
+    }
+
+    static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
+        switch tree {
+        case .pane(let pane):
+            return [pane.id]
+        case .split(let split):
+            // Bonsplit split order matches visual order for both horizontal and vertical splits.
+            return orderedPaneIds(tree: split.first) + orderedPaneIds(tree: split.second)
+        }
+    }
+
+    static func orderedPanelIds(
+        tree: ExternalTreeNode,
+        paneTabs: [String: [UUID]],
+        fallbackPanelIds: [UUID]
+    ) -> [UUID] {
+        var ordered: [UUID] = []
+        var seen: Set<UUID> = []
+
+        for paneId in orderedPaneIds(tree: tree) {
+            for panelId in paneTabs[paneId] ?? [] {
+                if seen.insert(panelId).inserted {
+                    ordered.append(panelId)
+                }
+            }
+        }
+
+        for panelId in fallbackPanelIds {
+            if seen.insert(panelId).inserted {
+                ordered.append(panelId)
+            }
+        }
+
+        return ordered
+    }
+
+    static func orderedUniqueBranches(
+        orderedPanelIds: [UUID],
+        panelBranches: [UUID: SidebarGitBranchState],
+        fallbackBranch: SidebarGitBranchState?
+    ) -> [BranchEntry] {
+        var orderedNames: [String] = []
+        var branchDirty: [String: Bool] = [:]
+
+        for panelId in orderedPanelIds {
+            guard let state = panelBranches[panelId] else { continue }
+            let name = state.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            if branchDirty[name] == nil {
+                orderedNames.append(name)
+                branchDirty[name] = state.isDirty
+            } else if state.isDirty {
+                branchDirty[name] = true
+            }
+        }
+
+        if orderedNames.isEmpty, let fallbackBranch {
+            let name = fallbackBranch.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty {
+                return [BranchEntry(name: name, isDirty: fallbackBranch.isDirty)]
+            }
+        }
+
+        return orderedNames.map { name in
+            BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
+        }
+    }
+
+    static func orderedUniqueBranchDirectoryEntries(
+        orderedPanelIds: [UUID],
+        panelBranches: [UUID: SidebarGitBranchState],
+        panelDirectories: [UUID: String],
+        defaultDirectory: String?,
+        fallbackBranch: SidebarGitBranchState?
+    ) -> [BranchDirectoryEntry] {
+        struct EntryKey: Hashable {
+            let branch: String?
+            let directory: String?
+        }
+
+        struct MutableEntry {
+            var branch: String?
+            var isDirty: Bool
+            var directory: String?
+        }
+
+        func normalized(_ text: String?) -> String? {
+            guard let text else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
+        let shouldUseFallbackBranchPerPanel = !orderedPanelIds.contains {
+            normalized(panelBranches[$0]?.branch) != nil
+        }
+        let defaultBranchForPanels = shouldUseFallbackBranchPerPanel ? normalizedFallbackBranch : nil
+        let defaultBranchDirty = shouldUseFallbackBranchPerPanel ? (fallbackBranch?.isDirty ?? false) : false
+
+        var order: [EntryKey] = []
+        var entries: [EntryKey: MutableEntry] = [:]
+
+        for panelId in orderedPanelIds {
+            let panelBranch = normalized(panelBranches[panelId]?.branch)
+            let branch = panelBranch ?? defaultBranchForPanels
+            let directory = normalized(panelDirectories[panelId] ?? defaultDirectory)
+            guard branch != nil || directory != nil else { continue }
+
+            let panelDirty = panelBranch != nil
+                ? (panelBranches[panelId]?.isDirty ?? false)
+                : defaultBranchDirty
+
+            let key = EntryKey(branch: branch, directory: directory)
+            if entries[key] == nil {
+                order.append(key)
+                entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
+            } else if panelDirty {
+                entries[key]?.isDirty = true
+            }
+        }
+
+        if order.isEmpty {
+            let fallbackDirectory = normalized(defaultDirectory)
+            if normalizedFallbackBranch != nil || fallbackDirectory != nil {
+                return [
+                    BranchDirectoryEntry(
+                        branch: normalizedFallbackBranch,
+                        isDirty: fallbackBranch?.isDirty ?? false,
+                        directory: fallbackDirectory
+                    )
+                ]
+            }
+        }
+
+        return order.compactMap { key in
+            guard let entry = entries[key] else { return nil }
+            return BranchDirectoryEntry(
+                branch: entry.branch,
+                isDirty: entry.isDirty,
+                directory: entry.directory
+            )
+        }
+    }
+}
+
 struct ClosedBrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let url: URL?
@@ -110,6 +267,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
+    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -270,6 +428,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    /// Panel IDs that were in a pane when a pane-close operation was approved.
+    /// Bonsplit pane-close does not emit per-tab didClose callbacks.
+    private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
     private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
@@ -564,6 +725,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
+        let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        let existing = panelGitBranches[panelId]
+        if existing?.branch != branch || existing?.isDirty != isDirty {
+            panelGitBranches[panelId] = state
+        }
+        if panelId == focusedPanelId {
+            gitBranch = state
+        }
+    }
+
+    func clearPanelGitBranch(panelId: UUID) {
+        panelGitBranches.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            gitBranch = nil
+        }
+    }
+
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -608,6 +787,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
+        panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
@@ -617,6 +797,45 @@ final class Workspace: Identifiable, ObservableObject {
     func recomputeListeningPorts() {
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
         listeningPorts = unique.sorted()
+    }
+
+    func sidebarOrderedPanelIds() -> [UUID] {
+        let paneTabs: [String: [UUID]] = Dictionary(
+            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
+                let panelIds = bonsplitController
+                    .tabs(inPane: paneId)
+                    .compactMap { panelIdFromSurfaceId($0.id) }
+                return (paneId.id.uuidString, panelIds)
+            }
+        )
+
+        let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+        let tree = bonsplitController.treeSnapshot()
+        return SidebarBranchOrdering.orderedPanelIds(
+            tree: tree,
+            paneTabs: paneTabs,
+            fallbackPanelIds: fallbackPanelIds
+        )
+    }
+
+    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+        SidebarBranchOrdering
+            .orderedUniqueBranches(
+                orderedPanelIds: sidebarOrderedPanelIds(),
+                panelBranches: panelGitBranches,
+                fallbackBranch: gitBranch
+            )
+            .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
+    }
+
+    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+        SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: sidebarOrderedPanelIds(),
+            panelBranches: panelGitBranches,
+            panelDirectories: panelDirectories,
+            defaultDirectory: currentDirectory,
+            fallbackBranch: gitBranch
+        )
     }
 
     // MARK: - Panel Operations
@@ -1501,6 +1720,10 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
+        if let dir = panelDirectories[targetPanelId] {
+            currentDirectory = dir
+        }
+        gitBranch = panelGitBranches[targetPanelId]
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -1721,6 +1944,7 @@ extension Workspace: BonsplitDelegate {
         if let dir = panelDirectories[panelId] {
             currentDirectory = dir
         }
+        gitBranch = panelGitBranches[panelId]
 
         // Post notification
         NotificationCenter.default.post(
@@ -1858,6 +2082,7 @@ extension Workspace: BonsplitDelegate {
         panels.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
+        panelGitBranches.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -1890,6 +2115,11 @@ extension Workspace: BonsplitDelegate {
             // frame where the pane has no selected content.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
+        } else if let focusedPane = bonsplitController.focusedPaneId,
+                  let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+            // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
+            // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
+            applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
         }
 
         if bonsplitController.allPaneIds.contains(pane) {
@@ -1937,7 +2167,36 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        _ = paneId
+        let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+
+        if !closedPanelIds.isEmpty {
+            for panelId in closedPanelIds {
+                panels[panelId]?.close()
+                panels.removeValue(forKey: panelId)
+                panelDirectories.removeValue(forKey: panelId)
+                panelGitBranches.removeValue(forKey: panelId)
+                panelTitles.removeValue(forKey: panelId)
+                panelCustomTitles.removeValue(forKey: panelId)
+                pinnedPanelIds.remove(panelId)
+                manualUnreadPanelIds.remove(panelId)
+                panelSubscriptions.removeValue(forKey: panelId)
+                surfaceTTYNames.removeValue(forKey: panelId)
+                surfaceListeningPorts.removeValue(forKey: panelId)
+                PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+            }
+
+            let closedSet = Set(closedPanelIds)
+            surfaceIdToPanelId = surfaceIdToPanelId.filter { !closedSet.contains($0.value) }
+            recomputeListeningPorts()
+
+            if let focusedPane = bonsplitController.focusedPaneId,
+               let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
+                applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
+            } else {
+                scheduleFocusReconcile()
+            }
+        }
+
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }
@@ -1950,9 +2209,11 @@ extension Workspace: BonsplitDelegate {
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
                terminalPanel.needsConfirmClose() {
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
         }
+        pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         return true
     }
 
@@ -2178,9 +2439,6 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
-        case .markAsRead:
-            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
-            markPanelRead(panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)

@@ -7556,8 +7556,8 @@ class TerminalController {
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
           clear_progress [--tab=X] - Clear progress bar
-          report_git_branch <branch> [--status=dirty] [--tab=X] - Report git branch
-          clear_git_branch [--tab=X] - Clear git branch
+          report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
+          clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
@@ -10589,7 +10589,7 @@ class TerminalController {
     private func reportGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let branch = parsed.positional.first else {
-            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X]"
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
         }
         let isDirty = parsed.options["status"]?.lowercased() == "dirty"
 
@@ -10599,19 +10599,78 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.updatePanelGitBranch(panelId: surfaceId, branch: branch, isDirty: isDirty)
         }
         return result
     }
 
     private func clearGitBranch(_ args: String) -> String {
+        let parsed = parseOptions(args)
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = nil
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: clear_git_branch [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.clearPanelGitBranch(panelId: surfaceId)
         }
         return result
     }
@@ -10902,6 +10961,7 @@ class TerminalController {
             tab.logEntries.removeAll()
             tab.progress = nil
             tab.gitBranch = nil
+            tab.panelGitBranches.removeAll()
             tab.surfaceListeningPorts.removeAll()
             tab.listeningPorts.removeAll()
         }
