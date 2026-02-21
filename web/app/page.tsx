@@ -153,13 +153,19 @@ export default function Home() {
               <p className="text-muted">
                 All of them. cmux is a terminal, so any agent that runs in a terminal works out of the
                 box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
-                Cursor Agent, and anything else you can launch from the command line. When a
-                process needs attention, cmux shows notification rings around panes, unread
-                badges in the sidebar, and a dedicated notification popover. These work
-                automatically with any tool via standard terminal escape sequences (OSC
-                9/99/777), or you can{" "}
-                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">trigger them programmatically</a>{" "}
-                with the cmux CLI.
+                Cursor Agent, and anything else you can launch from the command line.
+              </p>
+            </div>
+            <div>
+              <p className="font-medium mb-1">How do notifications work?</p>
+              <p className="text-muted">
+                When a process needs attention, cmux shows notification rings around panes,
+                unread badges in the sidebar, a notification popover, and a macOS desktop
+                notification. These fire automatically via standard terminal escape sequences
+                (OSC 9/99/777), or you can trigger them with the{" "}
+                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">cmux CLI</a>{" "}
+                and{" "}
+                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">Claude Code hooks</a>.
               </p>
             </div>
             <div>
@@ -171,15 +177,6 @@ export default function Home() {
                 customized in Settings. See the{" "}
                 <a href="/docs/keyboard-shortcuts" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">default shortcuts</a>{" "}
                 for a full list.
-              </p>
-            </div>
-            <div>
-              <p className="font-medium mb-1">How do notification rings work?</p>
-              <p className="text-muted">
-                When an agent needs your attention, the tab flashes with a colored ring. Notifications
-                fire via OSC escape sequences, the cmux CLI, or{" "}
-                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">Claude Code hooks</a>.
-                You also get a macOS desktop notification.
               </p>
             </div>
             <div>
