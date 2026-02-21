@@ -83,19 +83,71 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let browserHostWhitelistKey = "browserHostWhitelist"
+    static let defaultBrowserHostWhitelist: String = ""
+
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
     }
+
+    static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Check whether a hostname matches the configured whitelist.
+    /// Empty whitelist means "allow all" (no filtering).
+    /// Supports exact match and wildcard prefix (`*.example.com`).
+    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        let rawPatterns = hostWhitelist(defaults: defaults)
+        if rawPatterns.isEmpty { return true }
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        for rawPattern in rawPatterns {
+            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
+            if hostMatchesPattern(normalizedHost, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {
+        let trimmed = rawPattern
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("*.") {
+            let suffixRaw = String(trimmed.dropFirst(2))
+            guard let suffix = BrowserInsecureHTTPSettings.normalizeHost(suffixRaw) else { return nil }
+            return "*.\(suffix)"
+        }
+
+        return BrowserInsecureHTTPSettings.normalizeHost(trimmed)
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
 }
 
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
-        "127.0.0.1",
         "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
         "*.localtest.me",
     ]
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
@@ -204,7 +256,15 @@ enum BrowserInsecureHTTPSettings {
 
     private static func trimHost(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
+        // so user-entered allowlist patterns compare against URL.host consistently.
+        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
+            return canonicalized
+        }
+
+        return trimmed
     }
 }
 
@@ -984,6 +1044,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published loading state
     @Published private(set) var isLoading: Bool = false
 
+    /// Published download state for browser downloads (navigation + context menu).
+    @Published private(set) var isDownloading: Bool = false
+
     /// Published can go back state
     @Published private(set) var canGoBack: Bool = false
 
@@ -1013,6 +1076,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
+    private var downloadDelegate: BrowserDownloadDelegate?
     private var webViewObservers: [NSKeyValueObservation] = []
 #if DEBUG
     var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
@@ -1020,6 +1084,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var debugInPageFindClearHandler: ((Int?, Bool) -> Void)?
     var debugInPageFindDiagnosticsHandler: (() -> [String: Any])?
 #endif
+    private var activeDownloadCount: Int = 0
 
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
@@ -1028,6 +1093,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var loadingGeneration: Int = 0
 
     private var faviconTask: Task<Void, Never>?
+    private var faviconRefreshGeneration: Int = 0
     private var lastFaviconURLString: String?
     private let minPageZoom: CGFloat = 0.25
     private let maxPageZoom: CGFloat = 5.0
@@ -1130,6 +1196,30 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] url, intent in
             self?.presentInsecureHTTPAlert(for: url, intent: intent, recordTypedNavigation: false)
         }
+        navDelegate.onDownloadDetected = { [weak self] _ in
+            self?.beginDownloadActivity()
+        }
+        // Set up download delegate for navigation-based downloads.
+        // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
+        // callbacks), then show NSSavePanel after the download completes.
+        let dlDelegate = BrowserDownloadDelegate()
+        // Download activity is already started at policy-detection time.
+        dlDelegate.onDownloadStarted = { _ in }
+        dlDelegate.onDownloadReadyToSave = { [weak self] in
+            self?.endDownloadActivity()
+        }
+        dlDelegate.onDownloadFailed = { [weak self] _ in
+            self?.endDownloadActivity()
+        }
+        navDelegate.downloadDelegate = dlDelegate
+        self.downloadDelegate = dlDelegate
+        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
+            if downloading {
+                self?.beginDownloadActivity()
+            } else {
+                self?.endDownloadActivity()
+            }
+        }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
@@ -1151,6 +1241,30 @@ final class BrowserPanel: Panel, ObservableObject {
         // Navigate to initial URL if provided
         if let url = initialURL {
             navigate(to: url)
+        }
+    }
+
+    private func beginDownloadActivity() {
+        let apply = {
+            self.activeDownloadCount += 1
+            self.isDownloading = self.activeDownloadCount > 0
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    private func endDownloadActivity() {
+        let apply = {
+            self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
+            self.isDownloading = self.activeDownloadCount > 0
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
         }
     }
 
@@ -1267,9 +1381,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let pageURL = webView.url else { return }
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        faviconRefreshGeneration &+= 1
+        let refreshGeneration = faviconRefreshGeneration
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -1303,6 +1420,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     discoveredURL = u
                 }
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
@@ -1327,6 +1445,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
                 return
             }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
@@ -1338,6 +1457,11 @@ final class BrowserPanel: Panel, ObservableObject {
             // Only update if we got a real icon; keep the old one otherwise to avoid flashes.
             faviconPNGData = png
         }
+    }
+
+    private func isCurrentFaviconRefresh(generation: Int) -> Bool {
+        guard !Task.isCancelled else { return false }
+        return generation == faviconRefreshGeneration
     }
 
     @MainActor
@@ -1398,6 +1522,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
         if newValue {
+            // Any new load invalidates older favicon fetches, even for same-URL reloads.
+            faviconRefreshGeneration &+= 1
+            faviconTask?.cancel()
+            faviconTask = nil
+            lastFaviconURLString = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -3093,9 +3222,12 @@ private extension BrowserPanel {
                 box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28) inset;
               }
               input.${controlMatchClass}, textarea.${controlMatchClass} {
+                outline: 2px solid ${payload.allBackground} !important;
+                outline-offset: 1px !important;
                 box-shadow: 0 0 0 2px ${payload.allBackground} inset !important;
               }
               input.${controlMatchClass}.${controlActiveClass}, textarea.${controlMatchClass}.${controlActiveClass} {
+                outline-color: ${payload.activeBackground} !important;
                 box-shadow: 0 0 0 2px ${payload.activeBackground} inset, 0 0 0 1px rgba(0, 0, 0, 0.28) !important;
               }
             `;
@@ -3573,6 +3705,13 @@ private extension BrowserPanel {
 
             const control = activeMatch.element;
             control.classList.add(controlActiveClass);
+            if (typeof control.focus === "function" && !control.disabled) {
+              try {
+                control.focus({ preventScroll: true });
+              } catch (_) {
+                try { control.focus(); } catch (_) {}
+              }
+            }
             if (typeof control.setSelectionRange === "function") {
               try {
                 control.setSelectionRange(activeMatch.start, activeMatch.end, "none");
@@ -3771,6 +3910,133 @@ private func browserLogFindDebugSnapshot(
     _ = focusView
 }
 
+// MARK: - Download Delegate
+
+/// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
+/// during WebKit callbacks), then showing NSSavePanel after the download finishes.
+private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+    private struct DownloadState {
+        let tempURL: URL
+        let suggestedFilename: String
+    }
+
+    /// Tracks active downloads keyed by WKDownload identity.
+    private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
+    private let activeDownloadsLock = NSLock()
+    var onDownloadStarted: ((String) -> Void)?
+    var onDownloadReadyToSave: (() -> Void)?
+    var onDownloadFailed: ((Error) -> Void)?
+
+    private static let tempDir: URL = {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func sanitizedFilename(_ raw: String, fallbackURL: URL?) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = (trimmed as NSString).lastPathComponent
+        let fromURL = fallbackURL?.lastPathComponent ?? ""
+        let base = candidate.isEmpty ? fromURL : candidate
+        let replaced = base.replacingOccurrences(of: ":", with: "-")
+        let safe = replaced.trimmingCharacters(in: .whitespacesAndNewlines)
+        return safe.isEmpty ? "download" : safe
+    }
+
+    private func storeState(_ state: DownloadState, for download: WKDownload) {
+        activeDownloadsLock.lock()
+        activeDownloads[ObjectIdentifier(download)] = state
+        activeDownloadsLock.unlock()
+    }
+
+    private func removeState(for download: WKDownload) -> DownloadState? {
+        activeDownloadsLock.lock()
+        let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
+        activeDownloadsLock.unlock()
+        return state
+    }
+
+    private func notifyOnMain(_ action: @escaping () -> Void) {
+        if Thread.isMainThread {
+            action()
+        } else {
+            DispatchQueue.main.async(execute: action)
+        }
+    }
+
+    func download(
+        _ download: WKDownload,
+        decideDestinationUsing response: URLResponse,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        // Save to a temp file — return synchronously so WebKit is never blocked.
+        let safeFilename = Self.sanitizedFilename(suggestedFilename, fallbackURL: response.url)
+        let tempFilename = "\(UUID().uuidString)-\(safeFilename)"
+        let destURL = Self.tempDir.appendingPathComponent(tempFilename, isDirectory: false)
+        try? FileManager.default.removeItem(at: destURL)
+        storeState(DownloadState(tempURL: destURL, suggestedFilename: safeFilename), for: download)
+        notifyOnMain { [weak self] in
+            self?.onDownloadStarted?(safeFilename)
+        }
+        #if DEBUG
+        dlog("download.decideDestination file=\(safeFilename)")
+        #endif
+        NSLog("BrowserPanel download: temp path=%@", destURL.path)
+        completionHandler(destURL)
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let info = removeState(for: download) else {
+            #if DEBUG
+            dlog("download.finished missing-state")
+            #endif
+            return
+        }
+        #if DEBUG
+        dlog("download.finished file=\(info.suggestedFilename)")
+        #endif
+        NSLog("BrowserPanel download finished: %@", info.suggestedFilename)
+
+        // Show NSSavePanel on the next runloop iteration (safe context).
+        DispatchQueue.main.async {
+            self.onDownloadReadyToSave?()
+            let savePanel = NSSavePanel()
+            savePanel.nameFieldStringValue = info.suggestedFilename
+            savePanel.canCreateDirectories = true
+            savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+
+            savePanel.begin { result in
+                guard result == .OK, let destURL = savePanel.url else {
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                    return
+                }
+                do {
+                    try? FileManager.default.removeItem(at: destURL)
+                    try FileManager.default.moveItem(at: info.tempURL, to: destURL)
+                    NSLog("BrowserPanel download saved: %@", destURL.path)
+                } catch {
+                    NSLog("BrowserPanel download move failed: %@", error.localizedDescription)
+                    try? FileManager.default.removeItem(at: info.tempURL)
+                }
+            }
+        }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if let info = removeState(for: download) {
+            try? FileManager.default.removeItem(at: info.tempURL)
+        }
+        notifyOnMain { [weak self] in
+            self?.onDownloadFailed?(error)
+        }
+        #if DEBUG
+        dlog("download.failed error=\(error.localizedDescription)")
+        #endif
+        NSLog("BrowserPanel download failed: %@", error.localizedDescription)
+    }
+}
+
 // MARK: - Navigation Delegate
 
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
@@ -3779,6 +4045,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    /// Called when navigation response policy decides to route to WKDownload.
+    var onDownloadDetected: ((String?) -> Void)?
+    /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
+    var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
@@ -3801,6 +4071,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // Cancelled navigations (e.g. rapid typing) are not real errors.
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+
+        // "Frame load interrupted" (WebKitErrorDomain code 102) fires when a
+        // navigation response is converted into a download via .download policy.
+        // This is expected and should not show an error page.
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
             return
         }
 
@@ -3932,6 +4209,76 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         decisionHandler(.allow)
     }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        if !navigationResponse.isForMainFrame {
+            decisionHandler(.allow)
+            return
+        }
+
+        let mime = navigationResponse.response.mimeType ?? "unknown"
+        let canShow = navigationResponse.canShowMIMEType
+        let responseURL = navigationResponse.response.url?.absoluteString ?? "nil"
+
+        // Only classify HTTP(S) top-level responses as downloads.
+        if let scheme = navigationResponse.response.url?.scheme?.lowercased(),
+           scheme != "http", scheme != "https" {
+            decisionHandler(.allow)
+            return
+        }
+
+        NSLog("BrowserPanel navigationResponse: url=%@ mime=%@ canShow=%d isMainFrame=%d",
+              responseURL, mime, canShow ? 1 : 0,
+              navigationResponse.isForMainFrame ? 1 : 0)
+
+        // Check if this response should be treated as a download.
+        // Criteria: explicit Content-Disposition: attachment, or a MIME type
+        // that WebKit cannot render inline.
+        if let response = navigationResponse.response as? HTTPURLResponse {
+            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+            if contentDisposition.lowercased().hasPrefix("attachment") {
+                NSLog("BrowserPanel download: content-disposition=attachment mime=%@ url=%@", mime, responseURL)
+                #if DEBUG
+                dlog("download.policy=download reason=content-disposition mime=\(mime)")
+                #endif
+                onDownloadDetected?(response.suggestedFilename)
+                decisionHandler(.download)
+                return
+            }
+        }
+
+        if !canShow {
+            NSLog("BrowserPanel download: cannotShowMIME mime=%@ url=%@", mime, responseURL)
+            #if DEBUG
+            dlog("download.policy=download reason=cannotShowMIME mime=\(mime)")
+            #endif
+            onDownloadDetected?(navigationResponse.response.suggestedFilename)
+            decisionHandler(.download)
+            return
+        }
+
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        #if DEBUG
+        dlog("download.didBecome source=navigationAction")
+        #endif
+        NSLog("BrowserPanel download didBecome from navigationAction")
+        download.delegate = downloadDelegate
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        #if DEBUG
+        dlog("download.didBecome source=navigationResponse")
+        #endif
+        NSLog("BrowserPanel download didBecome from navigationResponse")
+        download.delegate = downloadDelegate
+    }
 }
 
 // MARK: - UI Delegate
@@ -3939,6 +4286,25 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URL, BrowserInsecureHTTPNavigationIntent) -> Void)?
+
+    private func javaScriptDialogTitle(for webView: WKWebView) -> String {
+        if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
+            return "The page at \(absolute) says:"
+        }
+        return "This page says:"
+    }
+
+    private func presentDialog(
+        _ alert: NSAlert,
+        for webView: WKWebView,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        if let window = webView.window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+            return
+        }
+        completion(alert.runModal())
+    }
 
     /// Returning nil tells WebKit not to open a new window.
     /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
@@ -3975,6 +4341,64 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         panel.canChooseFiles = true
         panel.begin { result in
             completionHandler(result == .OK ? panel.urls : nil)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptAlertPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        presentDialog(alert, for: webView) { _ in completionHandler() }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptConfirmPanelWithMessage message: String,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+        presentDialog(alert, for: webView) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        runJavaScriptTextInputPanelWithPrompt prompt: String,
+        defaultText: String?,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping (String?) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = javaScriptDialogTitle(for: webView)
+        alert.informativeText = prompt
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = defaultText ?? ""
+        alert.accessoryView = field
+
+        presentDialog(alert, for: webView) { response in
+            if response == .alertFirstButtonReturn {
+                completionHandler(field.stringValue)
+            } else {
+                completionHandler(nil)
+            }
         }
     }
 }

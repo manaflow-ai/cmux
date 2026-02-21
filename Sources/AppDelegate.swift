@@ -195,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
+    private var splitButtonTooltipRefreshScheduled = false
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -1520,7 +1521,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshSplitButtonTooltipsAcrossWorkspaces()
+            self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+        }
+    }
+
+    /// Coalesce shortcut-default changes and refresh on the next runloop turn to
+    /// avoid mutating Bonsplit/SwiftUI-observed state during an active update pass.
+    private func scheduleSplitButtonTooltipRefreshAcrossWorkspaces() {
+        guard !splitButtonTooltipRefreshScheduled else { return }
+        splitButtonTooltipRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.splitButtonTooltipRefreshScheduled = false
+            self.refreshSplitButtonTooltipsAcrossWorkspaces()
         }
     }
 

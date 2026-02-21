@@ -740,6 +740,8 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
+    @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    @State private var titlebarThemeUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     private var sidebarView: some View {
         VerticalTabsSidebar(
@@ -955,11 +957,27 @@ struct ContentView: View {
     private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            titlebarText = ""
+            if !titlebarText.isEmpty {
+                titlebarText = ""
+            }
             return
         }
         let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        titlebarText = title
+        if titlebarText != title {
+            titlebarText = title
+        }
+    }
+
+    private func scheduleTitlebarTextRefresh() {
+        titlebarTextUpdateCoalescer.signal {
+            updateTitlebarText()
+        }
+    }
+
+    private func scheduleTitlebarThemeRefresh() {
+        titlebarThemeUpdateCoalescer.signal {
+            titlebarThemeGeneration &+= 1
+        }
     }
 
     private var focusedDirectory: String? {
@@ -1073,27 +1091,27 @@ struct ContentView: View {
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            updateTitlebarText()
+            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyConfigDidReload"))) { _ in
-            titlebarThemeGeneration &+= 1
+            scheduleTitlebarThemeRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { _ in
-            titlebarThemeGeneration &+= 1
+            scheduleTitlebarThemeRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
@@ -2421,8 +2439,11 @@ private struct TabItemView: View {
             let targetIds = contextTargetIds()
             let shouldPin = !tab.isPinned
             let pinLabel = targetIds.count > 1
-                ? (shouldPin ? "Pin Tabs" : "Unpin Tabs")
-                : (shouldPin ? "Pin Tab" : "Unpin Tab")
+                ? (shouldPin ? "Pin Workspaces" : "Unpin Workspaces")
+                : (shouldPin ? "Pin Workspace" : "Unpin Workspace")
+            let closeLabel = targetIds.count > 1 ? "Close Workspaces" : "Close Workspace"
+            let markReadLabel = targetIds.count > 1 ? "Mark Workspaces as Read" : "Mark Workspace as Read"
+            let markUnreadLabel = targetIds.count > 1 ? "Mark Workspaces as Unread" : "Mark Workspace as Unread"
             Button(pinLabel) {
                 for id in targetIds {
                     if let tab = tabManager.tabs.first(where: { $0.id == id }) {
@@ -2432,12 +2453,12 @@ private struct TabItemView: View {
                 syncSelectionAfterMutation()
             }
 
-            Button("Rename Tab…") {
+            Button("Rename Workspace…") {
                 promptRename()
             }
 
             if tab.hasCustomTitle {
-                Button("Remove Custom Name") {
+                Button("Remove Custom Workspace Name") {
                     tabManager.clearCustomTitle(tabId: tab.id)
                 }
             }
@@ -2454,14 +2475,20 @@ private struct TabItemView: View {
             }
             .disabled(index >= tabManager.tabs.count - 1)
 
+            Button("Move to Top") {
+                tabManager.moveTabsToTop(Set(targetIds))
+                syncSelectionAfterMutation()
+            }
+            .disabled(targetIds.isEmpty)
+
             Divider()
 
-            Button("Close Workspaces") {
+            Button(closeLabel) {
                 closeTabs(targetIds, allowPinned: true)
             }
             .disabled(targetIds.isEmpty)
 
-            Button("Close Others") {
+            Button("Close Other Workspaces") {
                 closeOtherTabs(targetIds)
             }
             .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
@@ -2478,20 +2505,12 @@ private struct TabItemView: View {
 
             Divider()
 
-            Button("Move to Top") {
-                tabManager.moveTabsToTop(Set(targetIds))
-                syncSelectionAfterMutation()
-            }
-            .disabled(targetIds.isEmpty)
-
-            Divider()
-
-            Button("Mark as Read") {
+            Button(markReadLabel) {
                 markTabsRead(targetIds)
             }
             .disabled(!hasUnreadNotifications(in: targetIds))
 
-            Button("Mark as Unread") {
+            Button(markUnreadLabel) {
                 markTabsUnread(targetIds)
             }
             .disabled(!hasReadNotifications(in: targetIds))
@@ -2729,10 +2748,10 @@ private struct TabItemView: View {
 
     private func promptRename() {
         let alert = NSAlert()
-        alert.messageText = "Rename Tab"
-        alert.informativeText = "Enter a custom name for this tab."
+        alert.messageText = "Rename Workspace"
+        alert.informativeText = "Enter a custom name for this workspace."
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Tab name"
+        input.placeholderString = "Workspace name"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
         alert.addButton(withTitle: "Rename")
