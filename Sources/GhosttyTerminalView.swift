@@ -1132,6 +1132,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    private var pendingTextQueue: [Data] = []
+    private var pendingTextBytes: Int = 0
+    private let maxPendingTextBytes = 1_048_576
+    private var backgroundSurfaceStartQueued = false
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1496,6 +1500,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
+
+        flushPendingTextIfNeeded()
     }
 
     func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
@@ -1603,12 +1609,81 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func sendText(_ text: String) {
-        guard let surface = surface else { return }
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
+        guard let surface = surface else {
+            enqueuePendingText(data)
+            return
+        }
+        writeTextData(data, to: surface)
+    }
+
+    func requestBackgroundSurfaceStartIfNeeded() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.requestBackgroundSurfaceStartIfNeeded()
+            }
+            return
+        }
+
+        guard surface == nil, attachedView != nil else { return }
+        guard !backgroundSurfaceStartQueued else { return }
+        backgroundSurfaceStartQueued = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.backgroundSurfaceStartQueued = false
+            guard self.surface == nil, let view = self.attachedView else { return }
+            #if DEBUG
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            #endif
+            self.createSurface(for: view)
+            #if DEBUG
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            dlog(
+                "surface.background_start surface=\(self.id.uuidString.prefix(8)) inWindow=\(view.window != nil ? 1 : 0) ready=\(self.surface != nil ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs))"
+            )
+            #endif
+        }
+    }
+
+    private func writeTextData(_ data: Data, to surface: ghostty_surface_t) {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
         }
+    }
+
+    private func enqueuePendingText(_ data: Data) {
+        let incomingBytes = data.count
+        while !pendingTextQueue.isEmpty && pendingTextBytes + incomingBytes > maxPendingTextBytes {
+            let dropped = pendingTextQueue.removeFirst()
+            pendingTextBytes -= dropped.count
+        }
+
+        pendingTextQueue.append(data)
+        pendingTextBytes += incomingBytes
+        #if DEBUG
+        dlog(
+            "surface.send_text.queue surface=\(id.uuidString.prefix(8)) chunks=\(pendingTextQueue.count) bytes=\(pendingTextBytes)"
+        )
+        #endif
+    }
+
+    private func flushPendingTextIfNeeded() {
+        guard let surface = surface, !pendingTextQueue.isEmpty else { return }
+        let queued = pendingTextQueue
+        let queuedBytes = pendingTextBytes
+        pendingTextQueue.removeAll(keepingCapacity: false)
+        pendingTextBytes = 0
+
+        for chunk in queued {
+            writeTextData(chunk, to: surface)
+        }
+        #if DEBUG
+        dlog(
+            "surface.send_text.flush surface=\(id.uuidString.prefix(8)) chunks=\(queued.count) bytes=\(queuedBytes)"
+        )
+        #endif
     }
 
     func performBindingAction(_ action: String) -> Bool {
@@ -2114,6 +2189,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
+    }
+
+    // Test-only IME point override so firstRect behavior can be regression tested.
+    private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
+
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
+        imePointOverrideForTesting = (x, y, width, height)
+    }
+
+    func clearIMEPointForTesting() {
+        imePointOverrideForTesting = nil
     }
 #endif
 
@@ -4204,17 +4290,28 @@ extension GhosttyNSView: NSTextInputClient {
         // Use Ghostty's IME point API for accurate cursor position if available.
         var x: Double = 0
         var y: Double = 0
-        var w: Double = 0
-        var h: Double = 0
+        var w: Double = cellSize.width
+        var h: Double = cellSize.height
+#if DEBUG
+        if let override = imePointOverrideForTesting {
+            x = override.x
+            y = override.y
+            w = override.width
+            h = override.height
+        } else if let surface = surface {
+            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        }
+#else
         if let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
+#endif
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
         let viewRect = NSRect(
             x: x,
             y: frame.size.height - y,
-            width: 0,
+            width: w,
             height: max(h, cellSize.height)
         )
         let winRect = convert(viewRect, to: nil)

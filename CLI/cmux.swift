@@ -589,6 +589,9 @@ struct CMUXCLI {
         case "tab-action":
             try runTabAction(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
 
+        case "rename-tab":
+            try runRenameTab(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
+
         case "list-workspaces":
             let payload = try client.sendV2(method: "workspace.list")
             if jsonOutput {
@@ -1725,6 +1728,55 @@ struct CMUXCLI {
             summaryParts.append("created=\(created)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
+    }
+
+    private func runRenameTab(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat,
+        windowOverride: String?
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (tabOpt, rem1) = parseOption(rem0, name: "--tab")
+        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
+        let (titleOpt, rem3) = parseOption(rem2, name: "--title")
+
+        if rem3.contains("--action") {
+            throw CLIError(message: "rename-tab does not accept --action (it always performs rename)")
+        }
+        if let unknown = rem3.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
+            throw CLIError(message: "rename-tab: unknown flag '\(unknown)'")
+        }
+
+        let inferredTitle = rem3
+            .dropFirst(rem3.first == "--" ? 1 : 0)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let title, !title.isEmpty else {
+            throw CLIError(message: "rename-tab requires a title")
+        }
+
+        var forwarded: [String] = ["--action", "rename", "--title", title]
+        if let workspaceOpt {
+            forwarded += ["--workspace", workspaceOpt]
+        }
+        if let tabOpt {
+            forwarded += ["--tab", tabOpt]
+        } else if let surfaceOpt {
+            forwarded += ["--surface", surfaceOpt]
+        }
+
+        try runTabAction(
+            commandArgs: forwarded,
+            client: client,
+            jsonOutput: jsonOutput,
+            idFormat: idFormat,
+            windowOverride: windowOverride
+        )
     }
 
     private func runBrowserCommand(
@@ -3031,7 +3083,7 @@ struct CMUXCLI {
               new-terminal-right | new-browser-right
               reload | duplicate
               pin | unpin
-              mark-unread
+              mark-read | mark-unread
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -3045,6 +3097,26 @@ struct CMUXCLI {
               cmux tab-action --tab tab:3 --action pin
               cmux tab-action --action close-right
               cmux tab-action --tab tab:2 --action rename --title "build logs"
+            """
+        case "rename-tab":
+            return """
+            Usage: cmux rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] [--] <title>
+
+            Rename a tab (surface). Defaults to the focused tab, using:
+            1) explicit --tab/--surface
+            2) $CMUX_TAB_ID / $CMUX_SURFACE_ID
+            3) focused tab in the resolved workspace context
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
+              --tab <id|ref>         Target tab (accepts tab:<n> or surface:<n>)
+              --surface <id|ref>     Alias for --tab
+              --title <text>         New title (or pass trailing title)
+
+            Example:
+              cmux rename-tab "build logs"
+              cmux rename-tab --tab tab:3 "staging server"
+              cmux rename-tab --workspace workspace:2 --surface surface:5 --title "agent run"
             """
         case "new-workspace":
             return """
@@ -4320,6 +4392,7 @@ struct CMUXCLI {
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
           tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
+          rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces
           surface-health [--workspace <id|ref>]
@@ -4410,7 +4483,7 @@ struct CMUXCLI {
         Environment:
           CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
                               ALL commands (send, list-panels, new-split, notify, etc.).
-          CMUX_TAB_ID         Optional alias used by `tab-action` as default --tab.
+          CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
         """

@@ -51,6 +51,18 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarBranchLayoutSettings {
+    static let key = "sidebarBranchVerticalLayout"
+    static let defaultVerticalLayout = true
+
+    static func usesVerticalLayout(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultVerticalLayout
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
@@ -126,6 +138,30 @@ final class NotificationBurstCoalescer {
         if pendingAction != nil {
             scheduleFlushIfNeeded()
         }
+    }
+}
+
+struct RecentlyClosedBrowserStack {
+    private(set) var entries: [ClosedBrowserPanelRestoreSnapshot] = []
+    let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    var isEmpty: Bool {
+        entries.isEmpty
+    }
+
+    mutating func push(_ snapshot: ClosedBrowserPanelRestoreSnapshot) {
+        entries.append(snapshot)
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+    }
+
+    mutating func pop() -> ClosedBrowserPanelRestoreSnapshot? {
+        entries.popLast()
     }
 }
 
@@ -330,6 +366,7 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -394,6 +431,16 @@ class TabManager: ObservableObject {
         workspaceCycleCooldownTask?.cancel()
     }
 
+    private func wireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = { [weak self] snapshot in
+            self?.recentlyClosedBrowsers.push(snapshot)
+        }
+    }
+
+    private func unwireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = nil
+    }
+
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
         return tabs.first(where: { $0.id == selectedTabId })
@@ -455,28 +502,31 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil) -> Workspace {
+    func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil, select: Bool = true) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, portOrdinal: ordinal)
+        wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
         } else {
             tabs.append(newWorkspace)
         }
-        selectedTabId = newWorkspace.id
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusTab,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
-        )
+        if select {
+            selectedTabId = newWorkspace.id
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
+            )
+        }
 #if DEBUG
         UITestRecorder.incrementInt("addTabInvocations")
         UITestRecorder.record([
             "tabCount": String(tabs.count),
-            "selectedTabId": newWorkspace.id.uuidString
+            "selectedTabId": select ? newWorkspace.id.uuidString : (selectedTabId?.uuidString ?? "")
         ])
 #endif
         return newWorkspace
@@ -484,7 +534,7 @@ class TabManager: ObservableObject {
 
     // Keep addTab as convenience alias
     @discardableResult
-    func addTab() -> Workspace { addWorkspace() }
+    func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
@@ -625,6 +675,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        unwireClosedBrowserTracking(for: workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -646,6 +697,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
 
         let removed = tabs.remove(at: index)
+        unwireClosedBrowserTracking(for: removed)
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
         if tabs.isEmpty {
@@ -664,6 +716,7 @@ class TabManager: ObservableObject {
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
             return max(0, min(index, tabs.count))
@@ -843,6 +896,26 @@ class TabManager: ObservableObject {
     /// This should never prompt: the process is already gone, and Ghostty emits the
     /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
+
+        // Child-exit on the last panel should collapse the workspace, matching explicit close
+        // semantics (and close the window when it was the last workspace).
+        if tab.panels.count <= 1 {
+            if tabs.count <= 1 {
+                if let app = AppDelegate.shared {
+                    app.notificationStore?.clearNotifications(forTabId: tabId)
+                    app.closeMainWindowContainingTabId(tabId)
+                } else {
+                    // Headless/test fallback when no AppDelegate window context exists.
+                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+                }
+            } else {
+                closeWorkspace(tab)
+            }
+            return
+        }
+
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
@@ -1452,12 +1525,13 @@ class TabManager: ObservableObject {
 
     /// Create a new split in the specified direction
     /// Returns the new panel's ID (which is also the surface ID for terminals)
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection) -> UUID? {
+    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
-            insertFirst: direction.insertFirst
+            insertFirst: direction.insertFirst,
+            focus: focus
         )?.id
     }
 
@@ -1508,14 +1582,16 @@ class TabManager: ObservableObject {
         fromPanelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        url: URL? = nil
+        url: URL? = nil,
+        focus: Bool = true
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
-            url: url
+            url: url,
+            focus: focus
         )?.id
     }
 
@@ -1544,6 +1620,125 @@ class TabManager: ObservableObject {
             insertAtEnd: insertAtEnd
         )
         return panel?.id
+    }
+
+    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
+    /// No-op when no browser panel restore snapshot is available.
+    @discardableResult
+    func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        while let snapshot = recentlyClosedBrowsers.pop() {
+            guard let targetWorkspace =
+                tabs.first(where: { $0.id == snapshot.workspaceId })
+                ?? selectedWorkspace
+                ?? tabs.first else {
+                return false
+            }
+            let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
+
+            if selectedTabId != targetWorkspace.id {
+                selectedTabId = targetWorkspace.id
+            }
+
+            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+                enforceReopenedBrowserFocus(
+                    tabId: targetWorkspace.id,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func enforceReopenedBrowserFocus(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        // Keep workspace-switch restoration pinned to the reopened browser panel.
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+        enforceReopenedBrowserFocusIfNeeded(
+            tabId: tabId,
+            reopenedPanelId: reopenedPanelId,
+            preReopenFocusedPanelId: preReopenFocusedPanelId
+        )
+
+        // Some stale focus callbacks can land one runloop turn later. Re-assert focus in two
+        // consecutive turns, but only when focus drifted back to the pre-reopen panel.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.enforceReopenedBrowserFocusIfNeeded(
+                tabId: tabId,
+                reopenedPanelId: reopenedPanelId,
+                preReopenFocusedPanelId: preReopenFocusedPanelId
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceReopenedBrowserFocusIfNeeded(
+                    tabId: tabId,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+            }
+        }
+    }
+
+    private func enforceReopenedBrowserFocusIfNeeded(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        guard selectedTabId == tabId,
+              let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[reopenedPanelId] != nil else {
+            return
+        }
+
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+
+        guard tab.focusedPanelId != reopenedPanelId else { return }
+
+        if let focusedPanelId = tab.focusedPanelId,
+           let preReopenFocusedPanelId,
+           focusedPanelId != preReopenFocusedPanelId {
+            return
+        }
+
+        tab.focusPanel(reopenedPanelId)
+    }
+
+    private func reopenClosedBrowserPanel(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        in workspace: Workspace
+    ) -> UUID? {
+        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+           let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
+            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let maxIndex = max(0, tabCount - 1)
+            let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
+            _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
+            return browserPanel.id
+        }
+
+        if let orientation = snapshot.fallbackSplitOrientation,
+           let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
+           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
+           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
+           let browserPanelId = workspace.newBrowserSplit(
+               from: anchorPanelId,
+               orientation: orientation,
+               insertFirst: snapshot.fallbackSplitInsertFirst,
+               url: snapshot.url
+           )?.id {
+            return browserPanelId
+        }
+
+        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true)?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.

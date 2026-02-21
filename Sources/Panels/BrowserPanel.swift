@@ -1005,6 +1005,27 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
 
+    private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
+        CGFloat(max(0.0, min(1.0, opacity)))
+    }
+
+    private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
+        let userInfo = notification?.userInfo
+        let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? GhosttyApp.shared.defaultBackgroundColor
+
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = GhosttyApp.shared.defaultBackgroundOpacity
+        }
+
+        return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
     let id: UUID
     let panelType: PanelType = .browser
 
@@ -1026,6 +1047,10 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Published URL being displayed
     @Published private(set) var currentURL: URL?
+
+    /// Whether the browser panel should render its WKWebView in the content area.
+    /// New browser tabs stay in an empty "new tab" state until first navigation.
+    @Published private(set) var shouldRenderWebView: Bool = false
 
     /// Published page title
     @Published private(set) var pageTitle: String = ""
@@ -1090,7 +1115,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let url = currentURL {
             return url.host ?? url.absoluteString
         }
-        return "Browser"
+        return "New tab"
     }
 
     var displayIcon: String? {
@@ -1128,9 +1153,9 @@ final class BrowserPanel: Panel, ObservableObject {
             webView.isInspectable = true
         }
 
-        // Match the empty-page background to the window so newly-created browsers
+        // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = .windowBackgroundColor
+        webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1164,15 +1189,13 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
-        navDelegate.onDownloadDetected = { [weak self] _ in
-            self?.beginDownloadActivity()
-        }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        // Download activity is already started at policy-detection time.
-        dlDelegate.onDownloadStarted = { _ in }
+        dlDelegate.onDownloadStarted = { [weak self] _ in
+            self?.beginDownloadActivity()
+        }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
             self?.endDownloadActivity()
         }
@@ -1208,6 +1231,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Navigate to initial URL if provided
         if let url = initialURL {
+            shouldRenderWebView = true
             navigate(to: url)
         }
     }
@@ -1297,6 +1321,13 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         webViewObservers.append(progressObserver)
+
+        NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
+            .sink { [weak self] notification in
+                guard let self else { return }
+                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Panel Protocol
@@ -1339,6 +1370,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewObservers.removeAll()
+        cancellables.removeAll()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -1549,6 +1581,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let url = request.url else { return }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        shouldRenderWebView = true
         if recordTypedNavigation {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
@@ -1651,6 +1684,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
         webViewObservers.removeAll()
+        cancellables.removeAll()
     }
 }
 
@@ -2277,8 +2311,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
-    /// Called when navigation response policy decides to route to WKDownload.
-    var onDownloadDetected: ((String?) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -2477,7 +2509,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 #if DEBUG
                 dlog("download.policy=download reason=content-disposition mime=\(mime)")
                 #endif
-                onDownloadDetected?(response.suggestedFilename)
                 decisionHandler(.download)
                 return
             }
@@ -2488,7 +2519,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             #if DEBUG
             dlog("download.policy=download reason=cannotShowMIME mime=\(mime)")
             #endif
-            onDownloadDetected?(navigationResponse.response.suggestedFilename)
             decisionHandler(.download)
             return
         }

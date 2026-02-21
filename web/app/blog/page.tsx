@@ -8,6 +8,13 @@ export const metadata: Metadata = {
 
 const posts = [
   {
+    slug: "show-hn-launch",
+    title: "Launching cmux on Show HN",
+    date: "2026-02-21",
+    summary:
+      "cmux hit #2 on Hacker News, got shared by Mitchell Hashimoto, and went viral in Japan.",
+  },
+  {
     slug: "introducing-cmux",
     title: "Introducing cmux",
     date: "2026-02-12",

@@ -190,6 +190,12 @@ jobs:
           fi
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
+          # Use an immutable DMG filename in appcast URLs so old appcasts keep
+          # pointing at matching archives while nightly assets roll forward.
+          NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
+          echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
+
           # Embed commit SHA for bug reports
           /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
@@ -198,6 +204,7 @@ jobs:
           echo "Nightly bundle ID: com.cmuxterm.app.nightly"
           echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
+          echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
 
       - name: Import signing cert
@@ -283,6 +290,10 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+          # Keep a stable filename for humans and an immutable filename used
+          # by appcast URLs to prevent signature/asset mismatch races.
+          cp "$DMG_RELEASE" "$NIGHTLY_DMG_IMMUTABLE"
+
       - name: Generate Sparkle appcast (nightly)
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -291,7 +302,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-nightly-macos.dmg nightly appcast.xml
+          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
 
       - name: Move nightly tag to built commit
         run: |
@@ -315,6 +326,7 @@ jobs:
 
             [Download cmux-nightly-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
           files: |
+            cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
           overwrite_files: true
