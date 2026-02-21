@@ -1164,15 +1164,13 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
-        navDelegate.onDownloadDetected = { [weak self] _ in
-            self?.beginDownloadActivity()
-        }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
         let dlDelegate = BrowserDownloadDelegate()
-        // Download activity is already started at policy-detection time.
-        dlDelegate.onDownloadStarted = { _ in }
+        dlDelegate.onDownloadStarted = { [weak self] _ in
+            self?.beginDownloadActivity()
+        }
         dlDelegate.onDownloadReadyToSave = { [weak self] in
             self?.endDownloadActivity()
         }
@@ -2277,8 +2275,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
-    /// Called when navigation response policy decides to route to WKDownload.
-    var onDownloadDetected: ((String?) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -2477,7 +2473,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 #if DEBUG
                 dlog("download.policy=download reason=content-disposition mime=\(mime)")
                 #endif
-                onDownloadDetected?(response.suggestedFilename)
                 decisionHandler(.download)
                 return
             }
@@ -2488,7 +2483,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             #if DEBUG
             dlog("download.policy=download reason=cannotShowMIME mime=\(mime)")
             #endif
-            onDownloadDetected?(navigationResponse.response.suggestedFilename)
             decisionHandler(.download)
             return
         }
