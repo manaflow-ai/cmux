@@ -2608,8 +2608,8 @@ struct SettingsView: View {
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
-                                    "Host Allowlist",
-                                    subtitle: "Only open these hosts in the cmux browser. One pattern per line. Supports wildcards (e.g. *.example.com). Leave empty to open all links in cmux."
+                                    "Hosts to Open in Embedded Browser",
+                                    subtitle: "When you click links in terminal output, only these hosts open in cmux. Other hosts open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all links in cmux."
                                 ) {
                                     EmptyView()
                                 }
@@ -2633,10 +2633,10 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("HTTP Host Allowlist")
+                            Text("HTTP Hosts Allowed in Embedded Browser")
                                 .font(.system(size: 13, weight: .semibold))
 
-                            Text("HTTP loads outside this list show a warning prompt with options to open externally or proceed.")
+                            Text("Controls which HTTP (non-HTTPS) hosts can open in cmux without a warning prompt.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
 
