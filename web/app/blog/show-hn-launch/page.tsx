@@ -90,7 +90,7 @@ export default function ShowHNLaunchPage() {
       </blockquote>
 
       <p>
-        It hit the front page. Mitchell Hashimoto shared it:
+        At peak it hit #2 on Hacker News. Mitchell Hashimoto shared it:
       </p>
 
       <Tweet id="2024913161238053296" />
