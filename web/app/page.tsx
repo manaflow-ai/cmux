@@ -115,7 +115,7 @@ export default function Home() {
           </ul>
         </section>
 
-        {/* Screenshot — break out of max-w-2xl to be wider */}
+        {/* Screenshot - break out of max-w-2xl to be wider */}
         <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
           <Image
             src={landingImage}
@@ -152,9 +152,9 @@ export default function Home() {
               <p className="font-medium mb-1">What coding agents does cmux work with?</p>
               <p className="text-muted">
                 All of them. cmux is a terminal, so any agent that runs in a terminal works out of the
-                box — Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
+                box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
                 Cursor Agent, and anything else you can launch from the command line. cmux shows
-                notification rings on sidebar tabs when a process needs attention — for example,
+                notification rings on sidebar tabs when a process needs attention. For example,
                 when Claude Code asks a question or a build finishes. These work automatically
                 with any tool via standard terminal escape sequences (OSC 9/99/777), or you can{" "}
                 <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">trigger them programmatically</a>{" "}
@@ -185,7 +185,7 @@ export default function Home() {
               <p className="font-medium mb-1">How does it compare to tmux?</p>
               <p className="text-muted">
                 tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app
-                with a GUI — vertical tabs, split panes, an embedded browser, and a socket API are all
+                with a GUI: vertical tabs, split panes, an embedded browser, and a socket API are all
                 built in. No config files or prefix keys needed.
               </p>
             </div>
@@ -199,7 +199,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Wall of Love — break out wider */}
+        {/* Wall of Love - break out wider */}
         <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40">
           <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
             {testimonials.map((t) => (
