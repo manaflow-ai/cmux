@@ -187,9 +187,6 @@ struct BrowserPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             addressBar
-            if panel.isInPageFindVisible {
-                inPageFindPopover
-            }
             webView
         }
         .overlay {
@@ -218,6 +215,14 @@ struct BrowserPanelView: View {
                 .frame(width: omnibarPillFrame.width)
                 .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 6)
                 .zIndex(1000)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if panel.isInPageFindVisible {
+                inPageFindPopover
+                    .padding(.trailing, 10)
+                    .offset(y: max(omnibarPillFrame.maxY + 6, 40))
+                    .zIndex(900)
             }
         }
         .coordinateSpace(name: "BrowserPanelViewSpace")
@@ -341,87 +346,79 @@ struct BrowserPanelView: View {
     private var inPageFindPopover: some View {
         let accent = ghosttyFindYellowColor
 
-        return HStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            HStack(spacing: 6) {
-                TextField(
-                    "Find in page",
-                    text: Binding(
-                        get: { panel.inPageFindQuery },
-                        set: { panel.updateInPageFindQuery($0) }
-                    )
+        return HStack(spacing: 6) {
+            TextField(
+                "Find in page",
+                text: Binding(
+                    get: { panel.inPageFindQuery },
+                    set: { panel.updateInPageFindQuery($0) }
                 )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 220)
-                .padding(.trailing, 2)
-                .focused($inPageFindFieldFocused)
-                .onSubmit {
-                    _ = panel.inPageFindNextFromUI()
-                }
-                .accessibilityIdentifier("BrowserInPageFindField")
-
-                if panel.inPageFindMatchFound == false {
-                    Text("No match")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
-                    Image(systemName: "chevron.up")
-                }
-                .buttonStyle(.plain)
-                .help("Previous match")
-                .foregroundStyle(accent.opacity(0.82))
-
-                Button(action: { _ = panel.inPageFindNextFromUI() }) {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.plain)
-                .help("Next match")
-                .foregroundStyle(accent.opacity(0.82))
-
-                Button(action: {
-                    _ = panel.hideInPageFindFromUI()
-                }) {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.plain)
-                .help("Close find")
-                .foregroundStyle(accent.opacity(0.82))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .stroke(accent.opacity(0.40), lineWidth: 1)
-                    )
             )
-            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
-            .onAppear {
-                browserFindViewDebugLog(
-                    "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
-                )
-                inPageFindFieldFocused = true
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
+            .padding(.trailing, 2)
+            .focused($inPageFindFieldFocused)
+            .onSubmit {
+                _ = panel.inPageFindNextFromUI()
             }
-            .onDisappear {
-                browserFindViewDebugLog(
-                    "browser.findPopover.disappear panel=\(panel.id.uuidString)"
-                )
+            .accessibilityIdentifier("BrowserInPageFindField")
+
+            if panel.inPageFindMatchFound == false {
+                Text("No match")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
+
+            Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.plain)
+            .help("Previous match")
+            .foregroundStyle(accent.opacity(0.82))
+
+            Button(action: { _ = panel.inPageFindNextFromUI() }) {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.plain)
+            .help("Next match")
+            .foregroundStyle(accent.opacity(0.82))
+
+            Button(action: {
+                _ = panel.hideInPageFindFromUI()
+            }) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .help("Close find")
+            .foregroundStyle(accent.opacity(0.82))
         }
         .padding(.horizontal, 10)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.97))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(accent.opacity(0.40), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+        .onAppear {
+            browserFindViewDebugLog(
+                "browser.findPopover.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
+            )
+            inPageFindFieldFocused = true
+        }
+        .onDisappear {
+            browserFindViewDebugLog(
+                "browser.findPopover.disappear panel=\(panel.id.uuidString)"
+            )
+        }
         .transition(.move(edge: .top).combined(with: .opacity))
-        .zIndex(2)
     }
 
     private var ghosttyFindYellowColor: Color {
