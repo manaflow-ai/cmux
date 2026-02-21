@@ -2232,6 +2232,13 @@ private struct TabItemView: View {
                         .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
                 }
 
+                if tab.isRemoteWorkspace {
+                    Image(systemName: remoteStateIcon(tab.remoteConnectionState))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(remoteStateColor(tab.remoteConnectionState, isActive: isActive))
+                        .help(remoteStateHelpText)
+                }
+
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundColor(isActive ? .white : .primary)
@@ -2664,6 +2671,24 @@ private struct TabItemView: View {
         }
     }
 
+    private var remoteStateHelpText: String {
+        let target = tab.remoteDisplayTarget ?? "remote host"
+        let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch tab.remoteConnectionState {
+        case .connected:
+            return "SSH connected to \(target)"
+        case .connecting:
+            return "SSH connecting to \(target)"
+        case .error:
+            if let detail, !detail.isEmpty {
+                return "SSH error for \(target): \(detail)"
+            }
+            return "SSH error for \(target)"
+        case .disconnected:
+            return "SSH disconnected from \(target)"
+        }
+    }
+
     private var latestNotificationText: String? {
         guard let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
         let text = notification.body.isEmpty ? notification.title : notification.body
@@ -2731,6 +2756,45 @@ private struct TabItemView: View {
         case .success: return .green
         case .warning: return .orange
         case .error: return .red
+        }
+    }
+
+    private func remoteStateIcon(_ state: WorkspaceRemoteConnectionState) -> String {
+        switch state {
+        case .connected:
+            return "network"
+        case .connecting:
+            return "network.badge.shield.half.filled"
+        case .error:
+            return "network.slash"
+        case .disconnected:
+            return "network.slash"
+        }
+    }
+
+    private func remoteStateColor(_ state: WorkspaceRemoteConnectionState, isActive: Bool) -> Color {
+        if isActive {
+            switch state {
+            case .connected:
+                return .white.opacity(0.9)
+            case .connecting:
+                return .white.opacity(0.85)
+            case .error:
+                return .white.opacity(0.9)
+            case .disconnected:
+                return .white.opacity(0.65)
+            }
+        }
+
+        switch state {
+        case .connected:
+            return .green
+        case .connecting:
+            return .blue
+        case .error:
+            return .red
+        case .disconnected:
+            return .secondary
         }
     }
 

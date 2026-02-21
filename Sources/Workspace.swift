@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import Combine
+import Darwin
 
 struct SidebarStatusEntry {
     let key: String
@@ -10,6 +11,419 @@ struct SidebarStatusEntry {
     let icon: String?
     let color: String?
     let timestamp: Date
+}
+
+private final class WorkspaceRemoteSessionController {
+    private struct ForwardEntry {
+        let process: Process
+        let stderrPipe: Pipe
+    }
+
+    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
+    private weak var workspace: Workspace?
+    private let configuration: WorkspaceRemoteConfiguration
+
+    private var isStopping = false
+    private var probeProcess: Process?
+    private var probeStdoutPipe: Pipe?
+    private var probeStderrPipe: Pipe?
+    private var probeStdoutBuffer = ""
+    private var probeStderrBuffer = ""
+
+    private var desiredRemotePorts: Set<Int> = []
+    private var forwardEntries: [Int: ForwardEntry] = [:]
+    private var portConflicts: Set<Int> = []
+
+    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
+        self.workspace = workspace
+        self.configuration = configuration
+    }
+
+    func start() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard !self.isStopping else { return }
+            self.publishState(.connecting, detail: "Connecting to \(self.configuration.displayTarget)")
+            self.startProbeLocked()
+        }
+    }
+
+    func stop() {
+        queue.async { [weak self] in
+            self?.stopAllLocked()
+        }
+    }
+
+    private func stopAllLocked() {
+        isStopping = true
+
+        if let probeProcess {
+            probeStdoutPipe?.fileHandleForReading.readabilityHandler = nil
+            probeStderrPipe?.fileHandleForReading.readabilityHandler = nil
+            if probeProcess.isRunning {
+                probeProcess.terminate()
+            }
+        }
+        probeProcess = nil
+        probeStdoutPipe = nil
+        probeStderrPipe = nil
+        probeStdoutBuffer = ""
+        probeStderrBuffer = ""
+
+        for (_, entry) in forwardEntries {
+            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if entry.process.isRunning {
+                entry.process.terminate()
+            }
+        }
+        forwardEntries.removeAll()
+        desiredRemotePorts.removeAll()
+        portConflicts.removeAll()
+    }
+
+    private func startProbeLocked() {
+        guard !isStopping else { return }
+
+        probeStdoutBuffer = ""
+        probeStderrBuffer = ""
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = probeArguments()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                self?.consumeProbeStdoutData(data)
+            }
+        }
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                self?.consumeProbeStderrData(data)
+            }
+        }
+
+        process.terminationHandler = { [weak self] terminated in
+            self?.queue.async {
+                self?.handleProbeTermination(terminated)
+            }
+        }
+
+        do {
+            try process.run()
+            probeProcess = process
+            probeStdoutPipe = stdoutPipe
+            probeStderrPipe = stderrPipe
+        } catch {
+            publishState(.error, detail: "Failed to start SSH probe: \(error.localizedDescription)")
+            scheduleProbeRestartLocked(delay: 3.0)
+        }
+    }
+
+    private func handleProbeTermination(_ process: Process) {
+        probeStdoutPipe?.fileHandleForReading.readabilityHandler = nil
+        probeStderrPipe?.fileHandleForReading.readabilityHandler = nil
+        probeProcess = nil
+        probeStdoutPipe = nil
+        probeStderrPipe = nil
+
+        guard !isStopping else { return }
+
+        for (_, entry) in forwardEntries {
+            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if entry.process.isRunning {
+                entry.process.terminate()
+            }
+        }
+        forwardEntries.removeAll()
+        publishPortsSnapshotLocked()
+
+        let statusCode = process.terminationStatus
+        let detail = Self.lastNonEmptyLine(in: probeStderrBuffer) ?? "SSH probe exited with status \(statusCode)"
+        publishState(.error, detail: detail)
+        scheduleProbeRestartLocked(delay: 3.0)
+    }
+
+    private func scheduleProbeRestartLocked(delay: TimeInterval) {
+        guard !isStopping else { return }
+        queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            guard !self.isStopping else { return }
+            guard self.probeProcess == nil else { return }
+            self.publishState(.connecting, detail: "Reconnecting to \(self.configuration.displayTarget)")
+            self.startProbeLocked()
+        }
+    }
+
+    private func consumeProbeStdoutData(_ data: Data) {
+        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
+        probeStdoutBuffer.append(chunk)
+
+        while let newline = probeStdoutBuffer.firstIndex(of: "\n") {
+            let line = String(probeStdoutBuffer[..<newline])
+            probeStdoutBuffer.removeSubrange(...newline)
+            handleProbePortsLine(line)
+        }
+    }
+
+    private func consumeProbeStderrData(_ data: Data) {
+        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
+        probeStderrBuffer.append(chunk)
+        if probeStderrBuffer.count > 8192 {
+            probeStderrBuffer.removeFirst(probeStderrBuffer.count - 8192)
+        }
+    }
+
+    private func handleProbePortsLine(_ line: String) {
+        guard !isStopping else { return }
+
+        let ports = Self.parseRemotePorts(line: line)
+        desiredRemotePorts = Set(ports)
+        portConflicts = portConflicts.intersection(desiredRemotePorts)
+        publishState(.connected, detail: "Connected to \(configuration.displayTarget)")
+        reconcileForwardsLocked()
+    }
+
+    private func reconcileForwardsLocked() {
+        guard !isStopping else { return }
+
+        for (port, entry) in forwardEntries where !desiredRemotePorts.contains(port) {
+            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if entry.process.isRunning {
+                entry.process.terminate()
+            }
+            forwardEntries.removeValue(forKey: port)
+        }
+
+        for port in desiredRemotePorts.sorted() where forwardEntries[port] == nil {
+            guard Self.isLoopbackPortAvailable(port: port) else {
+                portConflicts.insert(port)
+                continue
+            }
+            if startForwardLocked(port: port) {
+                portConflicts.remove(port)
+            } else {
+                portConflicts.insert(port)
+            }
+        }
+
+        publishPortsSnapshotLocked()
+    }
+
+    @discardableResult
+    private func startForwardLocked(port: Int) -> Bool {
+        guard !isStopping else { return false }
+
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = forwardArguments(port: port)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                guard let self else { return }
+                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                    self.probeStderrBuffer.append(chunk)
+                    if self.probeStderrBuffer.count > 8192 {
+                        self.probeStderrBuffer.removeFirst(self.probeStderrBuffer.count - 8192)
+                    }
+                }
+            }
+        }
+
+        process.terminationHandler = { [weak self] terminated in
+            self?.queue.async {
+                self?.handleForwardTermination(port: port, process: terminated)
+            }
+        }
+
+        do {
+            try process.run()
+            forwardEntries[port] = ForwardEntry(process: process, stderrPipe: stderrPipe)
+            return true
+        } catch {
+            publishState(.error, detail: "Failed to forward :\(port): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func handleForwardTermination(port: Int, process: Process) {
+        if let current = forwardEntries[port], current.process === process {
+            current.stderrPipe.fileHandleForReading.readabilityHandler = nil
+            forwardEntries.removeValue(forKey: port)
+        }
+
+        guard !isStopping else { return }
+        publishPortsSnapshotLocked()
+
+        guard desiredRemotePorts.contains(port) else { return }
+        guard Self.isLoopbackPortAvailable(port: port) else {
+            portConflicts.insert(port)
+            publishPortsSnapshotLocked()
+            return
+        }
+
+        queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            guard !self.isStopping else { return }
+            guard self.desiredRemotePorts.contains(port) else { return }
+            guard self.forwardEntries[port] == nil else { return }
+            if self.startForwardLocked(port: port) {
+                self.portConflicts.remove(port)
+            } else {
+                self.portConflicts.insert(port)
+            }
+            self.publishPortsSnapshotLocked()
+        }
+    }
+
+    private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            workspace.remoteConnectionState = state
+            workspace.remoteConnectionDetail = detail
+        }
+    }
+
+    private func publishPortsSnapshotLocked() {
+        let detected = desiredRemotePorts.sorted()
+        let forwarded = forwardEntries.keys.sorted()
+        let conflicts = portConflicts.sorted()
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            workspace.remoteDetectedPorts = detected
+            workspace.remoteForwardedPorts = forwarded
+            workspace.remotePortConflicts = conflicts
+            workspace.recomputeListeningPorts()
+        }
+    }
+
+    private func probeArguments() -> [String] {
+        let remoteScript = Self.probeScript()
+        let remoteCommand = "sh -lc \(Self.shellSingleQuoted(remoteScript))"
+        return sshCommonArguments(batchMode: true) + [configuration.destination, remoteCommand]
+    }
+
+    private func forwardArguments(port: Int) -> [String] {
+        let localBind = "127.0.0.1:\(port):127.0.0.1:\(port)"
+        return ["-N", "-o", "ExitOnForwardFailure=yes"] + sshCommonArguments(batchMode: true) + ["-L", localBind, configuration.destination]
+    }
+
+    private func sshCommonArguments(batchMode: Bool) -> [String] {
+        var args: [String] = [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "StrictHostKeyChecking=accept-new",
+        ]
+        if batchMode {
+            args += ["-o", "BatchMode=yes"]
+        }
+        if let port = configuration.port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        for option in configuration.sshOptions {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            args += ["-o", trimmed]
+        }
+        return args
+    }
+
+    private static func parseRemotePorts(line: String) -> [Int] {
+        let tokens = line.split(whereSeparator: \.isWhitespace)
+        let values = tokens.compactMap { Int($0) }
+        let filtered = values.filter { $0 >= 1024 && $0 <= 65535 }
+        let unique = Set(filtered)
+        if unique.count <= 40 {
+            return unique.sorted()
+        }
+        return Array(unique.sorted().prefix(40))
+    }
+
+    private static func probeScript() -> String {
+        """
+        set -eu
+        CMUX_LAST=""
+        while true; do
+          if command -v ss >/dev/null 2>&1; then
+            PORTS="$(ss -ltnH 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | sort -n -u | tr '\\n' ' ')"
+          elif command -v netstat >/dev/null 2>&1; then
+            PORTS="$(netstat -lnt 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | sort -n -u | tr '\\n' ' ')"
+          else
+            PORTS=""
+          fi
+          if [ "$PORTS" != "$CMUX_LAST" ]; then
+            echo "$PORTS"
+            CMUX_LAST="$PORTS"
+          fi
+          sleep 2
+        done
+        """
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func lastNonEmptyLine(in text: String) -> String? {
+        for line in text.split(separator: "\n").reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func isLoopbackPortAvailable(port: Int) -> Bool {
+        guard port > 0 && port <= 65535 else { return false }
+
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return bindResult == 0
+    }
 }
 
 enum SidebarLogLevel: String {
@@ -35,6 +449,25 @@ struct SidebarProgressState {
 struct SidebarGitBranchState {
     let branch: String
     let isDirty: Bool
+}
+
+enum WorkspaceRemoteConnectionState: String {
+    case disconnected
+    case connecting
+    case connected
+    case error
+}
+
+struct WorkspaceRemoteConfiguration: Equatable {
+    let destination: String
+    let port: Int?
+    let identityFile: String?
+    let sshOptions: [String]
+
+    var displayTarget: String {
+        guard let port else { return destination }
+        return "\(destination):\(port)"
+    }
 }
 
 /// Workspace represents a sidebar tab.
@@ -95,8 +528,15 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
+    @Published var remoteConnectionDetail: String?
+    @Published var remoteDetectedPorts: [Int] = []
+    @Published var remoteForwardedPorts: [Int] = []
+    @Published var remotePortConflicts: [Int] = []
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
+    private var remoteSessionController: WorkspaceRemoteSessionController?
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -227,6 +667,10 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+    }
+
+    deinit {
+        remoteSessionController?.stop()
     }
 
     func refreshSplitButtonTooltips() {
@@ -563,8 +1007,85 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func recomputeListeningPorts() {
-        let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+        let unique = Set(surfaceListeningPorts.values.flatMap { $0 }).union(remoteForwardedPorts)
         listeningPorts = unique.sorted()
+    }
+
+    var isRemoteWorkspace: Bool {
+        remoteConfiguration != nil
+    }
+
+    var remoteDisplayTarget: String? {
+        remoteConfiguration?.displayTarget
+    }
+
+    func remoteStatusPayload() -> [String: Any] {
+        var payload: [String: Any] = [
+            "enabled": remoteConfiguration != nil,
+            "state": remoteConnectionState.rawValue,
+            "connected": remoteConnectionState == .connected,
+            "detected_ports": remoteDetectedPorts,
+            "forwarded_ports": remoteForwardedPorts,
+            "conflicted_ports": remotePortConflicts,
+            "detail": remoteConnectionDetail ?? NSNull(),
+        ]
+        if let remoteConfiguration {
+            payload["destination"] = remoteConfiguration.destination
+            payload["port"] = remoteConfiguration.port ?? NSNull()
+            payload["identity_file"] = remoteConfiguration.identityFile ?? NSNull()
+            payload["ssh_options"] = remoteConfiguration.sshOptions
+        } else {
+            payload["destination"] = NSNull()
+            payload["port"] = NSNull()
+            payload["identity_file"] = NSNull()
+            payload["ssh_options"] = []
+        }
+        return payload
+    }
+
+    func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        remoteConfiguration = configuration
+        remoteDetectedPorts = []
+        remoteForwardedPorts = []
+        remotePortConflicts = []
+        remoteConnectionDetail = nil
+        recomputeListeningPorts()
+
+        remoteSessionController?.stop()
+        remoteSessionController = nil
+
+        guard autoConnect else {
+            remoteConnectionState = .disconnected
+            return
+        }
+
+        remoteConnectionState = .connecting
+        let controller = WorkspaceRemoteSessionController(workspace: self, configuration: configuration)
+        remoteSessionController = controller
+        controller.start()
+    }
+
+    func reconnectRemoteConnection() {
+        guard let configuration = remoteConfiguration else { return }
+        configureRemoteConnection(configuration, autoConnect: true)
+    }
+
+    func disconnectRemoteConnection(clearConfiguration: Bool = false) {
+        remoteSessionController?.stop()
+        remoteSessionController = nil
+        remoteDetectedPorts = []
+        remoteForwardedPorts = []
+        remotePortConflicts = []
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = nil
+        if clearConfiguration {
+            remoteConfiguration = nil
+        }
+        recomputeListeningPorts()
+    }
+
+    func teardownRemoteConnection() {
+        disconnectRemoteConnection(clearConfiguration: true)
     }
 
     // MARK: - Panel Operations
