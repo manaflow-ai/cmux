@@ -1754,8 +1754,15 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws {
         let sshOptions = try parseSSHCommandOptions(commandArgs)
+        let sshCommand = buildSSHCommandText(sshOptions)
+        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
+        let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
 
-        let workspaceCreate = try client.sendV2(method: "workspace.create")
+        var workspaceCreateParams: [String: Any] = [
+            "initial_command": sshStartupCommand,
+        ]
+
+        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
         guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
             throw CLIError(message: "workspace.create did not return workspace_id")
         }
@@ -1785,15 +1792,12 @@ struct CMUXCLI {
         }
 
         var payload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
-        let sshCommand = buildSSHCommandText(sshOptions)
-
-        Thread.sleep(forTimeInterval: 0.35)
-        _ = try client.sendV2(method: "surface.send_text", params: [
-            "workspace_id": workspaceId,
-            "text": sshCommand + "\n",
-        ])
 
         payload["ssh_command"] = sshCommand
+        payload["ssh_startup_command"] = sshStartupCommand
+        payload["ssh_env_overrides"] = [
+            "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
+        ]
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
@@ -1908,10 +1912,7 @@ struct CMUXCLI {
         }
         parts.append(options.destination)
         parts.append(contentsOf: options.extraArguments)
-        let sshCommand = parts.map(shellQuote).joined(separator: " ")
-        // Scope Ghostty SSH niceties to `cmux ssh ...` launches only using shell-agnostic env invocation.
-        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-        return "env GHOSTTY_SHELL_FEATURES=\(shellQuote(shellFeaturesValue)) " + sshCommand
+        return parts.map(shellQuote).joined(separator: " ")
     }
 
     private func scopedGhosttyShellFeaturesValue() -> String {
@@ -1934,6 +1935,18 @@ struct CMUXCLI {
         }
 
         return merged.joined(separator: ",")
+    }
+
+    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String) -> String {
+        let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sshCommandWithScopedFeatures: String
+        if trimmedFeatures.isEmpty {
+            sshCommandWithScopedFeatures = sshCommand
+        } else {
+            sshCommandWithScopedFeatures = "GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures)) " + sshCommand
+        }
+        let script = sshCommandWithScopedFeatures + "; exec ${SHELL:-/bin/zsh} -l"
+        return "/bin/sh -lc \(shellQuote(script))"
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {

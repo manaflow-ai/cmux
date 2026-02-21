@@ -1416,6 +1416,22 @@ class TerminalController {
         return nil
     }
 
+    private func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
+        guard let raw = params[key] else { return nil }
+        if let dict = raw as? [String: String] {
+            return dict
+        }
+        if let anyDict = raw as? [String: Any] {
+            var out: [String: String] = [:]
+            for (k, value) in anyDict {
+                guard let stringValue = value as? String else { continue }
+                out[k] = stringValue
+            }
+            return out
+        }
+        return nil
+    }
+
     private func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
@@ -1622,9 +1638,26 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+
+        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+
+        let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
+        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            result[key] = pair.value
+        }
+
         var newId: UUID?
         v2MainSync {
-            let ws = tabManager.addWorkspace()
+            let ws = tabManager.addWorkspace(
+                workingDirectory: workingDirectory,
+                initialTerminalCommand: initialCommand,
+                initialTerminalEnvironment: initialEnv
+            )
             newId = ws.id
         }
 

@@ -98,11 +98,16 @@ def main() -> int:
             ssh_command = str(payload.get("ssh_command") or "")
             _must(bool(ssh_command), f"cmux ssh output missing ssh_command: {payload}")
             _must(
-                ssh_command.startswith("env GHOSTTY_SHELL_FEATURES="),
-                f"cmux ssh should set shell features via shell-agnostic env prefix: {ssh_command!r}",
+                ssh_command.startswith("ssh "),
+                f"cmux ssh should emit plain ssh command text (env is passed via workspace.create initial_env): {ssh_command!r}",
             )
-            _must("ssh-env,ssh-terminfo" in ssh_command, f"cmux ssh should include ssh niceties: {ssh_command!r}")
-            _must("ssh -o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
+            ssh_env_overrides = payload.get("ssh_env_overrides") or {}
+            _must(
+                str(ssh_env_overrides.get("GHOSTTY_SHELL_FEATURES") or "").endswith("ssh-env,ssh-terminfo"),
+                f"cmux ssh should pass shell niceties via ssh_env_overrides: {payload}",
+            )
+            _must(not ssh_command.startswith("env "), f"ssh command should not include env prefix: {ssh_command!r}")
+            _must("-o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
             _must("-o ControlMaster=auto" in ssh_command, f"ssh command should opt into connection reuse: {ssh_command!r}")
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
             _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
@@ -128,6 +133,13 @@ def main() -> int:
                 str(remote.get("state") or "") in {"connecting", "connected", "error", "disconnected"},
                 f"unexpected remote state: {remote}",
             )
+            surfaces = client.list_surfaces(workspace_id)
+            _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
+            primary_surface = surfaces[0][1]
+            # Regression: cmux ssh should launch through initial_command, not visibly type a giant command into the shell.
+            terminal_text = client.read_terminal_text(primary_surface)
+            _must("ControlPersist=600" not in terminal_text, f"cmux ssh should not inject raw ssh command text: {terminal_text!r}")
+            _must("GHOSTTY_SHELL_FEATURES=" not in terminal_text, f"cmux ssh should not inject env assignment text: {terminal_text!r}")
 
             status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
             status_remote = status.get("remote") or {}
@@ -204,10 +216,11 @@ def main() -> int:
                 ["ssh", "127.0.0.1", "--port", "1", "--name", "ssh-meta-features"],
                 extra_env={"GHOSTTY_SHELL_FEATURES": "cursor,title"},
             )
-            ssh_command_with_existing = str(payload3.get("ssh_command") or "")
+            payload3_env = payload3.get("ssh_env_overrides") or {}
+            merged_features = str(payload3_env.get("GHOSTTY_SHELL_FEATURES") or "")
             _must(
-                "GHOSTTY_SHELL_FEATURES=cursor,title,ssh-env,ssh-terminfo" in ssh_command_with_existing,
-                f"cmux ssh should merge existing shell features when present: {ssh_command_with_existing!r}",
+                merged_features == "cursor,title,ssh-env,ssh-terminfo",
+                f"cmux ssh should merge existing shell features when present: {payload3!r}",
             )
             workspace_id3 = str(payload3.get("workspace_id") or "")
             if workspace_id3:
