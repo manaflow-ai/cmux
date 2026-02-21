@@ -2362,6 +2362,7 @@ private struct TabItemView: View {
                                         Image(systemName: "circle.fill")
                                             .font(.system(size: 3))
                                             .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                            .padding(.horizontal, 1)
                                     }
                                     if let directory = line.directory {
                                         Text(directory)
