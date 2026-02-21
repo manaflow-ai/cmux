@@ -2391,6 +2391,10 @@ class TerminalController {
     }
 
     private func v2SurfaceReadText(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
         var includeScrollback = v2Bool(params, "scrollback") ?? false
         let lineLimit = v2Int(params, "lines")
         if let lineLimit, lineLimit <= 0 {
@@ -2400,24 +2404,98 @@ class TerminalController {
             includeScrollback = true
         }
 
-        let response = readTerminalTextBase64(
-            surfaceArg: v2String(params, "surface_id") ?? "",
-            includeScrollback: includeScrollback,
-            lineLimit: lineLimit
-        )
-        guard response.hasPrefix("OK ") else {
-            return .err(code: "internal_error", message: response, data: nil)
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read terminal text", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+
+            let response = readTerminalTextBase64(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
+            )
+            guard response.hasPrefix("OK ") else {
+                result = .err(code: "internal_error", message: response, data: nil)
+                return
+            }
+            let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
+            guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
+                result = .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
+                return
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "text": text,
+                "base64": base64,
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
         }
-        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-        let decoded = Data(base64Encoded: base64).flatMap { String(data: $0, encoding: .utf8) }
-        guard let text = decoded ?? (base64.isEmpty ? "" : nil) else {
-            return .err(code: "internal_error", message: "Failed to decode terminal text", data: nil)
+        return result
+    }
+
+    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+        guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
+
+        let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
+        let topLeft = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+            x: 0,
+            y: 0
+        )
+        let bottomRight = ghostty_point_s(
+            tag: pointTag,
+            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+            x: 0,
+            y: 0
+        )
+        let selection = ghostty_selection_s(
+            top_left: topLeft,
+            bottom_right: bottomRight,
+            rectangle: true
+        )
+        var text = ghostty_text_s()
+
+        guard ghostty_surface_read_text(surface, selection, &text) else {
+            return "ERROR: Failed to read terminal text"
+        }
+        defer {
+            ghostty_surface_free_text(surface, &text)
         }
 
-        return .ok([
-            "text": text,
-            "base64": base64
-        ])
+        let rawData: Data
+        if let ptr = text.text, text.text_len > 0 {
+            rawData = Data(bytes: ptr, count: Int(text.text_len))
+        } else {
+            rawData = Data()
+        }
+
+        var output = String(decoding: rawData, as: UTF8.self)
+        if let lineLimit {
+            output = tailTerminalLines(output, maxLines: lineLimit)
+        }
+
+        let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
+        return "OK \(base64)"
     }
 
     private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
@@ -6302,54 +6380,16 @@ class TerminalController {
             }
 
             guard let panelId,
-                  let terminalPanel = tab.terminalPanel(for: panelId),
-                  let surface = terminalPanel.surface.surface else {
+                  let terminalPanel = tab.terminalPanel(for: panelId) else {
                 result = "ERROR: Terminal surface not found"
                 return
             }
 
-            let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
-            let topLeft = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-                x: 0,
-                y: 0
+            result = readTerminalTextBase64(
+                terminalPanel: terminalPanel,
+                includeScrollback: includeScrollback,
+                lineLimit: lineLimit
             )
-            let bottomRight = ghostty_point_s(
-                tag: pointTag,
-                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-                x: 0,
-                y: 0
-            )
-            var selection = ghostty_selection_s(
-                top_left: topLeft,
-                bottom_right: bottomRight,
-                rectangle: true
-            )
-            var text = ghostty_text_s()
-
-            guard ghostty_surface_read_text(surface, selection, &text) else {
-                result = "ERROR: Failed to read terminal text"
-                return
-            }
-            defer {
-                ghostty_surface_free_text(surface, &text)
-            }
-
-            let rawData: Data
-            if let ptr = text.text, text.text_len > 0 {
-                rawData = Data(bytes: ptr, count: Int(text.text_len))
-            } else {
-                rawData = Data()
-            }
-
-            var output = String(decoding: rawData, as: UTF8.self)
-            if let lineLimit {
-                output = tailTerminalLines(output, maxLines: lineLimit)
-            }
-
-            let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
-            result = "OK \(base64)"
         }
         return result
     }
