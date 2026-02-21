@@ -129,6 +129,11 @@ def main() -> int:
             status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
             status_remote = status.get("remote") or {}
             _must(bool(status_remote.get("enabled")) is True, f"workspace.remote.status should report enabled remote: {status}")
+            daemon = status_remote.get("daemon") or {}
+            _must(
+                str(daemon.get("state") or "") in {"unavailable", "bootstrapping", "ready", "error"},
+                f"workspace.remote.status should include daemon state metadata: {status_remote}",
+            )
 
             # Regression: --name is optional.
             payload2 = _run_cli_json(

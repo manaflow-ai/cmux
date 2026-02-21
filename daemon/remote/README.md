@@ -1,6 +1,6 @@
 # cmuxd-remote (Go)
 
-Minimal remote daemon scaffold for `cmux ssh`.
+Go remote daemon for `cmux ssh` bootstrap and capability negotiation.
 
 Current commands:
 1. `cmuxd-remote version`
@@ -10,5 +10,7 @@ Current RPC methods (newline-delimited JSON):
 1. `hello`
 2. `ping`
 
-This scaffold is intentionally small so `cmux` can start integrating daemon bootstrap,
-capability negotiation, and protocol evolution without coupling to the Swift app runtime.
+Current integration in cmux:
+1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
+2. Client sends `hello` before enabling remote port probing/forwarding.
+3. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon`.
