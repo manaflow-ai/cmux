@@ -25,7 +25,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>Notification rings</h3>
-Panes get a blue ring and tabs light up when AI agents need your attention
+Panes get a blue ring and tabs light up when coding agents need your attention
 </td>
 <td width="60%">
 <img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
