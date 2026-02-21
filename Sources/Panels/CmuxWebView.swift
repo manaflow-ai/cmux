@@ -146,6 +146,36 @@ final class CmuxWebView: WKWebView {
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
 
+    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
+        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
+        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let queryItems = comps.queryItems else { return nil }
+        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
+        let candidates = ["imgurl", "mediaurl", "url", "q"]
+        for key in candidates {
+            guard let raw = map[key], !raw.isEmpty,
+                  let decoded = raw.removingPercentEncoding ?? raw as String?,
+                  let candidate = URL(string: decoded),
+                  isDownloadableScheme(candidate) else {
+                continue
+            }
+            return candidate
+        }
+        // Some links are wrapped as /url?...
+        if comps.path.lowercased() == "/url" {
+            for key in ["url", "q"] {
+                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
+                    return candidate
+                }
+            }
+        }
+        return nil
+    }
+
+    private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
+        resolveGoogleRedirectURL(url) ?? url
+    }
+
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
         let target = item.target as AnyObject?
         let action = item.action
@@ -532,35 +562,62 @@ final class CmuxWebView: WKWebView {
         )
         findLinkURLAtPoint(point) { [weak self] url in
             guard let self else { return }
-            if let url, self.isDownloadableScheme(url) {
-                NSLog("CmuxWebView context download linked file URL: %@", url.absoluteString)
-                self.startContextMenuDownload(
-                    url,
-                    sender: sender,
-                    fallbackAction: fallback.action,
-                    fallbackTarget: fallback.target
-                )
-                return
-            }
-
-            // Secondary fallback: simpler nearest-anchor lookup.
-            self.findLinkAtPoint(point) { fallbackURL in
-                guard let fallbackURL, self.isDownloadableScheme(fallbackURL) else {
-                    NSLog("CmuxWebView context download linked file: URL nil/unsupported, using fallback action")
-                    self.runContextMenuFallback(
-                        action: fallback.action,
-                        target: fallback.target,
-                        sender: sender
+            if let url {
+                let normalized = self.normalizedLinkedDownloadURL(url)
+                if self.isDownloadableScheme(normalized) {
+                    NSLog("CmuxWebView context download linked file URL: %@ (normalized=%@)", url.absoluteString, normalized.absoluteString)
+                    self.startContextMenuDownload(
+                        normalized,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target
                     )
                     return
                 }
-                NSLog("CmuxWebView context download linked file fallback URL: %@", fallbackURL.absoluteString)
-                self.startContextMenuDownload(
-                    fallbackURL,
-                    sender: sender,
-                    fallbackAction: fallback.action,
-                    fallbackTarget: fallback.target
-                )
+            }
+
+            // Fallback 1: image URL under cursor (useful on image-heavy result pages).
+            self.findImageURLAtPoint(point) { imageURL in
+                if let imageURL, self.isDownloadableScheme(imageURL) {
+                    NSLog("CmuxWebView context download linked file fallback image URL: %@", imageURL.absoluteString)
+                    self.startContextMenuDownload(
+                        imageURL,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target
+                    )
+                    return
+                }
+
+                // Fallback 2: simpler nearest-anchor lookup.
+                self.findLinkAtPoint(point) { fallbackURL in
+                    guard let fallbackURL else {
+                        NSLog("CmuxWebView context download linked file: URL nil, using fallback action")
+                        self.runContextMenuFallback(
+                            action: fallback.action,
+                            target: fallback.target,
+                            sender: sender
+                        )
+                        return
+                    }
+                    let normalized = self.normalizedLinkedDownloadURL(fallbackURL)
+                    guard self.isDownloadableScheme(normalized) else {
+                        NSLog("CmuxWebView context download linked file: unsupported URL %@, using fallback action", fallbackURL.absoluteString)
+                        self.runContextMenuFallback(
+                            action: fallback.action,
+                            target: fallback.target,
+                            sender: sender
+                        )
+                        return
+                    }
+                    NSLog("CmuxWebView context download linked file fallback URL: %@ (normalized=%@)", fallbackURL.absoluteString, normalized.absoluteString)
+                    self.startContextMenuDownload(
+                        normalized,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target
+                    )
+                }
             }
         }
     }
