@@ -1153,14 +1153,6 @@ struct ContentView: View {
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
     }
-    private var fakeTitlebarSeparatorColor: Color {
-        _ = titlebarThemeGeneration
-        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        return ghosttyBackground.isLightColor
-            ? Color.black.opacity(0.18)
-            : Color.white.opacity(0.22)
-    }
-
     private var fullscreenControls: some View {
         TitlebarControlsView(
             notificationStore: TerminalNotificationStore.shared,
@@ -1216,7 +1208,7 @@ struct ContentView: View {
         .background(fakeTitlebarBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(fakeTitlebarSeparatorColor)
+                .fill(Color(nsColor: .separatorColor))
                 .frame(height: 1)
         }
     }
