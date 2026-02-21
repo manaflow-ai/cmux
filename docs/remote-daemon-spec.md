@@ -1,164 +1,152 @@
-# Remote Daemon Spec (Concise)
+# Remote SSH Living Spec
 
 Last updated: February 21, 2026  
-Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
+Tracking issue: https://github.com/manaflow-ai/cmux/issues/151  
+Primary PR: https://github.com/manaflow-ai/cmux/pull/239
 
-## 1. Scope
+This document is the working source of truth for:
+1. what is implemented now
+2. what is intentionally temporary
+3. what must be built next
 
-`cmux ssh` should support:
-1. one client connected to multiple daemons at once
-2. tmux-style persistent remote/local sessions
-3. SSH transport reuse for identical targets
-4. first-class web proxying (HTTP CONNECT + SOCKS5 + websocket)
+## 1. Document Type
 
-Remote daemon is Go (`cmuxd-remote`) for portability.
+This is a **living implementation spec** (also called an **execution spec**): a spec-level document with status tracking (`DONE`, `IN PROGRESS`, `TODO`) and acceptance tests.
 
-## 2. Core Invariants
+## 2. Objective
 
-1. **Daemon owns non-layout state**: PTYs, process lifecycle, scrollback, cwd/title, service/port discovery, proxy channels, persistence.
-2. **Client owns layout**: windows/workspaces/panes/focus/reorder remain in Swift app.
-3. **Session is durable; attachment is disposable**: UI panes attach/detach from daemon sessions.
-4. **Transport is separate from session**: one SSH transport can carry many sessions.
-5. **Reuse key is normalized config**: not raw alias text.
-6. **One protocol for local and remote**: unix socket and SSH stdio are transport adapters for the same RPC/stream contract.
+`cmux ssh` should provide:
+1. durable remote terminals with reconnect/reuse
+2. browser traffic that egresses from the remote host via proxying
+3. tmux-style PTY resize semantics (`smallest screen wins`)
 
-## 3. Multi-Daemon Model
+## 3. Current State (Implemented)
 
-1. Client has a daemon router keyed by `daemon_id`.
-2. Any workspace pane may point to any daemon.
-3. Attachment identity:
-   - `pane_id -> daemon_id + session_id + stream_id`
-4. Handles exposed in APIs include daemon scope where relevant:
-   - `daemon_id`, `session_id`, `transport_id`, `connection_key_hash`
-5. Cross-daemon "move pane" is modeled as attach/create on target daemon, not live PTY migration.
+### 3.1 Remote Workspace + Reconnect UX
+- `DONE` `cmux ssh` creates remote-tagged workspaces and does not require `--name`.
+- `DONE` scoped shell niceties are applied only for `cmux ssh` launches.
+- `DONE` context menu actions exist for remote workspaces (`Reconnect Workspace(s)`, `Disconnect Workspace(s)`).
+- `DONE` socket API includes `workspace.remote.reconnect`.
 
-## 4. Connection Reuse
+### 3.2 Bootstrap + Daemon
+- `DONE` local app probes remote platform, builds/uploads `cmuxd-remote`, and runs `serve --stdio`.
+- `DONE` daemon `hello` handshake is enforced.
+- `DONE` bootstrap/probe failures surface actionable details.
 
-Connection reuse key (`ConnectionKey`) is derived from `ssh -G` plus cmux flags:
-1. hostname, user, port
-2. identity files + `IdentitiesOnly`
-3. `ProxyJump` / `ProxyCommand`
-4. host-key policy options that change trust/auth semantics
-5. auth-impacting `--ssh-option` values
+### 3.3 Error Surfacing
+- `DONE` remote errors are surfaced in sidebar status + logs + notifications.
+- `DONE` reconnect retry count/time is included in surfaced error text (for example, `retry 1 in 4s`).
 
-Reuse rule:
-1. identical normalized key => reuse same SSH transport
-2. any key difference => new transport
+### 3.4 Existing Temporary Behavior (To Remove)
+- `TEMPORARY` current implementation probes remote listening ports and mirrors them locally with SSH `-L`.
+- `TEMPORARY` sidebar shows local bind conflicts (`SSH port conflicts ...`) caused by that mirroring path.
+- `TARGET` browser path must no longer depend on per-port mirroring.
 
-## 5. Bootstrap + Protocol
+## 4. Target Architecture (No Port Mirroring)
 
-Bootstrap:
-1. ensure remote binary at `~/.cmux/bin/cmuxd-remote/<version>/<os>-<arch>/cmuxd-remote`
-2. checksum-verify before exec
-3. run `cmuxd-remote serve --stdio`
-4. negotiate version/capabilities
-5. if bootstrap fails, fail `cmux ssh` with actionable error (no silent fallback to plain ssh mode)
+### 4.1 Browser Networking Path
+1. One local proxy endpoint per SSH transport (not per workspace, not per detected port).
+2. Proxy endpoint supports SOCKS5 and HTTP CONNECT.
+3. Browser panels in remote workspaces are auto-wired to this proxy endpoint.
+4. Browser panels in local workspaces are not force-proxied.
 
-Minimum RPC surface:
-1. `hello`
-2. `session.create|attach|detach|close|resize|signal`
-3. `service.watch`
-4. `proxy.open|close`
-5. `heartbeat`
+### 4.2 WKWebView Wiring
+1. Use workspace/browser scoped `WKWebsiteDataStore.proxyConfigurations`.
+2. Prefer SOCKS5 proxy config.
+3. Keep HTTP CONNECT proxy config as fallback.
+4. Re-apply/validate proxy config after reconnect.
 
-Protocol requirement:
-1. multiplexed framed streams (control + PTY + proxy data)
+### 4.3 Remote Daemon + Transport
+1. Extend `cmuxd-remote` beyond `hello/ping` with proxy stream RPC (`proxy.open`, `proxy.close`).
+2. Local side runs a transport-scoped proxy broker and multiplexes proxy streams over SSH stdio transport.
+3. Remove remote service-port discovery/probing from browser routing path.
 
-## 6. Web Proxying (Browser-First)
+### 4.4 Explicit Non-Goal
+1. Automatic mirroring of every remote listening port to local loopback is not a goal for browser support.
 
-Goal: remote workspaces browse from the remote host network, without per-service local port forwards.
+## 5. PTY Resize Semantics (tmux-style)
 
-Model:
-1. `cmux ssh` creates/uses one **proxy endpoint per SSH transport** (not per workspace, not per destination port).
-2. Browser panels opened in remote workspaces are auto-wired to that endpoint.
-3. Terminal/service port forwarding is **not** the browser path; keep it opt-in for explicit localhost workflows only.
+### 5.1 Core Rule
+For each session with multiple attachments, the effective PTY size is:
+1. `cols = min(cols_i over attached clients)`
+2. `rows = min(rows_i over attached clients)`
 
-Implementation:
-1. local `cmuxd` runs a transport-scoped proxy broker (`127.0.0.1:<ephemeral>`), supporting:
-   - HTTP CONNECT
-   - SOCKS5
-2. broker opens multiplexed proxy streams to `cmuxd-remote`; remote daemon performs outbound dials.
-3. browser wiring uses workspace-scoped `WKWebsiteDataStore.proxyConfigurations`:
-   - primary: SOCKS5 (`ProxyConfiguration(socksv5Proxy:)`)
-   - fallback: HTTP CONNECT (`ProxyConfiguration(httpCONNECTProxy:)`)
-4. browser panels in non-remote workspaces use no forced proxy config.
+This is the `smallest screen wins` rule.
 
-Failure + reconnect:
-1. if proxy endpoint bind fails, return structured `proxy_unavailable` with actionable detail.
-2. if transport drops, browser requests fail fast, workspace status shows reconnect + retry count.
-3. after reconnect, proxy broker and WKWebView proxy config are revalidated automatically.
+### 5.2 State Model
+Per session track:
+1. set of active attachments `{attachment_id -> cols, rows, updated_at}`
+2. effective size currently applied to PTY
+3. last-known size when temporarily unattached
 
-## 7. Reconnect Semantics
+### 5.3 Recompute Triggers
+Recompute effective size on:
+1. attachment create
+2. attachment detach
+3. resize event from any attachment
+4. reconnect reattach
 
-States:
-1. `connected`
-2. `degraded`
-3. `reconnecting`
-4. `disconnected`
-5. `fatal`
+### 5.4 Correctness Requirements
+1. Never shrink history because of UI relayout noise; only PTY viewport changes.
+2. On reconnect, reuse persisted session and recompute from active attachments.
+3. If no attachments remain, keep last-known PTY size (do not force 80x24 reset).
 
-Rules:
-1. transport loss moves all attached sessions to `reconnecting`
-2. successful reattach must keep same `session_id` (no duplicate shells)
-3. `cmux ssh` defaults to persistent sessions
-4. persistent sessions survive app restart/disconnect
-5. ephemeral sessions can be GC'd after TTL when explicitly requested
+## 6. Milestones (Living Status)
 
-## 8. Test Matrix
+| ID | Milestone | Status | Notes |
+|---|---|---|---|
+| M-001 | `cmux ssh` workspace creation + metadata + optional `--name` | DONE | Covered by `tests_v2/test_ssh_remote_cli_metadata.py` |
+| M-002 | Remote bootstrap/upload/start + hello handshake | DONE | Current `cmuxd-remote` is minimal (`hello`, `ping`) |
+| M-003 | Reconnect/disconnect UX + API + improved error surfacing | DONE | Includes retry count in surfaced errors |
+| M-004 | Docker e2e for bootstrap/reconnect shell niceties | DONE | Existing docker tests currently validate mirroring-era path |
+| M-005 | Remove automatic remote port mirroring path | TODO | Delete probe/listen mirror loop from `WorkspaceRemoteSessionController` |
+| M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | TODO | Local component in app/daemon layer |
+| M-007 | Remote proxy stream RPC in `cmuxd-remote` | TODO | Add `proxy.open/close` and multiplexed stream handling |
+| M-008 | WebView proxy auto-wiring for remote workspaces | TODO | Use `WKWebsiteDataStore.proxyConfigurations` |
+| M-009 | PTY resize coordinator (`smallest screen wins`) | TODO | Session-level attachment-size aggregation |
+| M-010 | Resize + proxy reconnect e2e test suites | TODO | Add dedicated docker cases for browser proxy + resize |
 
-All cases require deterministic `MUST` assertions.
+## 7. Acceptance Test Matrix (With Status)
 
-### 8.1 Terminal
+### 7.1 Terminal + Reconnect
 
-| ID | Scenario | MUST Assertions |
+| ID | Scenario | Status |
 |---|---|---|
-| T-001 | baseline connect | one transport, one session, connected state |
-| T-002 | identical host twice | same `transport_id`, refcount 2, one SSH process |
-| T-003 | different identity/options | different `connection_key_hash`, separate transports |
-| T-004 | no `--name` | workspace created with non-empty title |
-| T-005 | scoped niceties | only `cmux ssh` command metadata includes scoped `GHOSTTY_SHELL_FEATURES` SSH additions |
-| T-006 | detach/reattach | same `session_id`, state/history preserved |
-| T-007 | shell integration e2e | in fresh docker host, `cmux ssh` yields TERM/terminfo behavior and propagated SSH env vars per `ssh-env`/`ssh-terminfo` |
+| T-001 | baseline remote connect | DONE |
+| T-002 | identical host reuse semantics | PARTIAL |
+| T-003 | no `--name` | DONE |
+| T-004 | reconnect API success/error paths | DONE |
+| T-005 | retry count visible in daemon error detail | DONE |
 
-### 8.2 Web Proxy
+### 7.2 Browser Proxy (Target)
 
-| ID | Scenario | MUST Assertions |
+| ID | Scenario | Status |
 |---|---|---|
-| W-001 | browser auto wiring | remote workspace browser gets daemon-backed proxy automatically |
-| W-002 | remote egress proof | remote workspace browser egress IP matches remote host, not local host |
-| W-003 | websocket via CONNECT | echo integrity, no unexpected close |
-| W-004 | websocket via SOCKS5 | echo integrity |
-| W-005 | proxy listener conflict | structured `proxy_unavailable` + fallback bind behavior |
-| W-006 | concurrent PTY + proxy load | no PTY stall; proxy latency/error budget met |
-| W-007 | reconnect continuity | after transport reconnect, browser traffic resumes without manual proxy reconfiguration |
+| W-001 | remote workspace browser auto-proxied | TODO |
+| W-002 | browser egress IP equals remote host IP | TODO |
+| W-003 | websocket via SOCKS5/CONNECT through remote daemon | TODO |
+| W-004 | reconnect restores browser proxy path automatically | TODO |
+| W-005 | local proxy bind conflict yields structured `proxy_unavailable` | TODO |
 
-### 8.3 Reconnect
+### 7.3 Resize
 
-| ID | Scenario | MUST Assertions |
+| ID | Scenario | Status |
 |---|---|---|
-| R-001 | kill transport | sessions enter `reconnecting`, retries begin |
-| R-002 | reconnect success | return to `connected`, same `session_id`s |
-| R-003 | reconnect exhausted | transition to `disconnected` with actionable error |
-| R-004 | daemon restart | client reattaches per policy without duplicate sessions |
-| R-005 | app restart (persistent) | session continuity retained |
+| RZ-001 | two attachments, smallest wins | TODO |
+| RZ-002 | grow one attachment, PTY stays bounded by smallest | TODO |
+| RZ-003 | detach smallest, PTY expands to next smallest | TODO |
+| RZ-004 | reconnect preserves session + applies recomputed size | TODO |
 
-### 8.4 Multi-Daemon
+## 8. Removal Checklist (Port Mirroring)
 
-| ID | Scenario | MUST Assertions |
-|---|---|---|
-| M-001 | one client, two daemons | panes/workspaces may attach to different `daemon_id`s simultaneously |
-| M-002 | per-daemon failure isolation | daemon A outage does not impact daemon B sessions |
-| M-003 | mixed local+remote | local `cmuxd` and remote `cmuxd-remote` coexist under same client layout |
-| M-004 | reconnect with mixed daemons | only affected daemon’s panes transition state; others remain connected |
+Before declaring browser proxying complete:
+1. remove remote port probe loop and `-L` auto-forward orchestration
+2. remove mirror-specific sidebar conflict messaging as default remote behavior
+3. replace mirroring tests with browser-proxy e2e tests
+4. keep optional explicit user-driven forwarding as separate feature only if needed
 
-## 9. CI Gates
+## 9. Open Decisions
 
-1. `remote-terminal-core`: T-001..T-005, T-007
-2. `remote-proxy-core`: W-001..W-004, W-007
-3. `remote-reconnect-core`: R-001..R-003
-4. `remote-multidaemon-core`: M-001..M-002
-
-## 10. Open Decisions
-
-1. reconnect retry budget and backoff profile
-2. proxy auth policy (none vs optional credentials for local broker)
+1. Proxy auth policy for local broker (`none` vs optional credentials).
+2. Reconnect backoff profile and max retry budget.
+3. Browser data-store isolation policy for remote vs local workspaces.
