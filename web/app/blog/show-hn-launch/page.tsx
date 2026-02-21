@@ -98,8 +98,7 @@ export default function ShowHNLaunchPage() {
       <p>
         The HN thread was good feedback. People asked about the Ghostty
         relationship (cmux uses libghostty as a library, not a fork),
-        requested features, and reported bugs. We shipped 18 releases in 48
-        hours fixing everything we could.
+        requested features, and reported bugs.
       </p>
 
       <div className="my-6">
