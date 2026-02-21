@@ -2350,7 +2350,7 @@ private struct TabItemView: View {
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                HStack(spacing: 4) {
+                                HStack(spacing: 3) {
                                     if let branch = line.branch {
                                         Text(branch)
                                             .font(.system(size: 10, design: .monospaced))
@@ -2360,7 +2360,7 @@ private struct TabItemView: View {
                                     }
                                     if line.branch != nil, line.directory != nil {
                                         Image(systemName: "circle.fill")
-                                            .font(.system(size: 4))
+                                            .font(.system(size: 3))
                                             .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
                                     }
                                     if let directory = line.directory {
