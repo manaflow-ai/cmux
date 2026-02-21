@@ -830,6 +830,18 @@ class cmux:
         if panel is not None:
             sid = self._resolve_surface_id(panel)
             params["surface_id"] = sid
+        try:
+            res = self._call("surface.read_text", params) or {}
+            if "text" in res:
+                return str(res.get("text") or "")
+            b64 = str(res.get("base64") or "")
+            raw = base64.b64decode(b64) if b64 else b""
+            return raw.decode("utf-8", errors="replace")
+        except cmuxError as exc:
+            # Back-compat for older builds that only expose the debug method.
+            if "method_not_found" not in str(exc):
+                raise
+
         res = self._call("debug.terminal.read_text", params) or {}
         b64 = str(res.get("base64") or "")
         raw = base64.b64decode(b64) if b64 else b""
