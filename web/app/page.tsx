@@ -54,7 +54,25 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Notification rings</strong>
                 <span className="text-muted">
-                  : tabs flash when agents need your input
+                  : panes get a blue ring and tabs light up when agents need your attention
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">Notification panel</strong>
+                <span className="text-muted">
+                  : see all pending notifications in one place, jump to the most recent unread
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">In-app browser</strong>
+                <span className="text-muted">
+                  : split a browser alongside your terminal with a scriptable API
                 </span>
               </span>
             </li>
@@ -63,16 +81,7 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Vertical tabs</strong>
                 <span className="text-muted">
-                  : see all your terminals at a glance in a sidebar
-                </span>
-              </span>
-            </li>
-            <li className="flex gap-3">
-              <span className="text-muted shrink-0">-</span>
-              <span>
-                <strong className="font-medium">GPU-accelerated</strong>
-                <span className="text-muted">
-                  : powered by libghostty for smooth rendering
+                  : sidebar shows git branch, working directory, ports, and notification text
                 </span>
               </span>
             </li>
@@ -88,9 +97,27 @@ export default function Home() {
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
-                <strong className="font-medium">Socket API</strong>
+                <strong className="font-medium">Scriptable</strong>
                 <span className="text-muted">
-                  : programmatic control for creating tabs, sending input
+                  : CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">GPU-accelerated</strong>
+                <span className="text-muted">
+                  : powered by libghostty for smooth rendering
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">Ghostty compatible</strong>
+                <span className="text-muted">
+                  : reads your existing <code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">~/.config/ghostty/config</code> for themes, fonts, and colors
                 </span>
               </span>
             </li>
