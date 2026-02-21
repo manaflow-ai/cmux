@@ -124,18 +124,16 @@ export default function ShowHNLaunchPage() {
       </p>
 
       <p>
-        Another exciting thing was seeing people build on top of the socket
-        API. sasha built a pi-cmux extension that shows model info, token
+        Another exciting thing was seeing people build on top of the cmux
+        CLI. sasha built a pi-cmux extension that shows model info, token
         usage, and agent state in the sidebar:
       </p>
 
       <Tweet id="2024978414822916358" />
 
       <p>
-        cmux exposes everything over a Unix socket: creating workspaces,
+        Everything in cmux is scriptable through the CLI: creating workspaces,
         sending keystrokes, controlling the browser, reading notifications.
-        The cmux CLI talks to this socket, and most people should just use
-        the CLI. But the socket is there if you need it.
       </p>
 
       <p>
