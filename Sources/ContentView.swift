@@ -1193,6 +1193,12 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .background(
+            WindowAccessor { window in
+                commandKeyMonitor.setHostWindow(window)
+            }
+            .frame(width: 0, height: 0)
+        )
         .onAppear {
             commandKeyMonitor.start()
             draggedTabId = nil
@@ -1252,6 +1258,35 @@ enum SidebarCommandHintPolicy {
 
     static func shouldShowHints(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
         modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
+    }
+
+    static func isCurrentWindow(
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        guard let hostWindowNumber, hostWindowIsKey else { return false }
+        if let eventWindowNumber {
+            return eventWindowNumber == hostWindowNumber
+        }
+        return keyWindowNumber == hostWindowNumber
+    }
+
+    static func shouldShowHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        hostWindowNumber: Int?,
+        hostWindowIsKey: Bool,
+        eventWindowNumber: Int?,
+        keyWindowNumber: Int?
+    ) -> Bool {
+        shouldShowHints(for: modifierFlags) &&
+            isCurrentWindow(
+                hostWindowNumber: hostWindowNumber,
+                hostWindowIsKey: hostWindowIsKey,
+                eventWindowNumber: eventWindowNumber,
+                keyWindowNumber: keyWindowNumber
+            )
     }
 }
 
@@ -1484,28 +1519,63 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 private final class SidebarCommandKeyMonitor: ObservableObject {
     @Published private(set) var isCommandPressed = false
 
+    private weak var hostWindow: NSWindow?
+    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
+    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
-    private var resignObserver: NSObjectProtocol?
+    private var appResignObserver: NSObjectProtocol?
     private var pendingShowWorkItem: DispatchWorkItem?
+
+    func setHostWindow(_ window: NSWindow?) {
+        guard hostWindow !== window else { return }
+        removeHostWindowObservers()
+        hostWindow = window
+        guard let window else {
+            cancelPendingHintShow(resetVisible: true)
+            return
+        }
+
+        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
+            }
+        }
+
+        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.cancelPendingHintShow(resetVisible: true)
+            }
+        }
+
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
+    }
 
     func start() {
         guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags)
+            update(from: NSEvent.modifierFlags, eventWindow: nil)
             return
         }
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags)
+            self?.update(from: event.modifierFlags, eventWindow: event.window)
             return event
         }
 
         keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.cancelPendingHintShow(resetVisible: true)
+            self?.handleKeyDown(event)
             return event
         }
 
-        resignObserver = NotificationCenter.default.addObserver(
+        appResignObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didResignActiveNotification,
             object: nil,
             queue: .main
@@ -1515,7 +1585,7 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
             }
         }
 
-        update(from: NSEvent.modifierFlags)
+        update(from: NSEvent.modifierFlags, eventWindow: nil)
     }
 
     func stop() {
@@ -1527,15 +1597,36 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
             NSEvent.removeMonitor(keyDownMonitor)
             self.keyDownMonitor = nil
         }
-        if let resignObserver {
-            NotificationCenter.default.removeObserver(resignObserver)
-            self.resignObserver = nil
+        if let appResignObserver {
+            NotificationCenter.default.removeObserver(appResignObserver)
+            self.appResignObserver = nil
         }
+        removeHostWindowObservers()
         cancelPendingHintShow(resetVisible: true)
     }
 
-    private func update(from modifierFlags: NSEvent.ModifierFlags) {
-        guard SidebarCommandHintPolicy.shouldShowHints(for: modifierFlags) else {
+    private func handleKeyDown(_ event: NSEvent) {
+        guard isCurrentWindow(eventWindow: event.window) else { return }
+        cancelPendingHintShow(resetVisible: true)
+    }
+
+    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
+        SidebarCommandHintPolicy.isCurrentWindow(
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        )
+    }
+
+    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
+        guard SidebarCommandHintPolicy.shouldShowHints(
+            for: modifierFlags,
+            hostWindowNumber: hostWindow?.windowNumber,
+            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
+            eventWindowNumber: eventWindow?.windowNumber,
+            keyWindowNumber: NSApp.keyWindow?.windowNumber
+        ) else {
             cancelPendingHintShow(resetVisible: true)
             return
         }
@@ -1550,7 +1641,13 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.pendingShowWorkItem = nil
-            guard SidebarCommandHintPolicy.shouldShowHints(for: NSEvent.modifierFlags) else { return }
+            guard SidebarCommandHintPolicy.shouldShowHints(
+                for: NSEvent.modifierFlags,
+                hostWindowNumber: self.hostWindow?.windowNumber,
+                hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
+                eventWindowNumber: nil,
+                keyWindowNumber: NSApp.keyWindow?.windowNumber
+            ) else { return }
             self.isCommandPressed = true
         }
 
@@ -1563,6 +1660,17 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
         pendingShowWorkItem = nil
         if resetVisible {
             isCommandPressed = false
+        }
+    }
+
+    private func removeHostWindowObservers() {
+        if let hostWindowDidBecomeKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
+            self.hostWindowDidBecomeKeyObserver = nil
+        }
+        if let hostWindowDidResignKeyObserver {
+            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
+            self.hostWindowDidResignKeyObserver = nil
         }
     }
 }
