@@ -136,6 +136,8 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 
 ### Browser
 
+Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+
 | Shortcut | Action |
 |----------|--------|
 | ⌘ ⇧ L | Open browser in split |
@@ -143,7 +145,8 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌘ [ | Back |
 | ⌘ ] | Forward |
 | ⌘ R | Reload page |
-| ⌥ ⌘ I | Open Developer Tools |
+| ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
+| ⌥ ⌘ C | Show JavaScript Console (Safari default) |
 
 ### Notifications
 
