@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Watch the demo</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo</a>
 </p>
 
 ## Features
