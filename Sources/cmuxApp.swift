@@ -2398,13 +2398,26 @@ enum AppearanceSettings {
     }
 }
 
+enum ClaudeCodeIntegrationSettings {
+    static let hooksEnabledKey = "claudeCodeHooksEnabled"
+    static let defaultHooksEnabled = false
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
-    @AppStorage("claudeCodeHooksEnabled") private var claudeCodeHooksEnabled = true
+    @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
+    private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2818,7 +2831,7 @@ struct SettingsView: View {
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
-        claudeCodeHooksEnabled = true
+        claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
