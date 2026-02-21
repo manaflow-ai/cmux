@@ -124,8 +124,9 @@ working-directory = ~/Projects`}</CodeBlock>
         <li>
           <strong>HTTP Hosts Allowed in Embedded Browser</strong> — applies only
           to HTTP (non-HTTPS) URLs. Hosts in this list can open in cmux without
-          a warning prompt. If your local dev server emits links using{" "}
-          <code>0.0.0.0</code>, add it explicitly to this list.
+          a warning prompt. Defaults include <code>localhost</code>,{" "}
+          <code>127.0.0.1</code>, <code>::1</code>, <code>0.0.0.0</code>, and{" "}
+          <code>*.localtest.me</code>.
         </li>
       </ul>
 
