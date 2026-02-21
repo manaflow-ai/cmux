@@ -152,7 +152,7 @@ export default function ShowHNLaunchPage() {
         </ul>
         <p className="text-xs">
           —{" "}
-          <a href="https://news.ycombinator.com/item?id=47081798" className="hover:text-foreground transition-colors">
+          <a href="https://news.ycombinator.com/item?id=47083596" className="hover:text-foreground transition-colors">
             johnthedebs
           </a>
         </p>
