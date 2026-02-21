@@ -173,6 +173,9 @@ final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
+    /// The WKWebView currently receiving forwarded drag events, so we can
+    /// synthesize draggingExited/draggingEntered as the cursor moves.
+    private weak var activeDragWebView: WKWebView?
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -250,42 +253,60 @@ final class FileDropOverlayView: NSView {
     override func scrollWheel(with event: NSEvent) { forwardEvent(event) }
 
     // MARK: NSDraggingDestination – accept file drops over terminal and browser views.
+    //
+    // AppKit sends draggingEntered once when the drag enters this overlay, then
+    // draggingUpdated as the cursor moves within it. We track which WKWebView (if
+    // any) is under the cursor and synthesize enter/exit calls so the browser's
+    // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        let loc = sender.draggingLocation
-        if let webView = webViewUnderPoint(loc) {
-            return webView.draggingEntered(sender)
-        }
-        return dragOperationForTerminal(sender)
+        return updateDragTarget(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        let loc = sender.draggingLocation
-        if let webView = webViewUnderPoint(loc) {
-            return webView.draggingUpdated(sender)
-        }
-        return dragOperationForTerminal(sender)
+        return updateDragTarget(sender)
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        guard let sender else { return }
-        if let webView = webViewUnderPoint(sender.draggingLocation) {
-            webView.draggingExited(sender)
+        if let prev = activeDragWebView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
         }
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        if let webView = webViewUnderPoint(sender.draggingLocation) {
+        let webView = activeDragWebView
+        activeDragWebView = nil
+        if let webView {
             return webView.performDragOperation(sender)
         }
         guard let terminal = terminalUnderPoint(sender.draggingLocation) else { return false }
         return terminal.performDragOperation(sender)
     }
 
-    private func dragOperationForTerminal(_ sender: any NSDraggingInfo) -> NSDragOperation {
+    private func updateDragTarget(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let loc = sender.draggingLocation
+        let webView = webViewUnderPoint(loc)
+
+        // Cursor moved away from the previous web view.
+        if let prev = activeDragWebView, prev !== webView {
+            prev.draggingExited(sender)
+            activeDragWebView = nil
+        }
+
+        if let webView {
+            if activeDragWebView !== webView {
+                // Cursor entered a (new) web view — send draggingEntered.
+                activeDragWebView = webView
+                return webView.draggingEntered(sender)
+            }
+            return webView.draggingUpdated(sender)
+        }
+
+        // Over a terminal (or nothing).
         guard let types = sender.draggingPasteboard.types,
               types.contains(.fileURL),
-              terminalUnderPoint(sender.draggingLocation) != nil else {
+              terminalUnderPoint(loc) != nil else {
             return []
         }
         return .copy
