@@ -1679,7 +1679,15 @@ struct CMUXCLI {
                 : nil)
 
         let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
-        let surfaceId = try normalizeTabHandle(tabArg, client: client, workspaceHandle: workspaceId, allowFocused: true)
+        // If a workspace is explicitly targeted and no tab/surface is provided, let server-side
+        // tab.action resolve that workspace's focused tab instead of using global focus.
+        let allowFocusedFallback = (workspaceId == nil)
+        let surfaceId = try normalizeTabHandle(
+            tabArg,
+            client: client,
+            workspaceHandle: workspaceId,
+            allowFocused: allowFocusedFallback
+        )
 
         let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
