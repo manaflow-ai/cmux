@@ -502,7 +502,7 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil) -> Workspace {
+    func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil, select: Bool = true) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
@@ -514,17 +514,19 @@ class TabManager: ObservableObject {
         } else {
             tabs.append(newWorkspace)
         }
-        selectedTabId = newWorkspace.id
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusTab,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
-        )
+        if select {
+            selectedTabId = newWorkspace.id
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
+            )
+        }
 #if DEBUG
         UITestRecorder.incrementInt("addTabInvocations")
         UITestRecorder.record([
             "tabCount": String(tabs.count),
-            "selectedTabId": newWorkspace.id.uuidString
+            "selectedTabId": select ? newWorkspace.id.uuidString : (selectedTabId?.uuidString ?? "")
         ])
 #endif
         return newWorkspace
@@ -532,7 +534,7 @@ class TabManager: ObservableObject {
 
     // Keep addTab as convenience alias
     @discardableResult
-    func addTab() -> Workspace { addWorkspace() }
+    func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
@@ -1503,12 +1505,13 @@ class TabManager: ObservableObject {
 
     /// Create a new split in the specified direction
     /// Returns the new panel's ID (which is also the surface ID for terminals)
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection) -> UUID? {
+    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
-            insertFirst: direction.insertFirst
+            insertFirst: direction.insertFirst,
+            focus: focus
         )?.id
     }
 
@@ -1559,14 +1562,16 @@ class TabManager: ObservableObject {
         fromPanelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        url: URL? = nil
+        url: URL? = nil,
+        focus: Bool = true
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
-            url: url
+            url: url,
+            focus: focus
         )?.id
     }
 
