@@ -129,6 +129,30 @@ final class NotificationBurstCoalescer {
     }
 }
 
+struct RecentlyClosedBrowserStack {
+    private(set) var entries: [ClosedBrowserPanelRestoreSnapshot] = []
+    let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    var isEmpty: Bool {
+        entries.isEmpty
+    }
+
+    mutating func push(_ snapshot: ClosedBrowserPanelRestoreSnapshot) {
+        entries.append(snapshot)
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+    }
+
+    mutating func pop() -> ClosedBrowserPanelRestoreSnapshot? {
+        entries.popLast()
+    }
+}
+
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -330,6 +354,7 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -392,6 +417,16 @@ class TabManager: ObservableObject {
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
+    }
+
+    private func wireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = { [weak self] snapshot in
+            self?.recentlyClosedBrowsers.push(snapshot)
+        }
+    }
+
+    private func unwireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = nil
     }
 
     var selectedWorkspace: Workspace? {
@@ -460,6 +495,7 @@ class TabManager: ObservableObject {
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, portOrdinal: ordinal)
+        wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
@@ -625,6 +661,7 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        unwireClosedBrowserTracking(for: workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -646,6 +683,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
 
         let removed = tabs.remove(at: index)
+        unwireClosedBrowserTracking(for: removed)
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
         if tabs.isEmpty {
@@ -664,6 +702,7 @@ class TabManager: ObservableObject {
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
             return max(0, min(index, tabs.count))
@@ -1544,6 +1583,63 @@ class TabManager: ObservableObject {
             insertAtEnd: insertAtEnd
         )
         return panel?.id
+    }
+
+    /// Reopen the most recently closed browser panel (Cmd+Shift+T).
+    /// No-op when no browser panel restore snapshot is available.
+    @discardableResult
+    func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        while let snapshot = recentlyClosedBrowsers.pop() {
+            guard let targetWorkspace =
+                tabs.first(where: { $0.id == snapshot.workspaceId })
+                ?? selectedWorkspace
+                ?? tabs.first else {
+                return false
+            }
+
+            if selectedTabId != targetWorkspace.id {
+                selectedTabId = targetWorkspace.id
+            }
+
+            if reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func reopenClosedBrowserPanel(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        in workspace: Workspace
+    ) -> Bool {
+        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+           let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
+            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let maxIndex = max(0, tabCount - 1)
+            let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
+            _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
+            return true
+        }
+
+        if let orientation = snapshot.fallbackSplitOrientation,
+           let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
+           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
+           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
+           workspace.newBrowserSplit(
+               from: anchorPanelId,
+               orientation: orientation,
+               insertFirst: snapshot.fallbackSplitInsertFirst,
+               url: snapshot.url
+           ) != nil {
+            return true
+        }
+
+        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return false
+        }
+        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true) != nil
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.

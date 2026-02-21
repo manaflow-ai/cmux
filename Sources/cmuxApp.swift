@@ -363,6 +363,11 @@ struct cmuxApp: App {
                     closeTabOrWindow()
                 }
                 .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                Button("Reopen Closed Browser Panel") {
+                    _ = (AppDelegate.shared?.tabManager ?? tabManager).reopenMostRecentlyClosedBrowserPanel()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
 
             // Find
