@@ -38,13 +38,13 @@ export default function Home() {
         </p>
 
         {/* Download */}
-        <div className="flex flex-wrap items-center gap-3" data-dev="download" style={{ marginTop: 21, marginBottom: 33 }}>
+        <div className="flex flex-wrap items-center gap-3" data-dev="download" style={{ marginTop: 21, marginBottom: 16 }}>
           <DownloadButton location="hero" />
           <GitHubButton />
         </div>
 
         {/* Features */}
-        <section data-dev="features">
+        <section data-dev="features" style={{ paddingTop: 12, paddingBottom: 15 }}>
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             Features
           </h2>
@@ -113,7 +113,6 @@ export default function Home() {
               </span>
             </li>
           </ul>
-          <div data-dev="features-spacer" style={{ height: 23 }} />
         </section>
 
         {/* Screenshot — break out of max-w-2xl to be wider */}
@@ -127,17 +126,9 @@ export default function Home() {
           />
         </div>
 
-        {/* Wall of Love — break out wider */}
-        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40 mb-10">
-          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
-            {testimonials.map((t) => (
-              <TestimonialCard key={t.url} testimonial={t} />
-            ))}
-          </div>
-        </section>
-
         {/* FAQ */}
-        <section data-dev="faq">
+        <div data-dev="faq-top-spacer" style={{ height: 0 }} />
+        <section data-dev="faq" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             FAQ
           </h2>
@@ -160,19 +151,25 @@ export default function Home() {
             <div>
               <p className="font-medium mb-1">What coding agents does cmux work with?</p>
               <p className="text-muted">
-                Yes. The notification system uses standard terminal escape sequences (OSC 9/99/777),
-                so any CLI tool that prints those will trigger notification rings. The socket API and
-                CLI work with any process. People use cmux with Claude Code, Gemini CLI, Codex, Aider,
-                and other agents.
+                All of them. cmux is a terminal, so any agent that runs in a terminal works out of the
+                box — Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline,
+                Cursor Agent, and anything else you can launch from the command line. cmux shows
+                notification rings on sidebar tabs when a process needs attention — for example,
+                when Claude Code asks a question or a build finishes. These work automatically
+                with any tool via standard terminal escape sequences (OSC 9/99/777), or you can{" "}
+                <a href="/docs/notifications" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">trigger them programmatically</a>{" "}
+                with the cmux CLI.
               </p>
             </div>
             <div>
               <p className="font-medium mb-1">Can I customize keyboard shortcuts?</p>
               <p className="text-muted">
-                cmux reads keybindings from Ghostty config files (<code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">~/.config/ghostty/config</code>).
-                See the{" "}
-                <a href="/docs/configuration" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">configuration docs</a>{" "}
-                for details.
+                Terminal keybindings are read from your Ghostty config
+                file (<code className="text-xs bg-code-bg px-1.5 py-0.5 rounded">~/.config/ghostty/config</code>).
+                cmux-specific shortcuts (workspaces, splits, browser, notifications) can be
+                customized in Settings. See the{" "}
+                <a href="/docs/keyboard-shortcuts" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">default shortcuts</a>{" "}
+                for a full list.
               </p>
             </div>
             <div>
@@ -199,6 +196,15 @@ export default function Home() {
                 <a href="https://github.com/manaflow-ai/cmux" className="underline underline-offset-2 decoration-border hover:decoration-foreground transition-colors">GitHub</a>.
               </p>
             </div>
+          </div>
+        </section>
+
+        {/* Wall of Love — break out wider */}
+        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
+            {testimonials.map((t) => (
+              <TestimonialCard key={t.url} testimonial={t} />
+            ))}
           </div>
         </section>
 

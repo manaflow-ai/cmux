@@ -10,7 +10,9 @@ type DevValues = {
   downloadAbove: number;
   downloadBelow: number;
   featuresLh: number;
-  featuresMb: number;
+  featuresPt: number;
+  featuresPb: number;
+  faqPt: number;
   docsPt: number;
 };
 
@@ -20,9 +22,11 @@ const defaults: DevValues = {
   cursorBlink: true,
   subtitleLh: 1.5,
   downloadAbove: 21,
-  downloadBelow: 33,
+  downloadBelow: 16,
   featuresLh: 1.275,
-  featuresMb: 23,
+  featuresPt: 12,
+  featuresPb: 15,
+  faqPt: 0,
   docsPt: 8,
 };
 
@@ -67,8 +71,14 @@ function applyToDOM(v: DevValues) {
   const featuresUl = el("features-ul");
   if (featuresUl) featuresUl.style.lineHeight = `${v.featuresLh}`;
 
-  const featuresSpacer = el("features-spacer");
-  if (featuresSpacer) featuresSpacer.style.height = `${v.featuresMb}px`;
+  const features = el("features");
+  if (features) {
+    features.style.paddingTop = `${v.featuresPt}px`;
+    features.style.paddingBottom = `${v.featuresPb}px`;
+  }
+
+  const faqTopSpacer = el("faq-top-spacer");
+  if (faqTopSpacer) faqTopSpacer.style.height = `${v.faqPt}px`;
 
   const docsContent = el("docs-content");
   if (docsContent) docsContent.style.paddingTop = `${v.docsPt}px`;
@@ -156,7 +166,12 @@ export function DevPanel() {
 
       <Section label="Features">
         <Row label="line-h" value={vals.featuresLh} onChange={(v) => update({ featuresLh: v })} min={1} max={2.5} step={0.025} unit="" w={16} />
-        <Row label="mb" value={vals.featuresMb} onChange={(v) => update({ featuresMb: v })} />
+        <Row label="pt" value={vals.featuresPt} onChange={(v) => update({ featuresPt: v })} />
+        <Row label="pb" value={vals.featuresPb} onChange={(v) => update({ featuresPb: v })} />
+      </Section>
+
+      <Section label="FAQ">
+        <Row label="pt" value={vals.faqPt} onChange={(v) => update({ faqPt: v })} />
       </Section>
 
       <Section label="Docs">
@@ -173,7 +188,9 @@ export function DevPanel() {
             `download-above: ${vals.downloadAbove}px`,
             `download-below: ${vals.downloadBelow}px`,
             `features-lh: ${vals.featuresLh}`,
-            `features-mb: ${vals.featuresMb}px`,
+            `features-pt: ${vals.featuresPt}px`,
+            `features-pb: ${vals.featuresPb}px`,
+            `faq-pt: ${vals.faqPt}px`,
             `docs-pt: ${vals.docsPt}px`,
           ].join(", ");
           navigator.clipboard.writeText(text);
