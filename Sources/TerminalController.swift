@@ -484,6 +484,9 @@ class TerminalController {
         case "seed_drag_pasteboard_sidebar_reorder":
             return seedDragPasteboardSidebarReorder()
 
+        case "seed_drag_pasteboard_types":
+            return seedDragPasteboardTypes(args)
+
         case "clear_drag_pasteboard":
             return clearDragPasteboard()
 
@@ -492,6 +495,9 @@ class TerminalController {
 
         case "overlay_hit_gate":
             return overlayHitGate(args)
+
+        case "overlay_drop_gate":
+            return overlayDropGate(args)
 
         case "activate_app":
             return activateApp()
@@ -6284,9 +6290,11 @@ class TerminalController {
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
           seed_drag_pasteboard_sidebar_reorder - Seed NSDrag pasteboard with sidebar reorder type (test-only)
+          seed_drag_pasteboard_types <types> - Seed NSDrag pasteboard with comma/space-separated types (fileurl, tabtransfer, sidebarreorder, or raw UTI)
           clear_drag_pasteboard           - Clear NSDrag pasteboard (test-only)
           drop_hit_test <x 0-1> <y 0-1> - Hit-test file-drop overlay at normalised coords (test-only)
           overlay_hit_gate <event|none> - Return true/false if file-drop overlay would capture hit-testing for event type (test-only)
+          overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -6515,26 +6523,43 @@ class TerminalController {
     }
 
     private func seedDragPasteboardFileURL() -> String {
-        DispatchQueue.main.sync {
-            _ = NSPasteboard(name: .drag).declareTypes([.fileURL], owner: nil)
-        }
-        return "OK"
+        return seedDragPasteboardTypes("fileurl")
     }
 
     private func seedDragPasteboardTabTransfer() -> String {
-        DispatchQueue.main.sync {
-            _ = NSPasteboard(name: .drag).declareTypes([
-                NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
-            ], owner: nil)
-        }
-        return "OK"
+        return seedDragPasteboardTypes("tabtransfer")
     }
 
     private func seedDragPasteboardSidebarReorder() -> String {
+        return seedDragPasteboardTypes("sidebarreorder")
+    }
+
+    private func seedDragPasteboardTypes(_ args: String) -> String {
+        let raw = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            return "ERROR: Usage: seed_drag_pasteboard_types <type[,type...]>"
+        }
+
+        let tokens = raw
+            .split(whereSeparator: { $0 == "," || $0.isWhitespace })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else {
+            return "ERROR: Usage: seed_drag_pasteboard_types <type[,type...]>"
+        }
+
+        var types: [NSPasteboard.PasteboardType] = []
+        for token in tokens {
+            guard let mapped = dragPasteboardType(from: token) else {
+                return "ERROR: Unknown drag type '\(token)'"
+            }
+            if !types.contains(mapped) {
+                types.append(mapped)
+            }
+        }
+
         DispatchQueue.main.sync {
-            _ = NSPasteboard(name: .drag).declareTypes([
-                DragOverlayRoutingPolicy.sidebarTabReorderType
-            ], owner: nil)
+            _ = NSPasteboard(name: .drag).declareTypes(types, owner: nil)
         }
         return "OK"
     }
@@ -6590,6 +6615,46 @@ class TerminalController {
         }
 
         return shouldCapture ? "true" : "false"
+    }
+
+    private func overlayDropGate(_ args: String) -> String {
+        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasLocalDraggingSource: Bool
+        switch token {
+        case "", "external":
+            hasLocalDraggingSource = false
+        case "local":
+            hasLocalDraggingSource = true
+        default:
+            return "ERROR: Usage: overlay_drop_gate [external|local]"
+        }
+
+        var shouldCapture = false
+        DispatchQueue.main.sync {
+            let pb = NSPasteboard(name: .drag)
+            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+                pasteboardTypes: pb.types,
+                hasLocalDraggingSource: hasLocalDraggingSource
+            )
+        }
+        return shouldCapture ? "true" : "false"
+    }
+
+    private func dragPasteboardType(from token: String) -> NSPasteboard.PasteboardType? {
+        let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "fileurl", "file-url", "public.file-url":
+            return .fileURL
+        case "tabtransfer", "tab-transfer", "com.splittabbar.tabtransfer":
+            return DragOverlayRoutingPolicy.bonsplitTabTransferType
+        case "sidebarreorder", "sidebar-reorder", "sidebar_tab_reorder",
+            "com.cmux.sidebar-tab-reorder":
+            return DragOverlayRoutingPolicy.sidebarTabReorderType
+        default:
+            // Allow explicit UTI strings for ad-hoc debug probes.
+            guard token.contains(".") else { return nil }
+            return NSPasteboard.PasteboardType(token)
+        }
     }
 
     /// Hit-tests the file-drop overlay's coordinate-to-terminal mapping.
