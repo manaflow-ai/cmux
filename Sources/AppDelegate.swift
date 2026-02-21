@@ -1737,25 +1737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // SwiftUI/AppKit key-equivalent dispatch can consume Cmd+F without
         // invoking our Find command when focus temporarily drifts.
         if flags == [.command], chars == "f" {
-            findDebugLog("shortcut cmd+f keyCode=\(event.keyCode) addrBarPanel=\(browserAddressBarFocusedPanelId?.uuidString ?? "nil")")
-            logFindDebugSnapshot(
-                label: "shortcut.cmdf.pre",
-                window: NSApp.keyWindow,
-                focusView: NSApp.keyWindow?.firstResponder as? NSView
-            )
-
             let handled = handleFindShortcutViaStateMachine()
-            findDebugLog("shortcut cmd+f handled=\(handled)")
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                Task { @MainActor in
-                    logFindDebugSnapshot(
-                        label: "shortcut.cmdf.post",
-                        window: NSApp.keyWindow,
-                        focusView: NSApp.keyWindow?.firstResponder as? NSView
-                    )
-                }
-            }
             return handled
         }
         // Primary UI shortcuts
@@ -2076,17 +2058,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .browserAddressBar(let panelId, let panel):
             tabManager?.selectedWorkspace?.focusPanel(panel.id)
             transitionAddressBarFocusToFind(panelId: panelId)
-            let handled = panel.showFindInterface()
-            findDebugLog("shortcut cmd+f route=addressBar panel=\(panel.id.uuidString) handled=\(handled)")
-            return handled
+            return panel.showFindInterface()
         case .browserPanel(let panel):
-            let handled = panel.showFindInterface()
-            findDebugLog("shortcut cmd+f route=browser panel=\(panel.id.uuidString) handled=\(handled)")
-            return handled
+            return panel.showFindInterface()
         case .fallback:
-            let handled = tabManager?.startSearch() ?? false
-            findDebugLog("shortcut cmd+f route=fallback handled=\(handled)")
-            return handled
+            return tabManager?.startSearch() ?? false
         }
     }
 

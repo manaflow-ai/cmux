@@ -865,7 +865,7 @@ private func makeShortcutKeyDownEvent(
 
 @MainActor
 final class TabManagerFindRoutingTests: XCTestCase {
-    func testBrowserFocusedRoutesFindActionsToTextFinder() {
+    func testBrowserFocusedRoutesFindActionsToInPageFindFallback() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let browserPanelId = manager.openBrowser(insertAtEnd: true),
@@ -885,16 +885,15 @@ final class TabManagerFindRoutingTests: XCTestCase {
 #endif
 
         XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        browserPanel.updateInPageFindQuery("example")
         XCTAssertTrue(manager.findNext())
         XCTAssertTrue(manager.findPrevious())
         XCTAssertTrue(manager.searchSelection())
         XCTAssertTrue(manager.hideFind())
 
 #if DEBUG
-        XCTAssertEqual(
-            actions,
-            [.showFindInterface, .nextMatch, .previousMatch, .setSearchString, .hideFindInterface]
-        )
+        XCTAssertTrue(actions.isEmpty)
 #endif
     }
 
@@ -960,7 +959,8 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         }
 
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: event))
-        XCTAssertEqual(actions, [.showFindInterface])
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
     }
     func testCmdLThenCmdFRoutesAddressBarStateToBrowserFindAndClearsOmnibarMode() {
         _ = NSApplication.shared
@@ -988,7 +988,8 @@ final class AppDelegateFindShortcutTests: XCTestCase {
 
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdLEvent))
         XCTAssertTrue(delegate.debugHandleCustomShortcut(event: cmdFEvent))
-        XCTAssertEqual(actions, [.showFindInterface])
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
 
         // After Cmd+F handoff, omnibar navigation shortcuts should no longer be consumed.
         XCTAssertFalse(delegate.debugHandleCustomShortcut(event: ctrlNEvent))
@@ -1024,16 +1025,19 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
     func testShowFindInterfaceAlsoShowsFallbackWhenTextFinderActionHandled() {
         _ = NSApplication.shared
         let panel = BrowserPanel(workspaceId: UUID())
+        var actions: [NSTextFinder.Action] = []
 
         panel.debugTextFinderActionHandler = { action in
-            action == .showFindInterface
+            actions.append(action)
+            return true
         }
 
         XCTAssertTrue(panel.showFindInterface())
         XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(actions.isEmpty)
     }
 
-    func testShowFindInterfaceDispatchesToDescendantResponder() {
+    func testShowFindInterfaceDoesNotDispatchToDescendantResponder() {
         _ = NSApplication.shared
         let panel = BrowserPanel(workspaceId: UUID())
         let responderView = FinderResponderView(frame: .zero)
@@ -1061,7 +1065,8 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         _ = window.makeFirstResponder(panel.webView)
 
         XCTAssertTrue(panel.showFindInterface())
-        XCTAssertEqual(responderView.receivedActionTags, [NSTextFinder.Action.showFindInterface.rawValue])
+        XCTAssertTrue(panel.isInPageFindVisible)
+        XCTAssertTrue(responderView.receivedActionTags.isEmpty)
     }
 
     func testUnchangedBrowserFindQueryDoesNotAdvanceCurrentMatch() {
@@ -1129,6 +1134,22 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
         // Empty query clears highlights/state in WebKit instead of routing through the match handler.
         XCTAssertEqual(requests.count, 1)
+
+        let tokenAfterFirstClear = panel.inPageFindFocusToken
+        panel.updateInPageFindQuery("")
+        XCTAssertEqual(panel.inPageFindQuery, "")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(panel.inPageFindFocusToken, tokenAfterFirstClear + 1)
+
+        panel.updateInPageFindQuery("   ")
+        XCTAssertEqual(panel.inPageFindQuery, "   ")
+        XCTAssertNil(panel.inPageFindMatchFound)
+        XCTAssertEqual(panel.inPageFindMatchCount, 0)
+        XCTAssertEqual(panel.inPageFindCurrentMatchIndex, 0)
+        XCTAssertEqual(requests.count, 1)
     }
 
     func testInPageFindScriptPrefersCustomHighlightAPIWithFallbackAvailable() throws {
@@ -1167,6 +1188,8 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         let clearScript = panel.debugClearInPageFindHighlightScript(requestSequence: 43)
         XCTAssertTrue(clearScript.contains("CSS.highlights.delete(allHighlightName)"))
         XCTAssertTrue(clearScript.contains("CSS.highlights.delete(activeHighlightName)"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.clear()"))
+        XCTAssertTrue(clearScript.contains("CSS.highlights.set(allHighlightName, new Highlight())"))
         XCTAssertTrue(clearScript.contains("const requestSequence = 43;"))
         XCTAssertTrue(clearScript.contains("if (normalizedRequestSequence < latestSequence)"))
     }

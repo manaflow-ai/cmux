@@ -1804,55 +1804,50 @@ extension BrowserPanel {
 
     @discardableResult
     func showFindInterface() -> Bool {
-        let nativeHandled = performTextFinderAction(.showFindInterface)
         let fallbackHandled = showInPageFindFallback(focusField: true)
         if !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             _ = runInPageFindFallback(backwards: false)
         }
         browserFindDebugLog(
-            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func findNextMatch() -> Bool {
-        let nativeHandled = performTextFinderAction(.nextMatch)
         let fallbackHandled = runInPageFindFallback(backwards: false)
         browserFindDebugLog(
-            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func findPreviousMatch() -> Bool {
-        let nativeHandled = performTextFinderAction(.previousMatch)
         let fallbackHandled = runInPageFindFallback(backwards: true)
         browserFindDebugLog(
-            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func hideFindInterface() -> Bool {
-        let nativeHandled = performTextFinderAction(.hideFindInterface)
         let fallbackHandled = hideInPageFindFallback()
         browserFindDebugLog(
-            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
+            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     @discardableResult
     func useSelectionForFind() -> Bool {
-        let nativeHandled = performTextFinderAction(.setSearchString)
         let fallbackHandled = useSelectionForInPageFindFallback()
         browserFindDebugLog(
-            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled)"
+            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=false fallbackHandled=\(fallbackHandled)"
         )
-        return nativeHandled || fallbackHandled
+        return fallbackHandled
     }
 
     func updateInPageFindQuery(_ query: String) {
@@ -1862,7 +1857,14 @@ extension BrowserPanel {
         browserFindDebugLog(
             "browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\" unchanged=\(unchanged)"
         )
-        guard !unchanged else { return }
+        if unchanged {
+            // SwiftUI can emit duplicate empty-value updates; keep this idempotent clear path
+            // so stale highlights are removed even when the model value doesn't change.
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                _ = runInPageFindFallback(backwards: false)
+            }
+            return
+        }
         _ = runInPageFindFallback(backwards: false)
     }
 
@@ -2368,13 +2370,20 @@ private extension BrowserPanel {
     }
 
     private func clearInPageFindHighlightsInWebView(requestSequence: Int? = nil) {
-        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] _, error in
-            guard let error else { return }
+        webView.evaluateJavaScript(clearInPageFindHighlightScript(requestSequence: requestSequence)) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
-                browserFindDebugLog(
-                    "browser.inPageFind.clear panel=\(self.id.uuidString) error=\(error.localizedDescription)"
-                )
+                if let error {
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) error=\(error.localizedDescription)"
+                    )
+                    return
+                }
+                if let dict = result as? [String: Any], let stale = dict["stale"] as? Bool, stale {
+                    browserFindDebugLog(
+                        "browser.inPageFind.clear panel=\(self.id.uuidString) stale=true request=\(requestSequence.map(String.init) ?? "nil")"
+                    )
+                }
             }
         }
     }
@@ -2420,8 +2429,15 @@ private extension BrowserPanel {
 
           function clearCustomHighlights() {
             if (typeof CSS === "undefined" || !CSS.highlights) return;
-            try { CSS.highlights.delete(allHighlightName); } catch (_) {}
-            try { CSS.highlights.delete(activeHighlightName); } catch (_) {}
+            try {
+              if (typeof Highlight !== "undefined" && typeof CSS.highlights.set === "function") {
+                CSS.highlights.set(allHighlightName, new Highlight());
+                CSS.highlights.set(activeHighlightName, new Highlight());
+              }
+            } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(allHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.delete === "function") CSS.highlights.delete(activeHighlightName); } catch (_) {}
+            try { if (typeof CSS.highlights.clear === "function") CSS.highlights.clear(); } catch (_) {}
           }
 
           clearMarks();
