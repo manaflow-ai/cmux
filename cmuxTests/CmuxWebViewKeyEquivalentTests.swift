@@ -1124,6 +1124,73 @@ final class AppDelegateFindShortcutTests: XCTestCase {
         XCTAssertEqual(browserPanel.inPageFindCurrentMatchIndex, 0)
     }
 
+    func testCopyBrowserFindDiagnosticsWithoutFocusedBrowserPanelProducesFallbackPayload() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        var copiedPayload: String?
+        delegate.debugCopyBrowserFindDiagnosticsSink = { payload in
+            copiedPayload = payload
+        }
+        defer { delegate.debugCopyBrowserFindDiagnosticsSink = nil }
+
+        delegate.copyBrowserFindDiagnostics(nil)
+
+        guard let copiedPayload else {
+            XCTFail("Expected diagnostics payload to be copied")
+            return
+        }
+        XCTAssertTrue(copiedPayload.contains("No focused browser panel found"))
+        XCTAssertTrue(copiedPayload.contains("selectedWorkspaceId"))
+    }
+
+    func testCopyBrowserFindDiagnosticsCapturesFocusedBrowserPanelSnapshot() {
+        _ = NSApplication.shared
+        let manager = TabManager()
+        let delegate = AppDelegate()
+        delegate.tabManager = manager
+
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+        _ = browserPanel.showFindInterface()
+        browserPanel.updateInPageFindQuery("needle")
+        browserPanel.debugInPageFindDiagnosticsHandler = {
+            [
+                "spanMarkCount": 10,
+                "activeHighlightRangeCount": 1,
+                "supportsCustomHighlights": true,
+                "title": "Example Domain",
+            ]
+        }
+
+        let copied = expectation(description: "copy browser find diagnostics")
+        var copiedPayload: String?
+        delegate.debugCopyBrowserFindDiagnosticsSink = { payload in
+            copiedPayload = payload
+            copied.fulfill()
+        }
+        defer { delegate.debugCopyBrowserFindDiagnosticsSink = nil }
+
+        delegate.copyBrowserFindDiagnostics(nil)
+        wait(for: [copied], timeout: 1.0)
+
+        guard let copiedPayload else {
+            XCTFail("Expected diagnostics payload to be copied")
+            return
+        }
+        XCTAssertTrue(copiedPayload.contains("\"inPageFindQuery\" : \"needle\""))
+        XCTAssertTrue(copiedPayload.contains("\"pageDiagnostics\""))
+        XCTAssertTrue(copiedPayload.contains("\"spanMarkCount\" : 10"))
+    }
+
 }
 #endif
 

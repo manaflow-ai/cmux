@@ -231,6 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     var debugFindShortcutTerminalPanelIdOverride: (() -> UUID?)?
+    var debugCopyBrowserFindDiagnosticsSink: ((String) -> Void)?
 
     private func childExitKeyboardProbePath() -> String? {
         let env = ProcessInfo.processInfo.environment
@@ -863,6 +864,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    @objc func copyBrowserFindDiagnostics(_ sender: Any?) {
+        guard let panel = browserPanelForFindDiagnostics() else {
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let payload = """
+            {
+              "capturedAt": "\(timestamp)",
+              "error": "No focused browser panel found.",
+              "addressBarFocusedPanelId": "\(browserAddressBarFocusedPanelId?.uuidString ?? "nil")",
+              "hasFocusedBrowserPanel": \(tabManager?.focusedBrowserPanel == nil ? "false" : "true"),
+              "selectedWorkspaceId": "\(tabManager?.selectedWorkspace?.id.uuidString ?? "nil")"
+            }
+            """
+            copyBrowserFindDiagnosticsPayload(payload)
+            return
+        }
+
+        panel.debugCaptureInPageFindDiagnostics { [weak self] payload in
+            self?.copyBrowserFindDiagnosticsPayload(payload)
+        }
+    }
+
+    private func browserPanelForFindDiagnostics() -> BrowserPanel? {
+        if let panelId = browserAddressBarFocusedPanelId,
+           let panel = browserPanel(for: panelId) {
+            return panel
+        }
+        return tabManager?.focusedBrowserPanel
+    }
+
+    private func copyBrowserFindDiagnosticsPayload(_ payload: String) {
+        if let sink = debugCopyBrowserFindDiagnosticsSink {
+            sink(payload)
+            return
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(payload, forType: .string)
+    }
+
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()

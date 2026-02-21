@@ -1017,6 +1017,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var debugTextFinderActionHandler: ((NSTextFinder.Action) -> Bool)?
     var debugInPageFindFallbackHandler: ((BrowserInPageFindDebugRequest) -> BrowserInPageFindDebugResult)?
     var debugInPageFindClearHandler: ((Int?, Bool) -> Void)?
+    var debugInPageFindDiagnosticsHandler: (() -> [String: Any])?
 #endif
 
     // Avoid flickering the loading indicator for very fast navigations.
@@ -2070,6 +2071,224 @@ extension BrowserPanel {
 
 #if DEBUG
 extension BrowserPanel {
+    private static let debugInPageFindISO8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static func debugInPageFindJSONString(_ payload: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "Failed to serialize browser find diagnostics payload."
+        }
+        return text + "\n"
+    }
+
+    private static func debugResponderChainSummary(_ responder: NSResponder?) -> [String: Any] {
+        var chain: [String] = []
+        var current = responder
+        var hops = 0
+        while let value = current, hops < 16 {
+            chain.append(String(describing: type(of: value)))
+            current = value.nextResponder
+            hops += 1
+        }
+        return [
+            "firstResponderType": describeResponderForFindDispatch(responder),
+            "chain": chain,
+        ]
+    }
+
+    func debugCaptureInPageFindDiagnostics(completion: @escaping (String) -> Void) {
+        let finalize: (_ pageDiagnostics: [String: Any]?, _ pageError: String?) -> Void = { [weak self] pageDiagnostics, pageError in
+            guard let self else { return }
+            let matchFoundValue: Any = self.inPageFindMatchFound.map { NSNumber(value: $0) } ?? NSNull()
+            let window = self.webView.window
+            var payload: [String: Any] = [
+                "capturedAt": Self.debugInPageFindISO8601.string(from: Date()),
+                "workspaceId": self.workspaceId.uuidString,
+                "panelId": self.id.uuidString,
+                "url": self.currentURL?.absoluteString ?? "",
+                "title": self.pageTitle,
+                "isInPageFindVisible": self.isInPageFindVisible,
+                "inPageFindQuery": self.inPageFindQuery,
+                "inPageFindLastQuery": self.inPageFindLastQuery,
+                "inPageFindMatchFound": matchFoundValue,
+                "inPageFindMatchCount": self.inPageFindMatchCount,
+                "inPageFindCurrentMatchIndex": self.inPageFindCurrentMatchIndex,
+                "inPageFindRequestSequence": self.inPageFindRequestSequence,
+                "inPageFindFocusToken": self.inPageFindFocusToken,
+                "webViewFrame": Self.debugRectDescription(self.webView.frame),
+                "webViewBounds": Self.debugRectDescription(self.webView.bounds),
+                "webViewIsHidden": self.webView.isHidden,
+                "webViewHasHiddenAncestor": self.webView.isHiddenOrHasHiddenAncestor,
+                "windowNumber": window?.windowNumber ?? -1,
+                "keyWindowNumber": NSApp.keyWindow?.windowNumber ?? -1,
+                "mainWindowNumber": NSApp.mainWindow?.windowNumber ?? -1,
+                "responder": Self.debugResponderChainSummary(window?.firstResponder),
+                "developerToolsState": self.debugDeveloperToolsStateSummary(),
+                "developerToolsGeometry": self.debugDeveloperToolsGeometrySummary(),
+            ]
+
+            if let pageDiagnostics {
+                payload["pageDiagnostics"] = pageDiagnostics
+            } else {
+                payload["pageDiagnostics"] = NSNull()
+            }
+            payload["pageDiagnosticsError"] = pageError ?? NSNull()
+
+            completion(Self.debugInPageFindJSONString(payload))
+        }
+
+        if let debugInPageFindDiagnosticsHandler {
+            finalize(debugInPageFindDiagnosticsHandler(), nil)
+            return
+        }
+
+        webView.evaluateJavaScript(debugInPageFindDiagnosticsScript()) { result, error in
+            DispatchQueue.main.async {
+                if let error {
+                    finalize(nil, error.localizedDescription)
+                    return
+                }
+                if let dictionary = result as? [String: Any] {
+                    finalize(dictionary, nil)
+                    return
+                }
+                if result == nil {
+                    finalize(nil, "JavaScript returned nil diagnostics payload.")
+                    return
+                }
+                finalize(
+                    nil,
+                    "Unexpected JavaScript diagnostics payload type: \(String(describing: type(of: result as AnyObject)))."
+                )
+            }
+        }
+    }
+
+    private func debugInPageFindDiagnosticsScript() -> String {
+        """
+        (function() {
+          const styleId = "cmux-inpage-find-style";
+          const markClass = "cmux-inpage-find-hit";
+          const activeClass = "cmux-inpage-find-active";
+          const stateKey = "__cmuxInPageFindState";
+          const sequenceKey = "__cmuxInPageFindSequence";
+          const allHighlightName = "cmux-inpage-find-all";
+          const activeHighlightName = "cmux-inpage-find-active";
+
+          function clip(value, limit) {
+            const text = String(value || "");
+            if (text.length <= limit) return text;
+            return text.slice(0, limit) + "…";
+          }
+
+          function rectSummary(rect) {
+            if (!rect) return null;
+            return {
+              x: Number(rect.x || 0),
+              y: Number(rect.y || 0),
+              width: Number(rect.width || 0),
+              height: Number(rect.height || 0),
+            };
+          }
+
+          function styleSummary(element) {
+            if (!element || typeof getComputedStyle !== "function") return null;
+            const style = getComputedStyle(element);
+            return {
+              backgroundColor: style.backgroundColor || "",
+              color: style.color || "",
+              boxShadow: style.boxShadow || "",
+              outline: style.outline || "",
+            };
+          }
+
+          function highlightNames() {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.keys !== "function") {
+                return [];
+              }
+              return Array.from(CSS.highlights.keys()).map((value) => String(value));
+            } catch (_) {
+              return [];
+            }
+          }
+
+          function highlightSize(name) {
+            try {
+              if (typeof CSS === "undefined" || !CSS.highlights || typeof CSS.highlights.get !== "function") {
+                return null;
+              }
+              const highlight = CSS.highlights.get(name);
+              if (!highlight) return 0;
+              if (typeof highlight.size === "number") return highlight.size;
+              if (typeof highlight[Symbol.iterator] !== "function") return null;
+              let count = 0;
+              for (const _range of highlight) {
+                count += 1;
+              }
+              return count;
+            } catch (_) {
+              return null;
+            }
+          }
+
+          function activeElementSummary() {
+            const active = document.activeElement;
+            if (!active) return null;
+            return {
+              tagName: active.tagName || "",
+              id: active.id || "",
+              className: typeof active.className === "string" ? active.className : "",
+              role: active.getAttribute ? (active.getAttribute("role") || "") : "",
+              text: clip(active.textContent || "", 120),
+            };
+          }
+
+          const styleElement = document.getElementById(styleId);
+          const marks = Array.from(document.querySelectorAll("span." + markClass));
+          const activeMarks = Array.from(document.querySelectorAll("span." + markClass + "." + activeClass));
+          const firstMark = marks.length > 0 ? marks[0] : null;
+          const selection = typeof window.getSelection === "function" ? window.getSelection() : null;
+          const firstMarkRect = firstMark && typeof firstMark.getBoundingClientRect === "function"
+            ? firstMark.getBoundingClientRect()
+            : null;
+          const state = window[stateKey] || null;
+          const hasCustomHighlights = (typeof CSS !== "undefined" && !!CSS.highlights);
+
+          return {
+            href: String((typeof location !== "undefined" && location.href) || ""),
+            title: String(document.title || ""),
+            readyState: String(document.readyState || ""),
+            visibilityState: String(document.visibilityState || ""),
+            bodyTextLength: Number((document.body && document.body.innerText && document.body.innerText.length) || 0),
+            styleTagPresent: !!styleElement,
+            styleTagLength: Number((styleElement && styleElement.textContent && styleElement.textContent.length) || 0),
+            supportsCustomHighlights: hasCustomHighlights,
+            highlightNames: highlightNames(),
+            allHighlightRangeCount: highlightSize(allHighlightName),
+            activeHighlightRangeCount: highlightSize(activeHighlightName),
+            spanMarkCount: marks.length,
+            spanActiveCount: activeMarks.length,
+            firstMarkText: firstMark ? clip(firstMark.textContent || "", 120) : "",
+            firstMarkRect: rectSummary(firstMarkRect),
+            firstMarkStyle: styleSummary(firstMark),
+            selectionText: selection ? clip(selection.toString() || "", 120) : "",
+            activeElement: activeElementSummary(),
+            findState: state ? {
+              query: String(state.query || ""),
+              activeIndex: Number.isFinite(state.activeIndex) ? Number(state.activeIndex) : null,
+            } : null,
+            findSequence: Number(window[sequenceKey] || 0),
+          };
+        })();
+        """
+    }
+
     func debugInPageFindHighlightScript(payloadJSON: String) -> String {
         inPageFindHighlightScript(payloadJSON: payloadJSON)
     }
