@@ -3031,7 +3031,7 @@ struct CMUXCLI {
               new-terminal-right | new-browser-right
               reload | duplicate
               pin | unpin
-              mark-unread
+              mark-read | mark-unread
 
             Flags:
               --action <name>              Action name (required if not positional)
