@@ -52,6 +52,15 @@ export default function Home() {
             <li className="flex gap-3">
               <span className="text-muted shrink-0">-</span>
               <span>
+                <strong className="font-medium">Vertical tabs</strong>
+                <span className="text-muted">
+                  : sidebar shows git branch, working directory, ports, and notification text
+                </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
                 <strong className="font-medium">Notification rings</strong>
                 <span className="text-muted">
                   : panes and tabs light up when agents need attention
@@ -73,15 +82,6 @@ export default function Home() {
                 <strong className="font-medium">In-app browser</strong>
                 <span className="text-muted">
                   : split a browser alongside your terminal with a scriptable API
-                </span>
-              </span>
-            </li>
-            <li className="flex gap-3">
-              <span className="text-muted shrink-0">-</span>
-              <span>
-                <strong className="font-medium">Vertical tabs</strong>
-                <span className="text-muted">
-                  : sidebar shows git branch, working directory, ports, and notification text
                 </span>
               </span>
             </li>
