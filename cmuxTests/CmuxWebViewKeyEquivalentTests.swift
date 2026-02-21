@@ -818,6 +818,13 @@ final class UpdateChannelSettingsTests: XCTestCase {
         XCTAssertTrue(resolved.usedFallback)
     }
 
+    func testResolvedFeedFallsBackWhenInfoFeedEmpty() {
+        let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: "")
+        XCTAssertEqual(resolved.url, UpdateFeedResolver.fallbackFeedURL)
+        XCTAssertFalse(resolved.isNightly)
+        XCTAssertTrue(resolved.usedFallback)
+    }
+
     func testResolvedFeedUsesInfoFeedForStableChannel() {
         let infoFeed = "https://example.com/custom/appcast.xml"
         let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeed)
@@ -951,6 +958,98 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+}
+
+@MainActor
+final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
+    func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/ws-switch")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
+    }
+
+    func testReopenFallsBackToCurrentWorkspaceAndFocusesBrowserWhenOriginalWorkspaceDeleted() {
+        let manager = TabManager()
+        guard let originalWorkspace = manager.selectedWorkspace,
+              let closedBrowserId = manager.openBrowser(url: URL(string: "https://example.com/deleted-ws")) else {
+            XCTFail("Expected initial workspace and browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(originalWorkspace.closePanel(closedBrowserId, force: true))
+        drainMainQueue()
+
+        let currentWorkspace = manager.addWorkspace()
+        manager.closeWorkspace(originalWorkspace)
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == originalWorkspace.id }))
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, currentWorkspace.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: currentWorkspace))
+    }
+
+    func testReopenCollapsedSplitFromDifferentWorkspaceFocusesBrowser() {
+        let manager = TabManager()
+        guard let workspace1 = manager.selectedWorkspace,
+              let sourcePanelId = workspace1.focusedPanelId,
+              let splitBrowserId = manager.newBrowserSplit(
+                tabId: workspace1.id,
+                fromPanelId: sourcePanelId,
+                orientation: .horizontal,
+                insertFirst: false,
+                url: URL(string: "https://example.com/collapsed-split")
+              ) else {
+            XCTFail("Expected to create browser split")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace1.closePanel(splitBrowserId, force: true))
+        drainMainQueue()
+
+        let workspace2 = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, workspace2.id)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace1.id)
+        XCTAssertTrue(isFocusedPanelBrowser(in: workspace1))
+    }
+
+    private func isFocusedPanelBrowser(in workspace: Workspace) -> Bool {
+        guard let focusedPanelId = workspace.focusedPanelId else { return false }
+        return workspace.panels[focusedPanelId] is BrowserPanel
+    }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
     }
 }
 

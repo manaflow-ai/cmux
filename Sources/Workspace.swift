@@ -2461,6 +2461,9 @@ extension Workspace: BonsplitDelegate {
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            markPanelRead(panelId)
         }
     }
 
