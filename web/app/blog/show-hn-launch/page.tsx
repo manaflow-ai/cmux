@@ -43,25 +43,52 @@ export default function ShowHNLaunchPage() {
       <time className="text-sm text-muted">February 21, 2026</time>
 
       <p className="mt-6">
-        I was running 5+ Claude Code sessions in parallel and kept losing
-        track of which ones needed attention. Terminal tabs all looked the
-        same. Switching between agents meant hunting through identical windows.
-      </p>
-
-      <p>
-        So I built{" "}
-        <a href="https://github.com/manaflow-ai/cmux">cmux</a>: a native
-        macOS terminal on top of{" "}
-        <a href="https://github.com/ghostty-org/ghostty">libghostty</a> that
-        puts agent state front and center. Vertical sidebar tabs show git
-        branch, working directory, and listening ports. When an agent needs
-        input, the tab flashes with a colored ring.
-      </p>
-
-      <p>
-        We posted it on{" "}
+        We posted cmux on{" "}
         <a href="https://news.ycombinator.com/item?id=47079718">Show HN</a>{" "}
-        and it hit the front page. Mitchell Hashimoto shared it:
+        on Feb 19:
+      </p>
+
+      <blockquote className="border-l-2 border-border pl-4 my-6 text-muted space-y-3 text-[15px]">
+        <p>
+          I run a lot of Claude Code and Codex sessions in parallel. I was using
+          Ghostty with a bunch of split panes, and relying on native macOS
+          notifications to know when an agent needed me. But Claude Code&apos;s
+          notification body is always just &quot;Claude is waiting for your
+          input&quot; with no context, and with enough tabs open, I couldn&apos;t
+          even read the titles anymore.
+        </p>
+        <p>
+          I tried a few coding orchestrators but most of them were Electron/Tauri
+          apps and the performance bugged me. I also just prefer the terminal
+          since GUI orchestrators lock you into their workflow. So I built cmux as
+          a native macOS app in Swift/AppKit. It uses libghostty for terminal
+          rendering and reads your existing Ghostty config for themes, fonts,
+          colors, and more.
+        </p>
+        <p>
+          The main additions are the sidebar and notification system. The sidebar
+          has vertical tabs that show git branch, working directory, listening
+          ports, and the latest notification text for each workspace. The
+          notification system picks up terminal sequences (OSC 9/99/777) and has a
+          CLI (cmux notify) you can wire into agent hooks for Claude Code,
+          OpenCode, etc. When an agent is waiting, its pane gets a blue ring and
+          the tab lights up in the sidebar, so I can tell which one needs me
+          across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
+        </p>
+        <p>
+          The in-app browser has a scriptable API. Agents can snapshot the
+          accessibility tree, get element refs, click, fill forms, evaluate JS,
+          and read console logs. You can split a browser pane next to your
+          terminal and have Claude Code interact with your dev server directly.
+        </p>
+        <p>
+          Everything is scriptable through the CLI and socket API: create
+          workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+        </p>
+      </blockquote>
+
+      <p>
+        It hit the front page. Mitchell Hashimoto shared it:
       </p>
 
       <Tweet id="2024913161238053296" />
