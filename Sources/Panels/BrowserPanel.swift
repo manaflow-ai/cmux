@@ -239,7 +239,15 @@ enum BrowserInsecureHTTPSettings {
 
     private static func trimHost(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        // Canonicalize IDN entries (e.g. bücher.example -> xn--bcher-kva.example)
+        // so user-entered allowlist patterns compare against URL.host consistently.
+        if let canonicalized = URL(string: "https://\(trimmed)")?.host {
+            return canonicalized
+        }
+
+        return trimmed
     }
 }
 
