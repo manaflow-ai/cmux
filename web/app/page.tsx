@@ -206,8 +206,7 @@ export default function Home() {
           </h2>
           <ul className="space-y-3 text-[15px]" style={{ lineHeight: 1.5 }}>
             {testimonials.map((t) => (
-              <li key={t.url} className="flex gap-3">
-                <span className="text-muted shrink-0">-</span>
+              <li key={t.url}>
                 <span>
                   <a
                     href={t.url}
