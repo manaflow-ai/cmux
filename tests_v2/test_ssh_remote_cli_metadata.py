@@ -171,6 +171,7 @@ def main() -> int:
             last_daemon = last_remote.get("daemon") or {}
             detail = str(last_daemon.get("detail") or "")
             _must("bootstrap failed" in detail.lower(), f"daemon error should mention bootstrap failure: {last_status}")
+            _must(re.search(r"retry\s+\d+", detail.lower()) is not None, f"daemon error should include retry count: {last_status}")
 
             # Lifecycle regression: disconnect with clear should reset remote/daemon metadata.
             disconnected = client._call(

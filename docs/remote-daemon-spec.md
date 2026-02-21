@@ -64,16 +64,29 @@ Minimum RPC surface:
 Protocol requirement:
 1. multiplexed framed streams (control + PTY + proxy data)
 
-## 6. Proxying
+## 6. Web Proxying (Browser-First)
 
-Proxy endpoints (loopback only by default):
-1. HTTP CONNECT
-2. SOCKS5
+Goal: remote workspaces browse from the remote host network, without per-service local port forwards.
 
-Behavior:
-1. requests tunnel to daemon, daemon dials destinations
-2. websocket must work in both proxy modes
-3. local bind conflicts return structured errors (+ optional next-port fallback)
+Model:
+1. `cmux ssh` creates/uses one **proxy endpoint per SSH transport** (not per workspace, not per destination port).
+2. Browser panels opened in remote workspaces are auto-wired to that endpoint.
+3. Terminal/service port forwarding is **not** the browser path; keep it opt-in for explicit localhost workflows only.
+
+Implementation:
+1. local `cmuxd` runs a transport-scoped proxy broker (`127.0.0.1:<ephemeral>`), supporting:
+   - HTTP CONNECT
+   - SOCKS5
+2. broker opens multiplexed proxy streams to `cmuxd-remote`; remote daemon performs outbound dials.
+3. browser wiring uses workspace-scoped `WKWebsiteDataStore.proxyConfigurations`:
+   - primary: SOCKS5 (`ProxyConfiguration(socksv5Proxy:)`)
+   - fallback: HTTP CONNECT (`ProxyConfiguration(httpCONNECTProxy:)`)
+4. browser panels in non-remote workspaces use no forced proxy config.
+
+Failure + reconnect:
+1. if proxy endpoint bind fails, return structured `proxy_unavailable` with actionable detail.
+2. if transport drops, browser requests fail fast, workspace status shows reconnect + retry count.
+3. after reconnect, proxy broker and WKWebView proxy config are revalidated automatically.
 
 ## 7. Reconnect Semantics
 
@@ -111,13 +124,13 @@ All cases require deterministic `MUST` assertions.
 
 | ID | Scenario | MUST Assertions |
 |---|---|---|
-| W-001 | HTTP CONNECT | fixture response matches expected body |
-| W-002 | SOCKS5 | response parity with direct remote |
+| W-001 | browser auto wiring | remote workspace browser gets daemon-backed proxy automatically |
+| W-002 | remote egress proof | remote workspace browser egress IP matches remote host, not local host |
 | W-003 | websocket via CONNECT | echo integrity, no unexpected close |
 | W-004 | websocket via SOCKS5 | echo integrity |
-| W-005 | port conflict | structured conflict error + fallback behavior |
+| W-005 | proxy listener conflict | structured `proxy_unavailable` + fallback bind behavior |
 | W-006 | concurrent PTY + proxy load | no PTY stall; proxy latency/error budget met |
-| W-007 | browser auto wiring | browser workflow uses daemon-backed proxy automatically when remote session is active |
+| W-007 | reconnect continuity | after transport reconnect, browser traffic resumes without manual proxy reconfiguration |
 
 ### 8.3 Reconnect
 
@@ -147,5 +160,5 @@ All cases require deterministic `MUST` assertions.
 
 ## 10. Open Decisions
 
-1. proxy endpoint scope: per daemon transport vs per workspace
-2. reconnect retry budget and backoff profile
+1. reconnect retry budget and backoff profile
+2. proxy auth policy (none vs optional credentials for local broker)
