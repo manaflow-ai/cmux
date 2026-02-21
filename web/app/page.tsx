@@ -43,17 +43,6 @@ export default function Home() {
           <GitHubButton />
         </div>
 
-        {/* Screenshot — break out of max-w-2xl to be wider */}
-        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
-          <Image
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            placeholder="blur"
-            className="w-full rounded-xl"
-          />
-        </div>
-
         {/* Features */}
         <section data-dev="features">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
@@ -126,6 +115,17 @@ export default function Home() {
           </ul>
           <div data-dev="features-spacer" style={{ height: 23 }} />
         </section>
+
+        {/* Screenshot — break out of max-w-2xl to be wider */}
+        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
+          <Image
+            src={landingImage}
+            alt="cmux terminal app screenshot"
+            priority
+            placeholder="blur"
+            className="w-full rounded-xl"
+          />
+        </div>
 
         {/* Wall of Love — break out wider */}
         <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40 mb-10">
