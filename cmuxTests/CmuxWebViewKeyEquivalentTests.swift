@@ -2960,4 +2960,9 @@ final class BrowserHostWhitelistTests: XCTestCase {
         defaults.set("http://\n*.\n", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
         XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
     }
+
+    func testUnicodeWhitelistEntryMatchesPunycodeHost() {
+        defaults.set("b\\u{00FC}cher.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
+    }
 }
