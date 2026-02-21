@@ -361,12 +361,12 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                self.enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -374,11 +374,11 @@ class TabManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                self.markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+                markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
             }
         })
 
