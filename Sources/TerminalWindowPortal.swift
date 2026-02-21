@@ -21,11 +21,16 @@ private func portalDebugFrame(_ rect: NSRect) -> String {
 
 final class WindowTerminalHostView: NSView {
     override var isOpaque: Bool { false }
+    private var cachedSidebarDividerX: CGFloat?
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if shouldPassThroughToSidebarResizer(at: point) {
+            return nil
+        }
+
         if shouldPassThroughToSplitDivider(at: point) {
             return nil
         }
@@ -58,6 +63,32 @@ final class WindowTerminalHostView: NSView {
         )
 #endif
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
+        // The sidebar resizer handle is implemented in SwiftUI. When terminals
+        // are portal-hosted, this AppKit host can otherwise sit above the handle
+        // and steal hover/mouse events.
+        let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+            .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
+
+        // Ignore transient 0-origin hosts while layouts churn (e.g. workspace
+        // creation/switching). They can temporarily report minX=0 and would
+        // otherwise clear divider pass-through, causing hover flicker.
+        let dividerCandidates = visibleHostedViews
+            .map(\.frame.minX)
+            .filter { $0 > 1 }
+        if let leftMostEdge = dividerCandidates.min() {
+            cachedSidebarDividerX = leftMostEdge
+        }
+
+        guard let dividerX = cachedSidebarDividerX else {
+            return false
+        }
+
+        let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
+        let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
+        return point.x >= regionMinX && point.x <= regionMaxX
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
