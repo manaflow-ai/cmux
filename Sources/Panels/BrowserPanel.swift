@@ -1000,6 +1000,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var inPageFindMatchFound: Bool?
     @Published private(set) var inPageFindMatchCount: Int = 0
     @Published private(set) var inPageFindCurrentMatchIndex: Int = 0
+    @Published private(set) var inPageFindRenderMode: String = "unknown"
     @Published private(set) var inPageFindFocusToken: Int = 0
 
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
@@ -2118,6 +2119,7 @@ extension BrowserPanel {
                 "inPageFindMatchFound": matchFoundValue,
                 "inPageFindMatchCount": self.inPageFindMatchCount,
                 "inPageFindCurrentMatchIndex": self.inPageFindCurrentMatchIndex,
+                "inPageFindRenderMode": self.inPageFindRenderMode,
                 "inPageFindRequestSequence": self.inPageFindRequestSequence,
                 "inPageFindFocusToken": self.inPageFindFocusToken,
                 "webViewFrame": Self.debugRectDescription(self.webView.frame),
@@ -2534,6 +2536,7 @@ private extension BrowserPanel {
             inPageFindMatchFound = nil
             inPageFindMatchCount = 0
             inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "none"
         }
         browserFindDebugLog(
             "browser.inPageFind.show panel=\(id.uuidString) wasVisible=\(wasVisible) focusField=\(focusField) focusTokenBefore=\(tokenBefore) focusTokenAfter=\(inPageFindFocusToken) query=\"\(inPageFindQuery)\""
@@ -2560,6 +2563,7 @@ private extension BrowserPanel {
         inPageFindMatchFound = nil
         inPageFindMatchCount = 0
         inPageFindCurrentMatchIndex = 0
+        inPageFindRenderMode = "none"
         inPageFindLastQuery = ""
         clearInPageFindHighlightsInWebView(requestSequence: requestSequence)
         restoreWebViewFocusAfterFindDismissIfNeeded()
@@ -2601,6 +2605,7 @@ private extension BrowserPanel {
             inPageFindMatchFound = nil
             inPageFindMatchCount = 0
             inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "none"
             inPageFindLastQuery = ""
             inPageFindRequestSequence &+= 1
             let requestSequence = inPageFindRequestSequence
@@ -2628,6 +2633,7 @@ private extension BrowserPanel {
             inPageFindMatchFound = debugResult.matchFound
             inPageFindMatchCount = max(0, debugResult.total)
             inPageFindCurrentMatchIndex = max(0, debugResult.current)
+            inPageFindRenderMode = "debugHandler"
             browserFindDebugLog(
                 "browser.inPageFind.result panel=\(id.uuidString) api=debugHandler query=\"\(query)\" direction=\(direction) matchFound=\(debugResult.matchFound) current=\(debugResult.current) total=\(debugResult.total)"
             )
@@ -2651,6 +2657,7 @@ private extension BrowserPanel {
             inPageFindMatchFound = false
             inPageFindMatchCount = 0
             inPageFindCurrentMatchIndex = 0
+            inPageFindRenderMode = "encodeFailure"
             browserFindDebugLog("browser.inPageFind.result panel=\(id.uuidString) api=customHighlight payloadEncodeFailed=true")
             return true
         }
@@ -2670,6 +2677,7 @@ private extension BrowserPanel {
                     self.inPageFindMatchFound = false
                     self.inPageFindMatchCount = 0
                     self.inPageFindCurrentMatchIndex = 0
+                    self.inPageFindRenderMode = "error"
                     browserFindDebugLog(
                         "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight query=\"\(query)\" direction=\(direction) error=\(error.localizedDescription)"
                     )
@@ -2687,8 +2695,9 @@ private extension BrowserPanel {
                 self.inPageFindMatchFound = summary.matchFound
                 self.inPageFindMatchCount = summary.total
                 self.inPageFindCurrentMatchIndex = summary.current
+                self.inPageFindRenderMode = summary.renderMode ?? "unknown"
                 browserFindDebugLog(
-                    "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight query=\"\(query)\" direction=\(direction) matchFound=\(summary.matchFound) current=\(summary.current) total=\(summary.total)"
+                    "browser.inPageFind.result panel=\(self.id.uuidString) api=customHighlight mode=\(summary.renderMode ?? "unknown") query=\"\(query)\" direction=\(direction) matchFound=\(summary.matchFound) current=\(summary.current) total=\(summary.total)"
                 )
             }
         }
@@ -2729,15 +2738,21 @@ private extension BrowserPanel {
         )
     }
 
-    private func decodeInPageFindSummary(_ result: Any?) -> (matchFound: Bool, current: Int, total: Int) {
+    private func decodeInPageFindSummary(_ result: Any?) -> (
+        matchFound: Bool,
+        current: Int,
+        total: Int,
+        renderMode: String?
+    ) {
         guard let dictionary = result as? [String: Any] else {
-            return (false, 0, 0)
+            return (false, 0, 0, nil)
         }
         let total = intValueFromJavaScript(dictionary["total"])
         let current = intValueFromJavaScript(dictionary["current"])
         let explicitMatch = boolValueFromJavaScript(dictionary["matchFound"])
         let matchFound = explicitMatch ?? (total > 0)
-        return (matchFound, max(0, current), max(0, total))
+        let renderMode = (dictionary["renderMode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (matchFound, max(0, current), max(0, total), renderMode?.isEmpty == false ? renderMode : nil)
     }
 
     private func extractInPageFindStaleInfo(_ result: Any?) -> (isStale: Bool, stage: String?)? {
@@ -2908,7 +2923,7 @@ private extension BrowserPanel {
           if (hasRequestSequence) {
             const latestSequence = Number(window[sequenceKey] || 0);
             if (requestSequence < latestSequence) {
-              return { matchFound: false, current: 0, total: 0, stale: true };
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true });
             }
             window[sequenceKey] = requestSequence;
           }
@@ -2931,6 +2946,11 @@ private extension BrowserPanel {
           // future re-enable, but force span fallback for deterministic visibility.
           const customHighlightEnabled = false;
           const canUseCustomHighlights = customHighlightEnabled && supportsCustomHighlights();
+          const renderMode = canUseCustomHighlights ? "customHighlight" : "spanFallback";
+
+          function withRenderMode(result) {
+            return Object.assign({ renderMode }, result);
+          }
 
           function clearMarks() {
             const marks = Array.from(document.querySelectorAll("span." + markClass));
@@ -3286,28 +3306,28 @@ private extension BrowserPanel {
 
           try {
             if (isRequestStale()) {
-              return { matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "preclear" });
             }
             const query = (payload.query || "").trim();
             clearMarks();
             clearCustomHighlights();
             if (isRequestStale()) {
-              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postclear" });
             }
             if (!query) {
               window[stateKey] = { query: "", activeIndex: 0 };
-              return { matchFound: false, current: 0, total: 0 };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 });
             }
 
             ensureStyle();
             const matches = collectMatches(query);
             if (isRequestStale()) {
-              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postcollect" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postcollect" });
             }
 
             if (matches.length === 0) {
               window[stateKey] = { query, activeIndex: 0 };
-              return { matchFound: false, current: 0, total: 0 };
+              return withRenderMode({ matchFound: false, current: 0, total: 0 });
             }
 
             const activeIndex = resolveActiveIndex(query, matches.length);
@@ -3323,19 +3343,19 @@ private extension BrowserPanel {
               activeTarget = applySpanFallback(matches, activeIndex);
             }
             if (isRequestStale()) {
-              return { matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" };
+              return withRenderMode({ matchFound: false, current: 0, total: 0, stale: true, stage: "postapply" });
             }
             scrollMatchIntoView(activeTarget);
 
             window[stateKey] = { query, activeIndex };
-            return { matchFound: true, current: activeIndex + 1, total: matches.length };
+            return withRenderMode({ matchFound: true, current: activeIndex + 1, total: matches.length });
           } catch (error) {
-            return {
+            return withRenderMode({
               matchFound: false,
               current: 0,
               total: 0,
               error: String(error && error.message ? error.message : error),
-            };
+            });
           }
         })();
         """
