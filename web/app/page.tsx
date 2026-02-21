@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { FadeImage } from "./components/fade-image";
 import Balancer from "react-wrap-balancer";
 import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
@@ -117,11 +117,10 @@ export default function Home() {
 
         {/* Screenshot - break out of max-w-2xl to be wider */}
         <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
-          <Image
+          <FadeImage
             src={landingImage}
             alt="cmux terminal app screenshot"
             priority
-            placeholder="blur"
             className="w-full rounded-xl"
           />
         </div>
