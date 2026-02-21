@@ -843,6 +843,26 @@ class TabManager: ObservableObject {
     /// This should never prompt: the process is already gone, and Ghostty emits the
     /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
+
+        // Child-exit on the last panel should collapse the workspace, matching explicit close
+        // semantics (and close the window when it was the last workspace).
+        if tab.panels.count <= 1 {
+            if tabs.count <= 1 {
+                if let app = AppDelegate.shared {
+                    app.notificationStore?.clearNotifications(forTabId: tabId)
+                    app.closeMainWindowContainingTabId(tabId)
+                } else {
+                    // Headless/test fallback when no AppDelegate window context exists.
+                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+                }
+            } else {
+                closeWorkspace(tab)
+            }
+            return
+        }
+
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
