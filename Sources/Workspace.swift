@@ -300,11 +300,27 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(from: config.backgroundColor)
     }
 
+    private static func usesDarkChrome(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> Bool {
+        guard let appAppearance else { return false }
+        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    private static func resolvedChromeBackgroundHex(
+        from backgroundColor: NSColor,
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> String? {
+        guard usesDarkChrome(appAppearance: appAppearance) else { return nil }
+        return backgroundColor.hexString()
+    }
+
     private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
-        BonsplitConfiguration.Appearance(
+        let backgroundHex = resolvedChromeBackgroundHex(from: backgroundColor)
+        return BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+            chromeColors: .init(backgroundHex: backgroundHex)
         )
     }
 
@@ -313,7 +329,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor) {
-        let nextHex = backgroundColor.hexString()
+        let nextHex = Self.resolvedChromeBackgroundHex(from: backgroundColor)
         if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
             return
         }
