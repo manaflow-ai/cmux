@@ -2,7 +2,8 @@
 """Static regression checks for favicon sync during browser navigation.
 
 Guards the race fix where stale async favicon fetches must not overwrite the
-icon after the user navigates (including back/forward and same-URL reloads).
+icon after the user navigates (including back/forward and same-URL reloads),
+while still allowing same-document URL changes (pushState/hash updates).
 """
 
 from __future__ import annotations
@@ -52,16 +53,14 @@ def main() -> int:
         failures.append("BrowserPanel is missing faviconRefreshGeneration state")
 
     refresh_block = extract_block(panel_source, "private func refreshFavicon(from webView: WKWebView)")
-    if "let pageURLString = pageURL.absoluteString" not in refresh_block:
-        failures.append("refreshFavicon() no longer captures pageURLString for staleness checks")
     if refresh_block.count("isCurrentFaviconRefresh(") < 3:
         failures.append("refreshFavicon() no longer checks staleness at each async stage")
 
     current_guard_block = extract_block(panel_source, "private func isCurrentFaviconRefresh(")
     if "generation == faviconRefreshGeneration" not in current_guard_block:
         failures.append("isCurrentFaviconRefresh() no longer validates refresh generation")
-    if "webView.url?.absoluteString == pageURLString" not in current_guard_block:
-        failures.append("isCurrentFaviconRefresh() no longer validates active page URL")
+    if "webView.url?.absoluteString == pageURLString" in current_guard_block:
+        failures.append("isCurrentFaviconRefresh() still blocks same-document history URL changes")
 
     loading_block = extract_block(panel_source, "private func handleWebViewLoadingChanged(_ newValue: Bool)")
     if "faviconRefreshGeneration &+= 1" not in loading_block:

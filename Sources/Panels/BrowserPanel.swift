@@ -1229,17 +1229,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let pageURL = webView.url else { return }
         guard let scheme = pageURL.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
-        let pageURLString = pageURL.absoluteString
         faviconRefreshGeneration &+= 1
         let refreshGeneration = faviconRefreshGeneration
 
         faviconTask = Task { @MainActor [weak self, weak webView] in
             guard let self, let webView else { return }
-            guard self.isCurrentFaviconRefresh(
-                generation: refreshGeneration,
-                pageURLString: pageURLString,
-                webView: webView
-            ) else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             // Try to discover the best icon URL from the document.
             let js = """
@@ -1273,11 +1268,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     discoveredURL = u
                 }
             }
-            guard self.isCurrentFaviconRefresh(
-                generation: refreshGeneration,
-                pageURLString: pageURLString,
-                webView: webView
-            ) else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
@@ -1302,11 +1293,7 @@ final class BrowserPanel: Panel, ObservableObject {
             } catch {
                 return
             }
-            guard self.isCurrentFaviconRefresh(
-                generation: refreshGeneration,
-                pageURLString: pageURLString,
-                webView: webView
-            ) else { return }
+            guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
@@ -1320,14 +1307,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func isCurrentFaviconRefresh(
-        generation: Int,
-        pageURLString: String,
-        webView: WKWebView
-    ) -> Bool {
+    private func isCurrentFaviconRefresh(generation: Int) -> Bool {
         guard !Task.isCancelled else { return false }
-        guard generation == faviconRefreshGeneration else { return false }
-        return webView.url?.absoluteString == pageURLString
+        return generation == faviconRefreshGeneration
     }
 
     @MainActor
