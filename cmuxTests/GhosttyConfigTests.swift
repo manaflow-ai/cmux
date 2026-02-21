@@ -316,3 +316,85 @@ final class TabManagerNotificationOrderingSourceTests: XCTestCase {
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }
 }
+
+final class SocketControlSettingsTests: XCTestCase {
+    func testStableReleaseIgnoresAmbientSocketOverrideByDefault() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux.sock")
+    }
+
+    func testNightlyReleaseUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
+    }
+
+    func testDebugBundleHonorsSocketOverrideWithoutOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-my-tag.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.my-tag",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+    }
+
+    func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-staging-my-tag.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.staging.my-tag",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-staging-my-tag.sock")
+    }
+
+    func testStableReleaseCanOptInToSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-forced.sock",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
+    }
+
+    func testDefaultSocketPathByChannel() {
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+            "/tmp/cmux.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.nightly", isDebugBuild: false),
+            "/tmp/cmux-nightly.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.debug.tag", isDebugBuild: false),
+            "/tmp/cmux-debug.sock"
+        )
+        XCTAssertEqual(
+            SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.staging.tag", isDebugBuild: false),
+            "/tmp/cmux-staging.sock"
+        )
+    }
+}
