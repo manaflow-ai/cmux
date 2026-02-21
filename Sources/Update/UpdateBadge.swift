@@ -52,7 +52,7 @@ fileprivate struct ProgressRingView: View {
     }
 }
 
-fileprivate struct BrowserStyleLoadingSpinner: View {
+struct BrowserStyleLoadingSpinner: View {
     let size: CGFloat
     let color: Color
 

@@ -1847,6 +1847,7 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage("sidebarShowAgentIndicator") private var sidebarShowAgentIndicator = true
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -1908,6 +1909,15 @@ private struct TabItemView: View {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                }
+
+                if sidebarShowAgentIndicator && tab.isAgentActive {
+                    BrowserStyleLoadingSpinner(
+                        size: 10,
+                        color: isActive ? .white.opacity(0.85) : .accentColor
+                    )
+                    .help("Agent active")
+                    .transition(.opacity)
                 }
 
                 Text(tab.title)
@@ -2043,6 +2053,7 @@ private struct TabItemView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
+        .animation(.easeInOut(duration: 0.2), value: tab.isAgentActive)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(

@@ -50,7 +50,7 @@ done
 
 # Build hooks settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
-HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook stop","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook notification","timeout":10}]}]}}'
+HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook session-start","timeout":10}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"cmux claude-hook active","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook stop","timeout":10}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"cmux claude-hook notification","timeout":10}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"

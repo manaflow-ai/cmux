@@ -3023,13 +3023,16 @@ struct CMUXCLI {
             """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|stop|notification> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
             Subcommands:
               session-start   Signal that a Claude session has started
+              active          Mark Claude as actively working
               stop            Signal that a Claude session has stopped
+              idle            Mark Claude as waiting for input
+              session-end     Alias for stop
               notification    Forward a Claude notification
 
             Flags:
@@ -3638,9 +3641,13 @@ struct CMUXCLI {
                 icon: "bolt.fill",
                 color: "#4C8DFF"
             )
+            try setAgentActive(
+                client: client,
+                workspaceId: workspaceId
+            )
             print("OK")
 
-        case "stop", "idle":
+        case "stop", "idle", "session-end":
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
@@ -3648,6 +3655,7 @@ struct CMUXCLI {
             )
             let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
             try clearClaudeStatus(client: client, workspaceId: workspaceId)
+            try clearAgentActive(client: client, workspaceId: workspaceId)
 
             if let completion = summarizeClaudeHookStop(
                 parsedInput: parsedInput,
@@ -3710,12 +3718,13 @@ struct CMUXCLI {
                 icon: "bell.fill",
                 color: "#4C8DFF"
             )
+            _ = try? clearAgentActive(client: client, workspaceId: workspaceId)
             print(response)
 
         case "help", "--help", "-h":
             print(
                 """
-                cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|active|stop|idle|session-end|notification> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -3738,6 +3747,27 @@ struct CMUXCLI {
 
     private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    private func setAgentActive(
+        client: SocketClient,
+        workspaceId: String,
+        timeout: TimeInterval = 7200
+    ) throws {
+        let clamped = max(0, timeout)
+        let timeoutText: String
+        if clamped.rounded() == clamped {
+            timeoutText = String(Int(clamped))
+        } else {
+            timeoutText = String(format: "%.3f", clamped)
+        }
+        _ = try client.send(
+            command: "set_agent_active --timeout=\(timeoutText) --tab=\(workspaceId)"
+        )
+    }
+
+    private func clearAgentActive(client: SocketClient, workspaceId: String) throws {
+        _ = try client.send(command: "clear_agent_active --tab=\(workspaceId)")
     }
 
     private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
@@ -4051,7 +4081,7 @@ struct CMUXCLI {
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
           list-notifications
           clear-notifications
-          claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          claude-hook <session-start|active|stop|idle|session-end|notification> [--workspace <id|ref>] [--surface <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

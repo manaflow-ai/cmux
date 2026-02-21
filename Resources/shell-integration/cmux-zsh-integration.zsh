@@ -39,6 +39,14 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_AGENT_CMD_RUNNING=0
+typeset -ga _CMUX_AGENT_COMMANDS
+
+if [[ -n "${CMUX_AGENT_COMMANDS:-}" ]]; then
+    _CMUX_AGENT_COMMANDS=("${(z)CMUX_AGENT_COMMANDS}")
+else
+    _CMUX_AGENT_COMMANDS=(claude codex opencode aider)
+fi
 
 _cmux_ensure_zstat() {
     # zstat is substantially cheaper than spawning external `stat`.
@@ -129,6 +137,63 @@ _cmux_ports_kick() {
     } >/dev/null 2>&1 &!
 }
 
+_cmux_set_agent_active() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    {
+        _cmux_send "set_agent_active --timeout=7200 --tab=$CMUX_TAB_ID"
+    } >/dev/null 2>&1 &!
+}
+
+_cmux_clear_agent_active() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    {
+        _cmux_send "clear_agent_active --tab=$CMUX_TAB_ID"
+    } >/dev/null 2>&1 &!
+}
+
+_cmux_command_is_agent() {
+    local command_text="$1"
+    local -a words
+    words=("${(z)command_text}")
+    (( ${#words[@]} > 0 )) || return 1
+
+    local i=1
+    while (( i <= ${#words[@]} )); do
+        local word="${words[i]}"
+        case "$word" in
+            *=*)
+                ((i++))
+                continue
+                ;;
+            command|builtin|noglob|nohup|time|env)
+                ((i++))
+                continue
+                ;;
+            sudo|doas)
+                ((i++))
+                while (( i <= ${#words[@]} )); do
+                    case "${words[i]}" in
+                        -*) ((i++)) ;;
+                        *) break ;;
+                    esac
+                done
+                continue
+                ;;
+        esac
+        break
+    done
+
+    (( i <= ${#words[@]} )) || return 1
+    local executable="${words[i]:t}"
+    local known
+    for known in "${_CMUX_AGENT_COMMANDS[@]}"; do
+        [[ "$executable" == "$known" ]] && return 0
+    done
+    return 1
+}
+
 _cmux_preexec() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -141,6 +206,10 @@ _cmux_preexec() {
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     local cmd="${1## }"
+    if _cmux_command_is_agent "$cmd"; then
+        _CMUX_AGENT_CMD_RUNNING=1
+        _cmux_set_agent_active
+    fi
     case "$cmd" in
         git\ *|git|gh\ *|lazygit|lazygit\ *|tig|tig\ *|gitui|gitui\ *|stg\ *|jj\ *)
             _CMUX_GIT_FORCE=1 ;;
@@ -152,6 +221,11 @@ _cmux_preexec() {
 }
 
 _cmux_precmd() {
+    if (( _CMUX_AGENT_CMD_RUNNING )); then
+        _CMUX_AGENT_CMD_RUNNING=0
+        _cmux_clear_agent_active
+    fi
+
     # Skip if socket doesn't exist yet
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0

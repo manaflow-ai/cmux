@@ -461,6 +461,12 @@ class TerminalController {
         case "reset_sidebar":
             return resetSidebar(args)
 
+        case "set_agent_active":
+            return setAgentActive(args)
+
+        case "clear_agent_active":
+            return clearAgentActive(args)
+
         case "read_screen":
             return readScreenText(args)
 
@@ -7089,6 +7095,8 @@ class TerminalController {
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
+          set_agent_active [--timeout=N] [--tab=X] - Show agent activity spinner
+          clear_agent_active [--tab=X] - Hide agent activity spinner
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
@@ -9841,6 +9849,38 @@ class TerminalController {
         return result
     }
 
+    private func setAgentActive(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let timeout: TimeInterval
+        if let t = parsed.options["timeout"], let val = Double(t), val.isFinite, val >= 0 {
+            timeout = val
+        } else {
+            timeout = 600
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            tab.setAgentActive(timeout: timeout)
+        }
+        return result
+    }
+
+    private func clearAgentActive(_ args: String) -> String {
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            tab.clearAgentActive()
+        }
+        return result
+    }
+
     private func reportPorts(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
@@ -10106,6 +10146,8 @@ class TerminalController {
                 lines.append(line)
             }
 
+            lines.append("agent_active=\(tab.isAgentActive)")
+
             lines.append("log_count=\(tab.logEntries.count)")
             for entry in tab.logEntries.suffix(5) {
                 lines.append("  [\(entry.level.rawValue)] \(entry.message)")
@@ -10129,6 +10171,7 @@ class TerminalController {
             tab.gitBranch = nil
             tab.surfaceListeningPorts.removeAll()
             tab.listeningPorts.removeAll()
+            tab.clearAgentActive()
         }
         return result
     }

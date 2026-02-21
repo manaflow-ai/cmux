@@ -93,7 +93,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var gitBranch: SidebarGitBranchState?
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
+    @Published var isAgentActive: Bool = false
     var surfaceTTYNames: [UUID: String] = [:]
+    private var agentActiveTimer: Timer?
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -1027,6 +1029,26 @@ final class Workspace: Identifiable, ObservableObject {
             terminal.hostedView.setVisibleInUI(false)
             TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
         }
+    }
+
+    // MARK: - Agent Activity
+
+    func setAgentActive(timeout: TimeInterval = 600) {
+        isAgentActive = true
+        agentActiveTimer?.invalidate()
+        if timeout > 0 {
+            agentActiveTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    self?.clearAgentActive()
+                }
+            }
+        }
+    }
+
+    func clearAgentActive() {
+        isAgentActive = false
+        agentActiveTimer?.invalidate()
+        agentActiveTimer = nil
     }
 
     // MARK: - Utility
