@@ -347,6 +347,8 @@ struct BrowserPanelView: View {
         let accent = ghosttyFindYellowColor
 
         return HStack(spacing: 6) {
+            let trimmedQuery = panel.inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
             TextField(
                 "Find in page",
                 text: Binding(
@@ -354,9 +356,19 @@ struct BrowserPanelView: View {
                     set: { panel.updateInPageFindQuery($0) }
                 )
             )
-            .textFieldStyle(.roundedBorder)
             .frame(width: 220)
             .padding(.trailing, 2)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .textBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(accent.opacity(inPageFindFieldFocused ? 0.45 : 0.25), lineWidth: 1)
+            )
             .focused($inPageFindFieldFocused)
             .onSubmit {
                 _ = panel.inPageFindNextFromUI()
@@ -369,10 +381,11 @@ struct BrowserPanelView: View {
             }
             .accessibilityIdentifier("BrowserInPageFindField")
 
-            if panel.inPageFindMatchFound == false {
-                Text("No match")
+            if !trimmedQuery.isEmpty {
+                Text("\(panel.inPageFindCurrentMatchIndex)/\(panel.inPageFindMatchCount)")
                     .font(.caption)
                     .foregroundColor(.secondary)
+                    .monospacedDigit()
             }
 
             Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
@@ -381,6 +394,14 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .help("Previous match")
             .foregroundStyle(accent.opacity(0.82))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(accent.opacity(0.12))
+            )
+            .disabled(panel.inPageFindMatchCount == 0)
 
             Button(action: { _ = panel.inPageFindNextFromUI() }) {
                 Image(systemName: "chevron.down")
@@ -388,6 +409,14 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .help("Next match")
             .foregroundStyle(accent.opacity(0.82))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(accent.opacity(0.12))
+            )
+            .disabled(panel.inPageFindMatchCount == 0)
 
             Button(action: {
                 _ = panel.hideInPageFindFromUI()
@@ -397,6 +426,13 @@ struct BrowserPanelView: View {
             .buttonStyle(.plain)
             .help("Close find")
             .foregroundStyle(accent.opacity(0.82))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(accent.opacity(0.12))
+            )
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
