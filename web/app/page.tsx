@@ -44,7 +44,7 @@ export default function Home() {
         </div>
 
         {/* Screenshot — break out of max-w-2xl to be wider */}
-        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40">
+        <div data-dev="screenshot" className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96">
           <Image
             src={landingImage}
             alt="cmux terminal app screenshot"
@@ -194,12 +194,9 @@ export default function Home() {
           <div data-dev="faq-spacer" style={{ height: 23 }} />
         </section>
 
-        {/* Wall of Love */}
-        <section data-dev="wall-of-love">
-          <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
-            Wall of Love
-          </h2>
-          <div className="columns-1 sm:columns-2 gap-4">
+        {/* Wall of Love — break out wider */}
+        <section data-dev="wall-of-love" className="-mx-6 sm:-mx-24 md:-mx-40">
+          <div className="columns-1 sm:columns-2 lg:columns-3 gap-4 px-6 sm:px-8">
             {testimonials.map((t) => (
               <TestimonialCard key={t.url} testimonial={t} />
             ))}
