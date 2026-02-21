@@ -92,7 +92,7 @@ export default function ShowHNLaunchPage() {
       </p>
 
       <p>
-        The most exciting thing was seeing people build on top of the socket
+        Another exciting thing was seeing people build on top of the socket
         API. sasha built a pi-cmux extension that shows model info, token
         usage, and agent state in the sidebar:
       </p>
