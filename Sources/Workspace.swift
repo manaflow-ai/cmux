@@ -37,6 +37,16 @@ struct SidebarGitBranchState {
     let isDirty: Bool
 }
 
+struct ClosedBrowserPanelRestoreSnapshot {
+    let workspaceId: UUID
+    let url: URL?
+    let originalPaneId: UUID
+    let originalTabIndex: Int
+    let fallbackSplitOrientation: SplitOrientation?
+    let fallbackSplitInsertFirst: Bool
+    let fallbackAnchorPaneId: UUID?
+}
+
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
@@ -61,6 +71,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+
+    /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
+    var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
 
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
@@ -254,6 +267,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    private var pendingClosedBrowserRestoreSnapshots: [TabID: ClosedBrowserPanelRestoreSnapshot] = [:]
     private var isApplyingTabSelection = false
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
@@ -953,6 +967,115 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private struct BrowserCloseFallbackPlan {
+        let orientation: SplitOrientation
+        let insertFirst: Bool
+        let anchorPaneId: UUID?
+    }
+
+    private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(tab.id),
+              let browserPanel = browserPanel(for: panelId),
+              let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
+
+        let fallbackPlan = browserCloseFallbackPlan(
+            forPaneId: pane.id.uuidString,
+            in: bonsplitController.treeSnapshot()
+        )
+        let resolvedURL = browserPanel.currentURL
+            ?? browserPanel.webView.url
+            ?? browserPanel.preferredURLStringForOmnibar().flatMap(URL.init(string:))
+
+        pendingClosedBrowserRestoreSnapshots[tab.id] = ClosedBrowserPanelRestoreSnapshot(
+            workspaceId: id,
+            url: resolvedURL,
+            originalPaneId: pane.id,
+            originalTabIndex: tabIndex,
+            fallbackSplitOrientation: fallbackPlan?.orientation,
+            fallbackSplitInsertFirst: fallbackPlan?.insertFirst ?? false,
+            fallbackAnchorPaneId: fallbackPlan?.anchorPaneId
+        )
+    }
+
+    private func clearStagedClosedBrowserRestoreSnapshot(for tabId: TabID) {
+        pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+    }
+
+    private func browserCloseFallbackPlan(
+        forPaneId targetPaneId: String,
+        in node: ExternalTreeNode
+    ) -> BrowserCloseFallbackPlan? {
+        switch node {
+        case .pane:
+            return nil
+        case .split(let splitNode):
+            if case .pane(let firstPane) = splitNode.first, firstPane.id == targetPaneId {
+                return BrowserCloseFallbackPlan(
+                    orientation: splitNode.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
+                    insertFirst: true,
+                    anchorPaneId: browserNearestPaneId(
+                        in: splitNode.second,
+                        targetCenter: browserPaneCenter(firstPane)
+                    )
+                )
+            }
+
+            if case .pane(let secondPane) = splitNode.second, secondPane.id == targetPaneId {
+                return BrowserCloseFallbackPlan(
+                    orientation: splitNode.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
+                    insertFirst: false,
+                    anchorPaneId: browserNearestPaneId(
+                        in: splitNode.first,
+                        targetCenter: browserPaneCenter(secondPane)
+                    )
+                )
+            }
+
+            if let nested = browserCloseFallbackPlan(forPaneId: targetPaneId, in: splitNode.first) {
+                return nested
+            }
+            return browserCloseFallbackPlan(forPaneId: targetPaneId, in: splitNode.second)
+        }
+    }
+
+    private func browserPaneCenter(_ pane: ExternalPaneNode) -> (x: Double, y: Double) {
+        (
+            x: pane.frame.x + (pane.frame.width * 0.5),
+            y: pane.frame.y + (pane.frame.height * 0.5)
+        )
+    }
+
+    private func browserNearestPaneId(
+        in node: ExternalTreeNode,
+        targetCenter: (x: Double, y: Double)?
+    ) -> UUID? {
+        var panes: [ExternalPaneNode] = []
+        browserCollectPaneNodes(node: node, into: &panes)
+        guard !panes.isEmpty else { return nil }
+
+        let bestPane: ExternalPaneNode?
+        if let targetCenter {
+            bestPane = panes.min { lhs, rhs in
+                let lhsCenter = browserPaneCenter(lhs)
+                let rhsCenter = browserPaneCenter(rhs)
+                let lhsDistance = pow(lhsCenter.x - targetCenter.x, 2) + pow(lhsCenter.y - targetCenter.y, 2)
+                let rhsDistance = pow(rhsCenter.x - targetCenter.x, 2) + pow(rhsCenter.y - targetCenter.y, 2)
+                if lhsDistance != rhsDistance {
+                    return lhsDistance < rhsDistance
+                }
+                return lhs.id < rhs.id
+            }
+        } else {
+            bestPane = panes.first
+        }
+
+        guard let bestPane else { return nil }
+        return UUID(uuidString: bestPane.id)
+    }
+
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
@@ -1573,12 +1696,14 @@ extension Workspace: BonsplitDelegate {
         }
 
         if forceCloseTabIds.contains(tab.id) {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
         }
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             NSSound.beep()
             return false
         }
@@ -1586,6 +1711,7 @@ extension Workspace: BonsplitDelegate {
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let terminalPanel = terminalPanel(for: panelId) else {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
         }
@@ -1594,6 +1720,7 @@ extension Workspace: BonsplitDelegate {
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
         if terminalPanel.needsConfirmClose() {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
             }
@@ -1619,6 +1746,7 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
+        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
         recordPostCloseSelection()
         return true
     }
@@ -1626,6 +1754,7 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
+        let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -1661,6 +1790,9 @@ extension Workspace: BonsplitDelegate {
                 manuallyUnread: manualUnreadPanelIds.contains(panelId)
             )
         } else {
+            if let closedBrowserRestoreSnapshot {
+                onClosedBrowserPanel?(closedBrowserRestoreSnapshot)
+            }
             panel?.close()
         }
 
