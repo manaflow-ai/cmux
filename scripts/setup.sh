@@ -27,7 +27,14 @@ mkdir -p "$CACHE_ROOT"
 
 echo "==> Ghostty submodule commit: $GHOSTTY_SHA"
 
+LOCK_TIMEOUT=300
+LOCK_START=$SECONDS
 while ! mkdir "$LOCK_DIR" 2>/dev/null; do
+    if (( SECONDS - LOCK_START > LOCK_TIMEOUT )); then
+        echo "==> Lock stale (>${LOCK_TIMEOUT}s), removing and retrying..."
+        rmdir "$LOCK_DIR" 2>/dev/null || rm -rf "$LOCK_DIR"
+        continue
+    fi
     echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_SHA..."
     sleep 1
 done
@@ -36,25 +43,20 @@ trap 'rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 if [ -d "$CACHE_XCFRAMEWORK" ]; then
     echo "==> Reusing cached GhosttyKit.xcframework"
 else
-    if [ -d "$LOCAL_XCFRAMEWORK" ]; then
-        echo "==> Seeding cache from existing local GhosttyKit.xcframework"
-    else
-        echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
-        (
-            cd ghostty
-            zig build -Demit-xcframework=true -Doptimize=ReleaseFast
-        )
-    fi
+    echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    (
+        cd ghostty
+        zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+    )
 
-    SRC_XCFRAMEWORK="$LOCAL_XCFRAMEWORK"
-    if [ ! -d "$SRC_XCFRAMEWORK" ]; then
-        echo "Error: GhosttyKit.xcframework not found at $SRC_XCFRAMEWORK"
+    if [ ! -d "$LOCAL_XCFRAMEWORK" ]; then
+        echo "Error: GhosttyKit.xcframework not found at $LOCAL_XCFRAMEWORK"
         exit 1
     fi
 
     TMP_DIR="$(mktemp -d "$CACHE_ROOT/.ghosttykit-tmp.XXXXXX")"
     mkdir -p "$CACHE_DIR"
-    cp -R "$SRC_XCFRAMEWORK" "$TMP_DIR/GhosttyKit.xcframework"
+    cp -R "$LOCAL_XCFRAMEWORK" "$TMP_DIR/GhosttyKit.xcframework"
     rm -rf "$CACHE_XCFRAMEWORK"
     mv "$TMP_DIR/GhosttyKit.xcframework" "$CACHE_XCFRAMEWORK"
     rmdir "$TMP_DIR"
