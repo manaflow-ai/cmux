@@ -335,7 +335,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
-        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
+        // Avoid re-reading/parsing Ghostty config on every new workspace; this hot path
+        // runs for socket/CLI workspace creation and can cause visible typing lag.
+        let appearance = Self.bonsplitAppearance(from: GhosttyApp.shared.defaultBackgroundColor)
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
