@@ -113,6 +113,12 @@ final class CmuxWebView: WKWebView {
 
     /// The last right-click point (in view coordinates) for context menu downloads.
     private var lastContextMenuPoint: NSPoint = .zero
+    /// Original WebKit actions for context-menu downloads, used as fallback when
+    /// our JS URL extraction cannot resolve a target URL.
+    private var fallbackDownloadImageTarget: AnyObject?
+    private var fallbackDownloadImageAction: Selector?
+    private var fallbackDownloadLinkedFileTarget: AnyObject?
+    private var fallbackDownloadLinkedFileAction: Selector?
 
     override func rightMouseDown(with event: NSEvent) {
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
@@ -240,6 +246,9 @@ final class CmuxWebView: WKWebView {
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        // Capture the actual context-menu trigger point. This covers right-click,
+        // ctrl-click, and trackpad context menus more reliably than rightMouseDown only.
+        lastContextMenuPoint = convert(event.locationInWindow, from: nil)
 
         for item in menu.items {
             // Rename "Open Link in New Window" to "Open Link in New Tab".
@@ -255,6 +264,8 @@ final class CmuxWebView: WKWebView {
             // callback. Replace with our own URLSession-based download.
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadImage"
                 || item.title == "Download Image" {
+                fallbackDownloadImageTarget = item.target as AnyObject?
+                fallbackDownloadImageAction = item.action
                 item.target = self
                 item.action = #selector(contextMenuDownloadImage(_:))
             }
@@ -262,15 +273,31 @@ final class CmuxWebView: WKWebView {
             // Intercept "Download Linked File" for the same reason.
             if item.identifier?.rawValue == "WKMenuItemIdentifierDownloadLinkedFile"
                 || item.title == "Download Linked File" {
+                fallbackDownloadLinkedFileTarget = item.target as AnyObject?
+                fallbackDownloadLinkedFileAction = item.action
                 item.target = self
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
             }
         }
     }
 
+    private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?) {
+        guard let action else { return }
+        _ = NSApp.sendAction(action, to: target, from: sender)
+    }
+
     @objc private func contextMenuDownloadImage(_ sender: Any?) {
         findImageURLAtPoint(lastContextMenuPoint) { [weak self] url in
-            guard let self, let url else {
+            guard let self else {
+                return
+            }
+            guard let url else {
+                NSLog("CmuxWebView download image: URL extraction failed, using WebKit fallback action")
+                self.runContextMenuFallback(
+                    action: self.fallbackDownloadImageAction,
+                    target: self.fallbackDownloadImageTarget,
+                    sender: sender
+                )
                 return
             }
             self.downloadURL(url, suggestedFilename: nil)
@@ -279,7 +306,16 @@ final class CmuxWebView: WKWebView {
 
     @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {
         findLinkURLAtPoint(lastContextMenuPoint) { [weak self] url in
-            guard let self, let url else {
+            guard let self else {
+                return
+            }
+            guard let url else {
+                NSLog("CmuxWebView download linked file: URL extraction failed, using WebKit fallback action")
+                self.runContextMenuFallback(
+                    action: self.fallbackDownloadLinkedFileAction,
+                    target: self.fallbackDownloadLinkedFileTarget,
+                    sender: sender
+                )
                 return
             }
             self.downloadURL(url, suggestedFilename: nil)
