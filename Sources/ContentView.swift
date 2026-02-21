@@ -1419,6 +1419,7 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage("sidebarDirectoryShortName") private var sidebarDirectoryShortName = false
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -1985,6 +1986,9 @@ private struct TabItemView: View {
         guard !trimmed.isEmpty else { return path }
         if trimmed == home {
             return "~"
+        }
+        if sidebarDirectoryShortName {
+            return (trimmed as NSString).lastPathComponent
         }
         if trimmed.hasPrefix(home + "/") {
             return "~" + trimmed.dropFirst(home.count)

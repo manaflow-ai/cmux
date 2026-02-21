@@ -2273,6 +2273,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage("sidebarDirectoryShortName") private var sidebarDirectoryShortName = false
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
@@ -2345,6 +2346,18 @@ struct SettingsView: View {
                             subtitle: "Show unread count on app icon (Dock and Cmd+Tab)."
                         ) {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Sidebar")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Short Directory Name",
+                            subtitle: "Show only the last path component instead of the full path."
+                        ) {
+                            Toggle("", isOn: $sidebarDirectoryShortName)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
