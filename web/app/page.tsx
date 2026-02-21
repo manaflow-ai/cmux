@@ -63,7 +63,7 @@ export default function Home() {
               <span>
                 <strong className="font-medium">Notification rings</strong>
                 <span className="text-muted">
-                  : panes and tabs light up when agents need attention
+                  : panes light up when agents need attention
                 </span>
               </span>
             </li>
