@@ -15,6 +15,10 @@
   <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
 </p>
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a>
+</p>
+
 ## Features
 
 <table>

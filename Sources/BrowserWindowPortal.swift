@@ -317,6 +317,16 @@ final class WindowBrowserPortal: NSObject {
         entry.containerView?.removeFromSuperview()
     }
 
+    /// Update the visibleInUI/zPriority state on an existing entry without rebinding.
+    /// Used when a bind is deferred (host not yet in window) so stale portal syncs
+    /// do not keep an old anchor visible.
+    func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
+        guard var entry = entriesByWebViewId[webViewId] else { return }
+        entry.visibleInUI = visibleInUI
+        entry.zPriority = zPriority
+        entriesByWebViewId[webViewId] = entry
+    }
+
     func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard ensureInstalled() else { return }
 
@@ -851,6 +861,15 @@ enum BrowserWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeWebViewForAnchor(anchorView)
+    }
+
+    /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
+    /// Called when a bind is deferred because the new host is temporarily off-window.
+    static func updateEntryVisibility(for webView: WKWebView, visibleInUI: Bool, zPriority: Int) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId[webViewId],
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority)
     }
 
     static func detach(webView: WKWebView) {

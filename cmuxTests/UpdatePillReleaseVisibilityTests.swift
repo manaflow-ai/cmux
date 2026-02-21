@@ -196,3 +196,45 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         ))
     }
 }
+
+/// Regression test: ensure new terminal windows are born in full-size content mode so
+/// titlebar/content offsets are correct before the first resize.
+final class MainWindowLayoutStyleTests: XCTestCase {
+    func testCreateMainWindowUsesFullSizeContentViewStyleMask() throws {
+        let projectRoot = findProjectRoot()
+        let appDelegateURL = projectRoot.appendingPathComponent("Sources/AppDelegate.swift")
+        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+
+        guard let start = source.range(of: "func createMainWindow("),
+              let end = source.range(of: "@objc func checkForUpdates", range: start.upperBound..<source.endIndex) else {
+            XCTFail("Could not locate createMainWindow block in Sources/AppDelegate.swift")
+            return
+        }
+
+        let block = String(source[start.lowerBound..<end.lowerBound])
+        let regex = try NSRegularExpression(
+            pattern: #"styleMask:\s*\[[^\]]*\.fullSizeContentView"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        let range = NSRange(block.startIndex..<block.endIndex, in: block)
+        XCTAssertNotNil(
+            regex.firstMatch(in: block, options: [], range: range),
+            """
+            createMainWindow must include `.fullSizeContentView` in the NSWindow style mask.
+            Without it, initial titlebar/content offsets can be wrong until a manual resize.
+            """
+        )
+    }
+
+    private func findProjectRoot() -> URL {
+        var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
+        for _ in 0..<10 {
+            let marker = dir.appendingPathComponent("GhosttyTabs.xcodeproj")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return dir
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}

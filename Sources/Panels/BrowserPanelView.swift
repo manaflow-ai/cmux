@@ -149,6 +149,7 @@ struct BrowserPanelView: View {
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
+    private let addressBarButtonHitSize: CGFloat = 32
     private let devToolsButtonIconSize: CGFloat = 11
 
     private var searchEngine: BrowserSearchEngine {
@@ -350,10 +351,10 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
@@ -366,10 +367,10 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .help("Go Forward")
@@ -389,10 +390,10 @@ struct BrowserPanelView: View {
             }) {
                 Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
                     .font(.system(size: 12, weight: .medium))
-                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+                    .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .help(panel.isLoading ? "Stop" : "Reload")
         }
     }
@@ -2773,6 +2774,15 @@ struct WebViewRepresentable: NSViewRepresentable {
                 coordinator.lastPortalHostId = hostId
             }
             BrowserWindowPortalRegistry.synchronizeForAnchor(host)
+        } else {
+            // Bind is deferred until host moves into a window. Keep the current
+            // portal entry's desired state in sync so stale callbacks cannot keep
+            // the previous anchor visible while this host is temporarily off-window.
+            BrowserWindowPortalRegistry.updateEntryVisibility(
+                for: webView,
+                visibleInUI: coordinator.desiredPortalVisibleInUI,
+                zPriority: coordinator.desiredPortalZPriority
+            )
         }
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
