@@ -1885,6 +1885,15 @@ struct CMUXCLI {
 
     private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
         var parts: [String] = ["ssh", "-o", "StrictHostKeyChecking=accept-new"]
+        if !hasSSHOptionKey(options.sshOptions, key: "ControlMaster") {
+            parts += ["-o", "ControlMaster=auto"]
+        }
+        if !hasSSHOptionKey(options.sshOptions, key: "ControlPersist") {
+            parts += ["-o", "ControlPersist=600"]
+        }
+        if !hasSSHOptionKey(options.sshOptions, key: "ControlPath") {
+            parts += ["-o", "ControlPath=\(defaultSSHControlPathTemplate())"]
+        }
         if let port = options.port {
             parts += ["-p", String(port)]
         }
@@ -1903,6 +1912,23 @@ struct CMUXCLI {
         // Scope Ghostty SSH niceties to `cmux ssh ...` launches only.
         let shellFeatures = "GHOSTTY_SHELL_FEATURES=${GHOSTTY_SHELL_FEATURES:+$GHOSTTY_SHELL_FEATURES,}ssh-env,ssh-terminfo"
         return shellFeatures + " " + sshCommand
+    }
+
+    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            if token == loweredKey {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func defaultSSHControlPathTemplate() -> String {
+        "/tmp/cmux-ssh-\(getuid())-%C"
     }
 
     private func shellQuote(_ value: String) -> String {

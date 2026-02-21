@@ -4,6 +4,7 @@
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -64,6 +65,11 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
         raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {output!r} ({exc})")
 
 
+def _extract_control_path(ssh_command: str) -> str:
+    match = re.search(r"ControlPath=([^\s]+)", ssh_command)
+    return match.group(1) if match else ""
+
+
 def main() -> int:
     cli = _find_cli_binary()
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
@@ -94,6 +100,9 @@ def main() -> int:
                 f"cmux ssh should scope ssh niceties to this command: {ssh_command!r}",
             )
             _must("ssh -o StrictHostKeyChecking=accept-new" in ssh_command, f"ssh command prefix mismatch: {ssh_command!r}")
+            _must("-o ControlMaster=auto" in ssh_command, f"ssh command should opt into connection reuse: {ssh_command!r}")
+            _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
+            _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
 
             listed_row = None
             deadline = time.time() + 8.0
@@ -127,6 +136,7 @@ def main() -> int:
                 ["ssh", "127.0.0.1", "--port", "1"],
             )
             workspace_id_without_name = str(payload2.get("workspace_id") or "")
+            ssh_command_without_name = str(payload2.get("ssh_command") or "")
             workspace_ref_without_name = str(payload2.get("workspace_ref") or "")
             if not workspace_id_without_name and workspace_ref_without_name.startswith("workspace:"):
                 listed2 = client._call("workspace.list", {}) or {}
@@ -136,6 +146,14 @@ def main() -> int:
                         break
 
             _must(bool(workspace_id_without_name), f"cmux ssh without --name should still create workspace: {payload2}")
+            _must(
+                "ControlPath=/tmp/cmux-ssh-" in ssh_command_without_name,
+                f"cmux ssh without --name should still include shared control path: {ssh_command_without_name!r}",
+            )
+            _must(
+                _extract_control_path(ssh_command) == _extract_control_path(ssh_command_without_name),
+                f"identical hosts should resolve to same control path template: {ssh_command!r} vs {ssh_command_without_name!r}",
+            )
             row2 = None
             listed2 = client._call("workspace.list", {}) or {}
             for row in listed2.get("workspaces") or []:
