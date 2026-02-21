@@ -187,6 +187,9 @@ struct BrowserPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             addressBar
+            if panel.isInPageFindVisible {
+                inPageFindBar
+            }
             webView
         }
         .overlay {
@@ -215,65 +218,6 @@ struct BrowserPanelView: View {
                 .frame(width: omnibarPillFrame.width)
                 .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 6)
                 .zIndex(1000)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if panel.isInPageFindVisible {
-                HStack(spacing: 6) {
-                    TextField(
-                        "Find in page",
-                        text: Binding(
-                            get: { panel.inPageFindQuery },
-                            set: { panel.updateInPageFindQuery($0) }
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 220)
-                    .focused($inPageFindFieldFocused)
-                    .onSubmit {
-                        _ = panel.inPageFindNextFromUI()
-                    }
-                    .accessibilityIdentifier("BrowserInPageFindField")
-
-                    if panel.inPageFindMatchFound == false {
-                        Text("No match")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
-                        Image(systemName: "chevron.up")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Previous match")
-
-                    Button(action: { _ = panel.inPageFindNextFromUI() }) {
-                        Image(systemName: "chevron.down")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Next match")
-
-                    Button(action: {
-                        _ = panel.hideInPageFindFromUI()
-                    }) {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close find")
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
-                )
-                .padding(.top, 42)
-                .padding(.trailing, 10)
-                .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
-                .zIndex(1100)
-                .onAppear {
-                    inPageFindFieldFocused = true
-                }
             }
         }
         .coordinateSpace(name: "BrowserPanelViewSpace")
@@ -326,6 +270,14 @@ struct BrowserPanelView: View {
         }
         .onChange(of: panel.inPageFindFocusToken) { _ in
             inPageFindFieldFocused = true
+        }
+        .onChange(of: panel.isInPageFindVisible) { visible in
+            browserFindViewDebugLog(
+                "browser.findBar.visible panel=\(panel.id.uuidString) visible=\(visible) query=\"\(panel.inPageFindQuery)\""
+            )
+            if visible {
+                inPageFindFieldFocused = true
+            }
         }
         .onChange(of: isFocused) { focused in
             // Ensure this view doesn't retain focus while hidden (bonsplit keepAllAlive).
@@ -384,6 +336,77 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
+    }
+
+    private var inPageFindBar: some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            HStack(spacing: 6) {
+                TextField(
+                    "Find in page",
+                    text: Binding(
+                        get: { panel.inPageFindQuery },
+                        set: { panel.updateInPageFindQuery($0) }
+                    )
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 220)
+                .focused($inPageFindFieldFocused)
+                .onSubmit {
+                    _ = panel.inPageFindNextFromUI()
+                }
+                .accessibilityIdentifier("BrowserInPageFindField")
+
+                if panel.inPageFindMatchFound == false {
+                    Text("No match")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Button(action: { _ = panel.inPageFindPreviousFromUI() }) {
+                    Image(systemName: "chevron.up")
+                }
+                .buttonStyle(.plain)
+                .help("Previous match")
+
+                Button(action: { _ = panel.inPageFindNextFromUI() }) {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.plain)
+                .help("Next match")
+
+                Button(action: {
+                    _ = panel.hideInPageFindFromUI()
+                }) {
+                    Image(systemName: "xmark")
+                }
+                .buttonStyle(.plain)
+                .help("Close find")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+            )
+            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 2)
+            .onAppear {
+                browserFindViewDebugLog(
+                    "browser.findBar.appear panel=\(panel.id.uuidString) focused=\(isFocused) query=\"\(panel.inPageFindQuery)\""
+                )
+                inPageFindFieldFocused = true
+            }
+            .onDisappear {
+                browserFindViewDebugLog(
+                    "browser.findBar.disappear panel=\(panel.id.uuidString)"
+                )
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .zIndex(2)
     }
 
     private var addressBar: some View {
@@ -3304,4 +3327,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             #endif
         }
     }
+}
+
+@MainActor
+private func browserFindViewDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    NSLog("FindDebug: %@", message())
+#endif
 }

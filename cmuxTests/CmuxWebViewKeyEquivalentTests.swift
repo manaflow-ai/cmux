@@ -925,6 +925,22 @@ final class TabManagerFindRoutingTests: XCTestCase {
         )
 #endif
     }
+
+    func testBrowserFocusedStartSearchShowsInPageFindFallbackUI() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(insertAtEnd: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertFalse(browserPanel.isInPageFindVisible)
+        XCTAssertTrue(manager.startSearch())
+        XCTAssertTrue(browserPanel.isInPageFindVisible)
+    }
 }
 
 #if DEBUG
@@ -998,6 +1014,18 @@ final class BrowserPanelTextFinderDispatchTests: XCTestCase {
         let panel = BrowserPanel(workspaceId: UUID())
 
         XCTAssertFalse(panel.webView.responds(to: #selector(NSResponder.performTextFinderAction(_:))))
+        XCTAssertTrue(panel.showFindInterface())
+        XCTAssertTrue(panel.isInPageFindVisible)
+    }
+
+    func testShowFindInterfaceAlsoShowsFallbackWhenTextFinderActionHandled() {
+        _ = NSApplication.shared
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.debugTextFinderActionHandler = { action in
+            action == .showFindInterface
+        }
+
         XCTAssertTrue(panel.showFindInterface())
         XCTAssertTrue(panel.isInPageFindVisible)
     }

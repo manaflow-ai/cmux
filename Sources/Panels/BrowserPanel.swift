@@ -1784,46 +1784,60 @@ extension BrowserPanel {
 
     @discardableResult
     func showFindInterface() -> Bool {
-        if performTextFinderAction(.showFindInterface) {
-            return true
+        let nativeHandled = performTextFinderAction(.showFindInterface)
+        let fallbackHandled = showInPageFindFallback(focusField: true)
+        if !inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            _ = runInPageFindFallback(backwards: false)
         }
-        return showInPageFindFallback(focusField: true)
+        browserFindDebugLog(
+            "browser.showFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return nativeHandled || fallbackHandled
     }
 
     @discardableResult
     func findNextMatch() -> Bool {
-        if performTextFinderAction(.nextMatch) {
-            return true
-        }
-        return runInPageFindFallback(backwards: false)
+        let nativeHandled = performTextFinderAction(.nextMatch)
+        let fallbackHandled = runInPageFindFallback(backwards: false)
+        browserFindDebugLog(
+            "browser.findNextMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return nativeHandled || fallbackHandled
     }
 
     @discardableResult
     func findPreviousMatch() -> Bool {
-        if performTextFinderAction(.previousMatch) {
-            return true
-        }
-        return runInPageFindFallback(backwards: true)
+        let nativeHandled = performTextFinderAction(.previousMatch)
+        let fallbackHandled = runInPageFindFallback(backwards: true)
+        browserFindDebugLog(
+            "browser.findPreviousMatch panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible) query=\"\(inPageFindQuery)\""
+        )
+        return nativeHandled || fallbackHandled
     }
 
     @discardableResult
     func hideFindInterface() -> Bool {
-        if performTextFinderAction(.hideFindInterface) {
-            return true
-        }
-        return hideInPageFindFallback()
+        let nativeHandled = performTextFinderAction(.hideFindInterface)
+        let fallbackHandled = hideInPageFindFallback()
+        browserFindDebugLog(
+            "browser.hideFindInterface panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled) visible=\(isInPageFindVisible)"
+        )
+        return nativeHandled || fallbackHandled
     }
 
     @discardableResult
     func useSelectionForFind() -> Bool {
-        if performTextFinderAction(.setSearchString) {
-            return true
-        }
-        return useSelectionForInPageFindFallback()
+        let nativeHandled = performTextFinderAction(.setSearchString)
+        let fallbackHandled = useSelectionForInPageFindFallback()
+        browserFindDebugLog(
+            "browser.useSelectionForFind panel=\(id.uuidString) nativeHandled=\(nativeHandled) fallbackHandled=\(fallbackHandled)"
+        )
+        return nativeHandled || fallbackHandled
     }
 
     func updateInPageFindQuery(_ query: String) {
         inPageFindQuery = query
+        browserFindDebugLog("browser.inPageFind.query panel=\(id.uuidString) query=\"\(query)\"")
         _ = runInPageFindFallback(backwards: false)
     }
 
@@ -2024,8 +2038,8 @@ private extension BrowserPanel {
         let selector = #selector(NSResponder.performTextFinderAction(_:))
         let actionName = textFinderActionName(action)
         let targetWindow = webView.window ?? NSApp.keyWindow
-        findDebugLog("browser.performTextFinderAction action=\(actionName) workspace=\(workspaceId.uuidString) panel=\(id.uuidString)")
-        logFindDebugSnapshot(
+        browserFindDebugLog("browser.performTextFinderAction action=\(actionName) workspace=\(workspaceId.uuidString) panel=\(id.uuidString)")
+        browserLogFindDebugSnapshot(
             label: "browser.find.\(actionName).pre",
             window: targetWindow,
             focusView: webView
@@ -2042,14 +2056,16 @@ private extension BrowserPanel {
                firstResponderView.isDescendant(of: webView),
                firstResponderView.responds(to: selector) {
                 descendantResponder = firstResponderView
-            } else if let descendantResponder {
+            } else if let descendantResponder,
+                      descendantResponder.window === window {
                 prepMakeFirstResponder = window.makeFirstResponder(descendantResponder)
-                findDebugLog(
+                browserFindDebugLog(
                     "browser.performTextFinderAction action=\(actionName) prepDescendant=\(Self.describeResponderForFindDispatch(descendantResponder)) makeFirstResponder=\(prepMakeFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(window.firstResponder))"
                 )
-            } else if !Self.responderChainContains(window.firstResponder, target: webView) {
+            } else if webView.window === window,
+                      !Self.responderChainContains(window.firstResponder, target: webView) {
                 prepMakeFirstResponder = window.makeFirstResponder(webView)
-                findDebugLog(
+                browserFindDebugLog(
                     "browser.performTextFinderAction action=\(actionName) prepWebView makeFirstResponder=\(prepMakeFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(window.firstResponder))"
                 )
             }
@@ -2087,14 +2103,14 @@ private extension BrowserPanel {
             handled = sendViaWindow
         }
 
-        findDebugLog(
+        browserFindDebugLog(
             "browser.performTextFinderAction action=\(actionName) webViewResponds=\(webView.responds(to: selector)) firstResponderBefore=\(initialFirstResponder) firstResponderAfter=\(Self.describeResponderForFindDispatch(targetWindow?.firstResponder)) descendantResponder=\(Self.describeResponderForFindDispatch(descendantResponder)) prepMakeFirstResponder=\(prepMakeFirstResponder) handled=\(handled) viaFirstResponder=\(sendViaFirstResponder) viaCurrentResponder=\(sendViaCurrentResponder) viaDescendantResponder=\(sendViaDescendantResponder) viaWindow=\(sendViaWindow)"
         )
 
         let webViewForSnapshot = webView
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
             Task { @MainActor in
-                logFindDebugSnapshot(
+                browserLogFindDebugSnapshot(
                     label: "browser.find.\(actionName).post",
                     window: webViewForSnapshot.window ?? targetWindow ?? NSApp.keyWindow,
                     focusView: webViewForSnapshot
@@ -2107,6 +2123,8 @@ private extension BrowserPanel {
 
     @discardableResult
     func showInPageFindFallback(focusField: Bool) -> Bool {
+        let wasVisible = isInPageFindVisible
+        let tokenBefore = inPageFindFocusToken
         isInPageFindVisible = true
         if focusField {
             inPageFindFocusToken &+= 1
@@ -2114,6 +2132,9 @@ private extension BrowserPanel {
         if inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             inPageFindMatchFound = nil
         }
+        browserFindDebugLog(
+            "browser.inPageFind.show panel=\(id.uuidString) wasVisible=\(wasVisible) focusField=\(focusField) focusTokenBefore=\(tokenBefore) focusTokenAfter=\(inPageFindFocusToken) query=\"\(inPageFindQuery)\""
+        )
         return true
     }
 
@@ -2122,6 +2143,7 @@ private extension BrowserPanel {
         guard isInPageFindVisible else { return false }
         isInPageFindVisible = false
         inPageFindMatchFound = nil
+        browserFindDebugLog("browser.inPageFind.hide panel=\(id.uuidString) query=\"\(inPageFindQuery)\"")
         return true
     }
 
@@ -2133,6 +2155,9 @@ private extension BrowserPanel {
                 guard let self else { return }
                 let selected = (result as? String)?
                     .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                browserFindDebugLog(
+                    "browser.inPageFind.useSelection panel=\(self.id.uuidString) selectedLength=\(selected.count)"
+                )
                 guard !selected.isEmpty else { return }
                 self.inPageFindQuery = selected
                 _ = self.runInPageFindFallback(backwards: false)
@@ -2145,6 +2170,9 @@ private extension BrowserPanel {
     func runInPageFindFallback(backwards: Bool) -> Bool {
         _ = showInPageFindFallback(focusField: inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         let query = inPageFindQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        browserFindDebugLog(
+            "browser.inPageFind.run panel=\(id.uuidString) backwards=\(backwards) query=\"\(query)\""
+        )
         guard !query.isEmpty else {
             inPageFindMatchFound = nil
             return true
@@ -2158,6 +2186,9 @@ private extension BrowserPanel {
 
             webView.find(query, configuration: config) { [weak self] result in
                 Task { @MainActor in
+                    browserFindDebugLog(
+                        "browser.inPageFind.result panel=\(self?.id.uuidString ?? "nil") api=wkFind query=\"\(query)\" backwards=\(backwards) matchFound=\(result.matchFound)"
+                    )
                     self?.inPageFindMatchFound = result.matchFound
                 }
             }
@@ -2168,8 +2199,11 @@ private extension BrowserPanel {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         let script = "window.find(\"\(escaped)\", false, \(backwards ? "true" : "false"), true, false, false, false);"
-        webView.evaluateJavaScript(script) { [weak self] result, _ in
+        webView.evaluateJavaScript(script) { [weak self] result, error in
             Task { @MainActor in
+                browserFindDebugLog(
+                    "browser.inPageFind.result panel=\(self?.id.uuidString ?? "nil") api=window.find query=\"\(query)\" backwards=\(backwards) result=\(String(describing: result)) error=\(error?.localizedDescription ?? "nil")"
+                )
                 self?.inPageFindMatchFound = (result as? Bool)
             }
         }
@@ -2263,6 +2297,26 @@ private extension NSObject {
         let fn = unsafeBitCast(method(for: selector), to: Fn.self)
         fn(self, selector)
     }
+}
+
+@MainActor
+private func browserFindDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    NSLog("FindDebug: %@", message())
+#endif
+}
+
+@MainActor
+private func browserLogFindDebugSnapshot(
+    label: String,
+    window: NSWindow?,
+    focusView: NSView? = nil
+) {
+    // Browser find fallback debug runs on branches that may not include the
+    // shared find-layer snapshot helpers yet. Keep this hook lightweight.
+    _ = label
+    _ = window
+    _ = focusView
 }
 
 // MARK: - Navigation Delegate
