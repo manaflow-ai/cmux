@@ -824,6 +824,7 @@ struct ContentView: View {
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
+    @State private var isSidebarResizerCursorActive = false
     @State private var sidebarResizerCursorStabilizer: DispatchSourceTimer?
 
     private static let fixedSidebarResizeCursor = NSCursor(
@@ -846,6 +847,7 @@ struct ContentView: View {
     private func activateSidebarResizerCursor() {
         sidebarResizerCursorReleaseWorkItem?.cancel()
         sidebarResizerCursorReleaseWorkItem = nil
+        isSidebarResizerCursorActive = true
         Self.fixedSidebarResizeCursor.set()
     }
 
@@ -854,6 +856,8 @@ struct ContentView: View {
         let shouldKeepCursor = !force
             && (isResizerDragging || isResizerBandActive || !hoveredResizerHandles.isEmpty || isLeftMouseButtonDown)
         guard !shouldKeepCursor else { return }
+        guard isSidebarResizerCursorActive else { return }
+        isSidebarResizerCursorActive = false
         NSCursor.arrow.set()
     }
 
@@ -974,6 +978,7 @@ struct ContentView: View {
             sidebarResizerPointerMonitor = nil
         }
         isResizerBandActive = false
+        isSidebarResizerCursorActive = false
         stopSidebarResizerCursorStabilizer()
         scheduleSidebarResizerCursorRelease(force: true)
     }
