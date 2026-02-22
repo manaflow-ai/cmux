@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# cmux open wrapper - routes HTTP(S) URLs to cmux's in-app browser
+#
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# intercepts `open https://...` invocations and opens them in cmux's built-in
+# browser within the same workspace. All other arguments pass through to
+# /usr/bin/open unchanged.
+
+# Pass through immediately if not in a cmux terminal.
+if [[ -z "$CMUX_SOCKET_PATH" ]]; then
+    exec /usr/bin/open "$@"
+fi
+
+# No arguments → pass through.
+if [[ $# -eq 0 ]]; then
+    exec /usr/bin/open "$@"
+fi
+
+# Scan for flags that indicate explicit user intent → pass through.
+# Also collect non-flag arguments (potential URLs/files).
+passthrough=false
+urls=()
+for arg in "$@"; do
+    case "$arg" in
+        -a|-b|-R|-e|-t|-f|-W|-g|-n|-h|-s|-j|-u|--env|--stdin|--stdout|--stderr)
+            passthrough=true
+            break
+            ;;
+        -*)
+            # Unknown flag → be conservative, pass through
+            passthrough=true
+            break
+            ;;
+        http://*|https://*)
+            urls+=("$arg")
+            ;;
+        *)
+            # Non-URL, non-flag argument (file path, etc.) → pass through all
+            passthrough=true
+            break
+            ;;
+    esac
+done
+
+if [[ "$passthrough" == true ]] || [[ ${#urls[@]} -eq 0 ]]; then
+    exec /usr/bin/open "$@"
+fi
+
+# Find cmux CLI (same directory as this script).
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+CMUX_CLI="$SELF_DIR/cmux"
+
+if [[ ! -x "$CMUX_CLI" ]]; then
+    exec /usr/bin/open "$@"
+fi
+
+# Open each URL in cmux's in-app browser.
+failed=false
+for url in "${urls[@]}"; do
+    "$CMUX_CLI" browser open "$url" 2>/dev/null || failed=true
+done
+
+# If any failed, fall back to system open for all URLs.
+if [[ "$failed" == true ]]; then
+    exec /usr/bin/open "$@"
+fi
