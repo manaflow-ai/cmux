@@ -2145,7 +2145,8 @@ class TerminalController {
             "mark_read", "mark_unread",
             "set_color", "clear_color",
             "set_bar", "clear_bar",
-            "set_bg", "clear_bg"
+            "set_bg", "clear_bg",
+            "set_theme", "clear_theme", "list_themes"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -2324,6 +2325,42 @@ class TerminalController {
                 workspace.backgroundColorOverride = nil
                 workspace.applyBackgroundColorOverride()
                 finish()
+
+            case "set_theme":
+                guard let themeName = v2String(params, "theme"),
+                      !themeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing theme name. Available: \(WorkspaceTheme.presetNames.joined(separator: ", "))", data: [
+                        "available_themes": WorkspaceTheme.presetNames
+                    ])
+                    return
+                }
+                guard let theme = WorkspaceTheme.named(themeName) else {
+                    result = .err(code: "invalid_params", message: "Unknown theme '\(themeName)'. Available: \(WorkspaceTheme.presetNames.joined(separator: ", "))", data: [
+                        "available_themes": WorkspaceTheme.presetNames
+                    ])
+                    return
+                }
+                workspace.accentColor = theme.accentColor
+                workspace.backgroundColorOverride = theme.backgroundColor
+                workspace.applyBackgroundColorOverride()
+                finish([
+                    "theme": theme.name,
+                    "accent_color": theme.accentColor,
+                    "background_color": theme.backgroundColor
+                ])
+
+            case "clear_theme":
+                workspace.accentColor = nil
+                workspace.backgroundColorOverride = nil
+                workspace.applyBackgroundColorOverride()
+                finish()
+
+            case "list_themes":
+                let themes: [[String: String]] = WorkspaceTheme.presetNames.compactMap { name in
+                    guard let t = WorkspaceTheme.named(name) else { return nil }
+                    return ["name": t.name, "accent_color": t.accentColor, "background_color": t.backgroundColor]
+                }
+                result = .ok(["themes": themes])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [

@@ -1601,8 +1601,9 @@ struct CMUXCLI {
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
         let (positionOpt, rem4) = parseOption(rem3, name: "--position")
         let (textOpt, rem5) = parseOption(rem4, name: "--text")
+        let (themeOpt, rem6) = parseOption(rem5, name: "--theme")
 
-        var positional = rem5
+        var positional = rem6
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -1633,6 +1634,9 @@ struct CMUXCLI {
         if action == "set_bg", (colorOpt?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action set-bg requires --color <hex>")
         }
+        if action == "set_theme", (themeOpt?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-theme requires --theme <name>")
+        }
 
         var params: [String: Any] = ["action": action]
         if let workspaceId {
@@ -1649,6 +1653,9 @@ struct CMUXCLI {
         }
         if let textOpt, !textOpt.isEmpty {
             params["text"] = textOpt
+        }
+        if let themeOpt, !themeOpt.isEmpty {
+            params["theme"] = themeOpt
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -1715,7 +1722,17 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.action", params: renameParams)
             }
 
-            // Set accent color
+            // Apply theme preset (sets accent + bg together; explicit color/bg below can override)
+            if let theme = entry["theme"] as? String, !theme.isEmpty {
+                let themeParams: [String: Any] = [
+                    "action": "set_theme",
+                    "workspace_id": wsId,
+                    "theme": theme
+                ]
+                _ = try client.sendV2(method: "workspace.action", params: themeParams)
+            }
+
+            // Set accent color (overrides theme accent if both specified)
             if let color = entry["color"] as? String, !color.isEmpty {
                 let colorParams: [String: Any] = [
                     "action": "set_color",
@@ -1725,7 +1742,7 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "workspace.action", params: colorParams)
             }
 
-            // Set background color
+            // Set background color (overrides theme bg if both specified)
             if let bg = entry["bg"] as? String, !bg.isEmpty {
                 let bgParams: [String: Any] = [
                     "action": "set_bg",
@@ -3221,6 +3238,7 @@ struct CMUXCLI {
               set-color | clear-color
               set-bar | clear-bar
               set-bg | clear-bg
+              set-theme | clear-theme | list-themes
 
             Flags:
               --action <name>              Action name (required if not positional)
@@ -3229,6 +3247,9 @@ struct CMUXCLI {
               --color <hex>                Color for set-color/set-bg (e.g. "#00ff88")
               --position <top|bottom>      Bar position for set-bar (default: top)
               --text <text>                Status text for set-bar (right-aligned)
+              --theme <name>               Theme preset for set-theme
+
+            Theme presets: ocean, forest, purple, rose, solar, neon
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
@@ -3239,6 +3260,9 @@ struct CMUXCLI {
               cmux workspace-action --action clear-bar
               cmux workspace-action --action set-bg --color "#0a1a0f"
               cmux workspace-action --action clear-bg
+              cmux workspace-action --action set-theme --theme forest
+              cmux workspace-action --action clear-theme
+              cmux workspace-action --action list-themes
               cmux workspace-action close-others
             """
         case "tab-action":
@@ -3309,13 +3333,21 @@ struct CMUXCLI {
               "workspaces": [
                 {
                   "name": "Warren",
-                  "color": "#00ff88",
-                  "bg": "#0a1a0f",
+                  "theme": "forest",
                   "directory": "~/Projects/Warren",
                   "bar": { "position": "top", "text": "optional status" }
+                },
+                {
+                  "name": "API",
+                  "color": "#00ff88",
+                  "bg": "#0a1a0f",
+                  "directory": "~/Projects/API"
                 }
               ]
             }
+
+            Theme presets: ocean, forest, purple, rose, solar, neon
+            Use "theme" for a preset or "color"/"bg" for custom colors.
 
             Example:
               cmux load-template

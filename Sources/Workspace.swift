@@ -4,6 +4,37 @@ import AppKit
 import Bonsplit
 import Combine
 
+/// Predefined color theme presets for workspaces.
+/// Each preset defines an accent color (sidebar, bar) and a terminal background color.
+struct WorkspaceTheme {
+    let name: String
+    let accentColor: String
+    let backgroundColor: String
+
+    /// Built-in theme presets.
+    static let presets: [String: WorkspaceTheme] = {
+        let themes: [WorkspaceTheme] = [
+            WorkspaceTheme(name: "ocean",  accentColor: "#04D7D7", backgroundColor: "#0a1a2e"),
+            WorkspaceTheme(name: "forest", accentColor: "#00FF88", backgroundColor: "#0a1a0f"),
+            WorkspaceTheme(name: "purple", accentColor: "#8056FF", backgroundColor: "#120a1a"),
+            WorkspaceTheme(name: "rose",   accentColor: "#D74E6F", backgroundColor: "#1a0a12"),
+            WorkspaceTheme(name: "solar",  accentColor: "#D3E561", backgroundColor: "#1a180a"),
+            WorkspaceTheme(name: "neon",   accentColor: "#ED61D7", backgroundColor: "#1a0a1a"),
+        ]
+        return Dictionary(uniqueKeysWithValues: themes.map { ($0.name, $0) })
+    }()
+
+    /// Look up a theme by name (case-insensitive).
+    static func named(_ name: String) -> WorkspaceTheme? {
+        presets[name.lowercased()]
+    }
+
+    /// All preset names sorted alphabetically.
+    static var presetNames: [String] {
+        presets.keys.sorted()
+    }
+}
+
 struct WorkspaceBarConfig {
     enum Position: String {
         case top
