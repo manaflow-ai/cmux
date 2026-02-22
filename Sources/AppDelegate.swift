@@ -273,15 +273,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         dlog("ctrlD.trace \(message)")
     }
 
+    private var ctrlDMainQueueProbePending = false
+
     private func scheduleCtrlDMainQueueProbe(label: String, timeoutMs: Int = 1200) {
-        DispatchQueue.global(qos: .utility).async {
-            let sem = DispatchSemaphore(value: 0)
-            DispatchQueue.main.async {
-                sem.signal()
-            }
-            if sem.wait(timeout: .now() + .milliseconds(timeoutMs)) == .timedOut {
-                dlog("ctrlD.trace mainQueueProbeTimeout label=\(label) timeoutMs=\(timeoutMs)")
-            }
+        guard !ctrlDMainQueueProbePending else { return }
+        ctrlDMainQueueProbePending = true
+        let scheduledAt = ProcessInfo.processInfo.systemUptime
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            defer { self.ctrlDMainQueueProbePending = false }
+            let delayMs = max(0, (ProcessInfo.processInfo.systemUptime - scheduledAt) * 1000)
+            guard delayMs >= Double(timeoutMs) else { return }
+            dlog(
+                "ctrlD.trace mainQueueProbeLag label=\(label) " +
+                "delayMs=\(String(format: "%.2f", delayMs)) thresholdMs=\(timeoutMs)"
+            )
         }
     }
 #endif
