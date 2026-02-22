@@ -519,3 +519,87 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertNil(dailyProperties["app_build"])
     }
 }
+
+final class BrowserInstallDetectorTests: XCTestCase {
+    func testDetectInstalledBrowsersUsesBundleIdAndProfileData() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Google/Chrome/Default/History"),
+            contents: Data()
+        )
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Firefox/Profiles/dev.default-release/cookies.sqlite"),
+            contents: Data()
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { bundleIdentifier in
+                if bundleIdentifier == "com.google.Chrome" {
+                    return URL(fileURLWithPath: "/Applications/Google Chrome.app", isDirectory: true)
+                }
+                return nil
+            },
+            applicationSearchDirectories: []
+        )
+
+        guard let chrome = detected.first(where: { $0.descriptor.id == "google-chrome" }) else {
+            XCTFail("Expected Chrome to be detected")
+            return
+        }
+        guard let firefox = detected.first(where: { $0.descriptor.id == "firefox" }) else {
+            XCTFail("Expected Firefox to be detected from profile data")
+            return
+        }
+
+        XCTAssertNotNil(chrome.appURL)
+        XCTAssertEqual(firefox.profileURLs.count, 1)
+        XCTAssertNil(firefox.appURL)
+    }
+
+    func testDetectInstalledBrowsersReturnsEmptyWhenNoSignalsExist() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        XCTAssertTrue(detected.isEmpty)
+    }
+
+    func testUngoogledChromiumRequiresAppSignal() throws {
+        let home = makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        try createFile(
+            at: home
+                .appendingPathComponent("Library/Application Support/Chromium/Default/History"),
+            contents: Data()
+        )
+
+        let detected = InstalledBrowserDetector.detectInstalledBrowsers(
+            homeDirectoryURL: home,
+            bundleLookup: { _ in nil },
+            applicationSearchDirectories: []
+        )
+
+        XCTAssertTrue(detected.contains(where: { $0.descriptor.id == "chromium" }))
+        XCTAssertFalse(detected.contains(where: { $0.descriptor.id == "ungoogled-chromium" }))
+    }
+
+    private func makeTemporaryHome() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-detect-\(UUID().uuidString)")
+    }
+
+    private func createFile(at url: URL, contents: Data) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = FileManager.default.createFile(atPath: url.path, contents: contents)
+    }
+}
