@@ -632,6 +632,9 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "surface.send_text", params: params)
             }
 
+        case "load-template":
+            try runLoadTemplate(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
@@ -1657,6 +1660,108 @@ struct CMUXCLI {
             summaryParts.append("index=\(index)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
+    }
+
+    private func runLoadTemplate(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let path: String
+        if let first = commandArgs.first, !first.hasPrefix("--") {
+            path = (first as NSString).expandingTildeInPath
+        } else {
+            // Default template location
+            let defaultPath = ("~/.config/cmux/workspaces.json" as NSString).expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: defaultPath) else {
+                throw CLIError(message: "No template path provided and default ~/.config/cmux/workspaces.json not found")
+            }
+            path = defaultPath
+        }
+
+        guard FileManager.default.fileExists(atPath: path) else {
+            throw CLIError(message: "Template file not found: \(path)")
+        }
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: path))
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let workspaces = root["workspaces"] as? [[String: Any]] else {
+            throw CLIError(message: "Invalid template: expected {\"workspaces\": [...]}")
+        }
+
+        var created = 0
+        for entry in workspaces {
+            // Create workspace
+            let createPayload = try client.sendV2(method: "workspace.create", params: [:])
+            guard let wsId = createPayload["workspace_id"] as? String else {
+                fputs("Warning: failed to create workspace\n", stderr)
+                continue
+            }
+
+            // Rename if name provided
+            if let name = entry["name"] as? String, !name.isEmpty {
+                let renameParams: [String: Any] = [
+                    "action": "rename",
+                    "workspace_id": wsId,
+                    "title": name
+                ]
+                _ = try client.sendV2(method: "workspace.action", params: renameParams)
+            }
+
+            // Set accent color
+            if let color = entry["color"] as? String, !color.isEmpty {
+                let colorParams: [String: Any] = [
+                    "action": "set_color",
+                    "workspace_id": wsId,
+                    "color": color
+                ]
+                _ = try client.sendV2(method: "workspace.action", params: colorParams)
+            }
+
+            // Set background color
+            if let bg = entry["bg"] as? String, !bg.isEmpty {
+                let bgParams: [String: Any] = [
+                    "action": "set_bg",
+                    "workspace_id": wsId,
+                    "color": bg
+                ]
+                _ = try client.sendV2(method: "workspace.action", params: bgParams)
+            }
+
+            // Set bar
+            if let barObj = entry["bar"] as? [String: Any] {
+                var barParams: [String: Any] = [
+                    "action": "set_bar",
+                    "workspace_id": wsId
+                ]
+                if let position = barObj["position"] as? String {
+                    barParams["position"] = position
+                }
+                if let text = barObj["text"] as? String {
+                    barParams["text"] = text
+                }
+                _ = try client.sendV2(method: "workspace.action", params: barParams)
+            }
+
+            // cd to directory
+            if let dir = entry["directory"] as? String, !dir.isEmpty {
+                let expandedDir = (dir as NSString).expandingTildeInPath
+                Thread.sleep(forTimeInterval: 0.3)
+                let cdText = "cd \(expandedDir)\n"
+                let sendParams: [String: Any] = ["text": cdText, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
+            }
+
+            created += 1
+        }
+
+        if jsonOutput {
+            let result: [String: Any] = ["created": created, "template": path]
+            print(jsonString(result))
+        } else {
+            print("OK created=\(created) template=\(path)")
+        }
     }
 
     private func runTabAction(
@@ -3151,6 +3256,30 @@ struct CMUXCLI {
             Example:
               cmux new-workspace
             """
+        case "load-template":
+            return """
+            Usage: cmux load-template [<path>]
+
+            Create workspaces from a JSON template file.
+            Default: ~/.config/cmux/workspaces.json
+
+            Template schema:
+            {
+              "workspaces": [
+                {
+                  "name": "Warren",
+                  "color": "#00ff88",
+                  "bg": "#0a1a0f",
+                  "directory": "~/Projects/Warren",
+                  "bar": { "position": "top", "text": "optional status" }
+                }
+              ]
+            }
+
+            Example:
+              cmux load-template
+              cmux load-template ~/my-template.json
+            """
         case "new-split":
             return """
             Usage: cmux new-split <left|right|up|down> [flags]
@@ -4406,6 +4535,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
           new-workspace [--command <text>]
+          load-template [<path>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
