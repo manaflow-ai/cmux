@@ -2,8 +2,7 @@ export const testimonials = [
   {
     name: "Mitchell Hashimoto",
     handle: "@mitchellh",
-    subtitle:
-      "Creator of Ghostty. Founded HashiCorp. Created Vagrant, Terraform, Vault.",
+    subtitle: "Creator of Ghostty and founder of HashiCorp",
     avatar: "/avatars/mitchellh.jpg",
     text: "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
     url: "https://x.com/mitchellh/status/2024913161238053296",
@@ -12,8 +11,7 @@ export const testimonials = [
   {
     name: "Nick Schrock",
     handle: "@schrockn",
-    subtitle:
-      "Founder of Dagster Labs. Creator of Dagster. GraphQL co-creator.",
+    subtitle: "Creator of Dagster. GraphQL co-creator.",
     avatar: "/avatars/schrockn.jpg",
     text: "This is exactly the product I've been looking for. After two hours this am I've in love.",
     url: "https://x.com/schrockn/status/2025182278637207857",

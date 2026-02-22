@@ -243,7 +243,7 @@ export default function Home() {
                         className="rounded-full inline-block"
                       />
                     )}
-                    {t.name}
+                    {t.name}{"subtitle" in t && t.subtitle ? `, ${t.subtitle}` : ""}
                   </a>
                 </span>
               </li>
