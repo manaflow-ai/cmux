@@ -122,14 +122,23 @@ def _must(cond: bool, msg: str) -> None:
         raise cmuxError(msg)
 
 
-def _expect_not_supported(c: cmux, method: str, params: dict) -> None:
+def _expect_not_supported(c: cmux, method: str, params: dict, expected_engine: str) -> None:
     try:
         c._call(method, params)
     except cmuxError as exc:
         text = str(exc)
-        if "not_supported" in text:
-            return
-        raise cmuxError(f"Expected not_supported for {method}, got: {text}")
+        if "not_supported" not in text:
+            raise cmuxError(f"Expected not_supported for {method}, got: {text}")
+
+        engine_tokens = [
+            f"'browser_engine': '{expected_engine}'",
+            f'"browser_engine": "{expected_engine}"',
+        ]
+        if not any(token in text for token in engine_tokens):
+            raise cmuxError(
+                f"Expected browser_engine={expected_engine} in not_supported error for {method}, got: {text}"
+            )
+        return
     raise cmuxError(f"Expected not_supported for {method}, but call succeeded")
 
 
@@ -137,20 +146,46 @@ def main() -> int:
     with cmux(SOCKET_PATH) as c:
         caps = c.capabilities() or {}
         methods = set(caps.get("methods") or [])
+        browser_caps = caps.get("browser") or {}
+        engine = str(browser_caps.get("engine") or "")
+        requested_engine = str(browser_caps.get("requested_engine") or "")
+        fallback_active = browser_caps.get("engine_fallback_active")
 
         missing = sorted(EXPECTED_BROWSER_METHODS - methods)
         _must(not missing, f"Missing expected browser methods in capabilities: {missing}")
+        _must(engine in {"webkit", "chromium"}, f"Unexpected browser.engine value: {engine!r}")
+        _must(
+            requested_engine in {"webkit", "chromium"},
+            f"Unexpected browser.requested_engine value: {requested_engine!r}",
+        )
+        _must(
+            isinstance(fallback_active, bool),
+            f"Expected browser.engine_fallback_active to be bool, got: {fallback_active!r}",
+        )
+        _must(
+            (requested_engine != engine) == fallback_active,
+            "browser.engine_fallback_active must match requested/resolved engine mismatch",
+        )
 
         opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
         sid = str(opened.get("surface_id") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
 
-        for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
-            payload = {"surface_id": sid}
-            payload.update(extra)
-            _expect_not_supported(c, method, payload)
+        if engine == "webkit":
+            for method, extra in WKWEBVIEW_NOT_SUPPORTED.items():
+                payload = {"surface_id": sid}
+                payload.update(extra)
+                _expect_not_supported(c, method, payload, expected_engine=engine)
+        else:
+            print(
+                "INFO: Chromium engine active; skipping WKWebView not_supported matrix checks "
+                "(engine-specific parity is validated in dedicated Chromium suites)."
+            )
 
-    print("PASS: browser method matrix is explicit (capabilities + WKWebView not_supported contract)")
+    print(
+        f"PASS: browser method matrix is explicit for engine={engine} "
+        "(capabilities + engine-specific not_supported contract)"
+    )
     return 0
 
 

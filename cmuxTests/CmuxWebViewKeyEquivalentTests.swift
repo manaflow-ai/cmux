@@ -298,6 +298,124 @@ final class BrowserForcedDarkModeSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserEngineSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testRequestedEngineDefaultsToWebKitWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        XCTAssertEqual(
+            BrowserEngineSettings.requestedEngine(defaults: defaults, environment: [:]),
+            .webkit
+        )
+    }
+
+    func testRequestedEngineUsesDefaultsWhenEnvironmentUnset() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserEngine.chromium.rawValue, forKey: BrowserEngineSettings.engineKey)
+
+        XCTAssertEqual(
+            BrowserEngineSettings.requestedEngine(defaults: defaults, environment: [:]),
+            .chromium
+        )
+    }
+
+    func testRequestedEngineEnvironmentOverridesDefaults() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserEngine.webkit.rawValue, forKey: BrowserEngineSettings.engineKey)
+
+        XCTAssertEqual(
+            BrowserEngineSettings.requestedEngine(
+                defaults: defaults,
+                environment: [BrowserEngineSettings.environmentKey: "chromium"]
+            ),
+            .chromium
+        )
+    }
+
+    func testRequestedEngineIgnoresUnknownEnvironmentValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserEngine.chromium.rawValue, forKey: BrowserEngineSettings.engineKey)
+
+        XCTAssertEqual(
+            BrowserEngineSettings.requestedEngine(
+                defaults: defaults,
+                environment: [BrowserEngineSettings.environmentKey: "unknown-engine"]
+            ),
+            .chromium
+        )
+    }
+
+    func testResolvedEngineFallsBackToWebKitWhenChromiumUnavailable() {
+        XCTAssertEqual(
+            BrowserEngineSettings.resolvedEngine(requestedEngine: .chromium, chromiumAvailable: false),
+            .webkit
+        )
+    }
+
+    func testResolvedEngineUsesChromiumWhenAvailable() {
+        XCTAssertEqual(
+            BrowserEngineSettings.resolvedEngine(requestedEngine: .chromium, chromiumAvailable: true),
+            .chromium
+        )
+    }
+}
+
+@MainActor
+final class BrowserEngineSelectionTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserEngineSelectionTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testBrowserPanelDefaultsToWebKitRuntime() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            defaults: makeIsolatedDefaults(),
+            environment: [:]
+        )
+
+        XCTAssertEqual(panel.requestedBrowserEngine, .webkit)
+        XCTAssertEqual(panel.browserEngine, .webkit)
+        XCTAssertEqual(panel.runtime.engine, .webkit)
+        XCTAssertTrue(panel.runtime is WebKitBrowserRuntime)
+        XCTAssertTrue(panel.runtime.webView === panel.webView)
+    }
+
+    func testBrowserPanelKeepsChromiumRequestAndFallsBackToWebKitRuntime() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserEngine.webkit.rawValue, forKey: BrowserEngineSettings.engineKey)
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            defaults: defaults,
+            environment: [BrowserEngineSettings.environmentKey: BrowserEngine.chromium.rawValue]
+        )
+
+        XCTAssertEqual(panel.requestedBrowserEngine, .chromium)
+        XCTAssertEqual(panel.browserEngine, .webkit)
+        XCTAssertEqual(panel.runtime.engine, .webkit)
+        XCTAssertTrue(panel.runtime is WebKitBrowserRuntime)
+        XCTAssertTrue(panel.runtime.webView === panel.webView)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

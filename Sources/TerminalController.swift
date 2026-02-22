@@ -1328,6 +1328,11 @@ class TerminalController {
     }
 
     private func v2Capabilities() -> [String: Any] {
+        let requestedBrowserEngine = BrowserEngineSettings.requestedEngine()
+        let resolvedBrowserEngine = BrowserEngineSettings.resolvedEngine(
+            requestedEngine: requestedBrowserEngine
+        )
+
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
@@ -1497,7 +1502,12 @@ class TerminalController {
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
-            "methods": methods.sorted()
+            "methods": methods.sorted(),
+            "browser": [
+                "engine": resolvedBrowserEngine.rawValue,
+                "requested_engine": requestedBrowserEngine.rawValue,
+                "engine_fallback_active": requestedBrowserEngine != resolvedBrowserEngine
+            ]
         ]
     }
 
@@ -4402,8 +4412,21 @@ class TerminalController {
             ?? v2String(params, "ref")
     }
 
-    private func v2BrowserNotSupported(_ method: String, details: String) -> V2CallResult {
-        .err(code: "not_supported", message: "\(method) is not supported on WKWebView", data: ["details": details])
+    private func v2BrowserNotSupported(
+        _ method: String,
+        details: String,
+        engine: BrowserEngine = BrowserEngineSettings.resolvedEngine(
+            requestedEngine: BrowserEngineSettings.requestedEngine()
+        )
+    ) -> V2CallResult {
+        .err(
+            code: "not_supported",
+            message: "\(method) is not supported on \(engine.notSupportedEngineName)",
+            data: [
+                "details": details,
+                "browser_engine": engine.rawValue
+            ]
+        )
     }
 
     private func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
@@ -7476,10 +7499,18 @@ class TerminalController {
     private func v2BrowserNetworkRequests(params: [String: Any]) -> V2CallResult {
         if let surfaceId = v2UUID(params, "surface_id") {
             let items = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
-            return .err(code: "not_supported", message: "browser.network.requests is not supported on WKWebView", data: [
-                "details": "Request interception logs are unavailable without CDP network hooks",
-                "recorded_requests": items
-            ])
+            let engine = BrowserEngineSettings.resolvedEngine(
+                requestedEngine: BrowserEngineSettings.requestedEngine()
+            )
+            return .err(
+                code: "not_supported",
+                message: "browser.network.requests is not supported on \(engine.notSupportedEngineName)",
+                data: [
+                    "details": "Request interception logs are unavailable without CDP network hooks",
+                    "recorded_requests": items,
+                    "browser_engine": engine.rawValue
+                ]
+            )
         }
         return v2BrowserNotSupported("browser.network.requests", details: "Request interception logs are unavailable without CDP network hooks")
     }

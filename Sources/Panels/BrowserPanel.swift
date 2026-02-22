@@ -64,6 +64,96 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserEngine: String, CaseIterable {
+    case webkit
+    case chromium
+
+    var notSupportedEngineName: String {
+        switch self {
+        case .webkit:
+            return "WKWebView"
+        case .chromium:
+            return "Chromium"
+        }
+    }
+}
+
+enum BrowserEngineSettings {
+    static let engineKey = "browserEngine"
+    static let environmentKey = "CMUX_BROWSER_ENGINE"
+    static let defaultEngine: BrowserEngine = .webkit
+
+    static func requestedEngine(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BrowserEngine {
+        if let envValue = environment[environmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           let envEngine = BrowserEngine(rawValue: envValue) {
+            return envEngine
+        }
+
+        guard let raw = defaults.string(forKey: engineKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              let engine = BrowserEngine(rawValue: raw) else {
+            return defaultEngine
+        }
+        return engine
+    }
+
+    static func resolvedEngine(
+        requestedEngine: BrowserEngine,
+        chromiumAvailable: Bool = false
+    ) -> BrowserEngine {
+        switch requestedEngine {
+        case .webkit:
+            return .webkit
+        case .chromium:
+            return chromiumAvailable ? .chromium : .webkit
+        }
+    }
+}
+
+@MainActor
+protocol BrowserRuntime: AnyObject {
+    var engine: BrowserEngine { get }
+    var webView: WKWebView { get }
+}
+
+@MainActor
+final class WebKitBrowserRuntime: BrowserRuntime {
+    let engine: BrowserEngine = .webkit
+    let webView: WKWebView
+
+    init(configuration: WKWebViewConfiguration) {
+        webView = CmuxWebView(frame: .zero, configuration: configuration)
+    }
+}
+
+@MainActor
+enum BrowserRuntimeFactory {
+    private static var warnedAboutChromiumFallback = false
+
+    static func makeRuntime(
+        requestedEngine: BrowserEngine,
+        configuration: WKWebViewConfiguration,
+        logger: (String) -> Void = { message in NSLog("%@", message) }
+    ) -> (runtime: BrowserRuntime, resolvedEngine: BrowserEngine) {
+        switch requestedEngine {
+        case .webkit:
+            return (WebKitBrowserRuntime(configuration: configuration), .webkit)
+        case .chromium:
+            if !warnedAboutChromiumFallback {
+                logger("Browser engine 'chromium' requested, but Chromium runtime is not available yet. Falling back to WebKit.")
+                warnedAboutChromiumFallback = true
+            }
+            return (WebKitBrowserRuntime(configuration: configuration), .webkit)
+        }
+    }
+}
+
 enum BrowserForcedDarkModeSettings {
     static let enabledKey = "browserForcedDarkModeEnabled"
     static let opacityKey = "browserForcedDarkModeOpacity"
@@ -1077,6 +1167,15 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
 
+    /// Runtime abstraction for browser engine integration.
+    let runtime: BrowserRuntime
+
+    /// Requested engine from settings/env (can differ from `browserEngine` when fallback is active).
+    let requestedBrowserEngine: BrowserEngine
+
+    /// Effective engine backing this panel.
+    let browserEngine: BrowserEngine
+
     /// The underlying web view
     let webView: WKWebView
 
@@ -1173,12 +1272,23 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
+    init(
+        workspaceId: UUID,
+        initialURL: URL? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.forcedDarkModeEnabled = BrowserForcedDarkModeSettings.enabled()
         self.forcedDarkModeOpacity = BrowserForcedDarkModeSettings.opacity()
+        let requestedEngine = BrowserEngineSettings.requestedEngine(
+            defaults: defaults,
+            environment: environment
+        )
+        self.requestedBrowserEngine = requestedEngine
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -1193,8 +1303,15 @@ final class BrowserPanel: Panel, ObservableObject {
         // Enable JavaScript
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
+        let runtimeSelection = BrowserRuntimeFactory.makeRuntime(
+            requestedEngine: requestedEngine,
+            configuration: config
+        )
+        self.runtime = runtimeSelection.runtime
+        self.browserEngine = runtimeSelection.resolvedEngine
+
         // Set up web view
-        let webView = CmuxWebView(frame: .zero, configuration: config)
+        let webView = runtimeSelection.runtime.webView
         webView.allowsBackForwardNavigationGestures = true
 
         // Required for Web Inspector support on recent WebKit SDKs.
@@ -1254,11 +1371,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
-        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
-            if downloading {
-                self?.beginDownloadActivity()
-            } else {
-                self?.endDownloadActivity()
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.onContextMenuDownloadStateChanged = { [weak self] downloading in
+                if downloading {
+                    self?.beginDownloadActivity()
+                } else {
+                    self?.endDownloadActivity()
+                }
             }
         }
         webView.navigationDelegate = navDelegate
