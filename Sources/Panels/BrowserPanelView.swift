@@ -982,6 +982,8 @@ struct BrowserPanelView: View {
         guard let tabManager else { return matches }
 
         for tab in tabManager.tabs {
+            // Only match browser panels within the same workspace to keep workspaces isolated.
+            guard tab.id == panel.workspaceId else { continue }
             for (panelId, anyPanel) in tab.panels {
                 guard let browserPanel = anyPanel as? BrowserPanel else { continue }
                 guard let currentURL = preferredPanelURL(browserPanel),
