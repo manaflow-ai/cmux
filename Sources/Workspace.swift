@@ -263,6 +263,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
+    /// Per-workspace accent color (hex string like "#00ff88"). When nil, system accent color is used.
+    @Published var accentColor: String?
+
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?

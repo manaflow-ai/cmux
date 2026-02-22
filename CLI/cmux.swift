@@ -1592,8 +1592,9 @@ struct CMUXCLI {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
+        let (colorOpt, rem3) = parseOption(rem2, name: "--color")
 
-        var positional = rem2
+        var positional = rem3
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -1618,6 +1619,9 @@ struct CMUXCLI {
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
         }
+        if action == "set_color", (colorOpt?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-color requires --color <hex>")
+        }
 
         var params: [String: Any] = ["action": action]
         if let workspaceId {
@@ -1625,6 +1629,9 @@ struct CMUXCLI {
         }
         if let title, !title.isEmpty {
             params["title"] = title
+        }
+        if let colorOpt, !colorOpt.isEmpty {
+            params["color"] = colorOpt
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -3060,15 +3067,18 @@ struct CMUXCLI {
               move-up | move-down | move-top
               close-others | close-above | close-below
               mark-read | mark-unread
+              set-color | clear-color
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
+              --color <hex>                Accent color for set-color (e.g. "#00ff88")
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
               cmux workspace-action --action rename --title "infra"
+              cmux workspace-action --action set-color --color "#00ff88"
               cmux workspace-action close-others
             """
         case "tab-action":

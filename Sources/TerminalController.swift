@@ -2114,7 +2114,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -2238,6 +2239,24 @@ class TerminalController {
 
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
+                finish()
+
+            case "set_color":
+                guard let colorHex = v2String(params, "color"),
+                      !colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid color (hex string like #00ff88)", data: nil)
+                    return
+                }
+                let hex = colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard NSColor(hex: hex) != nil else {
+                    result = .err(code: "invalid_params", message: "Invalid hex color: \(hex)", data: nil)
+                    return
+                }
+                workspace.accentColor = hex
+                finish(["color": hex])
+
+            case "clear_color":
+                workspace.accentColor = nil
                 finish()
 
             default:

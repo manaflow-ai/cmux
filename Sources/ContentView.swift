@@ -2465,6 +2465,14 @@ private struct TabItemView: View {
         selectedTabIds.contains(tab.id)
     }
 
+    /// Workspace-specific accent color, falling back to system accent color.
+    private var workspaceAccentColor: Color {
+        if let hex = tab.accentColor, let nsColor = NSColor(hex: hex) {
+            return Color(nsColor: nsColor)
+        }
+        return Color.accentColor
+    }
+
     private var isBeingDragged: Bool {
         draggedTabId == tab.id
     }
@@ -2505,7 +2513,7 @@ private struct TabItemView: View {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
-                            .fill(isActive ? Color.white.opacity(0.25) : Color.accentColor)
+                            .fill(isActive ? Color.white.opacity(0.25) : workspaceAccentColor)
                         Text("\(unreadCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
@@ -2609,7 +2617,7 @@ private struct TabItemView: View {
                             Capsule()
                                 .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
                             Capsule()
-                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
+                                .fill(isActive ? Color.white.opacity(0.8) : workspaceAccentColor)
                                 .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
                         }
                     }
@@ -2719,7 +2727,7 @@ private struct TabItemView: View {
         .overlay(alignment: .top) {
             if showsCenteredTopDropIndicator {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(workspaceAccentColor)
                     .frame(height: 2)
                     .padding(.horizontal, 8)
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
@@ -2842,10 +2850,10 @@ private struct TabItemView: View {
 
     private var backgroundColor: Color {
         if isActive {
-            return Color.accentColor
+            return workspaceAccentColor
         }
         if isMultiSelected {
-            return Color.accentColor.opacity(0.25)
+            return workspaceAccentColor.opacity(0.25)
         }
         return Color.clear
     }
