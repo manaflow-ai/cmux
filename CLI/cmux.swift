@@ -485,6 +485,10 @@ struct CMUXCLI {
                 index += 2
                 continue
             }
+            if arg == "-v" || arg == "--version" {
+                print(versionSummary())
+                return
+            }
             if arg == "-h" || arg == "--help" {
                 print(usage())
                 return
@@ -499,6 +503,11 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
+
+        if command == "version" {
+            print(versionSummary())
+            return
+        }
 
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
@@ -4451,12 +4460,204 @@ struct CMUXCLI {
         return truncate(normalized, maxLength: 180)
     }
 
+    private func versionSummary() -> String {
+        let info = resolvedVersionInfo()
+        if let version = info["CFBundleShortVersionString"], let build = info["CFBundleVersion"] {
+            return "cmux \(version) (\(build))"
+        }
+        if let version = info["CFBundleShortVersionString"] {
+            return "cmux \(version)"
+        }
+        if let build = info["CFBundleVersion"] {
+            return "cmux build \(build)"
+        }
+        return "cmux version unknown"
+    }
+
+    private func resolvedVersionInfo() -> [String: String] {
+        if let main = versionInfo(from: Bundle.main.infoDictionary) {
+            return main
+        }
+
+        for plistURL in candidateInfoPlistURLs() {
+            guard let data = try? Data(contentsOf: plistURL),
+                  let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                  let dictionary = raw as? [String: Any],
+                  let parsed = versionInfo(from: dictionary)
+            else {
+                continue
+            }
+            return parsed
+        }
+
+        if let fromProject = versionInfoFromProjectFile() {
+            return fromProject
+        }
+
+        return [:]
+    }
+
+    private func versionInfo(from dictionary: [String: Any]?) -> [String: String]? {
+        guard let dictionary else { return nil }
+
+        var info: [String: String] = [:]
+        if let version = dictionary["CFBundleShortVersionString"] as? String {
+            let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !trimmed.contains("$(") {
+                info["CFBundleShortVersionString"] = trimmed
+            }
+        }
+        if let build = dictionary["CFBundleVersion"] as? String {
+            let trimmed = build.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !trimmed.contains("$(") {
+                info["CFBundleVersion"] = trimmed
+            }
+        }
+        return info.isEmpty ? nil : info
+    }
+
+    private func versionInfoFromProjectFile() -> [String: String]? {
+        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+            return nil
+        }
+
+        let fileManager = FileManager.default
+        var current = URL(fileURLWithPath: executable)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .deletingLastPathComponent()
+
+        while true {
+            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            if fileManager.fileExists(atPath: projectFile.path),
+               let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
+                var info: [String: String] = [:]
+                if let version = firstProjectSetting("MARKETING_VERSION", in: contents) {
+                    info["CFBundleShortVersionString"] = version
+                }
+                if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
+                    info["CFBundleVersion"] = build
+                }
+                if !info.isEmpty {
+                    return info
+                }
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+
+        return nil
+    }
+
+    private func firstProjectSetting(_ key: String, in source: String) -> String? {
+        let pattern = NSRegularExpression.escapedPattern(for: key) + "\\s*=\\s*([^;]+);"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let searchRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = regex.firstMatch(in: source, options: [], range: searchRange),
+              match.numberOfRanges > 1,
+              let valueRange = Range(match.range(at: 1), in: source)
+        else {
+            return nil
+        }
+        let value = source[valueRange]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard !value.isEmpty, !value.contains("$(") else {
+            return nil
+        }
+        return value
+    }
+
+    private func candidateInfoPlistURLs() -> [URL] {
+        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+            return []
+        }
+
+        let fileManager = FileManager.default
+        let executableURL = URL(fileURLWithPath: executable)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+
+        var candidates: [URL] = []
+        var current = executableURL.deletingLastPathComponent()
+        while true {
+            if current.pathExtension == "app" {
+                candidates.append(current.appendingPathComponent("Contents/Info.plist"))
+            }
+            if current.lastPathComponent == "Contents" {
+                candidates.append(current.appendingPathComponent("Info.plist"))
+            }
+
+            // Local dev fallback: resolve version from the repo's app Info.plist
+            // when running a standalone cmux-cli binary from build/Debug.
+            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let repoInfo = current.appendingPathComponent("Resources/Info.plist")
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.fileExists(atPath: repoInfo.path) {
+                candidates.append(repoInfo)
+                break
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+
+        let searchRoots = [
+            executableURL.deletingLastPathComponent(),
+            executableURL.deletingLastPathComponent().deletingLastPathComponent()
+        ]
+        for root in searchRoots {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+            for entry in entries where entry.pathExtension == "app" {
+                candidates.append(entry.appendingPathComponent("Contents/Info.plist"))
+            }
+        }
+
+        var seen: Set<String> = []
+        return candidates.filter { url in
+            let path = url.path
+            guard !path.isEmpty else { return false }
+            guard seen.insert(path).inserted else { return false }
+            return fileManager.fileExists(atPath: path)
+        }
+    }
+
+    private func currentExecutablePath() -> String? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
+                    return path
+                }
+            }
+        }
+        return Bundle.main.executableURL?.path ?? args.first
+    }
+
     private func usage() -> String {
         return """
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] <command> [options]
+          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] [--version] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
@@ -4467,6 +4668,7 @@ struct CMUXCLI {
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then keychain password saved in Settings.
 
         Commands:
+          version
           ping
           capabilities
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
