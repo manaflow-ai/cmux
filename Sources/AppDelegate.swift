@@ -100,7 +100,7 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
-    return normalizedFlags == [] || normalizedFlags == [.shift]
+    return normalizedFlags == []
 }
 
 enum BrowserZoomShortcutAction: Equatable {
