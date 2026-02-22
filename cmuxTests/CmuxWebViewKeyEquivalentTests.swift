@@ -3164,6 +3164,105 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
     }
+
+    func testSearchOverlayMountsAndUnmountsWithSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(searchState: searchState)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(searchState: nil)
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testSearchOverlaySurvivesPortalRebindDuringSplitLikeChurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorA = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 140))
+        let anchorB = NSView(frame: NSRect(x: 220, y: 20, width: 180, height: 140))
+        contentView.addSubview(anchorA)
+        contentView.addSubview(anchorB)
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchorB, visibleInUI: true)
+        XCTAssertTrue(
+            hostedView.debugHasSearchOverlay(),
+            "Split-like anchor churn should not unmount terminal search overlay"
+        )
+    }
+
+    func testSearchOverlaySurvivesPortalVisibilityToggleDuringWorkspaceSwitchLikeChurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: false)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        XCTAssertTrue(
+            hostedView.debugHasSearchOverlay(),
+            "Workspace-switch-like visibility toggles should not unmount terminal search overlay"
+        )
+    }
 }
 
 @MainActor

@@ -7,6 +7,15 @@ on:
   pull_request:
 
 jobs:
+  terminal-overlay-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce terminal overlay layering contract
+        run: ./scripts/check-terminal-overlay-layering.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
