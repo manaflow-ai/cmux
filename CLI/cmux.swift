@@ -3746,11 +3746,15 @@ struct CMUXCLI {
 
     /// Escape and quote a string for safe embedding in a v1 socket command.
     /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
-    /// so both must be escaped before wrapping in double quotes.
+    /// so both must be escaped before wrapping in double quotes. Newlines and
+    /// carriage returns must also be escaped since the socket protocol uses
+    /// newline as the message terminator.
     private func socketQuote(_ s: String) -> String {
         let escaped = s
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
 
