@@ -1,6 +1,6 @@
 # Agent-Browser Port Spec
 
-Last updated: February 13, 2026  
+Last updated: February 22, 2026  
 Source inventory snapshot: `vercel-labs/agent-browser` @ `03a8cb9`
 
 This document tracks implemented behavior and remaining parity gaps for the cmux browser port.
@@ -15,11 +15,12 @@ This document tracks implemented behavior and remaining parity gaps for the cmux
 
 ## Validation Status
 
-As of February 12, 2026:
+As of February 22, 2026:
 1. `./scripts/run-tests-v1.sh` passes on `cmux-vm`.
 2. `./scripts/run-tests-v2.sh` passes on `cmux-vm`.
 3. Browser parity suites passing in v2: `test_browser_api_comprehensive.py`, `test_browser_api_p0.py`, `test_browser_api_extended_families.py`, `test_browser_api_unsupported_matrix.py`, and `test_browser_cli_agent_port.py`.
 4. Visual suite note: `tests/test_visual_screenshots.py` and `tests_v2/test_visual_screenshots.py` both report D12 (`Nested: Close Top of T-shape`) as a known non-blocking VM failure when it reproduces (`VIEW_DETACHED`).
+5. `system.capabilities` includes `browser.engine`, `browser.requested_engine`, and `browser.engine_fallback_active` for runtime-aware agent behavior.
 
 ## Concepts (Canonical Terms)
 
@@ -199,6 +200,21 @@ Protocol-only action names:
 7. `surface.list|focus|split|create|close|drag_to_split|refresh|health|send_text|send_key|trigger_flash`
 8. `browser.open_split|navigate|back|forward|reload|url.get|focus_webview|is_webview_focused`
 9. notification methods and debug/test methods
+
+### Engine Metadata in `system.capabilities`
+
+`system.capabilities` now exposes a `browser` object with:
+
+1. `engine`: effective runtime backing browser surfaces (currently `webkit` unless/ until Chromium runtime is available).
+2. `requested_engine`: user-requested engine from settings/env (`CMUX_BROWSER_ENGINE` or defaults key).
+3. `engine_fallback_active`: `true` when requested and effective engines differ.
+
+### Engine-Aware `not_supported` Contract
+
+For browser parity methods that remain unsupported:
+
+1. Error message names the active engine (`WKWebView` or `Chromium` label).
+2. Error data includes `browser_engine` for machine-readable branching in tests/agents.
 
 ### New Browser Parity Method Families (Proposed)
 

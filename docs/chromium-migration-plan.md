@@ -173,3 +173,36 @@ Mitigations:
 2. Land Chromium MVP behind feature flag.
 3. Gradually enable previously unsupported automation families.
 4. Evaluate whether Atlas-style out-of-process host is worth the added complexity after parity is proven.
+
+## MVP Status (February 22, 2026)
+
+Implemented in this branch:
+
+1. Engine selection primitives are now in place:
+- `BrowserEngine` (`webkit`, `chromium`)
+- `BrowserEngineSettings` (`UserDefaults` key + `CMUX_BROWSER_ENGINE` override)
+- explicit requested vs resolved engine behavior
+2. `BrowserPanel` now uses a runtime seam:
+- `BrowserRuntime` protocol
+- `WebKitBrowserRuntime` adapter
+- `BrowserRuntimeFactory` with Chromium-request fallback to WebKit
+3. `BrowserPanel` now exposes both:
+- `requestedBrowserEngine` (user intent)
+- `browserEngine` (effective runtime)
+4. `system.capabilities` now includes engine metadata:
+- `browser.engine`
+- `browser.requested_engine`
+- `browser.engine_fallback_active`
+5. `not_supported` responses now include engine context:
+- message uses the effective engine name
+- error `data.browser_engine` is included for machine-readable assertions
+6. Regression coverage added for:
+- engine selection and fallback logic in Swift unit tests
+- capabilities browser engine metadata shape
+- engine-tagged `not_supported` contract in v2 parity matrix tests
+
+Still intentionally out of scope for this MVP:
+
+1. No embedded Chromium runtime yet (`ChromiumBrowserRuntime` remains future work).
+2. Unsupported API families remain unsupported until Chromium-backed implementations are real.
+3. `BrowserPanelView`/`BrowserWindowPortal` are still effectively WK-hosted, now behind seam scaffolding.
