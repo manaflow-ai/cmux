@@ -54,13 +54,13 @@ if [[ ! -x "$CMUX_CLI" ]]; then
     exec /usr/bin/open "$@"
 fi
 
-# Open each URL in cmux's in-app browser.
-failed=false
+# Open each URL in cmux's in-app browser; track failures individually.
+failed_urls=()
 for url in "${urls[@]}"; do
-    "$CMUX_CLI" browser open "$url" 2>/dev/null || failed=true
+    "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
 done
 
-# If any failed, fall back to system open for all URLs.
-if [[ "$failed" == true ]]; then
-    exec /usr/bin/open "$@"
+# Fall back to system open only for URLs that failed.
+if [[ ${#failed_urls[@]} -gt 0 ]]; then
+    exec /usr/bin/open "${failed_urls[@]}"
 fi
