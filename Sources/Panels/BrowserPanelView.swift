@@ -175,6 +175,7 @@ struct BrowserPanelView: View {
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
     @State private var latestRemoteSuggestions: [String] = []
+    @State private var emptyStateImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
@@ -304,6 +305,7 @@ struct BrowserPanelView: View {
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
+            refreshEmptyStateImportBrowsers()
             BrowserHistoryStore.shared.loadIfNeeded()
         }
         .onChange(of: panel.focusFlashToken) { _ in
@@ -319,6 +321,9 @@ struct BrowserPanelView: View {
                addressWasEmpty,
                !isWebViewBlank() {
                 addressBarFocused = false
+            }
+            if isWebViewBlank() {
+                refreshEmptyStateImportBrowsers()
             }
         }
         .onChange(of: forcedDarkModeEnabled) { _ in
@@ -644,7 +649,12 @@ struct BrowserPanelView: View {
                         if addressBarFocused {
                             addressBarFocused = false
                         }
-                    }
+                }
+            }
+        }
+        .overlay {
+            if isWebViewBlank() {
+                emptyBrowserStateOverlay
             }
         }
         .zIndex(0)
@@ -693,6 +703,56 @@ struct BrowserPanelView: View {
         panel.acknowledgeAddressBarFocusRequest(requestId)
     }
 
+    private var emptyBrowserStateOverlay: some View {
+        VStack {
+            Spacer(minLength: 22)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Start browsing")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Text("Search the web, enter a URL, or import cookies/history from another browser.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button("Focus Address Bar") {
+                        onRequestPanelFocus()
+                        addressBarFocused = true
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Import Browser Data…") {
+                        refreshEmptyStateImportBrowsers()
+                        BrowserDataImportCoordinator.shared.presentImportDialog()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: 460, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+
+            Spacer()
+        }
+        .padding(.horizontal, 18)
+    }
+
     /// Treat a WebView with no URL (or about:blank) as "blank" for UX purposes.
     private func isWebViewBlank() -> Bool {
         guard let url = panel.webView.url else { return true }
@@ -708,6 +768,10 @@ struct BrowserPanelView: View {
         guard !panel.webView.isLoading else { return }
         guard isWebViewBlank() else { return }
         addressBarFocused = true
+    }
+
+    private func refreshEmptyStateImportBrowsers() {
+        emptyStateImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
     }
 
     private func openDevTools() {
