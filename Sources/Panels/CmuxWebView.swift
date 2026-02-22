@@ -20,6 +20,8 @@ final class CmuxWebView: WKWebView {
     private static var contextMenuFallbackKey: UInt8 = 0
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
+    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
@@ -302,6 +304,27 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    private func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {
+        if let contextMenuLinkURLProvider {
+            contextMenuLinkURLProvider(self, point, completion)
+            return
+        }
+        findLinkURLAtPoint(point, completion: completion)
+    }
+
+    private func canOpenInDefaultBrowser(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "http" || scheme == "https"
+    }
+
+    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
+        if let contextMenuDefaultBrowserOpener {
+            _ = contextMenuDefaultBrowserOpener(url)
+            return
+        }
+        _ = NSWorkspace.shared.open(url)
+    }
+
     private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?) {
         guard let action else { return }
         // Guard against accidental self-recursion if fallback gets overwritten.
@@ -452,8 +475,22 @@ final class CmuxWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        var openLinkInsertionIndex: Int?
+        var hasDefaultBrowserOpenLinkItem = false
 
-        for item in menu.items {
+        for (index, item) in menu.items.enumerated() {
+            if !hasDefaultBrowserOpenLinkItem,
+               (item.action == #selector(contextMenuOpenLinkInDefaultBrowser(_:))
+                || item.title == "Open Link in Default Browser") {
+                hasDefaultBrowserOpenLinkItem = true
+            }
+
+            if openLinkInsertionIndex == nil,
+               (item.identifier?.rawValue == "WKMenuItemIdentifierOpenLink"
+                || item.title == "Open Link") {
+                openLinkInsertionIndex = index + 1
+            }
+
             // Rename "Open Link in New Window" to "Open Link in New Tab".
             // The UIDelegate's createWebViewWith already handles the action
             // by opening the link as a new surface in the same pane.
@@ -493,6 +530,25 @@ final class CmuxWebView: WKWebView {
                 item.target = self
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
             }
+        }
+
+        if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
+            let item = NSMenuItem(
+                title: "Open Link in Default Browser",
+                action: #selector(contextMenuOpenLinkInDefaultBrowser(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
+        }
+    }
+
+    @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
+        _ = sender
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self, let url, self.canOpenInDefaultBrowser(url) else { return }
+            self.openContextMenuLinkInDefaultBrowser(url)
         }
     }
 
