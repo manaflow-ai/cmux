@@ -96,6 +96,14 @@ struct WorkspaceContentView: View {
         .onAppear {
             syncBonsplitNotificationBadges()
             workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            // Apply workspace background override once the Metal surface layer is ready.
+            // The layer doesn't exist until the view is in the window hierarchy, so
+            // applyBackgroundColorOverride() during TabManager.init() is a no-op.
+            if workspace.backgroundColorOverride != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak workspace] in
+                    workspace?.applyBackgroundColorOverride()
+                }
+            }
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()

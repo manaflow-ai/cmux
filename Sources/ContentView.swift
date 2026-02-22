@@ -2702,15 +2702,6 @@ private struct TabItemView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(backgroundColor)
         )
-        .overlay(alignment: .leading) {
-            if hasCustomAccent {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(workspaceAccentColor)
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-                    .padding(.leading, 2)
-            }
-        }
         .padding(.horizontal, 6)
         .background {
             GeometryReader { proxy in
@@ -2805,37 +2796,26 @@ private struct TabItemView: View {
 
             Divider()
 
-            Menu("Set Theme") {
-                ForEach(WorkspaceTheme.presetNames, id: \.self) { name in
-                    Button(name.capitalized) {
-                        if let preset = WorkspaceTheme.named(name) {
-                            tab.accentColor = preset.accentColor
-                            tab.backgroundColorOverride = preset.backgroundColor
-                            tab.applyBackgroundColorOverride()
-                        }
+            Menu("Assign Profile") {
+                ForEach(WorkspaceProfileStore.shared.profiles) { profile in
+                    Button(profile.name) {
+                        WorkspaceProfileStore.apply(profile, to: tab)
                     }
                 }
                 Divider()
-                Button("Clear Theme") {
-                    tab.accentColor = nil
-                    tab.backgroundColorOverride = nil
-                    tab.applyBackgroundColorOverride()
+                Button("Custom Accent Color…") {
+                    showWorkspaceColorPicker(for: tab, mode: .accent)
                 }
-            }
-
-            Button("Set Accent Color…") {
-                showWorkspaceColorPicker(for: tab, mode: .accent)
-            }
-
-            Button("Set Background Color…") {
-                showWorkspaceColorPicker(for: tab, mode: .background)
-            }
-
-            if tab.accentColor != nil || tab.backgroundColorOverride != nil {
-                Button("Clear All Colors") {
-                    tab.accentColor = nil
-                    tab.backgroundColorOverride = nil
-                    tab.applyBackgroundColorOverride()
+                Button("Custom Background Color…") {
+                    showWorkspaceColorPicker(for: tab, mode: .background)
+                }
+                if tab.accentColor != nil || tab.backgroundColorOverride != nil {
+                    Divider()
+                    Button("Clear Colors") {
+                        tab.accentColor = nil
+                        tab.backgroundColorOverride = nil
+                        tab.applyBackgroundColorOverride()
+                    }
                 }
             }
 
@@ -2893,22 +2873,12 @@ private struct TabItemView: View {
         }
     }
 
-    /// Whether this workspace has a user-set accent color (not just system default).
-    private var hasCustomAccent: Bool {
-        tab.accentColor != nil
-    }
-
     private var backgroundColor: Color {
         if isActive {
             return workspaceAccentColor
         }
         if isMultiSelected {
             return workspaceAccentColor.opacity(0.25)
-        }
-        // Inactive tabs with a custom accent get a subtle tint so the user
-        // can see which project is which at a glance.
-        if hasCustomAccent {
-            return workspaceAccentColor.opacity(0.10)
         }
         return Color.clear
     }

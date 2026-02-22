@@ -2555,9 +2555,9 @@ struct SettingsView: View {
                         }
                     }
 
-                    SettingsSectionHeader(title: "Workspace Themes")
+                    SettingsSectionHeader(title: "Workspace Profiles")
                     SettingsCard {
-                        WorkspaceThemePresetsGrid()
+                        WorkspaceProfilesPanel()
                     }
 
                     SettingsSectionHeader(title: "Automation")
@@ -2950,74 +2950,262 @@ private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
     }
 }
 
-private struct WorkspaceThemePresetsGrid: View {
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+// MARK: - Workspace Profiles Panel (Terminal.app-style)
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Built-in Presets")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(WorkspaceTheme.presetNames, id: \.self) { name in
-                    if let theme = WorkspaceTheme.named(name) {
-                        WorkspaceThemeSwatchView(theme: theme)
-                    }
-                }
-            }
-
-            Text("Apply themes from the sidebar right-click menu.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(14)
-    }
-}
-
-private struct WorkspaceThemeSwatchView: View {
-    let theme: WorkspaceTheme
-
-    private var accentColor: Color {
-        if let c = NSColor(hex: theme.accentColor) {
-            return Color(nsColor: c)
-        }
-        return .accentColor
-    }
-
-    private var bgColor: Color {
-        if let c = NSColor(hex: theme.backgroundColor) {
-            return Color(nsColor: c)
-        }
-        return Color(nsColor: .windowBackgroundColor)
-    }
+private struct WorkspaceProfilesPanel: View {
+    @ObservedObject private var store = WorkspaceProfileStore.shared
+    @State private var selectedId: UUID?
+    @State private var editingProfile: WorkspaceProfile?
 
     var body: some View {
         VStack(spacing: 0) {
-            // Color bar preview at 30% opacity
-            accentColor.opacity(0.3)
-                .frame(height: 4)
+            HStack(alignment: .top, spacing: 0) {
+                // Left: profile list
+                VStack(spacing: 0) {
+                    List(selection: $selectedId) {
+                        ForEach(store.profiles) { profile in
+                            ProfileListRow(profile: profile)
+                                .tag(profile.id)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .frame(minHeight: 180)
 
-            // Background preview area
-            bgColor
-                .frame(height: 36)
-                .overlay(
-                    Circle()
-                        .fill(accentColor)
-                        .frame(width: 10, height: 10)
-                )
+                    Divider()
+
+                    HStack(spacing: 4) {
+                        Button(action: addProfile) {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.borderless)
+
+                        Button(action: deleteSelected) {
+                            Image(systemName: "minus")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(selectedId == nil || selectedProfile?.isBuiltIn == true)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                }
+                .frame(width: 170)
+
+                Divider()
+
+                // Right: profile editor
+                if let profile = selectedProfile {
+                    ProfileEditorView(
+                        profile: profile,
+                        onUpdate: { updated in
+                            store.update(updated)
+                        }
+                    )
+                    .id(profile.id)
+                } else {
+                    VStack {
+                        Spacer()
+                        Text("Select a profile")
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+        .frame(minHeight: 260)
+        .onAppear {
+            if selectedId == nil, let first = store.profiles.first {
+                selectedId = first.id
+            }
+        }
+    }
+
+    private var selectedProfile: WorkspaceProfile? {
+        guard let selectedId else { return nil }
+        return store.profiles.first { $0.id == selectedId }
+    }
+
+    private func addProfile() {
+        let profile = WorkspaceProfile(
+            name: "Custom",
+            accentColor: "#8899AA",
+            backgroundColor: "#141414"
         )
-        .overlay(alignment: .bottom) {
-            Text(theme.name.capitalized)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 3)
+        store.add(profile)
+        selectedId = profile.id
+    }
+
+    private func deleteSelected() {
+        guard let selectedId, selectedProfile?.isBuiltIn != true else { return }
+        store.delete(id: selectedId)
+        self.selectedId = store.profiles.first?.id
+    }
+}
+
+private struct ProfileListRow: View {
+    let profile: WorkspaceProfile
+
+    private var accentColor: Color {
+        NSColor(hex: profile.accentColor).map { Color(nsColor: $0) } ?? .accentColor
+    }
+
+    private var bgColor: Color {
+        NSColor(hex: profile.backgroundColor).map { Color(nsColor: $0) } ?? Color(nsColor: .windowBackgroundColor)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Mini preview swatch
+            ZStack {
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(bgColor)
+                    .frame(width: 22, height: 16)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .stroke(accentColor, lineWidth: 1.5)
+                    .frame(width: 22, height: 16)
+            }
+
+            Text(profile.name)
+                .font(.system(size: 12))
+                .lineLimit(1)
         }
+        .padding(.vertical, 1)
+    }
+}
+
+private struct ProfileEditorView: View {
+    @State private var draft: WorkspaceProfile
+    let onUpdate: (WorkspaceProfile) -> Void
+
+    init(profile: WorkspaceProfile, onUpdate: @escaping (WorkspaceProfile) -> Void) {
+        _draft = State(initialValue: profile)
+        self.onUpdate = onUpdate
+    }
+
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: { NSColor(hex: draft.accentColor).map { Color(nsColor: $0) } ?? .accentColor },
+            set: { newColor in
+                let nsColor = NSColor(newColor).usingColorSpace(.sRGB) ?? NSColor(newColor)
+                draft.accentColor = String(format: "#%02X%02X%02X",
+                    Int(nsColor.redComponent * 255),
+                    Int(nsColor.greenComponent * 255),
+                    Int(nsColor.blueComponent * 255))
+                onUpdate(draft)
+            }
+        )
+    }
+
+    private var bgBinding: Binding<Color> {
+        Binding(
+            get: { NSColor(hex: draft.backgroundColor).map { Color(nsColor: $0) } ?? Color(nsColor: .windowBackgroundColor) },
+            set: { newColor in
+                let nsColor = NSColor(newColor).usingColorSpace(.sRGB) ?? NSColor(newColor)
+                draft.backgroundColor = String(format: "#%02X%02X%02X",
+                    Int(nsColor.redComponent * 255),
+                    Int(nsColor.greenComponent * 255),
+                    Int(nsColor.blueComponent * 255))
+                onUpdate(draft)
+            }
+        )
+    }
+
+    private var accentColor: Color {
+        NSColor(hex: draft.accentColor).map { Color(nsColor: $0) } ?? .accentColor
+    }
+
+    private var bgColor: Color {
+        NSColor(hex: draft.backgroundColor).map { Color(nsColor: $0) } ?? Color(nsColor: .windowBackgroundColor)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Live preview
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(bgColor)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    // Accent bar preview
+                    accentColor.opacity(0.3)
+                        .frame(height: 3)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("$ echo \"Hello from \(draft.name)\"")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                        Text("Hello from \(draft.name)")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.green.opacity(0.9))
+                        HStack(spacing: 0) {
+                            Text("user@mac ")
+                                .foregroundColor(accentColor)
+                            Text("~/Projects $")
+                                .foregroundColor(.white.opacity(0.5))
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(.white.opacity(0.7))
+                                .frame(width: 7, height: 13)
+                                .padding(.leading, 2)
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                    }
+                    .padding(10)
+                }
+            }
+            .frame(height: 90)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+
+            // Name field
+            HStack {
+                Text("Name")
+                    .font(.system(size: 12))
+                    .frame(width: 80, alignment: .trailing)
+                TextField("", text: $draft.name)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .disabled(draft.isBuiltIn)
+                    .onChange(of: draft.name) { _, _ in onUpdate(draft) }
+            }
+
+            // Accent color picker
+            HStack {
+                Text("Accent")
+                    .font(.system(size: 12))
+                    .frame(width: 80, alignment: .trailing)
+                ColorPicker("", selection: accentBinding, supportsOpacity: false)
+                    .labelsHidden()
+                    .disabled(draft.isBuiltIn)
+                Text(draft.accentColor)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            // Background color picker
+            HStack {
+                Text("Background")
+                    .font(.system(size: 12))
+                    .frame(width: 80, alignment: .trailing)
+                ColorPicker("", selection: bgBinding, supportsOpacity: false)
+                    .labelsHidden()
+                    .disabled(draft.isBuiltIn)
+                Text(draft.backgroundColor)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            if draft.isBuiltIn {
+                Text("Built-in profiles cannot be edited.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(14)
     }
 }
 
