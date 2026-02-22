@@ -3384,6 +3384,20 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    /// Apply a workspace-level background color override to this terminal surface.
+    func applyWorkspaceBackgroundOverride(_ color: NSColor?) {
+        surfaceView.backgroundColor = color
+        surfaceView.applySurfaceBackground()
+        let effective: NSColor
+        if let color {
+            effective = color.withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
+        } else {
+            let defaultBg = GhosttyApp.shared.defaultBackgroundColor
+            effective = defaultBg.withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
+        }
+        setBackgroundColor(effective)
+    }
+
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {
         let clampedOpacity = max(0, min(1, opacity))
         CATransaction.begin()

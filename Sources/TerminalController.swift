@@ -2116,7 +2116,8 @@ class TerminalController {
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
             "set_color", "clear_color",
-            "set_bar", "clear_bar"
+            "set_bar", "clear_bar",
+            "set_bg", "clear_bg"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -2274,6 +2275,26 @@ class TerminalController {
 
             case "clear_bar":
                 workspace.barConfig = nil
+                finish()
+
+            case "set_bg":
+                guard let colorHex = v2String(params, "color"),
+                      !colorHex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid color (hex string like #0a1a0f)", data: nil)
+                    return
+                }
+                let hex = colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard NSColor(hex: hex) != nil else {
+                    result = .err(code: "invalid_params", message: "Invalid hex color: \(hex)", data: nil)
+                    return
+                }
+                workspace.backgroundColorOverride = hex
+                workspace.applyBackgroundColorOverride()
+                finish(["color": hex])
+
+            case "clear_bg":
+                workspace.backgroundColorOverride = nil
+                workspace.applyBackgroundColorOverride()
                 finish()
 
             default:

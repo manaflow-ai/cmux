@@ -111,11 +111,16 @@ struct WorkspaceContentView: View {
             refreshGhosttyAppearanceConfig()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            // Skip global background changes if this workspace has its own override
+            guard workspace.backgroundColorOverride == nil else { return }
             if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
                 workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
             } else {
                 workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
             }
+        }
+        .onChange(of: workspace.backgroundColorOverride) { _, _ in
+            workspace.applyBackgroundColorOverride()
         }
 
         if barAtBottom {

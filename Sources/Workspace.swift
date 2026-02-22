@@ -278,6 +278,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Per-workspace color bar at top or bottom of terminal area. When nil, no bar is shown.
     @Published var barConfig: WorkspaceBarConfig?
 
+    /// Per-workspace background color override (hex string). When set, overrides the Ghostty default for this workspace.
+    @Published var backgroundColorOverride: String?
+
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
@@ -328,11 +331,32 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor) {
-        let nextHex = backgroundColor.hexString()
+        let effectiveBg: NSColor
+        if let overrideHex = backgroundColorOverride, let overrideColor = NSColor(hex: overrideHex) {
+            effectiveBg = overrideColor
+        } else {
+            effectiveBg = backgroundColor
+        }
+        let nextHex = effectiveBg.hexString()
         if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
             return
         }
         bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+    }
+
+    /// Apply the background color override to all terminal surfaces in this workspace.
+    func applyBackgroundColorOverride() {
+        let overrideColor: NSColor?
+        if let overrideHex = backgroundColorOverride {
+            overrideColor = NSColor(hex: overrideHex)
+        } else {
+            overrideColor = nil
+        }
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            terminalPanel.hostedView.applyWorkspaceBackgroundOverride(overrideColor)
+        }
+        applyGhosttyChrome(backgroundColor: overrideColor ?? GhosttyApp.shared.defaultBackgroundColor)
     }
 
     init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {

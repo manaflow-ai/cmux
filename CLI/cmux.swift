@@ -1627,6 +1627,9 @@ struct CMUXCLI {
         if action == "set_color", (colorOpt?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action set-color requires --color <hex>")
         }
+        if action == "set_bg", (colorOpt?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-bg requires --color <hex>")
+        }
 
         var params: [String: Any] = ["action": action]
         if let workspaceId {
@@ -3182,12 +3185,13 @@ struct CMUXCLI {
               mark-read | mark-unread
               set-color | clear-color
               set-bar | clear-bar
+              set-bg | clear-bg
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
-              --color <hex>                Accent color for set-color (e.g. "#00ff88")
+              --color <hex>                Color for set-color/set-bg (e.g. "#00ff88")
               --position <top|bottom>      Bar position for set-bar (default: top)
               --text <text>                Status text for set-bar (right-aligned)
 
@@ -3198,6 +3202,8 @@ struct CMUXCLI {
               cmux workspace-action --action clear-color
               cmux workspace-action --action set-bar --position top --text "main branch"
               cmux workspace-action --action clear-bar
+              cmux workspace-action --action set-bg --color "#0a1a0f"
+              cmux workspace-action --action clear-bg
               cmux workspace-action close-others
             """
         case "tab-action":
