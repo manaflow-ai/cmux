@@ -5,6 +5,49 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+private extension Color {
+    init?(hex: String) {
+        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
+        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
+        self.init(
+            red:   Double((value >> 16) & 0xFF) / 255.0,
+            green: Double((value >> 8)  & 0xFF) / 255.0,
+            blue:  Double( value        & 0xFF) / 255.0
+        )
+    }
+}
+
+private func coloredCircleImage(hex: String) -> NSImage {
+    let nsColor = NSColor(hex: hex) ?? NSColor.gray
+    let size = NSSize(width: 14, height: 14)
+    let image = NSImage(size: size, flipped: false) { rect in
+        nsColor.setFill()
+        NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+        return true
+    }
+    image.isTemplate = false
+    return image
+}
+
+private let sidebarTabColorPalette: [(name: String, hex: String)] = [
+    ("Red",       "#C0392B"),
+    ("Crimson",   "#922B21"),
+    ("Orange",    "#A04000"),
+    ("Amber",     "#7D6608"),
+    ("Olive",     "#4A5C18"),
+    ("Green",     "#196F3D"),
+    ("Teal",      "#006B6B"),
+    ("Aqua",      "#0E6B8C"),
+    ("Blue",      "#1565C0"),
+    ("Navy",      "#1A5276"),
+    ("Indigo",    "#283593"),
+    ("Purple",    "#6A1B9A"),
+    ("Magenta",   "#AD1457"),
+    ("Rose",      "#880E4F"),
+    ("Brown",     "#7B3F00"),
+    ("Charcoal",  "#3E4B5E"),
+]
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -2698,6 +2741,10 @@ private struct TabItemView: View {
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(backgroundColor)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.primary.opacity(isActive ? 0.5 : 0), lineWidth: 1.5)
+                )
         )
         .padding(.horizontal, 6)
         .background {
@@ -2791,6 +2838,26 @@ private struct TabItemView: View {
                 }
             }
 
+            Menu("Tab Color") {
+                ForEach(sidebarTabColorPalette, id: \.hex) { entry in
+                    Button {
+                        tabManager.setTabColor(tabId: tab.id, color: entry.hex)
+                    } label: {
+                        Label {
+                            Text(entry.name)
+                        } icon: {
+                            Image(nsImage: coloredCircleImage(hex: entry.hex))
+                        }
+                    }
+                }
+                if tab.customColor != nil {
+                    Divider()
+                    Button("Clear Color") {
+                        tabManager.setTabColor(tabId: tab.id, color: nil)
+                    }
+                }
+            }
+
             Divider()
 
             Button("Move Up") {
@@ -2846,12 +2913,13 @@ private struct TabItemView: View {
     }
 
     private var backgroundColor: Color {
-        if isActive {
-            return Color.accentColor
+        if let hex = tab.customColor, let custom = Color(hex: hex) {
+            if isActive        { return custom }
+            if isMultiSelected { return custom.opacity(0.35) }
+            return custom.opacity(0.7)
         }
-        if isMultiSelected {
-            return Color.accentColor.opacity(0.25)
-        }
+        if isActive        { return Color.accentColor }
+        if isMultiSelected { return Color.accentColor.opacity(0.25) }
         return Color.clear
     }
 
