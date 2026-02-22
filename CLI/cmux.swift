@@ -4293,7 +4293,8 @@ struct CMUXCLI {
         ]
         let session = firstString(in: object, keys: ["session_id", "sessionId"])
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let normalizedMessage = normalizedSingleLine(message)
+        let dedupedMessage = dedupeBranchContextLines(message)
+        let normalizedMessage = normalizedSingleLine(dedupedMessage)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
@@ -4324,6 +4325,42 @@ struct CMUXCLI {
         }
         let body = message.isEmpty ? "Claude needs your input" : message
         return ("Attention", body)
+    }
+
+    private func dedupeBranchContextLines(_ value: String) -> String {
+        let lines = value.components(separatedBy: .newlines)
+        guard lines.count > 1 else { return value }
+
+        var lastIndexByPath: [String: Int] = [:]
+        for (index, line) in lines.enumerated() {
+            guard let path = branchContextPath(from: line) else { continue }
+            lastIndexByPath[path] = index
+        }
+        guard !lastIndexByPath.isEmpty else { return value }
+
+        let deduped = lines.enumerated().compactMap { index, line -> String? in
+            guard let path = branchContextPath(from: line) else { return line }
+            return lastIndexByPath[path] == index ? line : nil
+        }
+        return deduped.joined(separator: "\n")
+    }
+
+    private func branchContextPath(from line: String) -> String? {
+        let parts = line.split(separator: "•", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+
+        let branch = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty, !path.isEmpty else { return nil }
+
+        let looksLikePath = path.hasPrefix("/") || path.hasPrefix("~") || path.hasPrefix(".") || path.contains("/")
+        guard looksLikePath else { return nil }
+
+        let trimmedQuotes = path.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        let expanded = NSString(string: trimmedQuotes).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
