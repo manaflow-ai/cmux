@@ -118,25 +118,80 @@ func browserZoomShortcutAction(
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
     let key = chars.lowercased()
+    let hasCommand = normalizedFlags.contains(.command)
+    let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
 
-    if normalizedFlags == [.command] {
-        if key == "=" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
-            return .zoomIn
-        }
-        if key == "-" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
-            return .zoomOut
-        }
-        if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
-            return .reset
-        }
+    guard hasOnlyCommandAndOptionalShift else { return nil }
+
+    if key == "=" || key == "+" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+        return .zoomIn
     }
 
-    if normalizedFlags == [.command, .shift] && (key == "=" || key == "+" || keyCode == 24 || keyCode == 69) {
-        return .zoomIn
+    if key == "-" || key == "_" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+        return .zoomOut
+    }
+
+    if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+        return .reset
     }
 
     return nil
 }
+
+func shouldRouteTerminalFontZoomShortcutToGhostty(
+    firstResponderIsGhostty: Bool,
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    guard firstResponderIsGhostty else { return false }
+    return browserZoomShortcutAction(flags: flags, chars: chars, keyCode: keyCode) != nil
+}
+
+#if DEBUG
+func browserZoomShortcutTraceCandidate(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let key = chars.lowercased()
+    if key == "=" || key == "+" || key == "-" || key == "_" || key == "0" {
+        return true
+    }
+    switch keyCode {
+    case 24, 27, 29, 69, 78, 82: // ANSI and keypad zoom keys
+        return true
+    default:
+        return false
+    }
+}
+
+func browserZoomShortcutTraceFlagsString(_ flags: NSEvent.ModifierFlags) -> String {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    var parts: [String] = []
+    if normalizedFlags.contains(.command) { parts.append("Cmd") }
+    if normalizedFlags.contains(.shift) { parts.append("Shift") }
+    if normalizedFlags.contains(.option) { parts.append("Opt") }
+    if normalizedFlags.contains(.control) { parts.append("Ctrl") }
+    return parts.isEmpty ? "none" : parts.joined(separator: "+")
+}
+
+func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) -> String {
+    guard let action else { return "none" }
+    switch action {
+    case .zoomIn: return "zoomIn"
+    case .zoomOut: return "zoomOut"
+    case .reset: return "reset"
+    }
+}
+#endif
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
@@ -2044,20 +2099,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let action = browserZoomShortcutAction(flags: flags, chars: chars, keyCode: event.keyCode),
-           let manager = tabManager {
+        #if DEBUG
+        logBrowserZoomShortcutTrace(stage: "probe", event: event, flags: flags, chars: chars)
+        #endif
+        let zoomAction = browserZoomShortcutAction(flags: flags, chars: chars, keyCode: event.keyCode)
+        #if DEBUG
+        logBrowserZoomShortcutTrace(stage: "match", event: event, flags: flags, chars: chars, action: zoomAction)
+        #endif
+        if let action = zoomAction, let manager = tabManager {
+            let handled: Bool
             switch action {
             case .zoomIn:
-                return manager.zoomInFocusedBrowser()
+                handled = manager.zoomInFocusedBrowser()
             case .zoomOut:
-                return manager.zoomOutFocusedBrowser()
+                handled = manager.zoomOutFocusedBrowser()
             case .reset:
-                return manager.resetZoomFocusedBrowser()
+                handled = manager.resetZoomFocusedBrowser()
             }
+            #if DEBUG
+            logBrowserZoomShortcutTrace(
+                stage: "dispatch",
+                event: event,
+                flags: flags,
+                chars: chars,
+                action: action,
+                handled: handled
+            )
+            #endif
+            return handled
         }
+        #if DEBUG
+        if zoomAction != nil, tabManager == nil {
+            logBrowserZoomShortcutTrace(
+                stage: "dispatch.noManager",
+                event: event,
+                flags: flags,
+                chars: chars,
+                action: zoomAction,
+                handled: false
+            )
+        }
+        #endif
 
         return false
     }
+
+#if DEBUG
+    private func logBrowserZoomShortcutTrace(
+        stage: String,
+        event: NSEvent,
+        flags: NSEvent.ModifierFlags,
+        chars: String,
+        action: BrowserZoomShortcutAction? = nil,
+        handled: Bool? = nil
+    ) {
+        guard browserZoomShortcutTraceCandidate(flags: flags, chars: chars, keyCode: event.keyCode) else {
+            return
+        }
+
+        let keyWindow = NSApp.keyWindow
+        let firstResponderType = keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let panel = tabManager?.focusedBrowserPanel
+        let panelToken = panel.map { String($0.id.uuidString.prefix(8)) } ?? "nil"
+        let panelZoom = panel?.webView.pageZoom ?? -1
+        var line =
+            "zoom.shortcut stage=\(stage) event=\(NSWindow.keyDescription(event)) " +
+            "chars='\(chars)' flags=\(browserZoomShortcutTraceFlagsString(flags)) " +
+            "action=\(browserZoomShortcutTraceActionString(action)) keyWin=\(keyWindow?.windowNumber ?? -1) " +
+            "fr=\(firstResponderType) panel=\(panelToken) zoom=\(String(format: "%.3f", panelZoom)) " +
+            "addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
+        if let handled {
+            line += " handled=\(handled ? 1 : 0)"
+        }
+        dlog(line)
+    }
+#endif
 
     @discardableResult
     private func focusBrowserAddressBar(panelId: UUID) -> Bool {
@@ -3672,6 +3788,22 @@ private extension NSWindow {
 #endif
                 return result
             }
+
+            // Preserve Ghostty's terminal font-size shortcuts (Cmd +/−/0) when
+            // the terminal is focused. Otherwise our browser menu shortcuts can
+            // consume the event even when no browser panel is focused.
+            if shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: event.modifierFlags,
+                chars: event.charactersIgnoringModifiers ?? "",
+                keyCode: event.keyCode
+            ) {
+                ghosttyView.keyDown(with: event)
+#if DEBUG
+                dlog("zoom.shortcut stage=window.ghosttyKeyDownDirect event=\(Self.keyDescription(event)) handled=1")
+#endif
+                return true
+            }
         }
 
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
@@ -3686,11 +3818,28 @@ private extension NSWindow {
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
         if self.firstResponder is GhosttyNSView,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+           let mainMenu = NSApp.mainMenu {
+            let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
 #if DEBUG
-            dlog("  → consumed by mainMenu (bypassed SwiftUI)")
+            if browserZoomShortcutTraceCandidate(
+                flags: event.modifierFlags,
+                chars: event.charactersIgnoringModifiers ?? "",
+                keyCode: event.keyCode
+            ) {
+                dlog(
+                    "zoom.shortcut stage=window.mainMenuBypass event=\(Self.keyDescription(event)) " +
+                    "consumed=\(consumedByMenu ? 1 : 0) fr=GhosttyNSView"
+                )
+            }
 #endif
-            return true
+            if !consumedByMenu {
+                // Fall through to the original performKeyEquivalent path below.
+            } else {
+#if DEBUG
+                dlog("  → consumed by mainMenu (bypassed SwiftUI)")
+#endif
+                return true
+            }
         }
 
         let result = cmux_performKeyEquivalent(with: event)
