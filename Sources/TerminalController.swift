@@ -312,6 +312,7 @@ class TerminalController {
         if isRunning {
             if self.socketPath == socketPath && acceptLoopAlive {
                 self.accessMode = accessMode
+                applySocketPermissions()
                 return
             }
             stop()
@@ -351,8 +352,7 @@ class TerminalController {
             return
         }
 
-        // Restrict socket to owner only (0600)
-        chmod(socketPath, 0o600)
+        applySocketPermissions()
 
         // Listen
         guard listen(serverSocket, 5) >= 0 else {
@@ -396,6 +396,104 @@ class TerminalController {
             serverSocket = -1
         }
         unlink(socketPath)
+    }
+
+    private func applySocketPermissions() {
+        let permissions = mode_t(accessMode.socketFilePermissions)
+        if chmod(socketPath, permissions) != 0 {
+            print("TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(socketPath)")
+        }
+    }
+
+    private func writeSocketResponse(_ response: String, to socket: Int32) {
+        let payload = response + "\n"
+        payload.withCString { ptr in
+            _ = write(socket, ptr, strlen(ptr))
+        }
+    }
+
+    private func passwordAuthRequiredResponse(for command: String) -> String {
+        let message = "Authentication required. Send auth <password> first."
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return "ERROR: Authentication required — send auth <password> first"
+        }
+        let id = dict["id"]
+        return v2Error(id: id, code: "auth_required", message: message)
+    }
+
+    private func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        let lowered = command.lowercased()
+        guard lowered == "auth" || lowered.hasPrefix("auth ") else {
+            return nil
+        }
+        guard SocketControlPasswordStore.hasConfiguredPassword() else {
+            return "ERROR: Password mode is enabled but no socket password is configured in Settings."
+        }
+
+        let provided: String
+        if lowered == "auth" {
+            provided = ""
+        } else {
+            provided = String(command.dropFirst(5))
+        }
+        guard !provided.isEmpty else {
+            return "ERROR: Missing password. Usage: auth <password>"
+        }
+        guard SocketControlPasswordStore.verify(password: provided) else {
+            return "ERROR: Invalid password"
+        }
+        authenticated = true
+        return "OK: Authenticated"
+    }
+
+    private func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+        let id = dict["id"]
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "auth.login" else {
+            return nil
+        }
+
+        guard let params = dict["params"] as? [String: Any],
+              let provided = params["password"] as? String else {
+            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+        }
+
+        guard SocketControlPasswordStore.hasConfiguredPassword() else {
+            return v2Error(
+                id: id,
+                code: "auth_unconfigured",
+                message: "Password mode is enabled but no socket password is configured in Settings."
+            )
+        }
+
+        guard SocketControlPasswordStore.verify(password: provided) else {
+            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
+        }
+        authenticated = true
+        return v2Ok(id: id, result: ["authenticated": true])
+    }
+
+    private func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        guard accessMode.requiresPasswordAuth else {
+            return nil
+        }
+        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+            return v2Response
+        }
+        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
+            return v1Response
+        }
+        if !authenticated {
+            return passwordAuthRequiredResponse(for: command)
+        }
+        return nil
     }
 
     private nonisolated func acceptLoop() {
@@ -447,7 +545,7 @@ class TerminalController {
         defer { close(socket) }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
+        // Other modes allow external clients and apply separate auth controls.
         if accessMode == .cmuxOnly {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
@@ -477,6 +575,7 @@ class TerminalController {
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
+        var authenticated = false
 
         while isRunning {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
@@ -491,11 +590,13 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                let response = processCommand(trimmed)
-                let payload = response + "\n"
-                payload.withCString { ptr in
-                    _ = write(socket, ptr, strlen(ptr))
+                if let authResponse = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    writeSocketResponse(authResponse, to: socket)
+                    continue
                 }
+
+                let response = processCommand(trimmed)
+                writeSocketResponse(response, to: socket)
             }
         }
     }
@@ -523,6 +624,9 @@ class TerminalController {
             switch cmd {
         case "ping":
             return "PONG"
+
+        case "auth":
+            return "OK: Authentication not required"
 
         case "list_windows":
             return listWindows()
@@ -870,6 +974,14 @@ class TerminalController {
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
+        case "auth.login":
+            return v2Ok(
+                id: id,
+                result: [
+                    "authenticated": true,
+                    "required": accessMode.requiresPasswordAuth
+                ]
+            )
 
         // Windows
         case "window.list":
@@ -1220,6 +1332,7 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
+            "auth.login",
             "window.list",
             "window.current",
             "window.focus",
@@ -7719,6 +7832,7 @@ class TerminalController {
 
         Available commands:
           ping                        - Check if server is running
+          auth <password>             - Authenticate this connection (required in password mode)
           list_workspaces             - List all workspaces with IDs
           new_workspace               - Create a new workspace
           select_workspace <id|index> - Select workspace by ID or index (0-based)
