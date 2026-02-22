@@ -680,6 +680,47 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     }
 }
 
+final class BrowserZoomShortcutActionTests: XCTestCase {
+    func testZoomInSupportsEqualsAndPlusVariants() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "=", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command, .shift], chars: "+", keyCode: 24),
+            .zoomIn
+        )
+    }
+
+    func testZoomOutSupportsMinusAndUnderscoreVariants() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "-", keyCode: 27),
+            .zoomOut
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command, .shift], chars: "_", keyCode: 27),
+            .zoomOut
+        )
+    }
+
+    func testZoomRequiresCommandWithoutOptionOrControl() {
+        XCTAssertNil(browserZoomShortcutAction(flags: [], chars: "=", keyCode: 24))
+        XCTAssertNil(browserZoomShortcutAction(flags: [.command, .option], chars: "=", keyCode: 24))
+        XCTAssertNil(browserZoomShortcutAction(flags: [.command, .control], chars: "-", keyCode: 27))
+    }
+
+    func testResetSupportsCommandZero() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "0", keyCode: 29),
+            .reset
+        )
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))

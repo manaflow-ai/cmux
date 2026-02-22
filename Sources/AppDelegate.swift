@@ -118,21 +118,21 @@ func browserZoomShortcutAction(
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
     let key = chars.lowercased()
+    let hasCommand = normalizedFlags.contains(.command)
+    let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
 
-    if normalizedFlags == [.command] {
-        if key == "=" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
-            return .zoomIn
-        }
-        if key == "-" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
-            return .zoomOut
-        }
-        if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
-            return .reset
-        }
+    guard hasOnlyCommandAndOptionalShift else { return nil }
+
+    if key == "=" || key == "+" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+        return .zoomIn
     }
 
-    if normalizedFlags == [.command, .shift] && (key == "=" || key == "+" || keyCode == 24 || keyCode == 69) {
-        return .zoomIn
+    if key == "-" || key == "_" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+        return .zoomOut
+    }
+
+    if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+        return .reset
     }
 
     return nil
