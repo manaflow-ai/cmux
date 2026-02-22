@@ -1647,6 +1647,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return StoredShortcut(key: key, command: command, shift: shift, option: option, control: control)
     }
 
+    private func handleQuitShortcutWarning() -> Bool {
+        if !QuitWarningSettings.isEnabled() {
+            NSApp.terminate(nil)
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Quit cmux?"
+        alert.informativeText = "This will close all windows and workspaces."
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Don't warn again for Cmd+Q"
+
+        let response = alert.runModal()
+        if alert.suppressionButton?.state == .on {
+            QuitWarningSettings.setEnabled(false)
+        }
+
+        if response == .alertFirstButtonReturn {
+            NSApp.terminate(nil)
+        }
+        return true
+    }
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
@@ -1696,6 +1722,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
             return false
+        }
+
+        let normalizedFlags = flags.subtracting([.numericPad, .function])
+        if normalizedFlags == [.command], chars == "q" {
+            return handleQuitShortcutWarning()
         }
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
