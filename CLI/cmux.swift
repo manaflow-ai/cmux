@@ -1105,6 +1105,111 @@ struct CMUXCLI {
         case "claude-hook":
             try runClaudeHook(commandArgs: commandArgs, client: client)
 
+        case "set-status":
+            guard commandArgs.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = commandArgs[0]
+            let rest = Array(commandArgs.dropFirst())
+            let (icon, r1) = parseOption(rest, name: "--icon")
+            let (color, r2) = parseOption(r1, name: "--color")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            let value = r3.joined(separator: " ")
+            guard !value.isEmpty else {
+                throw CLIError(message: "set-status requires a non-empty value")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_status \(key) \(value)"
+            if let icon { socketCmd += " --icon=\(icon)" }
+            if let color { socketCmd += " --color=\(color)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-status":
+            guard let key = commandArgs.first else {
+                throw CLIError(message: "clear-status requires a <key>")
+            }
+            let (wsFlag, _) = parseOption(Array(commandArgs.dropFirst()), name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-status":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("list_status --tab=\(wsId)", client: client)
+            print(response)
+
+        case "set-progress":
+            guard let valueStr = commandArgs.first else {
+                throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
+            }
+            let rest = Array(commandArgs.dropFirst())
+            let (label, r1) = parseOption(rest, name: "--label")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_progress \(valueStr)"
+            if let label { socketCmd += " --label=\(label)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-progress":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_progress --tab=\(wsId)", client: client)
+            print(response)
+
+        case "log":
+            let (level, r1) = parseOption(commandArgs, name: "--level")
+            let (source, r2) = parseOption(r1, name: "--source")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            // Strip leading "--" separator if present
+            let positional = r3.first == "--" ? Array(r3.dropFirst()) : r3
+            let message = positional.joined(separator: " ")
+            guard !message.isEmpty else {
+                throw CLIError(message: "log requires a message")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "log"
+            if let level { socketCmd += " --level=\(level)" }
+            if let source { socketCmd += " --source=\(source)" }
+            socketCmd += " --tab=\(wsId) -- \(message)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-log":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_log --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-log":
+            let (limitStr, r1) = parseOption(commandArgs, name: "--limit")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "list_log"
+            if let limitStr { socketCmd += " --limit=\(limitStr)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "sidebar-state":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
+            print(response)
+
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
             let response = try sendV1Command("set_app_focus \(value)", client: client)
@@ -3453,6 +3558,130 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
+        case "set-status":
+            return """
+            Usage: cmux set-status <key> <value> [flags]
+
+            Set a sidebar status entry for a workspace. Status entries appear as
+            pills in the sidebar tab row. Use a unique key so different tools
+            (e.g. "claude_code", "build") can manage their own entries.
+
+            Flags:
+              --icon <name>          Icon name (e.g. "sparkle", "hammer")
+              --color <#hex>         Pill color (e.g. "#ff9500")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-status build "compiling" --icon hammer --color "#ff9500"
+              cmux set-status deploy "v1.2.3" --workspace workspace:2
+            """
+        case "clear-status":
+            return """
+            Usage: cmux clear-status <key> [flags]
+
+            Remove a sidebar status entry by key.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-status build
+            """
+        case "list-status":
+            return """
+            Usage: cmux list-status [flags]
+
+            List all sidebar status entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-status
+              cmux list-status --workspace workspace:2
+            """
+        case "set-progress":
+            return """
+            Usage: cmux set-progress <0.0-1.0> [flags]
+
+            Set a progress bar in the sidebar for a workspace.
+
+            Flags:
+              --label <text>         Label shown next to the progress bar
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-progress 0.5 --label "Building..."
+              cmux set-progress 1.0 --label "Done"
+            """
+        case "clear-progress":
+            return """
+            Usage: cmux clear-progress [flags]
+
+            Clear the sidebar progress bar for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-progress
+            """
+        case "log":
+            return """
+            Usage: cmux log [flags] [--] <message>
+
+            Append a log entry to the sidebar for a workspace.
+
+            Flags:
+              --level <level>        Log level: info, progress, success, warning, error (default: info)
+              --source <name>        Source label (e.g. "build", "test")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux log "Build started"
+              cmux log --level error --source build "Compilation failed"
+              cmux log --level success -- "All 42 tests passed"
+            """
+        case "clear-log":
+            return """
+            Usage: cmux clear-log [flags]
+
+            Clear all sidebar log entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-log
+            """
+        case "list-log":
+            return """
+            Usage: cmux list-log [flags]
+
+            List sidebar log entries for a workspace.
+
+            Flags:
+              --limit <n>            Show only the last N entries
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-log
+              cmux list-log --limit 5
+            """
+        case "sidebar-state":
+            return """
+            Usage: cmux sidebar-state [flags]
+
+            Dump all sidebar metadata for a workspace (cwd, git branch, ports,
+            status entries, progress, log entries).
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux sidebar-state
+              cmux sidebar-state --workspace workspace:2
+            """
         case "claude-hook":
             return """
             Usage: cmux claude-hook <session-start|stop|notification> [flags]
@@ -4721,6 +4950,18 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+
+          # sidebar metadata commands
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
+
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
