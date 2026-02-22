@@ -1154,7 +1154,7 @@ struct CMUXCLI {
             let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var socketCmd = "set_progress \(valueStr)"
-            if let label { socketCmd += " --label=\(label)" }
+            if let label { socketCmd += " --label=\"\(label.replacingOccurrences(of: "\"", with: "\\\""))\"" }
             socketCmd += " --tab=\(wsId)"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -1180,8 +1180,9 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var socketCmd = "log"
             if let level { socketCmd += " --level=\(level)" }
-            if let source { socketCmd += " --source=\(source)" }
-            socketCmd += " --tab=\(wsId) -- \(message)"
+            if let source { socketCmd += " --source=\"\(source.replacingOccurrences(of: "\"", with: "\\\""))\"" }
+            let escapedMessage = message.replacingOccurrences(of: "\"", with: "\\\"")
+            socketCmd += " --tab=\(wsId) -- \"\(escapedMessage)\""
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
