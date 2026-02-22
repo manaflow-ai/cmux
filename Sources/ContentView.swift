@@ -2702,6 +2702,15 @@ private struct TabItemView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(backgroundColor)
         )
+        .overlay(alignment: .leading) {
+            if hasCustomAccent {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(workspaceAccentColor)
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+                    .padding(.leading, 2)
+            }
+        }
         .padding(.horizontal, 6)
         .background {
             GeometryReader { proxy in
@@ -2814,8 +2823,20 @@ private struct TabItemView: View {
                 }
             }
 
-            Button("Set Color…") {
-                showWorkspaceColorPicker(for: tab)
+            Button("Set Accent Color…") {
+                showWorkspaceColorPicker(for: tab, mode: .accent)
+            }
+
+            Button("Set Background Color…") {
+                showWorkspaceColorPicker(for: tab, mode: .background)
+            }
+
+            if tab.accentColor != nil || tab.backgroundColorOverride != nil {
+                Button("Clear All Colors") {
+                    tab.accentColor = nil
+                    tab.backgroundColorOverride = nil
+                    tab.applyBackgroundColorOverride()
+                }
             }
 
             Divider()
@@ -2872,12 +2893,22 @@ private struct TabItemView: View {
         }
     }
 
+    /// Whether this workspace has a user-set accent color (not just system default).
+    private var hasCustomAccent: Bool {
+        tab.accentColor != nil
+    }
+
     private var backgroundColor: Color {
         if isActive {
             return workspaceAccentColor
         }
         if isMultiSelected {
             return workspaceAccentColor.opacity(0.25)
+        }
+        // Inactive tabs with a custom accent get a subtle tint so the user
+        // can see which project is which at a glance.
+        if hasCustomAccent {
+            return workspaceAccentColor.opacity(0.10)
         }
         return Color.clear
     }
@@ -3152,23 +3183,25 @@ private struct TabItemView: View {
         return trimmed
     }
 
-    private func showWorkspaceColorPicker(for workspace: Workspace) {
+    private func showWorkspaceColorPicker(for workspace: Workspace, mode: WorkspaceColorObserver.Mode) {
         let colorPanel = NSColorPanel.shared
         let currentColor: NSColor
-        if let hex = workspace.accentColor, let c = NSColor(hex: hex) {
-            currentColor = c
-        } else {
-            currentColor = NSColor.controlAccentColor
+        switch mode {
+        case .accent:
+            colorPanel.title = "Accent Color — \(workspace.customTitle ?? workspace.title)"
+            currentColor = workspace.accentColor.flatMap { NSColor(hex: $0) } ?? .controlAccentColor
+        case .background:
+            colorPanel.title = "Background Color — \(workspace.customTitle ?? workspace.title)"
+            currentColor = workspace.backgroundColorOverride.flatMap { NSColor(hex: $0) } ?? (GhosttyApp.shared.defaultBackgroundColor)
         }
         colorPanel.color = currentColor
         colorPanel.setTarget(nil)
         colorPanel.setAction(nil)
         colorPanel.orderFront(nil)
 
-        let observer = WorkspaceColorObserver(workspace: workspace)
+        let observer = WorkspaceColorObserver(workspace: workspace, mode: mode)
         colorPanel.setTarget(observer)
         colorPanel.setAction(#selector(WorkspaceColorObserver.colorChanged(_:)))
-        // Keep observer alive while panel is open
         objc_setAssociatedObject(colorPanel, &WorkspaceColorObserver.associatedKey, observer, .OBJC_ASSOCIATION_RETAIN)
     }
 
@@ -3195,11 +3228,14 @@ private struct TabItemView: View {
 }
 
 private class WorkspaceColorObserver: NSObject {
+    enum Mode { case accent, background }
     static var associatedKey: UInt8 = 0
     let workspace: Workspace
+    let mode: Mode
 
-    init(workspace: Workspace) {
+    init(workspace: Workspace, mode: Mode = .accent) {
         self.workspace = workspace
+        self.mode = mode
         super.init()
     }
 
@@ -3210,7 +3246,14 @@ private class WorkspaceColorObserver: NSObject {
             Int(nsColor.greenComponent * 255),
             Int(nsColor.blueComponent * 255))
         DispatchQueue.main.async { [weak self] in
-            self?.workspace.accentColor = hex
+            guard let self else { return }
+            switch self.mode {
+            case .accent:
+                self.workspace.accentColor = hex
+            case .background:
+                self.workspace.backgroundColorOverride = hex
+                self.workspace.applyBackgroundColorOverride()
+            }
         }
     }
 }

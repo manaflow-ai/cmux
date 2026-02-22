@@ -191,7 +191,7 @@ extension WorkspaceContentView {
     #endif
 }
 
-/// Thin color bar displayed at the top or bottom of a workspace's terminal area.
+/// Color bar displayed at the top or bottom of a workspace's terminal area.
 private struct WorkspaceBarView: View {
     @ObservedObject var workspace: Workspace
 
@@ -202,21 +202,49 @@ private struct WorkspaceBarView: View {
         return Color.accentColor.opacity(0.3)
     }
 
+    private var accentDot: Color {
+        if let hex = workspace.accentColor, let nsColor = NSColor(hex: hex) {
+            return Color(nsColor: nsColor)
+        }
+        return Color.accentColor
+    }
+
     var body: some View {
         if let bar = workspace.barConfig {
-            HStack {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(accentDot)
+                    .frame(width: 6, height: 6)
+
                 Text(workspace.customTitle ?? workspace.title)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.white)
-                Spacer()
+
                 if let text = bar.text, !text.isEmpty {
                     Text(text)
-                        .font(.system(size: 10, weight: .regular))
-                        .foregroundColor(.white.opacity(0.85))
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.5))
+                }
+
+                Spacer()
+
+                if let branch = workspace.gitBranch {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.system(size: 9))
+                        Text(branch.branch)
+                            .font(.system(size: 10, design: .monospaced))
+                        if branch.isDirty {
+                            Circle()
+                                .fill(.white.opacity(0.6))
+                                .frame(width: 4, height: 4)
+                        }
+                    }
+                    .foregroundColor(.white.opacity(0.5))
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity)
             .background(barColor)
         }

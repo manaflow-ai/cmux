@@ -15,10 +15,10 @@ struct WorkspaceTheme {
     static let presets: [String: WorkspaceTheme] = {
         let themes: [WorkspaceTheme] = [
             WorkspaceTheme(name: "ocean",  accentColor: "#5BA4CF", backgroundColor: "#0d1117"),
-            WorkspaceTheme(name: "forest", accentColor: "#7CE38B", backgroundColor: "#0d1210"),
-            WorkspaceTheme(name: "purple", accentColor: "#B68AFF", backgroundColor: "#13101a"),
-            WorkspaceTheme(name: "rose",   accentColor: "#FF8FA3", backgroundColor: "#1a1015"),
-            WorkspaceTheme(name: "solar",  accentColor: "#E8D44D", backgroundColor: "#1a1810"),
+            WorkspaceTheme(name: "forest", accentColor: "#7CE38B", backgroundColor: "#0f1a0f"),
+            WorkspaceTheme(name: "purple", accentColor: "#B68AFF", backgroundColor: "#1a0f1f"),
+            WorkspaceTheme(name: "rose",   accentColor: "#FF8FA3", backgroundColor: "#1f0f0f"),
+            WorkspaceTheme(name: "solar",  accentColor: "#E8D44D", backgroundColor: "#1a1a0f"),
             WorkspaceTheme(name: "neon",   accentColor: "#FF7EB6", backgroundColor: "#1a1018"),
         ]
         return Dictionary(uniqueKeysWithValues: themes.map { ($0.name, $0) })
