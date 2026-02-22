@@ -392,7 +392,9 @@ class TabManager: ObservableObject {
 #endif
 
     init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+        if !loadTemplateIfExists() {
+            addWorkspace(workingDirectory: initialWorkingDirectory)
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -499,6 +501,63 @@ class TabManager: ObservableObject {
 
     func hideFind() {
         selectedTerminalPanel?.searchState = nil
+    }
+
+    /// Auto-load workspaces from `~/.config/cmux/workspaces.json` if the file exists.
+    /// Returns `true` if at least one workspace was created from the template.
+    private func loadTemplateIfExists() -> Bool {
+        let templatePath = ("~/.config/cmux/workspaces.json" as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: templatePath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: templatePath)),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let workspaces = root["workspaces"] as? [[String: Any]],
+              !workspaces.isEmpty else {
+            return false
+        }
+
+        for (index, entry) in workspaces.enumerated() {
+            let directory = (entry["directory"] as? String).map { ($0 as NSString).expandingTildeInPath }
+            let workspace = addWorkspace(workingDirectory: directory, select: index == 0)
+
+            // Set custom title
+            if let name = entry["name"] as? String, !name.isEmpty {
+                workspace.setCustomTitle(name)
+            }
+
+            // Apply theme preset (sets both accent and background)
+            if let theme = entry["theme"] as? String, let preset = WorkspaceTheme.named(theme) {
+                workspace.accentColor = preset.accentColor
+                workspace.backgroundColorOverride = preset.backgroundColor
+            }
+
+            // Explicit color overrides theme accent
+            if let color = entry["color"] as? String, !color.isEmpty {
+                workspace.accentColor = color
+            }
+
+            // Explicit background overrides theme background
+            if let bg = entry["bg"] as? String, !bg.isEmpty {
+                workspace.backgroundColorOverride = bg
+            }
+
+            // Apply bar config
+            if let barObj = entry["bar"] as? [String: Any] {
+                let positionStr = barObj["position"] as? String ?? "top"
+                let position: WorkspaceBarConfig.Position = positionStr == "bottom" ? .bottom : .top
+                let text = barObj["text"] as? String
+                workspace.barConfig = WorkspaceBarConfig(position: position, text: text)
+            }
+        }
+
+        // Schedule background color application after views are created
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            for workspace in self.tabs where workspace.backgroundColorOverride != nil {
+                workspace.applyBackgroundColorOverride()
+            }
+        }
+
+        return true
     }
 
     @discardableResult

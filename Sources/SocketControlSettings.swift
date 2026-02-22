@@ -10,7 +10,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     /// Cases shown in the Settings UI. `allowAll` is intentionally excluded.
-    static var uiCases: [SocketControlMode] { [.off, .cmuxOnly] }
+    static var uiCases: [SocketControlMode] { [.off, .cmuxOnly, .allowAll] }
 
     var displayName: String {
         switch self {
