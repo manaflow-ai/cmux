@@ -883,12 +883,31 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
 
+#if DEBUG
+        let closeStart = ProcessInfo.processInfo.systemUptime
+        let panelCountBefore = tab.panels.count
+        let focusedBefore = tab.focusedPanelId?.uuidString.prefix(8) ?? "nil"
+        dlog(
+            "ctrlD.trace closeRuntimeSurface begin tab=\(tabId.uuidString.prefix(8)) " +
+            "surface=\(surfaceId.uuidString.prefix(8)) panelsBefore=\(panelCountBefore) focusedBefore=\(focusedBefore)"
+        )
+#endif
         // Keep AppKit first responder in sync with workspace focus before routing the close.
         // If split reparenting caused a temporary model/view mismatch, fallback close logic in
         // Workspace.closePanel uses focused selection to resolve the correct tab deterministically.
         reconcileFocusedPanelFromFirstResponderForKeyboard()
-        _ = tab.closePanel(surfaceId, force: true)
+        let closeIssued = tab.closePanel(surfaceId, force: true)
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
+#if DEBUG
+        let closeMs = max(0, (ProcessInfo.processInfo.systemUptime - closeStart) * 1000)
+        let panelCountAfter = tab.panels.count
+        let focusedAfter = tab.focusedPanelId?.uuidString.prefix(8) ?? "nil"
+        dlog(
+            "ctrlD.trace closeRuntimeSurface end tab=\(tabId.uuidString.prefix(8)) " +
+            "surface=\(surfaceId.uuidString.prefix(8)) closeIssued=\(closeIssued ? 1 : 0) " +
+            "panelsAfter=\(panelCountAfter) focusedAfter=\(focusedAfter) ms=\(String(format: "%.2f", closeMs))"
+        )
+#endif
     }
 
     /// Close a panel because its child process exited (e.g. the user hit Ctrl+D).
@@ -899,23 +918,43 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
 
+#if DEBUG
+        let panelsBefore = tab.panels.count
+        let workspacesBefore = tabs.count
+        dlog(
+            "ctrlD.trace closePanelAfterChildExited begin tab=\(tabId.uuidString.prefix(8)) " +
+            "surface=\(surfaceId.uuidString.prefix(8)) panelsBefore=\(panelsBefore) workspacesBefore=\(workspacesBefore)"
+        )
+#endif
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
         if tab.panels.count <= 1 {
             if tabs.count <= 1 {
                 if let app = AppDelegate.shared {
+#if DEBUG
+                    dlog("ctrlD.trace closePanelAfterChildExited branch=closeWindow tab=\(tabId.uuidString.prefix(8))")
+#endif
                     app.notificationStore?.clearNotifications(forTabId: tabId)
                     app.closeMainWindowContainingTabId(tabId)
                 } else {
                     // Headless/test fallback when no AppDelegate window context exists.
+#if DEBUG
+                    dlog("ctrlD.trace closePanelAfterChildExited branch=runtimeFallback tab=\(tabId.uuidString.prefix(8))")
+#endif
                     closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
                 }
             } else {
+#if DEBUG
+                dlog("ctrlD.trace closePanelAfterChildExited branch=closeWorkspace tab=\(tabId.uuidString.prefix(8))")
+#endif
                 closeWorkspace(tab)
             }
             return
         }
 
+#if DEBUG
+        dlog("ctrlD.trace closePanelAfterChildExited branch=closeRuntimeSurface tab=\(tabId.uuidString.prefix(8))")
+#endif
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
