@@ -1673,6 +1673,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    func promptRenameSelectedWorkspace() -> Bool {
+        guard let tabManager,
+              let tabId = tabManager.selectedTabId,
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+            NSSound.beep()
+            return false
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Rename Workspace"
+        alert.informativeText = "Enter a custom name for this workspace."
+        let input = NSTextField(string: tab.customTitle ?? tab.title)
+        input.placeholderString = "Workspace name"
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Rename")
+        alert.addButton(withTitle: "Cancel")
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return true }
+        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        return true
+    }
+
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
@@ -1874,6 +1904,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             tabManager?.selectPreviousTab()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
+            _ = promptRenameSelectedWorkspace()
             return true
         }
 

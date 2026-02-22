@@ -478,6 +478,10 @@ struct cmuxApp: App {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
                 }
 
+                Button("Rename Workspace…") {
+                    _ = AppDelegate.shared?.promptRenameSelectedWorkspace()
+                }
+
                 Divider()
 
                 splitCommandButton(title: "Split Right", shortcut: splitRightMenuShortcut) {

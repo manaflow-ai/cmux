@@ -17,6 +17,7 @@ enum KeyboardShortcutSettings {
         case prevSurface
         case nextSidebarTab
         case prevSidebarTab
+        case renameWorkspace
         case newSurface
 
         // Panes / splits
@@ -48,6 +49,7 @@ enum KeyboardShortcutSettings {
             case .prevSurface: return "Previous Surface"
             case .nextSidebarTab: return "Next Workspace"
             case .prevSidebarTab: return "Previous Workspace"
+            case .renameWorkspace: return "Rename Workspace"
             case .newSurface: return "New Surface"
             case .focusLeft: return "Focus Pane Left"
             case .focusRight: return "Focus Pane Right"
@@ -73,6 +75,7 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return "shortcut.triggerFlash"
             case .nextSidebarTab: return "shortcut.nextSidebarTab"
             case .prevSidebarTab: return "shortcut.prevSidebarTab"
+            case .renameWorkspace: return "shortcut.renameWorkspace"
             case .focusLeft: return "shortcut.focusLeft"
             case .focusRight: return "shortcut.focusRight"
             case .focusUp: return "shortcut.focusUp"
@@ -108,6 +111,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .renameWorkspace:
+                return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .focusLeft:
                 return StoredShortcut(key: "←", command: true, shift: false, option: true, control: false)
             case .focusRight:
@@ -190,6 +195,7 @@ enum KeyboardShortcutSettings {
 
     static func nextSidebarTabShortcut() -> StoredShortcut { shortcut(for: .nextSidebarTab) }
     static func prevSidebarTabShortcut() -> StoredShortcut { shortcut(for: .prevSidebarTab) }
+    static func renameWorkspaceShortcut() -> StoredShortcut { shortcut(for: .renameWorkspace) }
 
     static func focusLeftShortcut() -> StoredShortcut { shortcut(for: .focusLeft) }
     static func focusRightShortcut() -> StoredShortcut { shortcut(for: .focusRight) }
