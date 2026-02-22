@@ -1120,9 +1120,9 @@ struct CMUXCLI {
             }
             let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
-            var socketCmd = "set_status \(key) \(value)"
-            if let icon { socketCmd += " --icon=\(icon)" }
-            if let color { socketCmd += " --color=\(color)" }
+            var socketCmd = "set_status \(key) \(socketQuote(value))"
+            if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
+            if let color { socketCmd += " --color=\(socketQuote(color))" }
             socketCmd += " --tab=\(wsId)"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -1154,7 +1154,7 @@ struct CMUXCLI {
             let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var socketCmd = "set_progress \(valueStr)"
-            if let label { socketCmd += " --label=\"\(label.replacingOccurrences(of: "\"", with: "\\\""))\"" }
+            if let label { socketCmd += " --label=\(socketQuote(label))" }
             socketCmd += " --tab=\(wsId)"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
@@ -1180,9 +1180,8 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var socketCmd = "log"
             if let level { socketCmd += " --level=\(level)" }
-            if let source { socketCmd += " --source=\"\(source.replacingOccurrences(of: "\"", with: "\\\""))\"" }
-            let escapedMessage = message.replacingOccurrences(of: "\"", with: "\\\"")
-            socketCmd += " --tab=\(wsId) -- \"\(escapedMessage)\""
+            if let source { socketCmd += " --source=\(socketQuote(source))" }
+            socketCmd += " --tab=\(wsId) -- \(socketQuote(message))"
             let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
@@ -3743,6 +3742,16 @@ struct CMUXCLI {
         print("")
         print(text)
         return true
+    }
+
+    /// Escape and quote a string for safe embedding in a v1 socket command.
+    /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
+    /// so both must be escaped before wrapping in double quotes.
+    private func socketQuote(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
