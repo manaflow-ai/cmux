@@ -8590,37 +8590,43 @@ class TerminalController {
         let storedKey: String
         let keyCode: UInt16
         let charactersIgnoringModifiers: String
+        let characters: String
 
         switch keyToken.lowercased() {
         case "left":
             storedKey = "←"
             keyCode = 123
             charactersIgnoringModifiers = storedKey
+            characters = storedKey
         case "right":
             storedKey = "→"
             keyCode = 124
             charactersIgnoringModifiers = storedKey
+            characters = storedKey
         case "down":
             storedKey = "↓"
             keyCode = 125
             charactersIgnoringModifiers = storedKey
+            characters = storedKey
         case "up":
             storedKey = "↑"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
+            characters = storedKey
         case "enter", "return":
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
             charactersIgnoringModifiers = storedKey
+            characters = storedKey
         default:
             let key = keyToken.lowercased()
             guard let code = keyCodeForShortcutKey(key) else { return nil }
             storedKey = key
             keyCode = code
 
-            // Replicate a common system behavior: Ctrl+letter yields a control character in
-            // charactersIgnoringModifiers (e.g. Ctrl+H => backspace). This is important for
-            // testing keyCode fallback matching.
+            // Mirror real NSEvent payloads for Ctrl+letter:
+            // - characters: control code (e.g. Ctrl+D => \u{04})
+            // - charactersIgnoringModifiers: printable key ("d")
             if flags.contains(.control),
                key.count == 1,
                let scalar = key.unicodeScalars.first,
@@ -8628,20 +8634,19 @@ class TerminalController {
                scalar.value >= 97, scalar.value <= 122 { // a-z
                 let upper = scalar.value - 32
                 let controlValue = upper - 64 // 'A' => 1
-                charactersIgnoringModifiers = String(UnicodeScalar(controlValue)!)
+                charactersIgnoringModifiers = storedKey
+                characters = String(UnicodeScalar(controlValue)!)
             } else {
                 charactersIgnoringModifiers = storedKey
+                characters = storedKey
             }
         }
-
-        // For our shortcut matcher, characters aren't important beyond exercising edge cases.
-        let chars = charactersIgnoringModifiers
 
         return ParsedShortcutCombo(
             storedKey: storedKey,
             keyCode: keyCode,
             modifierFlags: flags,
-            characters: chars,
+            characters: characters,
             charactersIgnoringModifiers: charactersIgnoringModifiers
         )
     }
