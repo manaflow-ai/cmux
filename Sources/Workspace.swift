@@ -1142,12 +1142,26 @@ final class Workspace: Identifiable, ObservableObject {
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+#if DEBUG
+        let focusedPanelTrace = focusedPanelId?.uuidString.prefix(8) ?? "nil"
+        let focusedPaneTrace = bonsplitController.focusedPaneId?.id.uuidString.prefix(8) ?? "nil"
+#endif
         if let tabId = surfaceIdFromPanelId(panelId) {
             if force {
                 forceCloseTabIds.insert(tabId)
             }
             // Close the tab in bonsplit (this triggers delegate callback)
-            return bonsplitController.closeTab(tabId)
+            let closeIssued = bonsplitController.closeTab(tabId)
+#if DEBUG
+            if force {
+                dlog(
+                    "ctrlD.trace workspace.closePanel mapped panel=\(panelId.uuidString.prefix(8)) " +
+                    "tab=\(tabId) closeIssued=\(closeIssued ? 1 : 0) " +
+                    "focusedPanel=\(focusedPanelTrace) focusedPane=\(focusedPaneTrace)"
+                )
+            }
+#endif
+            return closeIssued
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -1155,13 +1169,31 @@ final class Workspace: Identifiable, ObservableObject {
         guard focusedPanelId == panelId,
               let focusedPane = bonsplitController.focusedPaneId,
               let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+#if DEBUG
+            if force {
+                dlog(
+                    "ctrlD.trace workspace.closePanel missingMapping panel=\(panelId.uuidString.prefix(8)) " +
+                    "focusedPanel=\(focusedPanelTrace) focusedPane=\(focusedPaneTrace) closeIssued=0"
+                )
+            }
+#endif
             return false
         }
 
         if force {
             forceCloseTabIds.insert(selected.id)
         }
-        return bonsplitController.closeTab(selected.id)
+        let closeIssued = bonsplitController.closeTab(selected.id)
+#if DEBUG
+        if force {
+            dlog(
+                "ctrlD.trace workspace.closePanel focusedFallback panel=\(panelId.uuidString.prefix(8)) " +
+                "selectedTab=\(selected.id) closeIssued=\(closeIssued ? 1 : 0) " +
+                "focusedPane=\(focusedPane.id.uuidString.prefix(8))"
+            )
+        }
+#endif
+        return closeIssued
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
@@ -2076,10 +2108,18 @@ extension Workspace: BonsplitDelegate {
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
 
+#if DEBUG
+        let didCloseStart = ProcessInfo.processInfo.systemUptime
+        dlog(
+            "ctrlD.trace didCloseTab begin tab=\(tabId) pane=\(pane.id.uuidString.prefix(8)) " +
+            "panelsBefore=\(panels.count) panesBefore=\(controller.allPaneIds.count)"
+        )
+#endif
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
             #if DEBUG
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
+            dlog("ctrlD.trace didCloseTab missingPanel tab=\(tabId)")
             #endif
             scheduleTerminalGeometryReconcile()
             scheduleFocusReconcile()
@@ -2162,6 +2202,13 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
+#if DEBUG
+        let didCloseMs = max(0, (ProcessInfo.processInfo.systemUptime - didCloseStart) * 1000)
+        dlog(
+            "ctrlD.trace didCloseTab end tab=\(tabId) panelsAfter=\(panels.count) " +
+            "panesAfter=\(controller.allPaneIds.count) ms=\(String(format: "%.2f", didCloseMs))"
+        )
+#endif
         scheduleTerminalGeometryReconcile()
         scheduleFocusReconcile()
     }

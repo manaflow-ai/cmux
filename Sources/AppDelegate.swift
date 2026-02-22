@@ -268,6 +268,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
     }
+
+    private func ctrlDTrace(_ message: String) {
+        dlog("ctrlD.trace \(message)")
+    }
+
+    private func scheduleCtrlDMainQueueProbe(label: String, timeoutMs: Int = 1200) {
+        DispatchQueue.global(qos: .utility).async {
+            let sem = DispatchSemaphore(value: 0)
+            DispatchQueue.main.async {
+                sem.signal()
+            }
+            if sem.wait(timeout: .now() + .milliseconds(timeoutMs)) == .timedOut {
+                dlog("ctrlD.trace mainQueueProbeTimeout label=\(label) timeoutMs=\(timeoutMs)")
+            }
+        }
+    }
 #endif
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
@@ -1660,6 +1676,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
 #if DEBUG
         if isControlD {
+            let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            let selectedTab = tabManager?.selectedWorkspace?.id.uuidString.prefix(8) ?? "nil"
+            let focusedPanel = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(8) ?? "nil"
+            let paneCount = tabManager?.selectedWorkspace?.bonsplitController.allPaneIds.count ?? -1
+            ctrlDTrace(
+                "keyDown keyCode=\(event.keyCode) charsHex=\(childExitKeyboardProbeHex(event.characters)) " +
+                "charsIgnHex=\(childExitKeyboardProbeHex(event.charactersIgnoringModifiers)) " +
+                "selectedTab=\(selectedTab) focusedPanel=\(focusedPanel) paneCount=\(paneCount) firstResponder=\(frType)"
+            )
+            scheduleCtrlDMainQueueProbe(label: "app.handleCustomShortcut.keyDown")
             writeChildExitKeyboardProbe(
                 [
                     "probeAppShortcutCharsHex": childExitKeyboardProbeHex(event.characters),
@@ -1721,8 +1747,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Keep keyboard routing deterministic after split close/reparent transitions:
         // before processing shortcuts, converge first responder with the focused terminal panel.
         if isControlD {
+            #if DEBUG
+            let reconcileStart = ProcessInfo.processInfo.systemUptime
+            #endif
             tabManager?.reconcileFocusedPanelFromFirstResponderForKeyboard()
             #if DEBUG
+            let reconcileMs = max(0, (ProcessInfo.processInfo.systemUptime - reconcileStart) * 1000)
+            let focusedPanel = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(8) ?? "nil"
+            ctrlDTrace("reconcileDone ms=\(String(format: "%.2f", reconcileMs)) focusedPanel=\(focusedPanel)")
             writeChildExitKeyboardProbe([:], increments: ["probeAppShortcutCtrlDPassedCount": 1])
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
