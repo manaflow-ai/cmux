@@ -886,6 +886,36 @@ final class AppearanceSettingsTests: XCTestCase {
     }
 }
 
+final class QuitWarningSettingsTests: XCTestCase {
+    func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {
+        let suiteName = "QuitWarningSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: QuitWarningSettings.warnBeforeQuitKey)
+
+        XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+    }
+
+    func testStoredPreferenceOverridesDefault() {
+        let suiteName = "QuitWarningSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertFalse(QuitWarningSettings.isEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+    }
+}
+
 final class UpdateChannelSettingsTests: XCTestCase {
     func testResolvedFeedFallsBackWhenInfoFeedMissing() {
         let resolved = UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: nil)
