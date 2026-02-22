@@ -1106,15 +1106,14 @@ struct CMUXCLI {
             try runClaudeHook(commandArgs: commandArgs, client: client)
 
         case "set-status":
-            guard commandArgs.count >= 2 else {
-                throw CLIError(message: "set-status requires <key> and <value>")
-            }
-            let key = commandArgs[0]
-            let rest = Array(commandArgs.dropFirst())
-            let (icon, r1) = parseOption(rest, name: "--icon")
+            let (icon, r1) = parseOption(commandArgs, name: "--icon")
             let (color, r2) = parseOption(r1, name: "--color")
             let (wsFlag, r3) = parseOption(r2, name: "--workspace")
-            let value = r3.joined(separator: " ")
+            guard r3.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = r3[0]
+            let value = r3.dropFirst().joined(separator: " ")
             guard !value.isEmpty else {
                 throw CLIError(message: "set-status requires a non-empty value")
             }
@@ -1128,10 +1127,10 @@ struct CMUXCLI {
             print(response)
 
         case "clear-status":
-            guard let key = commandArgs.first else {
+            let (wsFlag, csRemaining) = parseOption(commandArgs, name: "--workspace")
+            guard let key = csRemaining.first else {
                 throw CLIError(message: "clear-status requires a <key>")
             }
-            let (wsFlag, _) = parseOption(Array(commandArgs.dropFirst()), name: "--workspace")
             let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
@@ -1145,12 +1144,11 @@ struct CMUXCLI {
             print(response)
 
         case "set-progress":
-            guard let valueStr = commandArgs.first else {
+            let (label, spR1) = parseOption(commandArgs, name: "--label")
+            let (wsFlag, spR2) = parseOption(spR1, name: "--workspace")
+            guard let valueStr = spR2.first else {
                 throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
             }
-            let rest = Array(commandArgs.dropFirst())
-            let (label, r1) = parseOption(rest, name: "--label")
-            let (wsFlag, _) = parseOption(r1, name: "--workspace")
             let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             var socketCmd = "set_progress \(valueStr)"
