@@ -3077,8 +3077,9 @@ struct CMUXCLI {
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
-              cmux workspace-action --action rename --title "infra"
+              cmux workspace-action --action rename --workspace workspace:1 --title "Warren"
               cmux workspace-action --action set-color --color "#00ff88"
+              cmux workspace-action --action clear-color
               cmux workspace-action close-others
             """
         case "tab-action":
