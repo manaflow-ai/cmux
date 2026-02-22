@@ -1593,8 +1593,10 @@ struct CMUXCLI {
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
+        let (positionOpt, rem4) = parseOption(rem3, name: "--position")
+        let (textOpt, rem5) = parseOption(rem4, name: "--text")
 
-        var positional = rem3
+        var positional = rem5
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -1632,6 +1634,12 @@ struct CMUXCLI {
         }
         if let colorOpt, !colorOpt.isEmpty {
             params["color"] = colorOpt
+        }
+        if let positionOpt, !positionOpt.isEmpty {
+            params["position"] = positionOpt
+        }
+        if let textOpt, !textOpt.isEmpty {
+            params["text"] = textOpt
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -3068,18 +3076,23 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              set-bar | clear-bar
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
               --color <hex>                Accent color for set-color (e.g. "#00ff88")
+              --position <top|bottom>      Bar position for set-bar (default: top)
+              --text <text>                Status text for set-bar (right-aligned)
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
               cmux workspace-action --action rename --workspace workspace:1 --title "Warren"
               cmux workspace-action --action set-color --color "#00ff88"
               cmux workspace-action --action clear-color
+              cmux workspace-action --action set-bar --position top --text "main branch"
+              cmux workspace-action --action clear-bar
               cmux workspace-action close-others
             """
         case "tab-action":

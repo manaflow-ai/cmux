@@ -2115,7 +2115,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "set_bar", "clear_bar"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -2257,6 +2258,22 @@ class TerminalController {
 
             case "clear_color":
                 workspace.accentColor = nil
+                finish()
+
+            case "set_bar":
+                let positionRaw = v2String(params, "position")?.lowercased() ?? "top"
+                guard let position = WorkspaceBarConfig.Position(rawValue: positionRaw) else {
+                    result = .err(code: "invalid_params", message: "Invalid position: \(positionRaw). Use 'top' or 'bottom'.", data: nil)
+                    return
+                }
+                let text = v2String(params, "text")
+                workspace.barConfig = WorkspaceBarConfig(position: position, text: text)
+                var extras: [String: Any] = ["position": positionRaw]
+                if let text { extras["text"] = text }
+                finish(extras)
+
+            case "clear_bar":
+                workspace.barConfig = nil
                 finish()
 
             default:

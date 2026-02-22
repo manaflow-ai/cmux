@@ -4,6 +4,15 @@ import AppKit
 import Bonsplit
 import Combine
 
+struct WorkspaceBarConfig {
+    enum Position: String {
+        case top
+        case bottom
+    }
+    var position: Position
+    var text: String?
+}
+
 struct SidebarStatusEntry {
     let key: String
     let value: String
@@ -265,6 +274,9 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     /// Per-workspace accent color (hex string like "#00ff88"). When nil, system accent color is used.
     @Published var accentColor: String?
+
+    /// Per-workspace color bar at top or bottom of terminal area. When nil, no bar is shown.
+    @Published var barConfig: WorkspaceBarConfig?
 
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
     @Published var logEntries: [SidebarLogEntry] = []

@@ -35,6 +35,14 @@ struct WorkspaceContentView: View {
             }
         }()
 
+        let barAtTop = workspace.barConfig?.position == .top
+        let barAtBottom = workspace.barConfig?.position == .bottom
+
+        VStack(spacing: 0) {
+        if barAtTop {
+            WorkspaceBarView(workspace: workspace)
+        }
+
         BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
@@ -109,6 +117,11 @@ struct WorkspaceContentView: View {
                 workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
             }
         }
+
+        if barAtBottom {
+            WorkspaceBarView(workspace: workspace)
+        }
+        } // VStack
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -171,6 +184,50 @@ extension WorkspaceContentView {
         _ = workspace
     }
     #endif
+}
+
+/// Thin color bar displayed at the top or bottom of a workspace's terminal area.
+private struct WorkspaceBarView: View {
+    @ObservedObject var workspace: Workspace
+
+    private var barColor: Color {
+        if let hex = workspace.accentColor, let nsColor = NSColor(hex: hex) {
+            return Color(nsColor: nsColor)
+        }
+        return Color.accentColor
+    }
+
+    /// Choose white or black text for contrast against the bar background.
+    private var textColor: Color {
+        if let hex = workspace.accentColor, let nsColor = NSColor(hex: hex) {
+            let rgb = nsColor.usingColorSpace(.sRGB)
+            let luminance = (rgb?.redComponent ?? 0) * 0.299
+                + (rgb?.greenComponent ?? 0) * 0.587
+                + (rgb?.blueComponent ?? 0) * 0.114
+            return luminance > 0.5 ? .black : .white
+        }
+        return .white
+    }
+
+    var body: some View {
+        if let bar = workspace.barConfig {
+            HStack {
+                Text(workspace.customTitle ?? workspace.title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(textColor)
+                Spacer()
+                if let text = bar.text, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundColor(textColor.opacity(0.85))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity)
+            .background(barColor)
+        }
+    }
 }
 
 /// View shown for empty panes
