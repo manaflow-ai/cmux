@@ -51,7 +51,7 @@ final class WindowTerminalHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            clearActiveDividerCursor()
+            clearActiveDividerCursor(restoreArrow: false)
         }
         window?.invalidateCursorRects(for: self)
     }
@@ -113,7 +113,7 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        clearActiveDividerCursor()
+        clearActiveDividerCursor(restoreArrow: true)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -212,22 +212,25 @@ final class WindowTerminalHostView: NSView {
 
     private func updateDividerCursor(at point: NSPoint) {
         if shouldPassThroughToSidebarResizer(at: point) {
-            clearActiveDividerCursor()
+            clearActiveDividerCursor(restoreArrow: false)
             return
         }
 
         guard let nextKind = splitDividerCursorKind(at: point) else {
-            clearActiveDividerCursor()
+            clearActiveDividerCursor(restoreArrow: true)
             return
         }
         activeDividerCursorKind = nextKind
         nextKind.cursor.set()
     }
 
-    private func clearActiveDividerCursor() {
+    private func clearActiveDividerCursor(restoreArrow: Bool) {
         guard activeDividerCursorKind != nil else { return }
         window?.invalidateCursorRects(for: self)
         activeDividerCursorKind = nil
+        if restoreArrow {
+            NSCursor.arrow.set()
+        }
     }
 
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
