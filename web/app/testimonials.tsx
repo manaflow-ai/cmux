@@ -4,8 +4,7 @@ export const testimonials = [
     handle: "@mitchellh",
     subtitle:
       "Creator of Ghostty. Founded HashiCorp. Created Vagrant, Terraform, Vault.",
-    avatar:
-      "https://pbs.twimg.com/profile_images/1141762999838842880/64_Y4_XB_400x400.jpg",
+    avatar: "/avatars/mitchellh.jpg",
     text: "Another day another libghostty-based project, this time a macOS terminal with vertical tabs, better organization/notifications, embedded/scriptable browser specifically targeted towards people who use a ton of terminal-based agentic workflows.",
     url: "https://x.com/mitchellh/status/2024913161238053296",
     platform: "x" as const,
@@ -15,8 +14,7 @@ export const testimonials = [
     handle: "@schrockn",
     subtitle:
       "Founder of Dagster Labs. Creator of Dagster. GraphQL co-creator.",
-    avatar:
-      "https://cdn.prod.website-files.com/681399f654933b29e12fb8e4/681399f654933b29e12fc51c_Photo-1.jpg",
+    avatar: "/avatars/schrockn.jpg",
     text: "This is exactly the product I've been looking for. After two hours this am I've in love.",
     url: "https://x.com/schrockn/status/2025182278637207857",
     platform: "x" as const,
@@ -32,8 +30,7 @@ export const testimonials = [
   {
     name: "Joe Riddle",
     handle: "@joeriddles10",
-    avatar:
-      "https://pbs.twimg.com/profile_images/1466920091707076608/pxfGMeC0_400x400.jpg",
+    avatar: "/avatars/joeriddles10.jpg",
     text: "Vertical tabs in my terminal \u{1F924} I never thought of that before. I use and love Firefox vertical tabs.",
     url: "https://x.com/joeriddles10/status/2024914132416561465",
     platform: "x" as const,
