@@ -632,6 +632,11 @@ class TabManager: ObservableObject {
         setCustomTitle(tabId: tabId, title: nil)
     }
 
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomColor(color)
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
