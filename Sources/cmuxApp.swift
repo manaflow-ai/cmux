@@ -2471,8 +2471,13 @@ struct SettingsView: View {
     @State private var topBlurBaselineOffset: CGFloat?
     @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
+    @State private var showOpenAccessConfirmation = false
+    @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @State private var socketPasswordDraft = ""
+    @State private var socketPasswordStatusMessage: String?
+    @State private var socketPasswordStatusIsError = false
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -2480,6 +2485,29 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var socketModeSelection: Binding<String> {
+        Binding(
+            get: { socketControlMode },
+            set: { newValue in
+                let normalized = SocketControlSettings.migrateMode(newValue)
+                if normalized == .allowAll && selectedSocketControlMode != .allowAll {
+                    pendingOpenAccessMode = normalized
+                    showOpenAccessConfirmation = true
+                    return
+                }
+                socketControlMode = normalized.rawValue
+                if normalized != .password {
+                    socketPasswordStatusMessage = nil
+                    socketPasswordStatusIsError = false
+                }
+            }
+        )
+    }
+
+    private var hasSocketPasswordConfigured: Bool {
+        SocketControlPasswordStore.hasConfiguredPassword()
     }
 
     private var browserHistorySubtitle: String {
@@ -2501,6 +2529,37 @@ struct SettingsView: View {
         guard let baseline = topBlurBaselineOffset else { return 0 }
         let reveal = (baseline - offset) / 24
         return Double(min(max(reveal, 0), 1))
+    }
+
+    private func saveSocketPassword() {
+        let trimmed = socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            socketPasswordStatusMessage = "Enter a password first."
+            socketPasswordStatusIsError = true
+            return
+        }
+
+        do {
+            try SocketControlPasswordStore.savePassword(trimmed)
+            socketPasswordDraft = ""
+            socketPasswordStatusMessage = "Password saved to keychain."
+            socketPasswordStatusIsError = false
+        } catch {
+            socketPasswordStatusMessage = "Failed to save password (\(error.localizedDescription))."
+            socketPasswordStatusIsError = true
+        }
+    }
+
+    private func clearSocketPassword() {
+        do {
+            try SocketControlPasswordStore.clearPassword()
+            socketPasswordDraft = ""
+            socketPasswordStatusMessage = "Password cleared."
+            socketPasswordStatusIsError = false
+        } catch {
+            socketPasswordStatusMessage = "Failed to clear password (\(error.localizedDescription))."
+            socketPasswordStatusIsError = true
+        }
     }
 
     var body: some View {
@@ -2594,7 +2653,7 @@ struct SettingsView: View {
                             subtitle: selectedSocketControlMode.description,
                             controlWidth: pickerColumnWidth
                         ) {
-                            Picker("", selection: $socketControlMode) {
+                            Picker("", selection: socketModeSelection) {
                                 ForEach(SocketControlMode.uiCases) { mode in
                                     Text(mode.displayName).tag(mode.rawValue)
                                 }
@@ -2606,7 +2665,50 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Controls access to the local Unix socket for programmatic control. In \"cmux processes only\" mode, only processes spawned inside cmux terminals can connect.")
+                        SettingsCardNote("Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model.")
+                        if selectedSocketControlMode == .password {
+                            SettingsCardDivider()
+                            SettingsCardRow(
+                                "Socket Password",
+                                subtitle: hasSocketPasswordConfigured
+                                    ? "Stored in login keychain."
+                                    : "No password set. External clients will be blocked until one is configured."
+                            ) {
+                                HStack(spacing: 8) {
+                                    SecureField("Password", text: $socketPasswordDraft)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 170)
+                                    Button(hasSocketPasswordConfigured ? "Change" : "Set") {
+                                        saveSocketPassword()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    if hasSocketPasswordConfigured {
+                                        Button("Clear") {
+                                            clearSocketPassword()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
+                            }
+                            if let message = socketPasswordStatusMessage {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(socketPasswordStatusIsError ? Color.red : Color.secondary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 8)
+                            }
+                        }
+                        if selectedSocketControlMode == .allowAll {
+                            SettingsCardDivider()
+                            Text("Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
                         SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds).")
                     }
 
@@ -2962,6 +3064,21 @@ struct SettingsView: View {
         } message: {
             Text("This removes visited-page suggestions from the browser omnibar.")
         }
+        .confirmationDialog(
+            "Enable full open access?",
+            isPresented: $showOpenAccessConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Enable Full Open Access", role: .destructive) {
+                socketControlMode = (pendingOpenAccessMode ?? .allowAll).rawValue
+                pendingOpenAccessMode = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingOpenAccessMode = nil
+            }
+        } message: {
+            Text("This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk.")
+        }
     }
 
     private func resetAllSettings() {
@@ -2981,6 +3098,11 @@ struct SettingsView: View {
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+        showOpenAccessConfirmation = false
+        pendingOpenAccessMode = nil
+        socketPasswordDraft = ""
+        socketPasswordStatusMessage = nil
+        socketPasswordStatusIsError = false
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }

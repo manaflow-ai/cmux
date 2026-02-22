@@ -456,7 +456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest(env) {
             let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
                 ?? SocketControlSettings.defaultMode.rawValue
-            let userMode = SocketControlMode(rawValue: raw) ?? SocketControlSettings.defaultMode
+            let userMode = SocketControlSettings.migrateMode(raw)
             let mode = SocketControlSettings.effectiveMode(userMode: userMode)
             if mode != .off {
                 TerminalController.shared.start(

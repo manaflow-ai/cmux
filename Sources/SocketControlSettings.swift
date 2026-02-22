@@ -1,16 +1,17 @@
 import Foundation
+import Security
 
 enum SocketControlMode: String, CaseIterable, Identifiable {
     case off
     case cmuxOnly
-    /// Allow any local process to connect (no ancestry check).
-    /// Only accessible via CMUX_SOCKET_MODE=allowAll env var — not shown in the UI.
+    case automation
+    case password
+    /// Full open access (all local users/processes) with no ancestry or password gate.
     case allowAll
 
     var id: String { rawValue }
 
-    /// Cases shown in the Settings UI. `allowAll` is intentionally excluded.
-    static var uiCases: [SocketControlMode] { [.off, .cmuxOnly] }
+    static var uiCases: [SocketControlMode] { [.off, .cmuxOnly, .automation, .password, .allowAll] }
 
     var displayName: String {
         switch self {
@@ -18,8 +19,12 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
             return "Off"
         case .cmuxOnly:
             return "cmux processes only"
+        case .automation:
+            return "Automation mode"
+        case .password:
+            return "Password mode"
         case .allowAll:
-            return "Allow all processes"
+            return "Full open access"
         }
     }
 
@@ -29,8 +34,126 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
             return "Disable the local control socket."
         case .cmuxOnly:
             return "Only processes started inside cmux terminals can send commands."
+        case .automation:
+            return "Allow external local automation clients from this macOS user (no ancestry check)."
+        case .password:
+            return "Require socket authentication with a password stored in your keychain."
         case .allowAll:
-            return "Allow any local process to connect (no ancestry check)."
+            return "Allow any local process and user to connect with no auth. Unsafe."
+        }
+    }
+
+    var socketFilePermissions: UInt16 {
+        switch self {
+        case .allowAll:
+            return 0o666
+        case .off, .cmuxOnly, .automation, .password:
+            return 0o600
+        }
+    }
+
+    var requiresPasswordAuth: Bool {
+        self == .password
+    }
+}
+
+enum SocketControlPasswordStore {
+    static let service = "com.cmuxterm.app.socket-control"
+    static let account = "local-socket-password"
+
+    private static var baseQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+    }
+
+    static func configuredPassword(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let envPassword = environment[SocketControlSettings.socketPasswordEnvKey], !envPassword.isEmpty {
+            return envPassword
+        }
+        return try? loadPassword()
+    }
+
+    static func hasConfiguredPassword(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let configured = configuredPassword(environment: environment) else { return false }
+        return !configured.isEmpty
+    }
+
+    static func verify(
+        password candidate: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let expected = configuredPassword(environment: environment), !expected.isEmpty else {
+            return false
+        }
+        return expected == candidate
+    }
+
+    static func loadPassword() throws -> String? {
+        var query = baseQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound {
+            return nil
+        }
+        guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+        guard let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func savePassword(_ password: String) throws {
+        let normalized = password.trimmingCharacters(in: .newlines)
+        if normalized.isEmpty {
+            try clearPassword()
+            return
+        }
+
+        let data = Data(normalized.utf8)
+        var lookup = baseQuery
+        lookup[kSecReturnData as String] = true
+        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var existing: CFTypeRef?
+        let lookupStatus = SecItemCopyMatching(lookup as CFDictionary, &existing)
+        switch lookupStatus {
+        case errSecSuccess:
+            let attrsToUpdate: [String: Any] = [
+                kSecValueData as String: data
+            ]
+            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attrsToUpdate as CFDictionary)
+            guard updateStatus == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(updateStatus))
+            }
+        case errSecItemNotFound:
+            var add = baseQuery
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+            }
+        default:
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(lookupStatus))
+        }
+    }
+
+    static func clearPassword() throws {
+        let status = SecItemDelete(baseQuery as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
         }
     }
 }
@@ -39,17 +162,41 @@ struct SocketControlSettings {
     static let appStorageKey = "socketControlMode"
     static let legacyEnabledKey = "socketControlEnabled"
     static let allowSocketPathOverrideKey = "CMUX_ALLOW_SOCKET_OVERRIDE"
+    static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
 
-    /// Map old persisted rawValues to the new enum.
-    static func migrateMode(_ raw: String) -> SocketControlMode {
-        switch raw {
-        case "off": return .off
-        case "cmuxOnly": return .cmuxOnly
-        case "allowAll": return .allowAll
-        // Legacy values:
-        case "notifications", "full": return .cmuxOnly
-        default: return defaultMode
+    private static func normalizeMode(_ raw: String) -> String {
+        raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func parseMode(_ raw: String) -> SocketControlMode? {
+        switch normalizeMode(raw) {
+        case "off":
+            return .off
+        case "cmuxonly":
+            return .cmuxOnly
+        case "automation":
+            return .automation
+        case "password":
+            return .password
+        case "allowall", "openaccess", "fullopenaccess":
+            return .allowAll
+        // Legacy values from the old socket mode model.
+        case "notifications":
+            return .automation
+        case "full":
+            return .allowAll
+        default:
+            return nil
         }
+    }
+
+    /// Map persisted values to the current enum values.
+    static func migrateMode(_ raw: String) -> SocketControlMode {
+        parseMode(raw) ?? defaultMode
     }
 
     static var defaultMode: SocketControlMode {
@@ -135,8 +282,10 @@ struct SocketControlSettings {
         }
     }
 
-    static func envOverrideEnabled() -> Bool? {
-        guard let raw = ProcessInfo.processInfo.environment["CMUX_SOCKET_ENABLE"], !raw.isEmpty else {
+    static func envOverrideEnabled(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool? {
+        guard let raw = environment["CMUX_SOCKET_ENABLE"], !raw.isEmpty else {
             return nil
         }
 
@@ -150,33 +299,30 @@ struct SocketControlSettings {
         }
     }
 
-    static func envOverrideMode() -> SocketControlMode? {
-        guard let raw = ProcessInfo.processInfo.environment["CMUX_SOCKET_MODE"], !raw.isEmpty else {
+    static func envOverrideMode(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SocketControlMode? {
+        guard let raw = environment["CMUX_SOCKET_MODE"], !raw.isEmpty else {
             return nil
         }
-        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        switch cleaned {
-        case "off": return .off
-        case "cmuxonly", "cmux_only", "cmux-only": return .cmuxOnly
-        case "allowall", "allow_all", "allow-all": return .allowAll
-        // Legacy env var values — map to allowAll so existing test scripts keep working
-        case "notifications", "full": return .allowAll
-        default: return SocketControlMode(rawValue: cleaned)
-        }
+        return parseMode(raw)
     }
 
-    static func effectiveMode(userMode: SocketControlMode) -> SocketControlMode {
-        if let overrideEnabled = envOverrideEnabled() {
+    static func effectiveMode(
+        userMode: SocketControlMode,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> SocketControlMode {
+        if let overrideEnabled = envOverrideEnabled(environment: environment) {
             if !overrideEnabled {
                 return .off
             }
-            if let overrideMode = envOverrideMode() {
+            if let overrideMode = envOverrideMode(environment: environment) {
                 return overrideMode
             }
             return userMode == .off ? .cmuxOnly : userMode
         }
 
-        if let overrideMode = envOverrideMode() {
+        if let overrideMode = envOverrideMode(environment: environment) {
             return overrideMode
         }
 
