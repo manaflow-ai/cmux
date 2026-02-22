@@ -343,7 +343,18 @@ struct cmuxApp: App {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
                 Button("New Workspace") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
+                    if let appDelegate = AppDelegate.shared {
+                        if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
+#if DEBUG
+                            FocusLogStore.shared.append(
+                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
+                            )
+#endif
+                            appDelegate.openNewMainWindow(nil)
+                        }
+                    } else {
+                        tabManager.addTab()
+                    }
                 }
             }
 

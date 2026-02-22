@@ -152,7 +152,14 @@ enum WindowGlassEffect {
 }
 
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool = true
+    @Published var isVisible: Bool
+    @Published var persistedWidth: CGFloat
+
+    init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
+        self.isVisible = isVisible
+        let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
+        self.persistedWidth = CGFloat(sanitized)
+    }
 
     func toggle() {
         isVisible.toggle()
@@ -844,6 +851,15 @@ struct ContentView: View {
         (NSApp.keyWindow?.screen?.frame.width ?? NSScreen.main?.frame.width ?? 1920) * 2 / 3
     }
 
+    private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
+        let minWidth = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let maxWidth = max(minWidth, maxSidebarWidth)
+        if !candidate.isFinite {
+            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        }
+        return max(minWidth, min(maxWidth, candidate))
+    }
+
     private func activateSidebarResizerCursor() {
         sidebarResizerCursorReleaseWorkItem?.cancel()
         sidebarResizerCursorReleaseWorkItem = nil
@@ -1317,6 +1333,13 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
+            let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
+            if abs(sidebarWidth - restoredWidth) > 0.5 {
+                sidebarWidth = restoredWidth
+            }
+            if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
+                sidebarState.persistedWidth = restoredWidth
+            }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -1456,11 +1479,31 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarWidth) { _ in
+            let sanitized = normalizedSidebarWidth(sidebarWidth)
+            if abs(sidebarWidth - sanitized) > 0.5 {
+                sidebarWidth = sanitized
+                return
+            }
+            if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
+                sidebarState.persistedWidth = sanitized
+            }
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
             updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
+            let sanitized = normalizedSidebarWidth(newValue)
+            if abs(newValue - sanitized) > 0.5 {
+                sidebarState.persistedWidth = sanitized
+                return
+            }
+            guard !isResizerDragging else { return }
+            if abs(sidebarWidth - sanitized) > 0.5 {
+                sidebarWidth = sanitized
+            }
         })
 
         view = AnyView(view.ignoresSafeArea())
