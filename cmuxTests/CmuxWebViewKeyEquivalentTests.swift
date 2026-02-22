@@ -721,6 +721,57 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
     }
 }
 
+final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
+    func testRoutesWhenGhosttyIsFirstResponderAndShortcutIsZoom() {
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "=",
+                keyCode: 24
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "-",
+                keyCode: 27
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "0",
+                keyCode: 29
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenFirstResponderIsNotGhostty() {
+        XCTAssertFalse(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: false,
+                flags: [.command],
+                chars: "=",
+                keyCode: 24
+            )
+        )
+    }
+
+    func testDoesNotRouteForNonZoomShortcuts() {
+        XCTAssertFalse(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
