@@ -871,6 +871,11 @@ class TerminalController {
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
 
+        case "socket.set_access_mode":
+            return v2Result(id: id, self.v2SetAccessMode(params: params))
+        case "socket.get_access_mode":
+            return v2Ok(id: id, result: ["access_mode": accessMode.rawValue])
+
         // Windows
         case "window.list":
             return v2Result(id: id, self.v2WindowList(params: params))
@@ -1220,6 +1225,8 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
+            "socket.set_access_mode",
+            "socket.get_access_mode",
             "window.list",
             "window.current",
             "window.focus",
@@ -1386,6 +1393,27 @@ class TerminalController {
             "access_mode": accessMode.rawValue,
             "methods": methods.sorted()
         ]
+    }
+
+    private func v2SetAccessMode(params: [String: Any]) -> V2CallResult {
+        guard let modeRaw = (params["mode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !modeRaw.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing mode (open | restricted | off)", data: nil)
+        }
+        let newMode: SocketControlMode
+        switch modeRaw {
+        case "open", "allowall", "allow_all", "allow-all":
+            newMode = .allowAll
+        case "restricted", "cmuxonly", "cmux_only", "cmux-only":
+            newMode = .cmuxOnly
+        case "off":
+            newMode = .off
+        default:
+            return .err(code: "invalid_params", message: "Unknown mode '\(modeRaw)'. Use: open, restricted, off", data: nil)
+        }
+        let previous = accessMode.rawValue
+        accessMode = newMode
+        return .ok(["access_mode": newMode.rawValue, "previous": previous])
     }
 
     private func v2Identify(params: [String: Any]) -> [String: Any] {

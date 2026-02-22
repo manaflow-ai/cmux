@@ -165,7 +165,37 @@ struct SocketControlSettings {
         }
     }
 
+    /// Read socket access mode from `~/.config/cmux/config` file.
+    /// Supports `socket-access = open | restricted | off`.
+    static func configFileMode() -> SocketControlMode? {
+        let configPath = ("~/.config/cmux/config" as NSString).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: configPath),
+              let contents = try? String(contentsOfFile: configPath, encoding: .utf8) else {
+            return nil
+        }
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+            let parts = trimmed.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            }
+            guard parts.count == 2, parts[0] == "socket-access" else { continue }
+            switch parts[1] {
+            case "open", "allowall", "allow_all", "allow-all":
+                return .allowAll
+            case "restricted", "cmuxonly", "cmux_only", "cmux-only":
+                return .cmuxOnly
+            case "off":
+                return .off
+            default:
+                continue
+            }
+        }
+        return nil
+    }
+
     static func effectiveMode(userMode: SocketControlMode) -> SocketControlMode {
+        // Priority: env var > config file > user setting
         if let overrideEnabled = envOverrideEnabled() {
             if !overrideEnabled {
                 return .off
@@ -178,6 +208,10 @@ struct SocketControlSettings {
 
         if let overrideMode = envOverrideMode() {
             return overrideMode
+        }
+
+        if let configMode = configFileMode() {
+            return configMode
         }
 
         return userMode

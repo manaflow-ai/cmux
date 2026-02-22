@@ -635,6 +635,9 @@ struct CMUXCLI {
         case "load-template":
             try runLoadTemplate(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "socket-access":
+            try runSocketAccess(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
@@ -1764,6 +1767,38 @@ struct CMUXCLI {
             print(jsonString(result))
         } else {
             print("OK created=\(created) template=\(path)")
+        }
+    }
+
+    private func runSocketAccess(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let (modeOpt, remaining) = parseOption(commandArgs, name: "--mode")
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "socket-access: unknown flag '\(unknown)'")
+        }
+
+        if let mode = modeOpt ?? remaining.first {
+            let params: [String: Any] = ["mode": mode]
+            let payload = try client.sendV2(method: "socket.set_access_mode", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let current = payload["access_mode"] as? String ?? "unknown"
+                let previous = payload["previous"] as? String ?? "unknown"
+                print("OK access_mode=\(current) previous=\(previous)")
+            }
+        } else {
+            // No mode provided — query current mode
+            let payload = try client.sendV2(method: "socket.get_access_mode", params: [:])
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let current = payload["access_mode"] as? String ?? "unknown"
+                print("access_mode=\(current)")
+            }
         }
     }
 
@@ -3286,6 +3321,28 @@ struct CMUXCLI {
               cmux load-template
               cmux load-template ~/my-template.json
             """
+        case "socket-access":
+            return """
+            Usage: cmux socket-access [--mode <open|restricted|off>]
+
+            Get or set the socket access mode at runtime.
+
+            Modes:
+              open         Allow any local process to connect (no ancestry check)
+              restricted   Only cmux child processes can connect (default)
+              off          Disable the socket
+
+            Without --mode, prints the current access mode.
+
+            The mode can also be set via:
+              - Environment variable: CMUX_SOCKET_MODE=allowAll
+              - Config file: ~/.config/cmux/config with `socket-access = open`
+
+            Example:
+              cmux socket-access                    # query current mode
+              cmux socket-access --mode open        # allow external connections
+              cmux socket-access --mode restricted   # restore default
+            """
         case "new-split":
             return """
             Usage: cmux new-split <left|right|up|down> [flags]
@@ -4542,6 +4599,7 @@ struct CMUXCLI {
           list-workspaces
           new-workspace [--command <text>]
           load-template [<path>]
+          socket-access [--mode <open|restricted|off>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
