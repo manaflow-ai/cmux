@@ -3684,13 +3684,28 @@ private extension NSWindow {
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
-        if self.firstResponder is GhosttyNSView,
-           event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
+        let commandFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if self.firstResponder is GhosttyNSView, commandFlags.contains(.command) {
+            if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
 #if DEBUG
-            dlog("  → consumed by mainMenu (bypassed SwiftUI)")
+                dlog("  → consumed by mainMenu (bypassed SwiftUI)")
 #endif
-            return true
+                return true
+            }
+
+            // Copy (Cmd+C) should never fall through to terminal input when the
+            // menu path has no target (for example, no active selection).
+            // If it reaches keyDown, shells can treat it as input/interrupt and
+            // redraw prompt state unexpectedly.
+            let isPlainCommand = commandFlags == [.command]
+            let key = (event.charactersIgnoringModifiers ?? "").lowercased()
+            let isCopyShortcut = key == "c" || event.keyCode == 8 // kVK_ANSI_C
+            if isPlainCommand, isCopyShortcut {
+#if DEBUG
+                dlog("  → consumed Cmd+C (no menu target)")
+#endif
+                return true
+            }
         }
 
         let result = cmux_performKeyEquivalent(with: event)

@@ -185,6 +185,70 @@ def test_ctrl_c_python(client: cmux) -> TestResult:
     return result
 
 
+def test_cmd_c_does_not_interrupt_foreground_process(client: cmux) -> TestResult:
+    """
+    Regression: Cmd+C (copy shortcut) must not be forwarded as terminal SIGINT.
+    """
+    result = TestResult("Cmd+C does not send SIGINT")
+
+    marker = Path(tempfile.gettempdir()) / f"cmux_cmdc_signal_{os.getpid()}"
+
+    try:
+        marker.unlink(missing_ok=True)
+        client.activate_app()
+
+        command = (
+            "python3 -c 'import pathlib,signal,sys,time;"
+            f"p=pathlib.Path(\"{marker}\");"
+            "signal.signal(signal.SIGINT, lambda *_: (p.write_text(\"INT\"), sys.exit(130)));"
+            "time.sleep(1.4);"
+            "p.write_text(\"DONE\")'"
+        )
+
+        client.send(command + "\n")
+        time.sleep(0.35)  # Let the process enter sleep before shortcut dispatch.
+
+        client.simulate_shortcut("cmd+c")
+
+        # Immediate failure signal: command received SIGINT.
+        for _ in range(12):
+            if marker.exists():
+                state = marker.read_text().strip()
+                if state == "INT":
+                    result.failure("Cmd+C propagated to terminal as SIGINT")
+                    marker.unlink(missing_ok=True)
+                    return result
+            time.sleep(0.08)
+
+        # Process should complete naturally and write DONE.
+        for _ in range(30):
+            if marker.exists():
+                break
+            time.sleep(0.1)
+
+        if not marker.exists():
+            result.failure("Foreground process did not finish after Cmd+C check")
+            return result
+
+        state = marker.read_text().strip()
+        if state == "DONE":
+            result.success("Cmd+C stayed in shortcut/menu path; process completed")
+        else:
+            result.failure(f"Unexpected process marker state: {state!r}")
+
+        marker.unlink(missing_ok=True)
+    except Exception as e:
+        result.failure(f"Exception: {type(e).__name__}: {e}")
+        marker.unlink(missing_ok=True)
+        # Ensure no long-running child lingers if test failed mid-flight.
+        try:
+            client.send_ctrl_c()
+        except Exception:
+            pass
+
+    return result
+
+
 def test_environment_paths(client: cmux) -> TestResult:
     """
     Verify that TERMINFO points to a real terminfo directory and that
@@ -330,6 +394,15 @@ def run_tests():
             # Test Ctrl+C in Python
             print("Testing Ctrl+C in Python process...")
             results.append(test_ctrl_c_python(client))
+            status = "✅" if results[-1].passed else "❌"
+            print(f"  {status} {results[-1].message}")
+            print()
+
+            time.sleep(0.5)
+
+            # Regression: Cmd+C shortcut should not interrupt foreground process
+            print("Testing Cmd+C shortcut does not send SIGINT...")
+            results.append(test_cmd_c_does_not_interrupt_foreground_process(client))
             status = "✅" if results[-1].passed else "❌"
             print(f"  {status} {results[-1].message}")
             print()
