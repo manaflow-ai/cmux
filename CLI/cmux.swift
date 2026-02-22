@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Security
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
@@ -235,6 +236,46 @@ enum CLIIDFormat: String {
     }
 }
 
+private enum SocketPasswordResolver {
+    private static let service = "com.cmuxterm.app.socket-control"
+    private static let account = "local-socket-password"
+
+    static func resolve(explicit: String?) -> String? {
+        if let explicit = normalized(explicit), !explicit.isEmpty {
+            return explicit
+        }
+        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]), !env.isEmpty {
+            return env
+        }
+        return loadFromKeychain()
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func loadFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            return nil
+        }
+        guard let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 final class SocketClient {
     private let path: String
     private var socketFD: Int32 = -1
@@ -402,6 +443,7 @@ struct CMUXCLI {
         var jsonOutput = false
         var idFormatArg: String? = nil
         var windowId: String? = nil
+        var socketPasswordArg: String? = nil
 
         var index = 1
         while index < args.count {
@@ -435,6 +477,14 @@ struct CMUXCLI {
                 index += 2
                 continue
             }
+            if arg == "--password" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "--password requires a value")
+                }
+                socketPasswordArg = args[index + 1]
+                index += 2
+                continue
+            }
             if arg == "-h" || arg == "--help" {
                 print(usage())
                 return
@@ -461,6 +511,14 @@ struct CMUXCLI {
         let client = SocketClient(path: socketPath)
         try client.connect()
         defer { client.close() }
+
+        if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
+            let authResponse = try client.send(command: "auth \(socketPassword)")
+            if authResponse.hasPrefix("ERROR:"),
+               !authResponse.contains("Unknown command 'auth'") {
+                throw CLIError(message: authResponse)
+            }
+        }
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
@@ -4398,12 +4456,15 @@ struct CMUXCLI {
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--json] [--id-format refs|uuids|both] <command> [options]
+          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
+
+        Socket Auth:
+          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then keychain password saved in Settings.
 
         Commands:
           ping
