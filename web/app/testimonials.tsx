@@ -15,7 +15,8 @@ export const testimonials = [
     handle: "@schrockn",
     subtitle:
       "Founder of Dagster Labs. Creator of Dagster. GraphQL co-creator.",
-    avatar: null,
+    avatar:
+      "https://cdn.prod.website-files.com/681399f654933b29e12fb8e4/681399f654933b29e12fc51c_Photo-1.jpg",
     text: "This is exactly the product I've been looking for. After two hours this am I've in love.",
     url: "https://x.com/schrockn/status/2025182278637207857",
     platform: "x" as const,
