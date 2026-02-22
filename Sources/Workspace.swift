@@ -125,8 +125,8 @@ enum SidebarBranchOrdering {
         fallbackBranch: SidebarGitBranchState?
     ) -> [BranchDirectoryEntry] {
         struct EntryKey: Hashable {
-            let branch: String?
             let directory: String?
+            let branch: String?
         }
 
         struct MutableEntry {
@@ -139,6 +139,14 @@ enum SidebarBranchOrdering {
             guard let text else { return nil }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
+        }
+
+        func canonicalDirectoryKey(_ directory: String?) -> String? {
+            guard let directory = normalized(directory) else { return nil }
+            let expanded = NSString(string: directory).expandingTildeInPath
+            let standardized = NSString(string: expanded).standardizingPath
+            let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
         }
 
         let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
@@ -161,12 +169,35 @@ enum SidebarBranchOrdering {
                 ? (panelBranches[panelId]?.isDirty ?? false)
                 : defaultBranchDirty
 
-            let key = EntryKey(branch: branch, directory: directory)
-            if entries[key] == nil {
+            let key: EntryKey
+            if let directoryKey = canonicalDirectoryKey(directory) {
+                // Keep one line per directory and allow the latest branch state to overwrite.
+                key = EntryKey(directory: directoryKey, branch: nil)
+            } else {
+                key = EntryKey(directory: nil, branch: branch)
+            }
+
+            guard key.directory != nil || key.branch != nil else { continue }
+
+            if var existing = entries[key] {
+                if key.directory != nil {
+                    if let branch {
+                        existing.branch = branch
+                        existing.isDirty = panelDirty
+                    } else if existing.branch == nil {
+                        existing.isDirty = panelDirty
+                    }
+                    if let directory {
+                        existing.directory = directory
+                    }
+                    entries[key] = existing
+                } else if panelDirty {
+                    existing.isDirty = true
+                    entries[key] = existing
+                }
+            } else {
                 order.append(key)
                 entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
-            } else if panelDirty {
-                entries[key]?.isDirty = true
             }
         }
 
