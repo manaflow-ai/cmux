@@ -1021,6 +1021,113 @@ final class UpdateChannelSettingsTests: XCTestCase {
         XCTAssertTrue(resolved.isNightly)
         XCTAssertFalse(resolved.usedFallback)
     }
+
+    func testResolvedFeedReturnsToStableAfterNightlyPreferenceDisabled() {
+        let suiteName = "UpdateChannelSettingsTests.ToggleNightly.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
+        let nightly = UpdateChannelSettings.resolvedFeedURLString(
+            infoFeedURL: "https://example.com/custom/appcast.xml",
+            defaults: defaults
+        )
+        XCTAssertEqual(nightly.url, UpdateChannelSettings.nightlyFeedURL)
+        XCTAssertTrue(nightly.isNightly)
+
+        defaults.set(false, forKey: UpdateChannelSettings.includeNightlyBuildsKey)
+        let stable = UpdateChannelSettings.resolvedFeedURLString(
+            infoFeedURL: "https://example.com/custom/appcast.xml",
+            defaults: defaults
+        )
+        XCTAssertEqual(stable.url, "https://example.com/custom/appcast.xml")
+        XCTAssertFalse(stable.isNightly)
+        XCTAssertFalse(stable.usedFallback)
+    }
+
+    func testShouldOfferStableDowngradeForNightlyBuildWhenNightlyDisabled() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferStableDowngrade(
+                includeNightlyBuilds: false,
+                currentShortVersion: "0.32.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldNotOfferStableDowngradeWhenNightlyChannelEnabled() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferStableDowngrade(
+                includeNightlyBuilds: true,
+                currentShortVersion: "0.32.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldNotOfferStableDowngradeForStableBuild() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferStableDowngrade(
+                includeNightlyBuilds: false,
+                currentShortVersion: "0.32.0"
+            )
+        )
+    }
+
+    func testShouldOfferStableCandidateWhenCandidateBuildIsNewer() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferStableCandidate(
+                currentBuildVersion: "70",
+                candidateBuildVersion: "71"
+            )
+        )
+    }
+
+    func testShouldNotOfferStableCandidateWhenCandidateBuildIsOlder() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferStableCandidate(
+                currentBuildVersion: "2026021901",
+                candidateBuildVersion: "70"
+            )
+        )
+    }
+
+    func testShouldNotOfferStableCandidateWhenCandidateBuildMatchesCurrent() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferStableCandidate(
+                currentBuildVersion: "70",
+                candidateBuildVersion: "70"
+            )
+        )
+    }
+
+    func testShouldOfferNightlyCandidateWhenSemanticVersionMatches() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.58.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldOfferNightlyCandidateWhenSemanticVersionIsNewer() {
+        XCTAssertTrue(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.59.0-nightly.20260220"
+            )
+        )
+    }
+
+    func testShouldNotOfferNightlyCandidateWhenSemanticVersionIsOlder() {
+        XCTAssertFalse(
+            UpdateChannelSettings.shouldOfferNightlyCandidate(
+                currentShortVersion: "0.58.0",
+                candidateDisplayVersion: "0.56.0-nightly.20260220"
+            )
+        )
+    }
 }
 
 final class WorkspaceReorderTests: XCTestCase {
