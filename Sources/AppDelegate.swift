@@ -3636,6 +3636,20 @@ enum MenuBarIconRenderer {
 
 
 private extension NSWindow {
+    static func ghosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+        if let ghosttyView = responder as? GhosttyNSView {
+            return ghosttyView
+        }
+        var currentView = responder as? NSView
+        while let view = currentView {
+            if let ghosttyView = view as? GhosttyNSView {
+                return ghosttyView
+            }
+            currentView = view.superview
+        }
+        return nil
+    }
+
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -3657,7 +3671,8 @@ private extension NSWindow {
         // Command shortcuts when the terminal is focused — the local event monitor
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
-        if let ghosttyView = self.firstResponder as? GhosttyNSView {
+        let terminalFocusedView = Self.ghosttyView(for: self.firstResponder)
+        if let ghosttyView = terminalFocusedView {
             // If the IME is composing, don't intercept key events — let them flow
             // through normal AppKit event dispatch so the input method can process them.
             if ghosttyView.hasMarkedText() {
@@ -3685,7 +3700,7 @@ private extension NSWindow {
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
         let commandFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if self.firstResponder is GhosttyNSView, commandFlags.contains(.command) {
+        if terminalFocusedView != nil, commandFlags.contains(.command) {
             if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
 #if DEBUG
                 dlog("  → consumed by mainMenu (bypassed SwiftUI)")
