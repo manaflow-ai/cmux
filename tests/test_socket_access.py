@@ -22,6 +22,7 @@ import tempfile
 import time
 import json
 import glob
+import plistlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cmux import cmux, cmuxError
@@ -70,22 +71,123 @@ def _raw_send(sock, command: str, timeout: float = 3.0) -> str:
     return data.decode().strip()
 
 
+def _preferred_worktree_slug():
+    env_slug = os.environ.get("CMUX_TAG") or os.environ.get("CMUX_BRANCH_SLUG")
+    if env_slug:
+        return env_slug.strip().lower()
+
+    cwd = os.getcwd()
+    marker = "/worktrees/"
+    if marker in cwd:
+        tail = cwd.split(marker, 1)[1]
+        slug = tail.split("/", 1)[0].strip().lower()
+        if slug:
+            return slug
+    return ""
+
+
+def _derived_app_candidates_for_current_worktree():
+    project_path = os.path.realpath(os.path.join(os.getcwd(), "GhosttyTabs.xcodeproj"))
+    info_paths = glob.glob(os.path.expanduser(
+        "~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*/info.plist"
+    ))
+    matches = []
+    for info_path in info_paths:
+        try:
+            with open(info_path, "rb") as f:
+                info = plistlib.load(f)
+        except Exception:
+            continue
+        workspace_path = info.get("WorkspacePath")
+        if not workspace_path:
+            continue
+        if os.path.realpath(workspace_path) != project_path:
+            continue
+        derived_root = os.path.dirname(info_path)
+        app_path = os.path.join(derived_root, "Build/Products/Debug/cmux DEV.app")
+        if os.path.exists(app_path):
+            matches.append(app_path)
+    return matches
+
+
 def _find_app():
     explicit = os.environ.get("CMUX_APP_PATH")
     if explicit and os.path.exists(explicit):
         return explicit
 
+    preferred_slug = _preferred_worktree_slug()
+    if preferred_slug:
+        preferred_tmp = []
+        preferred_tmp.extend(glob.glob(f"/tmp/cmux-{preferred_slug}/Build/Products/Debug/cmux DEV*.app"))
+        preferred_tmp.extend(glob.glob(f"/private/tmp/cmux-{preferred_slug}/Build/Products/Debug/cmux DEV*.app"))
+        preferred_tmp = [p for p in preferred_tmp if os.path.exists(p)]
+        if preferred_tmp:
+            preferred_tmp.sort(key=os.path.getmtime, reverse=True)
+            return preferred_tmp[0]
+
+    direct_matches = _derived_app_candidates_for_current_worktree()
+    if direct_matches:
+        direct_matches.sort(key=os.path.getmtime, reverse=True)
+        return direct_matches[0]
+
+    home = os.path.expanduser("~")
+    derived_candidates = glob.glob(os.path.join(
+        home, "Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV.app"
+    ))
+    tmp_candidates = []
+    tmp_candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux DEV*.app"))
+    tmp_candidates.extend(glob.glob("/private/tmp/cmux-*/Build/Products/Debug/cmux DEV*.app"))
+
+    derived_candidates = [p for p in derived_candidates if os.path.exists(p)]
+    tmp_candidates = [p for p in tmp_candidates if os.path.exists(p)]
+
+    if preferred_slug:
+        preferred_derived = [p for p in derived_candidates if preferred_slug in p.lower()]
+        preferred_tmp = [p for p in tmp_candidates if preferred_slug in p.lower()]
+        if preferred_derived:
+            derived_candidates = preferred_derived
+        if preferred_tmp:
+            tmp_candidates = preferred_tmp
+
+    if derived_candidates:
+        derived_candidates.sort(key=os.path.getmtime, reverse=True)
+        return derived_candidates[0]
+
+    if tmp_candidates:
+        tmp_candidates.sort(key=os.path.getmtime, reverse=True)
+        return tmp_candidates[0]
+
+    return ""
+
+
+def _find_cli(preferred_app_path: str = ""):
+    explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
+    if explicit and os.path.exists(explicit) and os.access(explicit, os.X_OK):
+        return explicit
+
+    if preferred_app_path:
+        debug_dir = os.path.dirname(preferred_app_path)
+        sibling = os.path.join(debug_dir, "cmux")
+        if os.path.exists(sibling) and os.access(sibling, os.X_OK):
+            return sibling
+
     candidates = []
     home = os.path.expanduser("~")
     candidates.extend(glob.glob(os.path.join(
-        home, "Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV.app"
+        home, "Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux"
     )))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux DEV*.app"))
-    candidates.extend(glob.glob("/private/tmp/cmux-*/Build/Products/Debug/cmux DEV*.app"))
-
-    candidates = [p for p in candidates if os.path.exists(p)]
+    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
+    candidates.extend(glob.glob("/private/tmp/cmux-*/Build/Products/Debug/cmux"))
+    candidates = [p for p in candidates if os.path.exists(p) and os.access(p, os.X_OK)]
     if not candidates:
         return ""
+
+    preferred_slug = _preferred_worktree_slug()
+    if preferred_slug:
+        preferred = [p for p in candidates if preferred_slug in p.lower()]
+        if preferred:
+            candidates = preferred
+
     candidates.sort(key=os.path.getmtime, reverse=True)
     return candidates[0]
 
@@ -131,7 +233,7 @@ def _launch_cmux(app_path: str, socket_path: str, mode: str = None, extra_env: d
         launch_env.update(extra_env)
     for key, value in launch_env.items():
         env_args.extend(["--env", f"{key}={value}"])
-    subprocess.Popen(["open", "-a", app_path] + env_args)
+    subprocess.Popen(["open", "-na", app_path] + env_args)
     if not _wait_for_socket(socket_path):
         raise RuntimeError(f"Socket {socket_path} not created after launch")
     time.sleep(8)
@@ -475,6 +577,60 @@ def test_password_mode_v2_auth_flow(socket_path: str, app_path: str) -> TestResu
     return result
 
 
+def test_password_mode_cli_exit_code(socket_path: str, app_path: str) -> TestResult:
+    """Verify CLI exits non-zero on auth-required and succeeds with --password."""
+    result = TestResult("Password mode CLI exit code")
+    password = f"cmux-pass-{os.getpid()}"
+    try:
+        cli_path = _find_cli(preferred_app_path=app_path)
+        if not cli_path:
+            result.failure("Could not find cmux CLI binary")
+            return result
+
+        _kill_cmux(app_path)
+        _launch_cmux(
+            app_path,
+            socket_path,
+            mode="password",
+            extra_env={"CMUX_SOCKET_PASSWORD": password}
+        )
+
+        no_auth = subprocess.run(
+            [cli_path, "--socket", socket_path, "ping"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        combined = f"{no_auth.stdout}\n{no_auth.stderr}"
+        if no_auth.returncode == 0:
+            result.failure("CLI ping without password exited 0 in password mode")
+            return result
+        if "Authentication required" not in combined:
+            result.failure(f"Unexpected unauthenticated CLI output: {combined!r}")
+            return result
+
+        with_auth = subprocess.run(
+            [cli_path, "--socket", socket_path, "--password", password, "ping"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if with_auth.returncode != 0:
+            result.failure(
+                f"CLI ping with password failed: exit={with_auth.returncode} "
+                f"stdout={with_auth.stdout!r} stderr={with_auth.stderr!r}"
+            )
+            return result
+        if "PONG" not in with_auth.stdout:
+            result.failure(f"Expected PONG with password, got: {with_auth.stdout!r}")
+            return result
+
+        result.success("CLI exits non-zero for auth_required and succeeds with --password")
+    except Exception as e:
+        result.failure(f"{type(e).__name__}: {e}")
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -545,6 +701,7 @@ def run_tests():
     run_test(test_password_mode_requires_auth, socket_path, app_path)
     run_test(test_password_mode_v1_auth_flow, socket_path, app_path)
     run_test(test_password_mode_v2_auth_flow, socket_path, app_path)
+    run_test(test_password_mode_cli_exit_code, socket_path, app_path)
     print()
 
     # ── Cleanup: leave cmux in cmuxOnly mode ──

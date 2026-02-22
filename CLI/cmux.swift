@@ -539,7 +539,7 @@ struct CMUXCLI {
 
         switch command {
         case "ping":
-            let response = try client.send(command: "ping")
+            let response = try sendV1Command("ping", client: client)
             print(response)
 
         case "capabilities":
@@ -582,7 +582,7 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
-            let response = try client.send(command: "list_windows")
+            let response = try sendV1Command("list_windows", client: client)
             if jsonOutput {
                 let windows = parseWindows(response)
                 let payload = windows.map { item -> [String: Any] in
@@ -601,7 +601,7 @@ struct CMUXCLI {
             }
 
         case "current-window":
-            let response = try client.send(command: "current_window")
+            let response = try sendV1Command("current_window", client: client)
             if jsonOutput {
                 print(jsonString(["window_id": response]))
             } else {
@@ -609,21 +609,21 @@ struct CMUXCLI {
             }
 
         case "new-window":
-            let response = try client.send(command: "new_window")
+            let response = try sendV1Command("new_window", client: client)
             print(response)
 
         case "focus-window":
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "focus-window requires --window")
             }
-            let response = try client.send(command: "focus_window \(target)")
+            let response = try sendV1Command("focus_window \(target)", client: client)
             print(response)
 
         case "close-window":
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try client.send(command: "close_window \(target)")
+            let response = try sendV1Command("close_window \(target)", client: client)
             print(response)
 
         case "move-workspace-to-window":
@@ -685,7 +685,7 @@ struct CMUXCLI {
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
             }
-            let response = try client.send(command: "new_workspace")
+            let response = try sendV1Command("new_workspace", client: client)
             print(response)
             if let commandText = commandOpt {
                 guard response.hasPrefix("OK ") else {
@@ -830,11 +830,11 @@ struct CMUXCLI {
             guard let direction = rem1.first else {
                 throw CLIError(message: "drag-surface-to-split requires a direction")
             }
-            let response = try client.send(command: "drag_surface_to_split \(surface) \(direction)")
+            let response = try sendV1Command("drag_surface_to_split \(surface) \(direction)", client: client)
             print(response)
 
         case "refresh-surfaces":
-            let response = try client.send(command: "refresh_surfaces")
+            let response = try sendV1Command("refresh_surfaces", client: client)
             print(response)
 
         case "surface-health":
@@ -950,7 +950,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try client.send(command: "current_workspace")
+            let response = try sendV1Command("current_workspace", client: client)
             if jsonOutput {
                 print(jsonString(["workspace_id": response]))
             } else {
@@ -1074,11 +1074,11 @@ struct CMUXCLI {
             let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
 
             let payload = "\(title)|\(subtitle)|\(body)"
-            let response = try client.send(command: "notify_target \(targetWorkspace) \(targetSurface) \(payload)")
+            let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
             print(response)
 
         case "list-notifications":
-            let response = try client.send(command: "list_notifications")
+            let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
                 let notifications = parseNotifications(response)
                 let payload = notifications.map { item in
@@ -1099,7 +1099,7 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let response = try client.send(command: "clear_notifications")
+            let response = try sendV1Command("clear_notifications", client: client)
             print(response)
 
         case "claude-hook":
@@ -1107,11 +1107,11 @@ struct CMUXCLI {
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
-            let response = try client.send(command: "set_app_focus \(value)")
+            let response = try sendV1Command("set_app_focus \(value)", client: client)
             print(response)
 
         case "simulate-app-active":
-            let response = try client.send(command: "simulate_app_active")
+            let response = try sendV1Command("simulate_app_active", client: client)
             print(response)
 
         case "capture-pane",
@@ -1189,6 +1189,14 @@ struct CMUXCLI {
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
+    }
+
+    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+        let response = try client.send(command: command)
+        if response.hasPrefix("ERROR:") {
+            throw CLIError(message: response)
+        }
+        return response
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
@@ -4086,7 +4094,7 @@ struct CMUXCLI {
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
-                let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+                let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 print(response)
             } else {
                 print("OK")
@@ -4126,7 +4134,7 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
