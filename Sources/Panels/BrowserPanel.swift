@@ -3,6 +3,7 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import SQLite3
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
@@ -596,6 +597,100 @@ final class BrowserHistoryStore: ObservableObject {
 
         if ranked.count <= limit { return ranked }
         return Array(ranked.prefix(limit))
+    }
+
+    @discardableResult
+    func mergeImportedEntries(_ importedEntries: [Entry]) -> Int {
+        loadIfNeeded()
+        guard !importedEntries.isEmpty else { return 0 }
+
+        var mergedCount = 0
+        for imported in importedEntries {
+            guard let parsedURL = URL(string: imported.url),
+                  let scheme = parsedURL.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                continue
+            }
+
+            if let host = parsedURL.host?.lowercased() {
+                let trimmed = host.hasSuffix(".") ? String(host.dropLast()) : host
+                if !trimmed.contains(".") { continue }
+            }
+
+            let urlString = parsedURL.absoluteString
+            guard urlString != "about:blank" else { continue }
+            let normalizedKey = normalizedHistoryKey(url: parsedURL)
+
+            let importedTitle = imported.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let importedLastVisited = imported.lastVisited
+            let importedVisitCount = max(1, imported.visitCount)
+            let importedTypedCount = max(0, imported.typedCount)
+            let importedLastTypedAt = imported.lastTypedAt
+
+            if let idx = entries.firstIndex(where: {
+                if $0.url == urlString { return true }
+                guard let normalizedKey else { return false }
+                return normalizedHistoryKey(urlString: $0.url) == normalizedKey
+            }) {
+                var didMutate = false
+                if importedLastVisited > entries[idx].lastVisited {
+                    entries[idx].lastVisited = importedLastVisited
+                    didMutate = true
+                }
+                if importedVisitCount > entries[idx].visitCount {
+                    entries[idx].visitCount = importedVisitCount
+                    didMutate = true
+                }
+                if importedTypedCount > entries[idx].typedCount {
+                    entries[idx].typedCount = importedTypedCount
+                    didMutate = true
+                }
+                if let importedLastTypedAt {
+                    if let existingLastTypedAt = entries[idx].lastTypedAt {
+                        if importedLastTypedAt > existingLastTypedAt {
+                            entries[idx].lastTypedAt = importedLastTypedAt
+                            didMutate = true
+                        }
+                    } else {
+                        entries[idx].lastTypedAt = importedLastTypedAt
+                        didMutate = true
+                    }
+                }
+
+                let existingTitle = entries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let incomingTitle = importedTitle ?? ""
+                if !incomingTitle.isEmpty,
+                   (existingTitle.isEmpty || importedLastVisited >= entries[idx].lastVisited) {
+                    if entries[idx].title != incomingTitle {
+                        entries[idx].title = incomingTitle
+                        didMutate = true
+                    }
+                }
+
+                if didMutate {
+                    mergedCount += 1
+                }
+            } else {
+                entries.append(Entry(
+                    id: UUID(),
+                    url: urlString,
+                    title: importedTitle,
+                    lastVisited: importedLastVisited,
+                    visitCount: importedVisitCount,
+                    typedCount: importedTypedCount,
+                    lastTypedAt: importedLastTypedAt
+                ))
+                mergedCount += 1
+            }
+        }
+
+        guard mergedCount > 0 else { return 0 }
+        entries.sort(by: { $0.lastVisited > $1.lastVisited })
+        if entries.count > maxEntries {
+            entries.removeLast(entries.count - maxEntries)
+        }
+        scheduleSave()
+        return mergedCount
     }
 
     func clearHistory() {
@@ -2772,5 +2867,1469 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 completionHandler(nil)
             }
         }
+    }
+}
+
+// MARK: - Browser Data Import
+
+enum BrowserImportScope: String, CaseIterable, Identifiable {
+    case cookiesOnly
+    case cookiesAndHistory
+    case everything
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .cookiesOnly:
+            return "Cookies only"
+        case .cookiesAndHistory:
+            return "Cookies + history"
+        case .everything:
+            return "Everything"
+        }
+    }
+
+    var includesCookies: Bool {
+        switch self {
+        case .cookiesOnly, .cookiesAndHistory, .everything:
+            return true
+        }
+    }
+
+    var includesHistory: Bool {
+        switch self {
+        case .cookiesOnly:
+            return false
+        case .cookiesAndHistory, .everything:
+            return true
+        }
+    }
+}
+
+enum BrowserImportEngineFamily: String, Hashable {
+    case chromium
+    case firefox
+    case webkit
+}
+
+struct BrowserImportBrowserDescriptor: Hashable {
+    let id: String
+    let displayName: String
+    let family: BrowserImportEngineFamily
+    let tier: Int
+    let bundleIdentifiers: [String]
+    let appNames: [String]
+    let dataRootRelativePaths: [String]
+    let dataArtifactRelativePaths: [String]
+    let supportsDataOnlyDetection: Bool
+}
+
+struct InstalledBrowserCandidate: Identifiable, Hashable {
+    let descriptor: BrowserImportBrowserDescriptor
+    let homeDirectoryURL: URL
+    let appURL: URL?
+    let dataRootURL: URL?
+    let profileURLs: [URL]
+    let detectionSignals: [String]
+    let detectionScore: Int
+
+    var id: String { descriptor.id }
+    var displayName: String { descriptor.displayName }
+    var family: BrowserImportEngineFamily { descriptor.family }
+}
+
+enum InstalledBrowserDetector {
+    typealias BundleLookup = (String) -> URL?
+
+    static let allBrowserDescriptors: [BrowserImportBrowserDescriptor] = [
+        BrowserImportBrowserDescriptor(
+            id: "safari",
+            displayName: "Safari",
+            family: .webkit,
+            tier: 1,
+            bundleIdentifiers: ["com.apple.Safari"],
+            appNames: ["Safari.app"],
+            dataRootRelativePaths: ["Library/Safari"],
+            dataArtifactRelativePaths: [
+                "Library/Safari/History.db",
+                "Library/Cookies/Cookies.binarycookies",
+            ],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "google-chrome",
+            displayName: "Google Chrome",
+            family: .chromium,
+            tier: 1,
+            bundleIdentifiers: ["com.google.Chrome"],
+            appNames: ["Google Chrome.app"],
+            dataRootRelativePaths: ["Library/Application Support/Google/Chrome"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "firefox",
+            displayName: "Firefox",
+            family: .firefox,
+            tier: 1,
+            bundleIdentifiers: ["org.mozilla.firefox"],
+            appNames: ["Firefox.app"],
+            dataRootRelativePaths: ["Library/Application Support/Firefox"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "arc",
+            displayName: "Arc",
+            family: .chromium,
+            tier: 1,
+            bundleIdentifiers: ["company.thebrowser.Browser", "company.thebrowser.arc"],
+            appNames: ["Arc.app"],
+            dataRootRelativePaths: ["Library/Application Support/Arc"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "brave",
+            displayName: "Brave",
+            family: .chromium,
+            tier: 1,
+            bundleIdentifiers: ["com.brave.Browser"],
+            appNames: ["Brave Browser.app"],
+            dataRootRelativePaths: ["Library/Application Support/BraveSoftware/Brave-Browser"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "microsoft-edge",
+            displayName: "Microsoft Edge",
+            family: .chromium,
+            tier: 1,
+            bundleIdentifiers: ["com.microsoft.edgemac", "com.microsoft.Edge"],
+            appNames: ["Microsoft Edge.app"],
+            dataRootRelativePaths: ["Library/Application Support/Microsoft Edge"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "zen",
+            displayName: "Zen Browser",
+            family: .firefox,
+            tier: 2,
+            bundleIdentifiers: ["app.zen-browser.zen", "app.zen-browser.Zen"],
+            appNames: ["Zen Browser.app", "Zen.app"],
+            dataRootRelativePaths: ["Library/Application Support/Zen", "Library/Application Support/zen"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "vivaldi",
+            displayName: "Vivaldi",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["com.vivaldi.Vivaldi"],
+            appNames: ["Vivaldi.app"],
+            dataRootRelativePaths: ["Library/Application Support/Vivaldi"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "opera",
+            displayName: "Opera",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["com.operasoftware.Opera"],
+            appNames: ["Opera.app"],
+            dataRootRelativePaths: [
+                "Library/Application Support/com.operasoftware.Opera",
+                "Library/Application Support/Opera",
+            ],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "opera-gx",
+            displayName: "Opera GX",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["com.operasoftware.OperaGX"],
+            appNames: ["Opera GX.app"],
+            dataRootRelativePaths: [
+                "Library/Application Support/com.operasoftware.OperaGX",
+                "Library/Application Support/Opera GX Stable",
+            ],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "orion",
+            displayName: "Orion",
+            family: .webkit,
+            tier: 2,
+            bundleIdentifiers: ["com.kagi.kagimacOS", "com.kagi.kagimacos", "com.kagi.orion"],
+            appNames: ["Orion.app"],
+            dataRootRelativePaths: ["Library/Application Support/Orion"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "dia",
+            displayName: "Dia",
+            family: .chromium,
+            tier: 2,
+            bundleIdentifiers: ["company.thebrowser.Dia", "company.thebrowser.dia"],
+            appNames: ["Dia.app"],
+            dataRootRelativePaths: ["Library/Application Support/Dia"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "perplexity-comet",
+            displayName: "Perplexity Comet",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["ai.perplexity.comet"],
+            appNames: ["Perplexity Comet.app", "Comet.app"],
+            dataRootRelativePaths: ["Library/Application Support/Comet"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "floorp",
+            displayName: "Floorp",
+            family: .firefox,
+            tier: 3,
+            bundleIdentifiers: ["one.ablaze.floorp"],
+            appNames: ["Floorp.app"],
+            dataRootRelativePaths: ["Library/Application Support/Floorp"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "waterfox",
+            displayName: "Waterfox",
+            family: .firefox,
+            tier: 3,
+            bundleIdentifiers: ["net.waterfox.waterfox"],
+            appNames: ["Waterfox.app"],
+            dataRootRelativePaths: ["Library/Application Support/Waterfox"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "sigmaos",
+            displayName: "SigmaOS",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["com.feralcat.sigmaos"],
+            appNames: ["SigmaOS.app"],
+            dataRootRelativePaths: ["Library/Application Support/SigmaOS"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "sidekick",
+            displayName: "Sidekick",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["com.meetsidekick.Sidekick", "com.pushplaylabs.sidekick"],
+            appNames: ["Sidekick.app"],
+            dataRootRelativePaths: ["Library/Application Support/Sidekick"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "helium",
+            displayName: "Helium",
+            family: .webkit,
+            tier: 3,
+            bundleIdentifiers: ["com.jadenGeller.Helium", "com.jaden.geller.helium"],
+            appNames: ["Helium.app"],
+            dataRootRelativePaths: ["Library/Application Support/Helium"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "atlas",
+            displayName: "Atlas",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["com.atlas.browser"],
+            appNames: ["Atlas.app"],
+            dataRootRelativePaths: ["Library/Application Support/Atlas"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "ladybird",
+            displayName: "Ladybird",
+            family: .webkit,
+            tier: 3,
+            bundleIdentifiers: ["org.ladybird.Browser", "org.serenityos.ladybird"],
+            appNames: ["Ladybird.app"],
+            dataRootRelativePaths: ["Library/Application Support/Ladybird"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "chromium",
+            displayName: "Chromium",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["org.chromium.Chromium"],
+            appNames: ["Chromium.app"],
+            dataRootRelativePaths: ["Library/Application Support/Chromium"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: true
+        ),
+        BrowserImportBrowserDescriptor(
+            id: "ungoogled-chromium",
+            displayName: "Ungoogled Chromium",
+            family: .chromium,
+            tier: 3,
+            bundleIdentifiers: ["org.chromium.ungoogled"],
+            appNames: ["Ungoogled Chromium.app"],
+            dataRootRelativePaths: ["Library/Application Support/Chromium"],
+            dataArtifactRelativePaths: [],
+            supportsDataOnlyDetection: false
+        ),
+    ]
+
+    static func detectInstalledBrowsers(
+        homeDirectoryURL: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+        bundleLookup: BundleLookup? = nil,
+        applicationSearchDirectories: [URL]? = nil,
+        fileManager: FileManager = .default
+    ) -> [InstalledBrowserCandidate] {
+        let lookup = bundleLookup ?? { bundleIdentifier in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+        }
+        let appSearchDirectories = applicationSearchDirectories ?? defaultApplicationSearchDirectories(homeDirectoryURL: homeDirectoryURL)
+
+        let candidates = allBrowserDescriptors.compactMap { descriptor -> InstalledBrowserCandidate? in
+            let appDetection = detectApplication(
+                descriptor: descriptor,
+                appSearchDirectories: appSearchDirectories,
+                bundleLookup: lookup,
+                fileManager: fileManager
+            )
+
+            let dataDetection = detectData(
+                descriptor: descriptor,
+                homeDirectoryURL: homeDirectoryURL,
+                fileManager: fileManager
+            )
+
+            if appDetection.url == nil,
+               !descriptor.supportsDataOnlyDetection {
+                return nil
+            }
+
+            let hasData = dataDetection.dataRootURL != nil || !dataDetection.profileURLs.isEmpty || !dataDetection.artifactHits.isEmpty
+            guard appDetection.url != nil || hasData else {
+                return nil
+            }
+
+            var score = 0
+            if appDetection.url != nil {
+                score += 80
+            }
+            if dataDetection.dataRootURL != nil {
+                score += 24
+            }
+            score += min(24, dataDetection.profileURLs.count * 6)
+            score += min(16, dataDetection.artifactHits.count * 4)
+
+            var signals: [String] = []
+            signals.append(contentsOf: appDetection.signals)
+            if let root = dataDetection.dataRootURL {
+                signals.append("data:\(root.lastPathComponent)")
+            }
+            if !dataDetection.profileURLs.isEmpty {
+                signals.append("profiles:\(dataDetection.profileURLs.count)")
+            }
+            if !dataDetection.artifactHits.isEmpty {
+                signals.append(contentsOf: dataDetection.artifactHits.map { "artifact:\($0)" })
+            }
+
+            return InstalledBrowserCandidate(
+                descriptor: descriptor,
+                homeDirectoryURL: homeDirectoryURL,
+                appURL: appDetection.url,
+                dataRootURL: dataDetection.dataRootURL,
+                profileURLs: dataDetection.profileURLs,
+                detectionSignals: signals,
+                detectionScore: score
+            )
+        }
+
+        return candidates.sorted { lhs, rhs in
+            if lhs.detectionScore != rhs.detectionScore {
+                return lhs.detectionScore > rhs.detectionScore
+            }
+            if lhs.descriptor.tier != rhs.descriptor.tier {
+                return lhs.descriptor.tier < rhs.descriptor.tier
+            }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    static func summaryText(for browsers: [InstalledBrowserCandidate], limit: Int = 4) -> String {
+        guard !browsers.isEmpty else { return "No supported browsers detected." }
+        let names = browsers.map(\.displayName)
+        if names.count <= limit {
+            return "Detected: \(names.joined(separator: ", "))."
+        }
+        let shown = names.prefix(limit).joined(separator: ", ")
+        return "Detected: \(shown), +\(names.count - limit) more."
+    }
+
+    private static func detectApplication(
+        descriptor: BrowserImportBrowserDescriptor,
+        appSearchDirectories: [URL],
+        bundleLookup: BundleLookup,
+        fileManager: FileManager
+    ) -> (url: URL?, signals: [String]) {
+        for bundleIdentifier in descriptor.bundleIdentifiers {
+            if let appURL = bundleLookup(bundleIdentifier) {
+                return (appURL, ["bundle:\(bundleIdentifier)"])
+            }
+        }
+
+        for appName in descriptor.appNames {
+            for directory in appSearchDirectories {
+                let appURL = directory.appendingPathComponent(appName, isDirectory: true)
+                if fileManager.fileExists(atPath: appURL.path) {
+                    return (appURL, ["app:\(appName)"])
+                }
+            }
+        }
+
+        return (nil, [])
+    }
+
+    private static func detectData(
+        descriptor: BrowserImportBrowserDescriptor,
+        homeDirectoryURL: URL,
+        fileManager: FileManager
+    ) -> (dataRootURL: URL?, profileURLs: [URL], artifactHits: [String]) {
+        var bestRootURL: URL?
+        var bestProfiles: [URL] = []
+        var bestArtifacts: [String] = []
+
+        for relativePath in descriptor.dataRootRelativePaths {
+            let rootURL = homeDirectoryURL.appendingPathComponent(relativePath, isDirectory: true)
+            guard fileManager.fileExists(atPath: rootURL.path) else { continue }
+
+            let profiles: [URL]
+            switch descriptor.family {
+            case .chromium:
+                profiles = chromiumProfileURLs(rootURL: rootURL, fileManager: fileManager)
+            case .firefox:
+                profiles = firefoxProfileURLs(rootURL: rootURL, fileManager: fileManager)
+            case .webkit:
+                profiles = []
+            }
+
+            let score = (profiles.count * 10) + 8
+            let currentScore = (bestProfiles.count * 10) + (bestRootURL == nil ? 0 : 8)
+            if score > currentScore {
+                bestRootURL = rootURL
+                bestProfiles = profiles
+            }
+        }
+
+        var artifactHits: [String] = []
+        for relativePath in descriptor.dataArtifactRelativePaths {
+            let artifactURL = homeDirectoryURL.appendingPathComponent(relativePath, isDirectory: false)
+            if fileManager.fileExists(atPath: artifactURL.path) {
+                artifactHits.append(artifactURL.lastPathComponent)
+            }
+        }
+
+        if !artifactHits.isEmpty {
+            bestArtifacts = artifactHits
+            if bestRootURL == nil,
+               let rootPath = descriptor.dataRootRelativePaths.first {
+                let rootURL = homeDirectoryURL.appendingPathComponent(rootPath, isDirectory: true)
+                if fileManager.fileExists(atPath: rootURL.path) {
+                    bestRootURL = rootURL
+                }
+            }
+        }
+
+        return (
+            dataRootURL: bestRootURL,
+            profileURLs: dedupedCanonicalURLs(bestProfiles),
+            artifactHits: bestArtifacts
+        )
+    }
+
+    private static func chromiumProfileURLs(
+        rootURL: URL,
+        fileManager: FileManager
+    ) -> [URL] {
+        var profiles: [URL] = []
+        if looksLikeChromiumProfile(rootURL: rootURL, fileManager: fileManager) {
+            profiles.append(rootURL)
+        }
+
+        let children = (try? fileManager.contentsOfDirectory(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        for child in children {
+            guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            let name = child.lastPathComponent
+            let isLikelyProfile =
+                name == "Default" ||
+                name.hasPrefix("Profile ") ||
+                name.hasPrefix("Guest Profile") ||
+                name.hasPrefix("Person ")
+            if isLikelyProfile && looksLikeChromiumProfile(rootURL: child, fileManager: fileManager) {
+                profiles.append(child)
+            }
+        }
+
+        profiles = dedupedCanonicalURLs(profiles)
+        return profiles.sorted {
+            profileRecency(for: $0, preferredFiles: ["History", "Cookies"], fileManager: fileManager) >
+                profileRecency(for: $1, preferredFiles: ["History", "Cookies"], fileManager: fileManager)
+        }
+    }
+
+    private static func firefoxProfileURLs(
+        rootURL: URL,
+        fileManager: FileManager
+    ) -> [URL] {
+        var profiles = firefoxProfilesFromINI(rootURL: rootURL, fileManager: fileManager)
+
+        let likelyProfileRoots = [
+            rootURL.appendingPathComponent("Profiles", isDirectory: true),
+            rootURL,
+        ]
+
+        for directory in likelyProfileRoots where fileManager.fileExists(atPath: directory.path) {
+            let children = (try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+            for child in children {
+                guard (try? child.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                if looksLikeFirefoxProfile(rootURL: child, fileManager: fileManager) {
+                    profiles.append(child)
+                }
+            }
+        }
+
+        profiles = dedupedCanonicalURLs(profiles)
+        return profiles.sorted {
+            profileRecency(for: $0, preferredFiles: ["places.sqlite", "cookies.sqlite"], fileManager: fileManager) >
+                profileRecency(for: $1, preferredFiles: ["places.sqlite", "cookies.sqlite"], fileManager: fileManager)
+        }
+    }
+
+    private static func firefoxProfilesFromINI(
+        rootURL: URL,
+        fileManager: FileManager
+    ) -> [URL] {
+        let iniURL = rootURL.appendingPathComponent("profiles.ini", isDirectory: false)
+        guard let contents = try? String(contentsOf: iniURL, encoding: .utf8) else {
+            return []
+        }
+
+        var sections: [[String: String]] = []
+        var current: [String: String] = [:]
+
+        func flushCurrent() {
+            if !current.isEmpty {
+                sections.append(current)
+                current.removeAll()
+            }
+        }
+
+        for line in contents.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed.hasPrefix(";") || trimmed.hasPrefix("#") {
+                continue
+            }
+            if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
+                flushCurrent()
+                continue
+            }
+            guard let separator = trimmed.firstIndex(of: "=") else { continue }
+            let key = String(trimmed[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = String(trimmed[trimmed.index(after: separator)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            current[key] = value
+        }
+        flushCurrent()
+
+        var urls: [URL] = []
+        for section in sections {
+            guard let pathValue = section["Path"], !pathValue.isEmpty else { continue }
+            let isRelative = section["IsRelative"] != "0"
+            let profileURL: URL
+            if isRelative {
+                profileURL = rootURL.appendingPathComponent(pathValue, isDirectory: true)
+            } else {
+                profileURL = URL(fileURLWithPath: pathValue, isDirectory: true)
+            }
+            if looksLikeFirefoxProfile(rootURL: profileURL, fileManager: fileManager) {
+                urls.append(profileURL)
+            }
+        }
+        return urls
+    }
+
+    private static func looksLikeChromiumProfile(rootURL: URL, fileManager: FileManager) -> Bool {
+        let historyURL = rootURL.appendingPathComponent("History", isDirectory: false)
+        let cookiesURL = rootURL.appendingPathComponent("Cookies", isDirectory: false)
+        return fileManager.fileExists(atPath: historyURL.path) || fileManager.fileExists(atPath: cookiesURL.path)
+    }
+
+    private static func looksLikeFirefoxProfile(rootURL: URL, fileManager: FileManager) -> Bool {
+        let historyURL = rootURL.appendingPathComponent("places.sqlite", isDirectory: false)
+        let cookiesURL = rootURL.appendingPathComponent("cookies.sqlite", isDirectory: false)
+        return fileManager.fileExists(atPath: historyURL.path) || fileManager.fileExists(atPath: cookiesURL.path)
+    }
+
+    private static func profileRecency(
+        for profileURL: URL,
+        preferredFiles: [String],
+        fileManager: FileManager
+    ) -> TimeInterval {
+        var latest: TimeInterval = 0
+        for fileName in preferredFiles {
+            let url = profileURL.appendingPathComponent(fileName, isDirectory: false)
+            guard fileManager.fileExists(atPath: url.path),
+                  let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let date = values.contentModificationDate else {
+                continue
+            }
+            latest = max(latest, date.timeIntervalSince1970)
+        }
+        return latest
+    }
+
+    private static func defaultApplicationSearchDirectories(homeDirectoryURL: URL) -> [URL] {
+        [
+            URL(fileURLWithPath: "/Applications", isDirectory: true),
+            homeDirectoryURL.appendingPathComponent("Applications", isDirectory: true),
+            URL(fileURLWithPath: "/Applications/Setapp", isDirectory: true),
+            homeDirectoryURL.appendingPathComponent("Applications/Setapp", isDirectory: true),
+        ]
+    }
+
+    private static func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in urls {
+            let canonical = url.standardizedFileURL.resolvingSymlinksInPath().path
+            if seen.insert(canonical).inserted {
+                result.append(url)
+            }
+        }
+        return result
+    }
+}
+
+struct BrowserImportOutcome {
+    let browserName: String
+    let scope: BrowserImportScope
+    let domainFilters: [String]
+    let importedCookies: Int
+    let skippedCookies: Int
+    let importedHistoryEntries: Int
+    let warnings: [String]
+}
+
+enum BrowserDataImporter {
+    private struct CookieImportResult {
+        var importedCount: Int = 0
+        var skippedCount: Int = 0
+        var warnings: [String] = []
+    }
+
+    private struct HistoryImportResult {
+        var importedCount: Int = 0
+        var warnings: [String] = []
+    }
+
+    private struct HistoryRow {
+        let url: String
+        let title: String?
+        let visitCount: Int
+        let lastVisited: Date
+    }
+
+    static func parseDomainFilters(_ raw: String) -> [String] {
+        var result: [String] = []
+        var seen = Set<String>()
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",;"))
+        for token in raw.components(separatedBy: separators) {
+            var value = token.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if value.hasPrefix("*.") {
+                value.removeFirst(2)
+            }
+            while value.hasPrefix(".") {
+                value.removeFirst()
+            }
+            guard !value.isEmpty else { continue }
+            guard seen.insert(value).inserted else { continue }
+            result.append(value)
+        }
+        return result
+    }
+
+    static func importData(
+        from browser: InstalledBrowserCandidate,
+        scope: BrowserImportScope,
+        domainFilters: [String]
+    ) async -> BrowserImportOutcome {
+        var cookieResult = CookieImportResult()
+        if scope.includesCookies {
+            cookieResult = await importCookies(from: browser, domainFilters: domainFilters)
+        }
+
+        var historyResult = HistoryImportResult()
+        if scope.includesHistory {
+            historyResult = await importHistory(from: browser, domainFilters: domainFilters)
+        }
+
+        var warnings = cookieResult.warnings
+        warnings.append(contentsOf: historyResult.warnings)
+        if scope == .everything {
+            warnings.append("Bookmarks/settings import is not implemented yet; imported cookies and history only.")
+        }
+
+        return BrowserImportOutcome(
+            browserName: browser.displayName,
+            scope: scope,
+            domainFilters: domainFilters,
+            importedCookies: cookieResult.importedCount,
+            skippedCookies: cookieResult.skippedCount,
+            importedHistoryEntries: historyResult.importedCount,
+            warnings: warnings
+        )
+    }
+
+    private static func importCookies(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        switch browser.family {
+        case .firefox:
+            return await importFirefoxCookies(from: browser, domainFilters: domainFilters)
+        case .chromium:
+            return await importChromiumCookies(from: browser, domainFilters: domainFilters)
+        case .webkit:
+            if browser.descriptor.id == "safari" {
+                return CookieImportResult(
+                    importedCount: 0,
+                    skippedCount: 0,
+                    warnings: [
+                        "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
+                    ]
+                )
+            }
+            return CookieImportResult(
+                importedCount: 0,
+                skippedCount: 0,
+                warnings: [
+                    "\(browser.displayName) cookie import is not implemented yet."
+                ]
+            )
+        }
+    }
+
+    private static func importHistory(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> HistoryImportResult {
+        switch browser.family {
+        case .firefox:
+            return await importFirefoxHistory(from: browser, domainFilters: domainFilters)
+        case .chromium:
+            return await importChromiumHistory(from: browser, domainFilters: domainFilters)
+        case .webkit:
+            return await importWebKitHistory(from: browser, domainFilters: domainFilters)
+        }
+    }
+
+    private static func importFirefoxCookies(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        let fileManager = FileManager.default
+        var cookies: [HTTPCookie] = []
+        var warnings: [String] = []
+
+        let databaseURLs = browser.profileURLs.map {
+            $0.appendingPathComponent("cookies.sqlite", isDirectory: false)
+        }.filter { fileManager.fileExists(atPath: $0.path) }
+
+        for databaseURL in databaseURLs {
+            do {
+                try querySQLiteRows(
+                    sourceDatabaseURL: databaseURL,
+                    sql: "SELECT host, name, value, path, expiry, isSecure FROM moz_cookies"
+                ) { statement in
+                    let host = sqliteColumnText(statement, index: 0) ?? ""
+                    let name = sqliteColumnText(statement, index: 1) ?? ""
+                    let value = sqliteColumnText(statement, index: 2) ?? ""
+                    let path = sqliteColumnText(statement, index: 3) ?? "/"
+                    let expiry = sqliteColumnInt64(statement, index: 4)
+                    let isSecure = sqliteColumnInt64(statement, index: 5) != 0
+
+                    guard !name.isEmpty else { return }
+                    guard domainMatches(host: host, filters: domainFilters) else { return }
+
+                    var properties: [HTTPCookiePropertyKey: Any] = [
+                        .domain: host,
+                        .path: path.isEmpty ? "/" : path,
+                        .name: name,
+                        .value: value,
+                    ]
+                    if isSecure {
+                        properties[.secure] = "TRUE"
+                    }
+                    if expiry > 0 {
+                        properties[.expires] = Date(timeIntervalSince1970: TimeInterval(expiry))
+                    }
+                    if let cookie = HTTPCookie(properties: properties) {
+                        cookies.append(cookie)
+                    }
+                }
+            } catch {
+                warnings.append("Failed reading Firefox cookies at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies)
+        return CookieImportResult(importedCount: importedCount, skippedCount: max(0, dedupedCookies.count - importedCount), warnings: warnings)
+    }
+
+    private static func importChromiumCookies(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        let fileManager = FileManager.default
+        var cookies: [HTTPCookie] = []
+        var warnings: [String] = []
+        var skippedEncryptedCookies = 0
+
+        let databaseURLs = browser.profileURLs.map {
+            $0.appendingPathComponent("Cookies", isDirectory: false)
+        }.filter { fileManager.fileExists(atPath: $0.path) }
+
+        for databaseURL in databaseURLs {
+            do {
+                try querySQLiteRows(
+                    sourceDatabaseURL: databaseURL,
+                    sql: "SELECT host_key, name, value, path, expires_utc, is_secure, encrypted_value FROM cookies"
+                ) { statement in
+                    let host = sqliteColumnText(statement, index: 0) ?? ""
+                    let name = sqliteColumnText(statement, index: 1) ?? ""
+                    let value = sqliteColumnText(statement, index: 2) ?? ""
+                    let path = sqliteColumnText(statement, index: 3) ?? "/"
+                    let expiresUTC = sqliteColumnInt64(statement, index: 4)
+                    let isSecure = sqliteColumnInt64(statement, index: 5) != 0
+                    let encryptedLength = sqliteColumnBytes(statement, index: 6)
+
+                    guard !name.isEmpty else { return }
+                    guard domainMatches(host: host, filters: domainFilters) else { return }
+
+                    let usableValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if usableValue.isEmpty && encryptedLength > 0 {
+                        skippedEncryptedCookies += 1
+                        return
+                    }
+
+                    var properties: [HTTPCookiePropertyKey: Any] = [
+                        .domain: host,
+                        .path: path.isEmpty ? "/" : path,
+                        .name: name,
+                        .value: usableValue,
+                    ]
+                    if isSecure {
+                        properties[.secure] = "TRUE"
+                    }
+                    if let expiresDate = chromiumDate(fromWebKitMicroseconds: expiresUTC) {
+                        properties[.expires] = expiresDate
+                    }
+                    if let cookie = HTTPCookie(properties: properties) {
+                        cookies.append(cookie)
+                    }
+                }
+            } catch {
+                warnings.append("Failed reading \(browser.displayName) cookies at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies)
+        if skippedEncryptedCookies > 0 {
+            warnings.append("Skipped \(skippedEncryptedCookies) encrypted cookies that require Keychain decryption.")
+        }
+        let skippedCount = max(0, dedupedCookies.count - importedCount) + skippedEncryptedCookies
+        return CookieImportResult(importedCount: importedCount, skippedCount: skippedCount, warnings: warnings)
+    }
+
+    private static func importFirefoxHistory(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> HistoryImportResult {
+        let fileManager = FileManager.default
+        var rows: [HistoryRow] = []
+        var warnings: [String] = []
+
+        let databaseURLs = browser.profileURLs.map {
+            $0.appendingPathComponent("places.sqlite", isDirectory: false)
+        }.filter { fileManager.fileExists(atPath: $0.path) }
+
+        for databaseURL in databaseURLs {
+            do {
+                try querySQLiteRows(
+                    sourceDatabaseURL: databaseURL,
+                    sql: """
+                    SELECT url, title, visit_count, last_visit_date
+                    FROM moz_places
+                    WHERE url LIKE 'http%'
+                    ORDER BY last_visit_date DESC
+                    LIMIT 5000
+                    """
+                ) { statement in
+                    let url = sqliteColumnText(statement, index: 0) ?? ""
+                    let title = sqliteColumnText(statement, index: 1)
+                    let visitCount = max(1, Int(sqliteColumnInt64(statement, index: 2)))
+                    let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
+                    guard let parsedURL = URL(string: url),
+                          let host = parsedURL.host,
+                          domainMatches(host: host, filters: domainFilters) else {
+                        return
+                    }
+                    let lastVisited = firefoxDate(fromUnixMicroseconds: lastVisitMicros) ?? Date()
+                    rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
+                }
+            } catch {
+                warnings.append("Failed reading Firefox history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        let importedCount = await mergeHistoryRows(rows)
+        return HistoryImportResult(importedCount: importedCount, warnings: warnings)
+    }
+
+    private static func importChromiumHistory(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> HistoryImportResult {
+        let fileManager = FileManager.default
+        var rows: [HistoryRow] = []
+        var warnings: [String] = []
+
+        let databaseURLs = browser.profileURLs.map {
+            $0.appendingPathComponent("History", isDirectory: false)
+        }.filter { fileManager.fileExists(atPath: $0.path) }
+
+        for databaseURL in databaseURLs {
+            do {
+                try querySQLiteRows(
+                    sourceDatabaseURL: databaseURL,
+                    sql: """
+                    SELECT url, title, visit_count, last_visit_time
+                    FROM urls
+                    WHERE url LIKE 'http%'
+                    ORDER BY last_visit_time DESC
+                    LIMIT 5000
+                    """
+                ) { statement in
+                    let url = sqliteColumnText(statement, index: 0) ?? ""
+                    let title = sqliteColumnText(statement, index: 1)
+                    let visitCount = max(1, Int(sqliteColumnInt64(statement, index: 2)))
+                    let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
+                    guard let parsedURL = URL(string: url),
+                          let host = parsedURL.host,
+                          domainMatches(host: host, filters: domainFilters) else {
+                        return
+                    }
+                    let lastVisited = chromiumDate(fromWebKitMicroseconds: lastVisitMicros) ?? Date()
+                    rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
+                }
+            } catch {
+                warnings.append("Failed reading \(browser.displayName) history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        let importedCount = await mergeHistoryRows(rows)
+        return HistoryImportResult(importedCount: importedCount, warnings: warnings)
+    }
+
+    private static func importWebKitHistory(
+        from browser: InstalledBrowserCandidate,
+        domainFilters: [String]
+    ) async -> HistoryImportResult {
+        let fileManager = FileManager.default
+        var rows: [HistoryRow] = []
+        var warnings: [String] = []
+
+        var candidateDatabaseURLs: [URL] = []
+        if let dataRootURL = browser.dataRootURL {
+            candidateDatabaseURLs.append(dataRootURL.appendingPathComponent("History.db", isDirectory: false))
+        }
+        if browser.descriptor.id == "safari" {
+            candidateDatabaseURLs.append(
+                browser.homeDirectoryURL
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Safari", isDirectory: true)
+                    .appendingPathComponent("History.db", isDirectory: false)
+            )
+        }
+        let uniqueURLs = dedupedCanonicalURLs(candidateDatabaseURLs).filter { fileManager.fileExists(atPath: $0.path) }
+
+        if uniqueURLs.isEmpty {
+            return HistoryImportResult(importedCount: 0, warnings: ["No history database found for \(browser.displayName)."])
+        }
+
+        for databaseURL in uniqueURLs {
+            do {
+                try querySQLiteRows(
+                    sourceDatabaseURL: databaseURL,
+                    sql: """
+                    SELECT history_items.url,
+                           history_items.title,
+                           COUNT(history_visits.id) AS visit_count,
+                           MAX(history_visits.visit_time) AS last_visit_time
+                    FROM history_items
+                    JOIN history_visits
+                      ON history_items.id = history_visits.history_item
+                    GROUP BY history_items.url
+                    ORDER BY last_visit_time DESC
+                    LIMIT 5000
+                    """
+                ) { statement in
+                    let url = sqliteColumnText(statement, index: 0) ?? ""
+                    let title = sqliteColumnText(statement, index: 1)
+                    let visitCount = max(1, Int(sqliteColumnInt64(statement, index: 2)))
+                    let lastVisitReferenceSeconds = sqliteColumnDouble(statement, index: 3)
+                    guard let parsedURL = URL(string: url),
+                          let host = parsedURL.host,
+                          domainMatches(host: host, filters: domainFilters) else {
+                        return
+                    }
+                    let lastVisited = Date(timeIntervalSinceReferenceDate: lastVisitReferenceSeconds)
+                    rows.append(HistoryRow(url: url, title: title, visitCount: visitCount, lastVisited: lastVisited))
+                }
+            } catch {
+                warnings.append("Failed reading \(browser.displayName) history at \(databaseURL.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+
+        let importedCount = await mergeHistoryRows(rows)
+        return HistoryImportResult(importedCount: importedCount, warnings: warnings)
+    }
+
+    private static func mergeHistoryRows(_ rows: [HistoryRow]) async -> Int {
+        guard !rows.isEmpty else { return 0 }
+        return await MainActor.run {
+            let entries = rows.compactMap { row -> BrowserHistoryStore.Entry? in
+                guard let parsedURL = URL(string: row.url),
+                      let scheme = parsedURL.scheme?.lowercased(),
+                      scheme == "http" || scheme == "https" else {
+                    return nil
+                }
+                let trimmedTitle = row.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return BrowserHistoryStore.Entry(
+                    id: UUID(),
+                    url: parsedURL.absoluteString,
+                    title: trimmedTitle,
+                    lastVisited: row.lastVisited,
+                    visitCount: max(1, row.visitCount)
+                )
+            }
+            return BrowserHistoryStore.shared.mergeImportedEntries(entries)
+        }
+    }
+
+    private static func setCookiesInStore(_ cookies: [HTTPCookie]) async -> Int {
+        guard !cookies.isEmpty else { return 0 }
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        var importedCount = 0
+        for cookie in cookies {
+            await withCheckedContinuation { continuation in
+                store.setCookie(cookie) {
+                    importedCount += 1
+                    continuation.resume()
+                }
+            }
+        }
+        return importedCount
+    }
+
+    private static func dedupeCookies(_ cookies: [HTTPCookie]) -> [HTTPCookie] {
+        var dedupedByKey: [String: HTTPCookie] = [:]
+        for cookie in cookies {
+            let key = "\(cookie.name.lowercased())|\(cookie.domain.lowercased())|\(cookie.path)"
+            if let existing = dedupedByKey[key] {
+                let existingExpiry = existing.expiresDate ?? .distantPast
+                let candidateExpiry = cookie.expiresDate ?? .distantPast
+                if candidateExpiry >= existingExpiry {
+                    dedupedByKey[key] = cookie
+                }
+            } else {
+                dedupedByKey[key] = cookie
+            }
+        }
+        return Array(dedupedByKey.values)
+    }
+
+    private static func domainMatches(host: String, filters: [String]) -> Bool {
+        if filters.isEmpty { return true }
+        var normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        while normalizedHost.hasPrefix(".") {
+            normalizedHost.removeFirst()
+        }
+        guard !normalizedHost.isEmpty else { return false }
+        for filter in filters {
+            if normalizedHost == filter { return true }
+            if normalizedHost.hasSuffix(".\(filter)") { return true }
+        }
+        return false
+    }
+
+    private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
+        guard rawValue > 0 else { return nil }
+        let unixSeconds = (Double(rawValue) / 1_000_000.0) - 11_644_473_600.0
+        guard unixSeconds.isFinite else { return nil }
+        return Date(timeIntervalSince1970: unixSeconds)
+    }
+
+    private static func firefoxDate(fromUnixMicroseconds rawValue: Int64) -> Date? {
+        guard rawValue > 0 else { return nil }
+        let seconds = Double(rawValue) / 1_000_000.0
+        guard seconds.isFinite else { return nil }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    private static func querySQLiteRows(
+        sourceDatabaseURL: URL,
+        sql: String,
+        rowHandler: (OpaquePointer) throws -> Void
+    ) throws {
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-browser-import-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempRoot) }
+
+        let snapshotURL = tempRoot.appendingPathComponent(sourceDatabaseURL.lastPathComponent, isDirectory: false)
+        try fileManager.copyItem(at: sourceDatabaseURL, to: snapshotURL)
+
+        let walSourceURL = URL(fileURLWithPath: "\(sourceDatabaseURL.path)-wal")
+        let walSnapshotURL = URL(fileURLWithPath: "\(snapshotURL.path)-wal")
+        if fileManager.fileExists(atPath: walSourceURL.path) {
+            try? fileManager.copyItem(at: walSourceURL, to: walSnapshotURL)
+        }
+        let shmSourceURL = URL(fileURLWithPath: "\(sourceDatabaseURL.path)-shm")
+        let shmSnapshotURL = URL(fileURLWithPath: "\(snapshotURL.path)-shm")
+        if fileManager.fileExists(atPath: shmSourceURL.path) {
+            try? fileManager.copyItem(at: shmSourceURL, to: shmSnapshotURL)
+        }
+
+        var database: OpaquePointer?
+        let openCode = sqlite3_open_v2(snapshotURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        guard openCode == SQLITE_OK, let database else {
+            let message = sqliteMessage(from: database) ?? "unknown SQLite open failure"
+            sqlite3_close(database)
+            throw NSError(domain: "BrowserDataImporter", code: Int(openCode), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        defer { sqlite3_close(database) }
+
+        var statement: OpaquePointer?
+        let prepareCode = sqlite3_prepare_v2(database, sql, -1, &statement, nil)
+        guard prepareCode == SQLITE_OK, let statement else {
+            let message = sqliteMessage(from: database) ?? "unknown SQLite prepare failure"
+            sqlite3_finalize(statement)
+            throw NSError(domain: "BrowserDataImporter", code: Int(prepareCode), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+        defer { sqlite3_finalize(statement) }
+
+        while true {
+            let stepCode = sqlite3_step(statement)
+            if stepCode == SQLITE_ROW {
+                try rowHandler(statement)
+                continue
+            }
+            if stepCode == SQLITE_DONE {
+                break
+            }
+            let message = sqliteMessage(from: database) ?? "unknown SQLite step failure"
+            throw NSError(domain: "BrowserDataImporter", code: Int(stepCode), userInfo: [
+                NSLocalizedDescriptionKey: message,
+            ])
+        }
+    }
+
+    private static func sqliteMessage(from database: OpaquePointer?) -> String? {
+        guard let database, let cString = sqlite3_errmsg(database) else { return nil }
+        return String(cString: cString)
+    }
+
+    private static func sqliteColumnText(_ statement: OpaquePointer, index: Int32) -> String? {
+        guard let cValue = sqlite3_column_text(statement, index) else { return nil }
+        return String(cString: cValue)
+    }
+
+    private static func sqliteColumnInt64(_ statement: OpaquePointer, index: Int32) -> Int64 {
+        sqlite3_column_int64(statement, index)
+    }
+
+    private static func sqliteColumnDouble(_ statement: OpaquePointer, index: Int32) -> Double {
+        sqlite3_column_double(statement, index)
+    }
+
+    private static func sqliteColumnBytes(_ statement: OpaquePointer, index: Int32) -> Int {
+        Int(sqlite3_column_bytes(statement, index))
+    }
+
+    private static func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in urls {
+            let canonical = url.standardizedFileURL.resolvingSymlinksInPath().path
+            if seen.insert(canonical).inserted {
+                result.append(url)
+            }
+        }
+        return result
+    }
+}
+
+@MainActor
+final class BrowserDataImportCoordinator {
+    static let shared = BrowserDataImportCoordinator()
+
+    private var importInProgress = false
+
+    private init() {}
+
+    func presentImportDialog() {
+        presentImportDialog(prefilledBrowsers: nil)
+    }
+
+    private struct ImportSelection {
+        let browser: InstalledBrowserCandidate
+        let scope: BrowserImportScope
+        let domainFilters: [String]
+    }
+
+    private func presentImportDialog(prefilledBrowsers: [InstalledBrowserCandidate]?) {
+        guard !importInProgress else { return }
+        let browsers = prefilledBrowsers ?? InstalledBrowserDetector.detectInstalledBrowsers()
+        guard !browsers.isEmpty else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "No supported browsers detected"
+            alert.informativeText = "cmux could not find installed browser profiles to import from."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+
+        guard let selection = promptForSelection(browsers: browsers) else { return }
+        importInProgress = true
+
+        let progressWindow = showProgressWindow(
+            title: "Importing Browser Data",
+            message: "Importing \(selection.scope.displayName.lowercased()) from \(selection.browser.displayName)…"
+        )
+
+        Task.detached(priority: .userInitiated) {
+            let outcome = await BrowserDataImporter.importData(
+                from: selection.browser,
+                scope: selection.scope,
+                domainFilters: selection.domainFilters
+            )
+
+            await MainActor.run {
+                self.hideProgressWindow(progressWindow)
+                self.presentOutcome(outcome)
+                self.importInProgress = false
+            }
+        }
+    }
+
+    private func promptForSelection(browsers: [InstalledBrowserCandidate]) -> ImportSelection? {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Import Browser Data"
+        alert.informativeText = "Choose a browser and what to import."
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+
+        let browserPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for browser in browsers {
+            browserPopup.addItem(withTitle: browser.displayName)
+        }
+        browserPopup.selectItem(at: 0)
+
+        let scopePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        for scope in BrowserImportScope.allCases {
+            scopePopup.addItem(withTitle: scope.displayName)
+            scopePopup.item(at: scopePopup.numberOfItems - 1)?.representedObject = scope.rawValue
+        }
+        if let defaultIndex = BrowserImportScope.allCases.firstIndex(of: .cookiesAndHistory) {
+            scopePopup.selectItem(at: defaultIndex)
+        }
+
+        let domainField = NSTextField(frame: .zero)
+        domainField.placeholderString = "Optional domains (comma or space separated)"
+        domainField.stringValue = ""
+
+        let browserRow = NSStackView()
+        browserRow.orientation = .horizontal
+        browserRow.spacing = 8
+        browserRow.alignment = .centerY
+        let browserLabel = NSTextField(labelWithString: "Browser")
+        browserLabel.alignment = .right
+        browserLabel.frame.size.width = 72
+        browserRow.addArrangedSubview(browserLabel)
+        browserRow.addArrangedSubview(browserPopup)
+
+        let scopeRow = NSStackView()
+        scopeRow.orientation = .horizontal
+        scopeRow.spacing = 8
+        scopeRow.alignment = .centerY
+        let scopeLabel = NSTextField(labelWithString: "Import")
+        scopeLabel.alignment = .right
+        scopeLabel.frame.size.width = 72
+        scopeRow.addArrangedSubview(scopeLabel)
+        scopeRow.addArrangedSubview(scopePopup)
+
+        let domainRow = NSStackView()
+        domainRow.orientation = .horizontal
+        domainRow.spacing = 8
+        domainRow.alignment = .centerY
+        let domainLabel = NSTextField(labelWithString: "Domains")
+        domainLabel.alignment = .right
+        domainLabel.frame.size.width = 72
+        domainRow.addArrangedSubview(domainLabel)
+        domainRow.addArrangedSubview(domainField)
+
+        let accessory = NSStackView()
+        accessory.orientation = .vertical
+        accessory.spacing = 8
+        accessory.alignment = .leading
+        accessory.addArrangedSubview(browserRow)
+        accessory.addArrangedSubview(scopeRow)
+        accessory.addArrangedSubview(domainRow)
+        accessory.setFrameSize(NSSize(width: 420, height: 108))
+        alert.accessoryView = accessory
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let browserIndex = max(0, min(browserPopup.indexOfSelectedItem, browsers.count - 1))
+        let selectedBrowser = browsers[browserIndex]
+        let selectedScopeRaw = scopePopup.selectedItem?.representedObject as? String ?? BrowserImportScope.cookiesAndHistory.rawValue
+        let selectedScope = BrowserImportScope(rawValue: selectedScopeRaw) ?? .cookiesAndHistory
+        let domainFilters = BrowserDataImporter.parseDomainFilters(domainField.stringValue)
+
+        return ImportSelection(
+            browser: selectedBrowser,
+            scope: selectedScope,
+            domainFilters: domainFilters
+        )
+    }
+
+    private func showProgressWindow(title: String, message: String) -> NSWindow {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 122),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = title
+        window.isReleasedWhenClosed = false
+        window.standardWindowButton(.closeButton)?.isHidden = true
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 122))
+
+        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 50, width: 20, height: 20))
+        spinner.style = .spinning
+        spinner.controlSize = .regular
+        spinner.startAnimation(nil)
+        content.addSubview(spinner)
+
+        let titleLabel = NSTextField(labelWithString: message)
+        titleLabel.frame = NSRect(x: 52, y: 56, width: 340, height: 20)
+        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        content.addSubview(titleLabel)
+
+        let subtitleLabel = NSTextField(labelWithString: "This can take a few seconds for large profiles.")
+        subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: 16)
+        subtitleLabel.font = NSFont.systemFont(ofSize: 11)
+        subtitleLabel.textColor = .secondaryLabelColor
+        content.addSubview(subtitleLabel)
+
+        window.contentView = content
+
+        if let keyWindow = NSApp.keyWindow {
+            keyWindow.beginSheet(window, completionHandler: nil)
+        } else {
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        return window
+    }
+
+    private func hideProgressWindow(_ window: NSWindow) {
+        if let parent = window.sheetParent {
+            parent.endSheet(window)
+        } else {
+            window.orderOut(nil)
+        }
+    }
+
+    private func presentOutcome(_ outcome: BrowserImportOutcome) {
+        var lines: [String] = []
+        lines.append("Browser: \(outcome.browserName)")
+        lines.append("Scope: \(outcome.scope.displayName)")
+        lines.append("Imported cookies: \(outcome.importedCookies)")
+        if outcome.skippedCookies > 0 {
+            lines.append("Skipped cookies: \(outcome.skippedCookies)")
+        }
+        if outcome.scope.includesHistory {
+            lines.append("Imported history entries: \(outcome.importedHistoryEntries)")
+        }
+        if !outcome.domainFilters.isEmpty {
+            lines.append("Domain filter: \(outcome.domainFilters.joined(separator: ", "))")
+        }
+        if !outcome.warnings.isEmpty {
+            lines.append("")
+            lines.append("Warnings:")
+            for warning in outcome.warnings {
+                lines.append("- \(warning)")
+            }
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Browser data import complete"
+        alert.informativeText = lines.joined(separator: "\n")
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }

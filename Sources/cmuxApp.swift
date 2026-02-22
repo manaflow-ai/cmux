@@ -470,6 +470,10 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
+                Button("Import Browser Data…") {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
+
                 Button("Next Workspace") {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
                 }
@@ -2474,6 +2478,7 @@ struct SettingsView: View {
     @State private var showOpenAccessConfirmation = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
+    @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -2519,6 +2524,10 @@ struct SettingsView: View {
         default:
             return "\(browserHistoryEntryCount) saved pages appear in omnibar suggestions."
         }
+    }
+
+    private var browserImportSubtitle: String {
+        InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
@@ -2917,6 +2926,25 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow("Import Browser Data", subtitle: browserImportSubtitle) {
+                            HStack(spacing: 8) {
+                                Button("Import…") {
+                                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                                    refreshDetectedImportBrowsers()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+
+                                Button("Refresh") {
+                                    refreshDetectedImportBrowsers()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow("Browsing History", subtitle: browserHistorySubtitle) {
                             Button("Clear History…") {
                                 showClearBrowserHistoryConfirmation = true
@@ -3042,6 +3070,7 @@ struct SettingsView: View {
             browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity)
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            refreshDetectedImportBrowsers()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
@@ -3103,12 +3132,17 @@ struct SettingsView: View {
         socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
+        refreshDetectedImportBrowsers()
         KeyboardShortcutSettings.resetAll()
         shortcutResetToken = UUID()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {
         browserInsecureHTTPAllowlist = browserInsecureHTTPAllowlistDraft
+    }
+
+    private func refreshDetectedImportBrowsers() {
+        detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
     }
 }
 
