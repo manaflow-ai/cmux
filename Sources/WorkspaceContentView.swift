@@ -197,21 +197,9 @@ private struct WorkspaceBarView: View {
 
     private var barColor: Color {
         if let hex = workspace.accentColor, let nsColor = NSColor(hex: hex) {
-            return Color(nsColor: nsColor)
+            return Color(nsColor: nsColor).opacity(0.3)
         }
-        return Color.accentColor
-    }
-
-    /// Choose white or black text for contrast against the bar background.
-    private var textColor: Color {
-        if let hex = workspace.accentColor, let nsColor = NSColor(hex: hex) {
-            let rgb = nsColor.usingColorSpace(.sRGB)
-            let luminance = (rgb?.redComponent ?? 0) * 0.299
-                + (rgb?.greenComponent ?? 0) * 0.587
-                + (rgb?.blueComponent ?? 0) * 0.114
-            return luminance > 0.5 ? .black : .white
-        }
-        return .white
+        return Color.accentColor.opacity(0.3)
     }
 
     var body: some View {
@@ -219,12 +207,12 @@ private struct WorkspaceBarView: View {
             HStack {
                 Text(workspace.customTitle ?? workspace.title)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(textColor)
+                    .foregroundColor(.white)
                 Spacer()
                 if let text = bar.text, !text.isEmpty {
                     Text(text)
                         .font(.system(size: 10, weight: .regular))
-                        .foregroundColor(textColor.opacity(0.85))
+                        .foregroundColor(.white.opacity(0.85))
                 }
             }
             .padding(.horizontal, 8)

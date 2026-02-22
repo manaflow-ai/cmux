@@ -2796,6 +2796,30 @@ private struct TabItemView: View {
 
             Divider()
 
+            Menu("Set Theme") {
+                ForEach(WorkspaceTheme.presetNames, id: \.self) { name in
+                    Button(name.capitalized) {
+                        if let preset = WorkspaceTheme.named(name) {
+                            tab.accentColor = preset.accentColor
+                            tab.backgroundColorOverride = preset.backgroundColor
+                            tab.applyBackgroundColorOverride()
+                        }
+                    }
+                }
+                Divider()
+                Button("Clear Theme") {
+                    tab.accentColor = nil
+                    tab.backgroundColorOverride = nil
+                    tab.applyBackgroundColorOverride()
+                }
+            }
+
+            Button("Set Color…") {
+                showWorkspaceColorPicker(for: tab)
+            }
+
+            Divider()
+
             Button("Move Up") {
                 moveBy(-1)
             }
@@ -3128,6 +3152,26 @@ private struct TabItemView: View {
         return trimmed
     }
 
+    private func showWorkspaceColorPicker(for workspace: Workspace) {
+        let colorPanel = NSColorPanel.shared
+        let currentColor: NSColor
+        if let hex = workspace.accentColor, let c = NSColor(hex: hex) {
+            currentColor = c
+        } else {
+            currentColor = NSColor.controlAccentColor
+        }
+        colorPanel.color = currentColor
+        colorPanel.setTarget(nil)
+        colorPanel.setAction(nil)
+        colorPanel.orderFront(nil)
+
+        let observer = WorkspaceColorObserver(workspace: workspace)
+        colorPanel.setTarget(observer)
+        colorPanel.setAction(#selector(WorkspaceColorObserver.colorChanged(_:)))
+        // Keep observer alive while panel is open
+        objc_setAssociatedObject(colorPanel, &WorkspaceColorObserver.associatedKey, observer, .OBJC_ASSOCIATION_RETAIN)
+    }
+
     private func promptRename() {
         let alert = NSAlert()
         alert.messageText = "Rename Workspace"
@@ -3147,6 +3191,27 @@ private struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+}
+
+private class WorkspaceColorObserver: NSObject {
+    static var associatedKey: UInt8 = 0
+    let workspace: Workspace
+
+    init(workspace: Workspace) {
+        self.workspace = workspace
+        super.init()
+    }
+
+    @objc func colorChanged(_ sender: NSColorPanel) {
+        let nsColor = sender.color.usingColorSpace(.sRGB) ?? sender.color
+        let hex = String(format: "#%02X%02X%02X",
+            Int(nsColor.redComponent * 255),
+            Int(nsColor.greenComponent * 255),
+            Int(nsColor.blueComponent * 255))
+        DispatchQueue.main.async { [weak self] in
+            self?.workspace.accentColor = hex
+        }
     }
 }
 

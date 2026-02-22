@@ -2555,6 +2555,11 @@ struct SettingsView: View {
                         }
                     }
 
+                    SettingsSectionHeader(title: "Workspace Themes")
+                    SettingsCard {
+                        WorkspaceThemePresetsGrid()
+                    }
+
                     SettingsSectionHeader(title: "Automation")
                     SettingsCard {
                         SettingsCardRow(
@@ -2941,6 +2946,77 @@ private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
             if abs(nextInset - inset) > 0.5 {
                 inset = nextInset
             }
+        }
+    }
+}
+
+private struct WorkspaceThemePresetsGrid: View {
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Built-in Presets")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(WorkspaceTheme.presetNames, id: \.self) { name in
+                    if let theme = WorkspaceTheme.named(name) {
+                        WorkspaceThemeSwatchView(theme: theme)
+                    }
+                }
+            }
+
+            Text("Apply themes from the sidebar right-click menu.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(14)
+    }
+}
+
+private struct WorkspaceThemeSwatchView: View {
+    let theme: WorkspaceTheme
+
+    private var accentColor: Color {
+        if let c = NSColor(hex: theme.accentColor) {
+            return Color(nsColor: c)
+        }
+        return .accentColor
+    }
+
+    private var bgColor: Color {
+        if let c = NSColor(hex: theme.backgroundColor) {
+            return Color(nsColor: c)
+        }
+        return Color(nsColor: .windowBackgroundColor)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Color bar preview at 30% opacity
+            accentColor.opacity(0.3)
+                .frame(height: 4)
+
+            // Background preview area
+            bgColor
+                .frame(height: 36)
+                .overlay(
+                    Circle()
+                        .fill(accentColor)
+                        .frame(width: 10, height: 10)
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+        )
+        .overlay(alignment: .bottom) {
+            Text(theme.name.capitalized)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 3)
         }
     }
 }
