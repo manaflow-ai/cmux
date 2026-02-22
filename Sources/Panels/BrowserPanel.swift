@@ -64,6 +64,34 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserForcedDarkModeSettings {
+    static let enabledKey = "browserForcedDarkModeEnabled"
+    static let opacityKey = "browserForcedDarkModeOpacity"
+    static let defaultEnabled: Bool = false
+    static let defaultOpacity: Double = 45
+    static let minOpacity: Double = 5
+    static let maxOpacity: Double = 90
+
+    static func enabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func opacity(defaults: UserDefaults = .standard) -> Double {
+        if defaults.object(forKey: opacityKey) == nil {
+            return defaultOpacity
+        }
+        return normalizedOpacity(defaults.double(forKey: opacityKey))
+    }
+
+    static func normalizedOpacity(_ rawValue: Double) -> Double {
+        guard rawValue.isFinite else { return defaultOpacity }
+        return min(maxOpacity, max(minOpacity, rawValue))
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -1009,6 +1037,13 @@ final class BrowserPanel: Panel, ObservableObject {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
+    private static func isDarkAppearance(
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> Bool {
+        guard let appAppearance else { return false }
+        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
         let userInfo = notification?.userInfo
         let baseColor = (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
@@ -1024,6 +1059,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         return baseColor.withAlphaComponent(clampedGhosttyBackgroundOpacity(opacity))
+    }
+
+    private static func resolvedBrowserChromeBackgroundColor(
+        from notification: Notification? = nil,
+        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+    ) -> NSColor {
+        if isDarkAppearance(appAppearance: appAppearance) {
+            return resolvedGhosttyBackgroundColor(from: notification)
+        }
+        return NSColor.windowBackgroundColor
     }
 
     let id: UUID
@@ -1107,6 +1152,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
+    private var forcedDarkModeEnabled: Bool
+    private var forcedDarkModeOpacity: Double
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1130,6 +1177,8 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.forcedDarkModeEnabled = BrowserForcedDarkModeSettings.enabled()
+        self.forcedDarkModeOpacity = BrowserForcedDarkModeSettings.opacity()
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -1155,7 +1204,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor()
+        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1168,6 +1217,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
+                self?.applyForcedDarkModeIfNeeded()
             }
         }
         navDelegate.didFailNavigation = { [weak self] _, failedURL in
@@ -1228,6 +1278,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Observe web view properties
         setupObservers()
+        applyForcedDarkModeIfNeeded()
 
         // Navigate to initial URL if provided
         if let url = initialURL {
@@ -1325,7 +1376,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedGhosttyBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor(from: notification)
             }
             .store(in: &cancellables)
     }
@@ -1973,6 +2024,16 @@ extension BrowserPanel {
         try await webView.evaluateJavaScript(script)
     }
 
+    func setForcedDarkMode(enabled: Bool, opacity: Double) {
+        forcedDarkModeEnabled = enabled
+        forcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacity)
+        applyForcedDarkModeIfNeeded()
+    }
+
+    func refreshAppearanceDrivenColors() {
+        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+    }
+
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
         suppressOmnibarAutofocusUntil = Date().addingTimeInterval(seconds)
     }
@@ -2049,6 +2110,55 @@ extension BrowserPanel {
 }
 
 private extension BrowserPanel {
+    func applyForcedDarkModeIfNeeded() {
+        let script = makeForcedDarkModeScript(
+            enabled: forcedDarkModeEnabled,
+            opacityPercent: forcedDarkModeOpacity
+        )
+        webView.evaluateJavaScript(script) { _, error in
+            #if DEBUG
+            if let error {
+                dlog("browser.forcedDarkMode error=\(error.localizedDescription)")
+            }
+            #endif
+        }
+    }
+
+    func makeForcedDarkModeScript(enabled: Bool, opacityPercent: Double) -> String {
+        let clampedOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacityPercent) / 100.0
+        let opacityLiteral = String(format: "%.4f", clampedOpacity)
+        let enabledLiteral = enabled ? "true" : "false"
+        return """
+        (() => {
+          const overlayId = 'cmux-forced-dark-mode-overlay';
+          const shouldEnable = \(enabledLiteral);
+          const overlayOpacity = \(opacityLiteral);
+          const root = document.documentElement || document.body;
+          if (!root) return;
+
+          let overlay = document.getElementById(overlayId);
+          if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = overlayId;
+            overlay.style.position = 'fixed';
+            overlay.style.top = '0';
+            overlay.style.left = '0';
+            overlay.style.right = '0';
+            overlay.style.bottom = '0';
+            overlay.style.backgroundColor = 'black';
+            overlay.style.pointerEvents = 'none';
+            overlay.style.zIndex = '2147483647';
+            overlay.style.transition = 'opacity 120ms ease';
+            overlay.style.opacity = '0';
+            root.appendChild(overlay);
+          }
+
+          overlay.style.display = shouldEnable ? 'block' : 'none';
+          overlay.style.opacity = shouldEnable ? String(overlayOpacity) : '0';
+        })();
+        """
+    }
+
     func scheduleDeveloperToolsRestoreRetry() {
         guard preferredDeveloperToolsVisible else { return }
         guard developerToolsRestoreRetryWorkItem == nil else { return }
