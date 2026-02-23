@@ -3817,6 +3817,61 @@ final class WindowBrowserHostViewTests: XCTestCase {
 }
 
 @MainActor
+final class WindowDragHandleHitTests: XCTestCase {
+    private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            "Empty titlebar space should drag the window"
+        )
+    }
+
+    func testDragHandleYieldsWhenSiblingClaimsPoint() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let folderIconHost = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        container.addSubview(folderIconHost)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            "Interactive titlebar controls should receive the mouse event"
+        )
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle))
+    }
+
+    func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let hidden = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        hidden.isHidden = true
+        container.addSubview(hidden)
+
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle))
+    }
+
+    func testDragHandleDoesNotCaptureOutsideBounds() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+    }
+}
+
+@MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
