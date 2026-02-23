@@ -153,6 +153,10 @@ enum BrowserLinkOpenSettings {
         return defaultInterceptTerminalOpenCommandInCmuxBrowser
     }
 
+    static func initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: UserDefaults = .standard) -> Bool {
+        interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
+    }
+
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
         let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
         return raw
