@@ -535,6 +535,10 @@ private final class SplitDividerOverlayView: NSView {
 
 @MainActor
 final class WindowTerminalPortal: NSObject {
+    private static let tinyHideThreshold: CGFloat = 1
+    private static let minimumRevealWidth: CGFloat = 24
+    private static let minimumRevealHeight: CGFloat = 18
+
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
@@ -886,7 +890,12 @@ final class WindowTerminalPortal: NSObject {
             frameInHost.size.width.isFinite &&
             frameInHost.size.height.isFinite
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
-        let tinyFrame = frameInHost.width <= 1 || frameInHost.height <= 1
+        let tinyFrame =
+            frameInHost.width <= Self.tinyHideThreshold ||
+            frameInHost.height <= Self.tinyHideThreshold
+        let revealReadyForDisplay =
+            frameInHost.width >= Self.minimumRevealWidth &&
+            frameInHost.height >= Self.minimumRevealHeight
         let outsideHostBounds = !frameInHost.intersects(hostView.bounds)
         let shouldHide =
             !entry.visibleInUI ||
@@ -894,6 +903,7 @@ final class WindowTerminalPortal: NSObject {
             tinyFrame ||
             !hasFiniteFrame ||
             outsideHostBounds
+        let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
 
         let oldFrame = hostedView.frame
 #if DEBUG
@@ -920,7 +930,7 @@ final class WindowTerminalPortal: NSObject {
             dlog(
                 "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) revealReady=\(revealReadyForDisplay ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
                 "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
             )
 #endif
@@ -935,17 +945,29 @@ final class WindowTerminalPortal: NSObject {
 
             if abs(oldFrame.size.width - frameInHost.size.width) > 0.5 ||
                 abs(oldFrame.size.height - frameInHost.size.height) > 0.5,
-                !shouldHide {
+                !shouldHide,
+                (!hostedView.isHidden || revealReadyForDisplay) {
                 hostedView.reconcileGeometryNow()
             }
         }
 
-        if !shouldHide, hostedView.isHidden {
+        if shouldDeferReveal {
+#if DEBUG
+            if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
+                dlog(
+                    "portal.hidden.deferReveal hosted=\(portalDebugToken(hostedView)) " +
+                    "frame=\(portalDebugFrame(frameInHost)) min=\(Int(Self.minimumRevealWidth))x\(Int(Self.minimumRevealHeight))"
+                )
+            }
+#endif
+        }
+
+        if !shouldHide, hostedView.isHidden, revealReadyForDisplay {
 #if DEBUG
             dlog(
                 "portal.hidden hosted=\(portalDebugToken(hostedView)) value=0 " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) revealReady=\(revealReadyForDisplay ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
                 "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
             )
 #endif
