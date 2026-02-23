@@ -25,10 +25,21 @@ final class CmuxWebView: WKWebView {
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
+    private var pointerFocusAllowanceDepth: Int = 0
 
     override func becomeFirstResponder() -> Bool {
-        guard allowsFirstResponderAcquisition else { return false }
+        guard allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0 else { return false }
         return super.becomeFirstResponder()
+    }
+
+    /// Temporarily permits focus acquisition for explicit pointer-driven interactions
+    /// (mouse click into this webview) while keeping background autofocus blocked.
+    func withPointerFocusAllowance(_ body: () -> Void) {
+        pointerFocusAllowanceDepth += 1
+        defer {
+            pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
+        }
+        body()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -72,7 +83,9 @@ final class CmuxWebView: WKWebView {
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
         NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        super.mouseDown(with: event)
+        withPointerFocusAllowance {
+            super.mouseDown(with: event)
+        }
     }
 
     // MARK: - Mouse back/forward buttons & middle-click

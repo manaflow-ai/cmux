@@ -137,6 +137,38 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testPointerFocusAllowanceCanTemporarilyOverrideBlockedFirstResponderAcquisition() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected focus to stay blocked by policy")
+
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(webView.becomeFirstResponder(), "Expected explicit pointer intent to bypass policy")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected pointer allowance to be temporary")
+    }
+
+    @MainActor
     func testWindowFirstResponderGuardBlocksDescendantWhenPaneIsUnfocused() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
