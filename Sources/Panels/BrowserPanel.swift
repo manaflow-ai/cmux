@@ -4157,12 +4157,6 @@ final class BrowserDataImportCoordinator {
         let domainFilters: [String]
     }
 
-    private enum ImportOptionsPromptResult {
-        case proceed(scope: BrowserImportScope, domainFilters: [String])
-        case back
-        case cancel
-    }
-
     private func presentImportDialog(prefilledBrowsers: [InstalledBrowserCandidate]?) {
         guard !importInProgress else { return }
         let browsers = prefilledBrowsers ?? InstalledBrowserDetector.detectInstalledBrowsers()
@@ -4201,130 +4195,99 @@ final class BrowserDataImportCoordinator {
 
     private func promptForSelection(browsers: [InstalledBrowserCandidate]) -> ImportSelection? {
         guard !browsers.isEmpty else { return nil }
-        var preselectedBrowser = browsers[0]
-
-        while true {
-            guard let selectedBrowser = promptForBrowserSelection(
-                browsers: browsers,
-                preselectedBrowserID: preselectedBrowser.id
-            ) else {
-                return nil
-            }
-            preselectedBrowser = selectedBrowser
-
-            switch promptForImportOptions(for: selectedBrowser) {
-            case .proceed(let scope, let domainFilters):
-                return ImportSelection(
-                    browser: selectedBrowser,
-                    scope: scope,
-                    domainFilters: domainFilters
-                )
-            case .back:
-                continue
-            case .cancel:
-                return nil
-            }
-        }
+        let wizard = ImportWizardWindowController(browsers: browsers)
+        return wizard.runModal()
     }
 
-    private func promptForBrowserSelection(
-        browsers: [InstalledBrowserCandidate],
-        preselectedBrowserID: String
-    ) -> InstalledBrowserCandidate? {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = "Import Browser Data"
-        alert.informativeText = "Step 1 of 2: Choose the browser to import from."
-        alert.addButton(withTitle: "Next")
-        alert.addButton(withTitle: "Cancel")
-
-        let browserPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        for browser in browsers {
-            browserPopup.addItem(withTitle: browser.displayName)
-        }
-        if let index = browsers.firstIndex(where: { $0.id == preselectedBrowserID }) {
-            browserPopup.selectItem(at: index)
-        } else {
-            browserPopup.selectItem(at: 0)
+    @MainActor
+    private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
+        private enum Step {
+            case source
+            case dataTypes
         }
 
-        let browserRow = NSStackView()
-        browserRow.orientation = .horizontal
-        browserRow.spacing = 8
-        browserRow.alignment = .centerY
-        let browserLabel = NSTextField(labelWithString: "Source")
-        browserLabel.alignment = .right
-        browserLabel.frame.size.width = 80
-        browserRow.addArrangedSubview(browserLabel)
-        browserRow.addArrangedSubview(browserPopup)
+        private let browsers: [InstalledBrowserCandidate]
 
-        let hintLabel = NSTextField(wrappingLabelWithString: InstalledBrowserDetector.summaryText(for: browsers))
-        hintLabel.font = NSFont.systemFont(ofSize: 11)
-        hintLabel.textColor = .secondaryLabelColor
+        private var step: Step = .source
+        private var didFinishModal = false
+        private(set) var selection: ImportSelection?
 
-        let accessory = NSStackView()
-        accessory.orientation = .vertical
-        accessory.spacing = 8
-        accessory.alignment = .leading
-        accessory.addArrangedSubview(browserRow)
-        accessory.addArrangedSubview(hintLabel)
-        accessory.setFrameSize(NSSize(width: 420, height: 72))
-        alert.accessoryView = accessory
+        private let panel: NSPanel
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        let browserIndex = max(0, min(browserPopup.indexOfSelectedItem, browsers.count - 1))
-        return browsers[browserIndex]
-    }
+        private let stepLabel = NSTextField(labelWithString: "")
+        private let sourcePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        private let sourceContainer = NSStackView()
+        private let dataTypesContainer = NSStackView()
+        private let validationLabel = NSTextField(labelWithString: "")
 
-    private func promptForImportOptions(for browser: InstalledBrowserCandidate) -> ImportOptionsPromptResult {
-        while true {
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "Choose What to Import"
-            alert.informativeText = "Step 2 of 2: Pick data types from \(browser.displayName). Nothing is imported until you click Start Import."
-            alert.addButton(withTitle: "Start Import")
-            alert.addButton(withTitle: "Back")
-            alert.addButton(withTitle: "Cancel")
+        private let cookiesCheckbox = NSButton(
+            checkboxWithTitle: "Cookies (site sign-ins)",
+            target: nil,
+            action: nil
+        )
+        private let historyCheckbox = NSButton(
+            checkboxWithTitle: "History (visited pages)",
+            target: nil,
+            action: nil
+        )
+        private let domainField = NSTextField(frame: .zero)
 
-            let cookiesCheckbox = NSButton(checkboxWithTitle: "Cookies (site sign-ins)", target: nil, action: nil)
-            cookiesCheckbox.state = .on
+        private let backButton = NSButton(title: "Back", target: nil, action: nil)
+        private let cancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+        private let primaryButton = NSButton(title: "Next", target: nil, action: nil)
 
-            let historyCheckbox = NSButton(checkboxWithTitle: "History (visited pages)", target: nil, action: nil)
-            historyCheckbox.state = .on
-
-            let domainField = NSTextField(frame: .zero)
-            domainField.placeholderString = "Optional domains only (e.g. github.com, openai.com)"
-            domainField.stringValue = ""
-
-            let domainRow = NSStackView()
-            domainRow.orientation = .horizontal
-            domainRow.spacing = 8
-            domainRow.alignment = .centerY
-            let domainLabel = NSTextField(labelWithString: "Limit to")
-            domainLabel.alignment = .right
-            domainLabel.frame.size.width = 80
-            domainRow.addArrangedSubview(domainLabel)
-            domainRow.addArrangedSubview(domainField)
-
-            let noteLabel = NSTextField(
-                wrappingLabelWithString: "Bookmarks and settings import is not available yet."
+        init(browsers: [InstalledBrowserCandidate]) {
+            self.browsers = browsers
+            self.panel = NSPanel(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 300),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
             )
-            noteLabel.font = NSFont.systemFont(ofSize: 11)
-            noteLabel.textColor = .secondaryLabelColor
+            super.init()
+            setupUI()
+            configureInitialState()
+        }
 
-            let accessory = NSStackView()
-            accessory.orientation = .vertical
-            accessory.spacing = 8
-            accessory.alignment = .leading
-            accessory.addArrangedSubview(cookiesCheckbox)
-            accessory.addArrangedSubview(historyCheckbox)
-            accessory.addArrangedSubview(domainRow)
-            accessory.addArrangedSubview(noteLabel)
-            accessory.setFrameSize(NSSize(width: 440, height: 122))
-            alert.accessoryView = accessory
+        func runModal() -> ImportSelection? {
+            panel.center()
+            panel.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
 
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
+            let response = NSApp.runModal(for: panel)
+            if panel.isVisible {
+                panel.orderOut(nil)
+            }
+
+            guard response == .OK else { return nil }
+            return selection
+        }
+
+        func windowWillClose(_ notification: Notification) {
+            finishModal(with: .cancel)
+        }
+
+        @objc
+        private func handleBack() {
+            guard step == .dataTypes else { return }
+            step = .source
+            validationLabel.isHidden = true
+            updateStepUI()
+        }
+
+        @objc
+        private func handleCancel() {
+            finishModal(with: .cancel)
+        }
+
+        @objc
+        private func handlePrimary() {
+            switch step {
+            case .source:
+                step = .dataTypes
+                validationLabel.isHidden = true
+                updateStepUI()
+            case .dataTypes:
                 let includeCookies = cookiesCheckbox.state == .on
                 let includeHistory = historyCheckbox.state == .on
                 guard let scope = BrowserImportScope.fromSelection(
@@ -4332,21 +4295,196 @@ final class BrowserDataImportCoordinator {
                     includeHistory: includeHistory,
                     includeAdditionalData: false
                 ) else {
-                    let validationAlert = NSAlert()
-                    validationAlert.alertStyle = .warning
-                    validationAlert.messageText = "Choose at least one data type"
-                    validationAlert.informativeText = "Select Cookies, History, or both before starting import."
-                    validationAlert.addButton(withTitle: "OK")
-                    validationAlert.runModal()
-                    continue
+                    validationLabel.stringValue = "Select Cookies, History, or both before starting import."
+                    validationLabel.isHidden = false
+                    return
                 }
+
+                let selectedIndex = max(0, min(sourcePopup.indexOfSelectedItem, browsers.count - 1))
+                let selectedBrowser = browsers[selectedIndex]
                 let domainFilters = BrowserDataImporter.parseDomainFilters(domainField.stringValue)
-                return .proceed(scope: scope, domainFilters: domainFilters)
-            case .alertSecondButtonReturn:
-                return .back
-            default:
-                return .cancel
+                selection = ImportSelection(
+                    browser: selectedBrowser,
+                    scope: scope,
+                    domainFilters: domainFilters
+                )
+                finishModal(with: .OK)
             }
+        }
+
+        private func setupUI() {
+            panel.title = "Import Browser Data"
+            panel.isReleasedWhenClosed = false
+            panel.delegate = self
+            panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            panel.standardWindowButton(.zoomButton)?.isHidden = true
+
+            let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 560, height: 300))
+            contentView.translatesAutoresizingMaskIntoConstraints = false
+            panel.contentView = contentView
+
+            let titleLabel = NSTextField(labelWithString: "Import Browser Data")
+            titleLabel.font = NSFont.systemFont(ofSize: 24, weight: .semibold)
+
+            stepLabel.font = NSFont.systemFont(ofSize: 15, weight: .medium)
+            stepLabel.textColor = .secondaryLabelColor
+
+            setupSourceContainer()
+            setupDataTypesContainer()
+
+            validationLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+            validationLabel.textColor = .systemRed
+            validationLabel.isHidden = true
+            validationLabel.lineBreakMode = .byWordWrapping
+            validationLabel.maximumNumberOfLines = 2
+
+            backButton.target = self
+            backButton.action = #selector(handleBack)
+            backButton.bezelStyle = .rounded
+
+            cancelButton.target = self
+            cancelButton.action = #selector(handleCancel)
+            cancelButton.bezelStyle = .rounded
+            cancelButton.keyEquivalent = "\u{1b}"
+
+            primaryButton.target = self
+            primaryButton.action = #selector(handlePrimary)
+            primaryButton.bezelStyle = .rounded
+            primaryButton.keyEquivalent = "\r"
+
+            let buttonSpacer = NSView(frame: .zero)
+
+            let buttonRow = NSStackView(views: [buttonSpacer, backButton, cancelButton, primaryButton])
+            buttonRow.orientation = .horizontal
+            buttonRow.spacing = 8
+            buttonRow.alignment = .centerY
+            buttonRow.translatesAutoresizingMaskIntoConstraints = false
+            buttonSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+            buttonSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+            let contentStack = NSStackView(
+                views: [titleLabel, stepLabel, sourceContainer, dataTypesContainer, validationLabel]
+            )
+            contentStack.orientation = .vertical
+            contentStack.spacing = 10
+            contentStack.alignment = .leading
+            contentStack.translatesAutoresizingMaskIntoConstraints = false
+
+            guard let panelContent = panel.contentView else { return }
+            panelContent.addSubview(contentStack)
+            panelContent.addSubview(buttonRow)
+
+            NSLayoutConstraint.activate([
+                contentStack.topAnchor.constraint(equalTo: panelContent.topAnchor, constant: 18),
+                contentStack.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 20),
+                contentStack.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -20),
+
+                buttonRow.topAnchor.constraint(greaterThanOrEqualTo: contentStack.bottomAnchor, constant: 14),
+                buttonRow.leadingAnchor.constraint(equalTo: panelContent.leadingAnchor, constant: 20),
+                buttonRow.trailingAnchor.constraint(equalTo: panelContent.trailingAnchor, constant: -20),
+                buttonRow.bottomAnchor.constraint(equalTo: panelContent.bottomAnchor, constant: -16),
+            ])
+        }
+
+        private func setupSourceContainer() {
+            for browser in browsers {
+                sourcePopup.addItem(withTitle: browser.displayName)
+            }
+            sourcePopup.selectItem(at: 0)
+
+            let sourceLabel = NSTextField(labelWithString: "Source")
+            sourceLabel.alignment = .right
+            sourceLabel.frame.size.width = 80
+
+            let sourceRow = NSStackView(views: [sourceLabel, sourcePopup])
+            sourceRow.orientation = .horizontal
+            sourceRow.spacing = 8
+            sourceRow.alignment = .centerY
+
+            let detectedLabel = NSTextField(
+                wrappingLabelWithString: InstalledBrowserDetector.summaryText(for: browsers)
+            )
+            detectedLabel.font = NSFont.systemFont(ofSize: 12)
+            detectedLabel.textColor = .secondaryLabelColor
+            detectedLabel.maximumNumberOfLines = 2
+            detectedLabel.preferredMaxLayoutWidth = 500
+
+            sourceContainer.orientation = .vertical
+            sourceContainer.spacing = 10
+            sourceContainer.alignment = .leading
+            sourceContainer.addArrangedSubview(sourceRow)
+            sourceContainer.addArrangedSubview(detectedLabel)
+        }
+
+        private func setupDataTypesContainer() {
+            cookiesCheckbox.state = .on
+            historyCheckbox.state = .on
+
+            domainField.placeholderString = "Optional domains only (e.g. github.com, openai.com)"
+            domainField.stringValue = ""
+
+            let domainLabel = NSTextField(labelWithString: "Limit to")
+            domainLabel.alignment = .right
+            domainLabel.frame.size.width = 80
+
+            let domainRow = NSStackView(views: [domainLabel, domainField])
+            domainRow.orientation = .horizontal
+            domainRow.spacing = 8
+            domainRow.alignment = .centerY
+
+            let noteLabel = NSTextField(
+                wrappingLabelWithString: "Bookmarks and settings import is not available yet."
+            )
+            noteLabel.font = NSFont.systemFont(ofSize: 12)
+            noteLabel.textColor = .secondaryLabelColor
+            noteLabel.maximumNumberOfLines = 2
+            noteLabel.preferredMaxLayoutWidth = 500
+
+            dataTypesContainer.orientation = .vertical
+            dataTypesContainer.spacing = 8
+            dataTypesContainer.alignment = .leading
+            dataTypesContainer.addArrangedSubview(cookiesCheckbox)
+            dataTypesContainer.addArrangedSubview(historyCheckbox)
+            dataTypesContainer.addArrangedSubview(domainRow)
+            dataTypesContainer.addArrangedSubview(noteLabel)
+        }
+
+        private func configureInitialState() {
+            step = .source
+            updateStepUI()
+        }
+
+        private func updateStepUI() {
+            switch step {
+            case .source:
+                stepLabel.stringValue = "Step 1 of 2: Choose the browser to import from."
+                sourceContainer.isHidden = false
+                dataTypesContainer.isHidden = true
+                backButton.isHidden = true
+                primaryButton.title = "Next"
+            case .dataTypes:
+                let selectedBrowserName = selectedBrowser().displayName
+                stepLabel.stringValue = "Step 2 of 2: Choose what to import from \(selectedBrowserName)."
+                sourceContainer.isHidden = true
+                dataTypesContainer.isHidden = false
+                backButton.isHidden = false
+                primaryButton.title = "Start Import"
+            }
+        }
+
+        private func selectedBrowser() -> InstalledBrowserCandidate {
+            let selectedIndex = max(0, min(sourcePopup.indexOfSelectedItem, browsers.count - 1))
+            return browsers[selectedIndex]
+        }
+
+        private func finishModal(with response: NSApplication.ModalResponse) {
+            guard !didFinishModal else { return }
+            didFinishModal = true
+
+            if NSApp.modalWindow == panel {
+                NSApp.stopModal(withCode: response)
+            }
+            panel.orderOut(nil)
         }
     }
 
