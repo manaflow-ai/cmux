@@ -2458,13 +2458,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
             // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
             // stayed behind.
-            if isVisibleInUI && hasUsableFocusGeometry {
+            let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
+            if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
                 onFocus?()
-            } else if isVisibleInUI && !hasUsableFocusGeometry {
+            } else if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
 #if DEBUG
                 dlog(
-                    "focus.firstResponder SUPPRESSED (tiny) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
-                    "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0)"
+                    "focus.firstResponder SUPPRESSED (hidden_or_tiny) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(hiddenInHierarchy ? 1 : 0)"
                 )
 #endif
             }
