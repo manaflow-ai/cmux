@@ -1126,11 +1126,13 @@ class GhosttyApp {
             // "Process exited. Press any key..." into the terminal unless the host
             // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
+            let callbackTabId = surfaceView.tabId
+            let callbackSurfaceId = surfaceView.terminalSurface?.id
 #if DEBUG
             cmuxWriteChildExitProbe(
                 [
-                    "probeShowChildExitedTabId": surfaceView.tabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": surfaceView.terminalSurface?.id.uuidString ?? "",
+                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
+                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
                 ],
                 increments: ["probeShowChildExitedCount": 1]
             )
@@ -1139,12 +1141,12 @@ class GhosttyApp {
             // dispatching this action callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
-                if let tabId = surfaceView.tabId,
-                   let surfaceId = surfaceView.terminalSurface?.id,
-                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == tabId }),
-                   workspace.panels[surfaceId] != nil {
-                    manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+                if let callbackTabId,
+                   let callbackSurfaceId,
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
+                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
+                   workspace.panels[callbackSurfaceId] != nil {
+                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.
@@ -1945,7 +1947,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        if let surface = surface {
+        guard let surface else { return }
+
+        // Defer teardown to the next main-actor turn so close callbacks can unwind first.
+        Task.detached { @MainActor in
             ghostty_surface_free(surface)
         }
     }
@@ -4066,7 +4071,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
     /// unlike `sendText`, which bypasses key translation.
     @discardableResult
-    func sendSyntheticCtrlDForUITest() -> Bool {
+    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
         guard let window else { return false }
         window.makeFirstResponder(surfaceView)
 
@@ -4074,7 +4079,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let keyDown = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.control],
+            modifierFlags: modifierFlags,
             timestamp: timestamp,
             windowNumber: window.windowNumber,
             context: nil,
@@ -4087,7 +4092,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let keyUp = NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
-            modifierFlags: [.control],
+            modifierFlags: modifierFlags,
             timestamp: timestamp + 0.001,
             windowNumber: window.windowNumber,
             context: nil,
