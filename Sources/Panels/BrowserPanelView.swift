@@ -513,7 +513,7 @@ struct BrowserPanelView: View {
         } label: {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .font(.system(size: devToolsButtonIconSize, weight: .regular))
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
