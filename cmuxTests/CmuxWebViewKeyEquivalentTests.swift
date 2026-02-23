@@ -3275,6 +3275,27 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 
+    func testSearchOverlayMountDoesNotRetainTerminalSurface() {
+        weak var weakSurface: TerminalSurface?
+
+        let hostedView: GhosttySurfaceScrollView = {
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            weakSurface = surface
+            let hostedView = surface.hostedView
+            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
+            return hostedView
+        }()
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+        XCTAssertNil(weakSurface, "Mounted search overlay must not retain TerminalSurface")
+    }
+
     func testSearchOverlaySurvivesPortalRebindDuringSplitLikeChurn() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),

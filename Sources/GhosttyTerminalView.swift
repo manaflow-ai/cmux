@@ -3426,11 +3426,20 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        let tabId = terminalSurface.tabId
+        let surfaceId = terminalSurface.id
         let rootView = SurfaceSearchOverlay(
-            surface: terminalSurface,
+            tabId: tabId,
+            surfaceId: surfaceId,
             searchState: searchState,
-            onClose: { [weak self] in
-                self?.surfaceView.terminalSurface?.searchState = nil
+            onMoveFocusToTerminal: { [weak self] in
+                self?.moveFocus()
+            },
+            onNavigateSearch: { [weak terminalSurface] action in
+                _ = terminalSurface?.performBindingAction(action)
+            },
+            onClose: { [weak self, weak terminalSurface] in
+                terminalSurface?.searchState = nil
                 self?.moveFocus()
             }
         )
