@@ -1328,6 +1328,13 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
+    private struct CommandPaletteSwitcherWindowContext {
+        let windowId: UUID
+        let tabManager: TabManager
+        let selectedWorkspaceId: UUID?
+        let windowLabel: String?
+    }
+
     private static let fixedSidebarResizeCursor = NSCursor(
         image: NSCursor.resizeLeftRight.image,
         hotSpot: NSCursor.resizeLeftRight.hotSpot
@@ -2792,92 +2799,191 @@ struct ContentView: View {
     }
 
     private func commandPaletteSwitcherEntries() -> [CommandPaletteCommand] {
-        var workspaces = tabManager.tabs
-        guard !workspaces.isEmpty else { return [] }
-
-        if let selectedWorkspaceId = tabManager.selectedTabId,
-           let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
-            let selectedWorkspace = workspaces.remove(at: selectedIndex)
-            workspaces.insert(selectedWorkspace, at: 0)
-        }
+        let windowContexts = commandPaletteSwitcherWindowContexts()
+        guard !windowContexts.isEmpty else { return [] }
 
         var entries: [CommandPaletteCommand] = []
-        entries.reserveCapacity(workspaces.count * 4)
+        let estimatedCount = windowContexts.reduce(0) { partial, context in
+            partial + max(1, context.tabManager.tabs.count) * 4
+        }
+        entries.reserveCapacity(estimatedCount)
         var nextRank = 0
 
-        for workspace in workspaces {
-            let workspaceName = workspaceDisplayName(workspace)
-            let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
-            let workspaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
-                baseKeywords: [
-                    "workspace",
-                    "switch",
-                    "go",
-                    "open",
-                    workspaceName
-                ],
-                metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
-                detail: .workspace
-            )
-            entries.append(
-                CommandPaletteCommand(
-                    id: workspaceCommandId,
-                    rank: nextRank,
-                    title: workspaceName,
-                    subtitle: "Workspace",
-                    shortcutHint: nil,
-                    keywords: workspaceKeywords,
-                    dismissOnRun: true,
-                    action: {
-                        tabManager.focusTab(workspace.id, suppressFlash: true)
-                    }
-                )
-            )
-            nextRank += 1
+        for context in windowContexts {
+            var workspaces = context.tabManager.tabs
+            guard !workspaces.isEmpty else { continue }
 
-            var orderedPanelIds = workspace.sidebarOrderedPanelIds()
-            if let focusedPanelId = workspace.focusedPanelId,
-               let focusedIndex = orderedPanelIds.firstIndex(of: focusedPanelId) {
-                orderedPanelIds.remove(at: focusedIndex)
-                orderedPanelIds.insert(focusedPanelId, at: 0)
+            let selectedWorkspaceId = context.selectedWorkspaceId ?? context.tabManager.selectedTabId
+            if let selectedWorkspaceId,
+               let selectedIndex = workspaces.firstIndex(where: { $0.id == selectedWorkspaceId }) {
+                let selectedWorkspace = workspaces.remove(at: selectedIndex)
+                workspaces.insert(selectedWorkspace, at: 0)
             }
 
-            for panelId in orderedPanelIds {
-                guard let panel = workspace.panels[panelId] else { continue }
-                let panelTitle = panelDisplayName(workspace: workspace, panelId: panelId, fallback: panel.displayTitle)
-                let typeLabel: String = (panel.panelType == .browser) ? "Browser" : "Terminal"
-                let panelKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+            let windowId = context.windowId
+            let windowTabManager = context.tabManager
+            let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
+            for workspace in workspaces {
+                let workspaceName = workspaceDisplayName(workspace)
+                let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
+                let workspaceKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
                     baseKeywords: [
-                        "tab",
-                        "surface",
-                        "panel",
+                        "workspace",
                         "switch",
                         "go",
-                        workspaceName,
-                        panelTitle,
-                        typeLabel.lowercased()
-                    ],
-                    metadata: commandPalettePanelSearchMetadata(in: workspace, panelId: panelId)
+                        "open",
+                        workspaceName
+                    ] + windowKeywords,
+                    metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
+                    detail: .workspace
                 )
+                let workspaceId = workspace.id
                 entries.append(
                     CommandPaletteCommand(
-                        id: "switcher.surface.\(workspace.id.uuidString.lowercased()).\(panelId.uuidString.lowercased())",
+                        id: workspaceCommandId,
                         rank: nextRank,
-                        title: panelTitle,
-                        subtitle: "\(typeLabel) • \(workspaceName)",
+                        title: workspaceName,
+                        subtitle: commandPaletteSwitcherSubtitle(base: "Workspace", windowLabel: context.windowLabel),
                         shortcutHint: nil,
-                        keywords: panelKeywords,
+                        keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
-                            tabManager.focusTab(workspace.id, surfaceId: panelId, suppressFlash: true)
+                            focusCommandPaletteSwitcherTarget(
+                                windowId: windowId,
+                                tabManager: windowTabManager,
+                                workspaceId: workspaceId,
+                                panelId: nil
+                            )
                         }
                     )
                 )
                 nextRank += 1
+
+                var orderedPanelIds = workspace.sidebarOrderedPanelIds()
+                if let focusedPanelId = workspace.focusedPanelId,
+                   let focusedIndex = orderedPanelIds.firstIndex(of: focusedPanelId) {
+                    orderedPanelIds.remove(at: focusedIndex)
+                    orderedPanelIds.insert(focusedPanelId, at: 0)
+                }
+
+                for panelId in orderedPanelIds {
+                    guard let panel = workspace.panels[panelId] else { continue }
+                    let panelTitle = panelDisplayName(workspace: workspace, panelId: panelId, fallback: panel.displayTitle)
+                    let typeLabel: String = (panel.panelType == .browser) ? "Browser" : "Terminal"
+                    let panelKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
+                        baseKeywords: [
+                            "tab",
+                            "surface",
+                            "panel",
+                            "switch",
+                            "go",
+                            workspaceName,
+                            panelTitle,
+                            typeLabel.lowercased()
+                        ] + windowKeywords,
+                        metadata: commandPalettePanelSearchMetadata(in: workspace, panelId: panelId)
+                    )
+                    entries.append(
+                        CommandPaletteCommand(
+                            id: "switcher.surface.\(workspace.id.uuidString.lowercased()).\(panelId.uuidString.lowercased())",
+                            rank: nextRank,
+                            title: panelTitle,
+                            subtitle: commandPaletteSwitcherSubtitle(
+                                base: "\(typeLabel) • \(workspaceName)",
+                                windowLabel: context.windowLabel
+                            ),
+                            shortcutHint: nil,
+                            keywords: panelKeywords,
+                            dismissOnRun: true,
+                            action: {
+                                focusCommandPaletteSwitcherTarget(
+                                    windowId: windowId,
+                                    tabManager: windowTabManager,
+                                    workspaceId: workspaceId,
+                                    panelId: panelId
+                                )
+                            }
+                        )
+                    )
+                    nextRank += 1
+                }
             }
         }
 
         return entries
+    }
+
+    private func commandPaletteSwitcherWindowContexts() -> [CommandPaletteSwitcherWindowContext] {
+        let fallback = CommandPaletteSwitcherWindowContext(
+            windowId: windowId,
+            tabManager: tabManager,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            windowLabel: nil
+        )
+
+        guard let appDelegate = AppDelegate.shared else { return [fallback] }
+        let summaries = appDelegate.listMainWindowSummaries()
+        guard !summaries.isEmpty else { return [fallback] }
+
+        let orderedSummaries = summaries.sorted { lhs, rhs in
+            let lhsIsCurrent = lhs.windowId == windowId
+            let rhsIsCurrent = rhs.windowId == windowId
+            if lhsIsCurrent != rhsIsCurrent { return lhsIsCurrent }
+            if lhs.isKeyWindow != rhs.isKeyWindow { return lhs.isKeyWindow }
+            if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+
+        var windowLabelById: [UUID: String] = [:]
+        if orderedSummaries.count > 1 {
+            for (index, summary) in orderedSummaries.enumerated() where summary.windowId != windowId {
+                windowLabelById[summary.windowId] = "Window \(index + 1)"
+            }
+        }
+
+        var contexts: [CommandPaletteSwitcherWindowContext] = []
+        var seenWindowIds: Set<UUID> = []
+        for summary in orderedSummaries {
+            guard let manager = appDelegate.tabManagerFor(windowId: summary.windowId) else { continue }
+            guard seenWindowIds.insert(summary.windowId).inserted else { continue }
+            contexts.append(
+                CommandPaletteSwitcherWindowContext(
+                    windowId: summary.windowId,
+                    tabManager: manager,
+                    selectedWorkspaceId: summary.selectedWorkspaceId,
+                    windowLabel: windowLabelById[summary.windowId]
+                )
+            )
+        }
+
+        if contexts.isEmpty {
+            return [fallback]
+        }
+        return contexts
+    }
+
+    private func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
+        guard let windowLabel else { return base }
+        return "\(base) • \(windowLabel)"
+    }
+
+    private func commandPaletteWindowKeywords(windowLabel: String?) -> [String] {
+        guard let windowLabel else { return [] }
+        return ["window", windowLabel.lowercased()]
+    }
+
+    private func focusCommandPaletteSwitcherTarget(
+        windowId: UUID,
+        tabManager: TabManager,
+        workspaceId: UUID,
+        panelId: UUID?
+    ) {
+        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        if let panelId {
+            tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+        } else {
+            tabManager.focusTab(workspaceId, suppressFlash: true)
+        }
     }
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
