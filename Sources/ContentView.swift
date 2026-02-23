@@ -1275,6 +1275,8 @@ struct ContentView: View {
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
+
+        static let updateHasAvailable = "update.hasAvailable"
     }
 
     private struct CommandPaletteCommandContribution {
@@ -3190,6 +3192,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
         }
 
+        if case .updateAvailable = updateViewModel.effectiveState {
+            snapshot.setBool(CommandPaletteContextKeys.updateHasAvailable, true)
+        }
+
         return snapshot
     }
 
@@ -3328,6 +3334,23 @@ struct ContentView: View {
                 title: constant("Check for Updates"),
                 subtitle: constant("Global"),
                 keywords: ["update", "upgrade", "release"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.applyUpdateIfAvailable",
+                title: constant("Apply Update (If Available)"),
+                subtitle: constant("Global"),
+                keywords: ["apply", "install", "update", "available"],
+                when: { $0.bool(CommandPaletteContextKeys.updateHasAvailable) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.attemptUpdate",
+                title: constant("Attempt Update"),
+                subtitle: constant("Global"),
+                keywords: ["attempt", "check", "update", "upgrade", "release"]
             )
         )
 
@@ -3718,6 +3741,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
+        }
+        registry.register(commandId: "palette.applyUpdateIfAvailable") {
+            AppDelegate.shared?.applyUpdateIfAvailable(nil)
+        }
+        registry.register(commandId: "palette.attemptUpdate") {
+            AppDelegate.shared?.attemptUpdate(nil)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {
