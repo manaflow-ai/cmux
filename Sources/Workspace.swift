@@ -347,12 +347,21 @@ final class Workspace: Identifiable, ObservableObject {
         return backgroundColor.hexString()
     }
 
+    private static func resolvedChromeColors(
+        from backgroundColor: NSColor
+    ) -> BonsplitConfiguration.Appearance.ChromeColors {
+        guard let backgroundHex = resolvedChromeBackgroundHex(from: backgroundColor) else {
+            return .init()
+        }
+        return .init(backgroundHex: backgroundHex)
+    }
+
     private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
-        let backgroundHex = resolvedChromeBackgroundHex(from: backgroundColor)
+        let chromeColors = resolvedChromeColors(from: backgroundColor)
         return BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: .init(backgroundHex: backgroundHex)
+            chromeColors: chromeColors
         )
     }
 
@@ -361,11 +370,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor) {
-        let nextHex = Self.resolvedChromeBackgroundHex(from: backgroundColor)
-        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+        let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
+        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextChromeColors.backgroundHex &&
+            bonsplitController.configuration.appearance.chromeColors.borderHex == nextChromeColors.borderHex {
             return
         }
-        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+        bonsplitController.configuration.appearance.chromeColors = nextChromeColors
     }
 
     init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
