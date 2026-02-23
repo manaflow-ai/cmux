@@ -63,6 +63,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
     }
 
+    private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -129,6 +133,42 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         _ = window.makeFirstResponder(webView)
         if let firstResponderView = window.firstResponder as? NSView {
             XCTAssertFalse(firstResponderView === webView || firstResponderView.isDescendant(of: webView))
+        }
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardBlocksDescendantWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(descendant))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(window.makeFirstResponder(descendant))
+
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === descendant || firstResponderView.isDescendant(of: webView))
         }
     }
 

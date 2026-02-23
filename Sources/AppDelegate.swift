@@ -278,6 +278,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         method_exchangeImplementations(originalMethod, swizzledMethod)
     }()
+    private static let didInstallWindowFirstResponderSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.makeFirstResponder(_:))
+        let swizzledSelector = #selector(NSWindow.cmux_makeFirstResponder(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
 
 #if DEBUG
     private var didSetupJumpUnreadUITest = false
@@ -397,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
-        installWindowKeyEquivalentSwizzle()
+        installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
@@ -1533,8 +1543,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func installWindowKeyEquivalentSwizzle() {
+    static func installWindowResponderSwizzlesForTesting() {
+        _ = didInstallWindowKeyEquivalentSwizzle
+        _ = didInstallWindowFirstResponderSwizzle
+    }
+
+    private func installWindowResponderSwizzles() {
         _ = Self.didInstallWindowKeyEquivalentSwizzle
+        _ = Self.didInstallWindowFirstResponderSwizzle
     }
 
     private func installShortcutMonitor() {
@@ -3833,6 +3849,21 @@ enum MenuBarIconRenderer {
 
 
 private extension NSWindow {
+    @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if let responder,
+           let webView = Self.cmuxOwningWebView(for: responder),
+           !webView.allowsFirstResponderAcquisition {
+#if DEBUG
+            dlog(
+                "focus.guard blockedFirstResponder responder=\(String(describing: type(of: responder))) " +
+                "window=\(ObjectIdentifier(self))"
+            )
+#endif
+            return false
+        }
+        return cmux_makeFirstResponder(responder)
+    }
+
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
@@ -3940,5 +3971,52 @@ private extension NSWindow {
         let chars = event.charactersIgnoringModifiers ?? "?"
         parts.append("'\(chars)'(\(event.keyCode))")
         return parts.joined(separator: "+")
+    }
+
+    private static func cmuxOwningWebView(for responder: NSResponder) -> CmuxWebView? {
+        if let webView = responder as? CmuxWebView {
+            return webView
+        }
+
+        if let view = responder as? NSView,
+           let webView = cmuxOwningWebView(for: view) {
+            return webView
+        }
+
+        if let textView = responder as? NSTextView,
+           let delegateView = textView.delegate as? NSView,
+           let webView = cmuxOwningWebView(for: delegateView) {
+            return webView
+        }
+
+        var current = responder.nextResponder
+        while let next = current {
+            if let webView = next as? CmuxWebView {
+                return webView
+            }
+            if let view = next as? NSView,
+               let webView = cmuxOwningWebView(for: view) {
+                return webView
+            }
+            current = next.nextResponder
+        }
+
+        return nil
+    }
+
+    private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
+        if let webView = view as? CmuxWebView {
+            return webView
+        }
+
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if let webView = candidate as? CmuxWebView {
+                return webView
+            }
+            current = candidate.superview
+        }
+
+        return nil
     }
 }
