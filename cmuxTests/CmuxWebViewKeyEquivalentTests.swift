@@ -2962,6 +2962,57 @@ final class FinderServicePathResolverTests: XCTestCase {
     }
 }
 
+final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
+    private func environment(
+        existingPaths: Set<String>,
+        homeDirectoryPath: String = "/Users/tester"
+    ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
+        TerminalDirectoryOpenTarget.DetectionEnvironment(
+            homeDirectoryPath: homeDirectoryPath,
+            fileExistsAtPath: { existingPaths.contains($0) }
+        )
+    }
+
+    func testAvailableTargetsDetectSystemApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/System/Library/CoreServices/Finder.app",
+                "/System/Applications/Utilities/Terminal.app",
+                "/Applications/Zed Preview.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.vscode))
+        XCTAssertTrue(availableTargets.contains(.finder))
+        XCTAssertTrue(availableTargets.contains(.terminal))
+        XCTAssertTrue(availableTargets.contains(.zed))
+        XCTAssertFalse(availableTargets.contains(.cursor))
+    }
+
+    func testAvailableTargetsFallbackToUserApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Users/tester/Applications/Cursor.app",
+                "/Users/tester/Applications/Warp.app",
+                "/Users/tester/Applications/Android Studio.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.cursor))
+        XCTAssertTrue(availableTargets.contains(.warp))
+        XCTAssertTrue(availableTargets.contains(.androidStudio))
+        XCTAssertFalse(availableTargets.contains(.vscode))
+    }
+
+    func testITerm2DetectsLegacyBundleName() {
+        let env = environment(existingPaths: ["/Applications/iTerm.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
+    }
+}
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))

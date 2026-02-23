@@ -1277,6 +1277,10 @@ struct ContentView: View {
         static let panelHasUnread = "panel.hasUnread"
 
         static let updateHasAvailable = "update.hasAvailable"
+
+        static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
+            "terminal.openTarget.\(target.rawValue).available"
+        }
     }
 
     private struct CommandPaletteCommandContribution {
@@ -3178,18 +3182,29 @@ struct ContentView: View {
         if let panelContext = focusedPanelContext {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
+            let panelIsTerminal = panelContext.panel.panelType == .terminal
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(
                 CommandPaletteContextKeys.panelName,
                 panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle)
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
-            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelContext.panel.panelType == .terminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
                 || notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
+
+            if panelIsTerminal {
+                let availableTargets = TerminalDirectoryOpenTarget.availableTargets()
+                for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+                    snapshot.setBool(
+                        CommandPaletteContextKeys.terminalOpenTargetAvailable(target),
+                        availableTargets.contains(target)
+                    )
+                }
+            }
         }
 
         if case .updateAvailable = updateViewModel.effectiveState {
@@ -3609,6 +3624,20 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: target.commandPaletteCommandId,
+                    title: constant(target.commandPaletteTitle),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: target.commandPaletteKeywords,
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(target))
+                    }
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
@@ -3874,6 +3903,13 @@ struct ContentView: View {
         registry.register(commandId: "palette.terminalOpenDirectory") {
             if !openFocusedDirectoryInDefaultApp() {
                 NSSound.beep()
+            }
+        }
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            registry.register(commandId: target.commandPaletteCommandId) {
+                if !openFocusedDirectory(in: target) {
+                    NSSound.beep()
+                }
             }
         }
         registry.register(commandId: "palette.terminalFind") {
@@ -4429,7 +4465,27 @@ struct ContentView: View {
 
     private func openFocusedDirectoryInDefaultApp() -> Bool {
         guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
-        return NSWorkspace.shared.open(directoryURL)
+        return openFocusedDirectory(directoryURL, in: .defaultIDE)
+    }
+
+    private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
+        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
+        return openFocusedDirectory(directoryURL, in: target)
+    }
+
+    private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
+        switch target {
+        case .defaultIDE:
+            return NSWorkspace.shared.open(directoryURL)
+        case .finder:
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
+            return true
+        default:
+            guard let applicationURL = target.applicationURL() else { return false }
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
+            return true
+        }
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {
