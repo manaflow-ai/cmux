@@ -318,6 +318,25 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     }
 }
 
+final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
+    func testRenameWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.label, "Rename Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey, "shortcut.renameWorkspace")
+
+        let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        XCTAssertEqual(shortcut.key, "r")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testShortcutDefaultsKeysRemainUnique() {
+        let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
+        XCTAssertEqual(Set(keys).count, keys.count)
+    }
+}
+
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     func testBrowserPanelEnablesInspectableWebViewAndDeveloperExtras() {
