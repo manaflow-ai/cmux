@@ -1078,6 +1078,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdates()
     }
 
+    @objc func applyUpdateIfAvailable(_ sender: Any?) {
+        updateViewModel.overrideState = nil
+        updateController.installUpdate()
+    }
+
+    @objc func attemptUpdate(_ sender: Any?) {
+        updateViewModel.overrideState = nil
+        updateController.attemptUpdate()
+    }
+
     private func setupMenuBarExtra() {
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(

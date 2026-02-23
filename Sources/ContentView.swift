@@ -3330,6 +3330,22 @@ struct ContentView: View {
                 keywords: ["update", "upgrade", "release"]
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.applyUpdateIfAvailable",
+                title: constant("Apply Update (If Available)"),
+                subtitle: constant("Global"),
+                keywords: ["apply", "install", "update", "available"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.attemptUpdate",
+                title: constant("Attempt Update"),
+                subtitle: constant("Global"),
+                keywords: ["attempt", "check", "update", "upgrade", "release"]
+            )
+        )
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -3718,6 +3734,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
+        }
+        registry.register(commandId: "palette.applyUpdateIfAvailable") {
+            AppDelegate.shared?.applyUpdateIfAvailable(nil)
+        }
+        registry.register(commandId: "palette.attemptUpdate") {
+            AppDelegate.shared?.attemptUpdate(nil)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {
