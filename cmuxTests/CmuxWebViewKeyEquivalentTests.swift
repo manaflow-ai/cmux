@@ -887,51 +887,20 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#GG1234"))
     }
 
-    func testColorSchemeDefaultsAndInvalidValueFallsBack() {
-        let suiteName = "WorkspaceTabColorSettingsTests.SchemeFallback.\(UUID().uuidString)"
+    func testBuiltInPaletteMatchesOriginalPRPalette() {
+        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
             return
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.currentScheme(defaults: defaults),
-            WorkspaceTabColorSettings.defaultScheme
-        )
-
-        defaults.set("not-a-real-scheme", forKey: WorkspaceTabColorSettings.defaultSchemeKey)
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.currentScheme(defaults: defaults),
-            WorkspaceTabColorSettings.defaultScheme
-        )
-    }
-
-    func testSwitchingColorSchemesChangesBuiltInPalette() {
-        let suiteName = "WorkspaceTabColorSettingsTests.SchemeSwitch.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let kellyPalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
-        XCTAssertEqual(kellyPalette.count, 20)
-        XCTAssertEqual(kellyPalette.first?.name, "Red")
-        XCTAssertEqual(kellyPalette.first?.hex, "#FF0000")
-        XCTAssertEqual(kellyPalette.last?.name, "Gold")
-
-        WorkspaceTabColorSettings.setDefaultScheme(.originalPR, defaults: defaults)
-        let originalPalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.currentScheme(defaults: defaults),
-            .originalPR
-        )
-        XCTAssertEqual(originalPalette.count, 16)
-        XCTAssertEqual(originalPalette.first?.name, "Red")
-        XCTAssertEqual(originalPalette.first?.hex, "#C0392B")
-        XCTAssertEqual(originalPalette.last?.name, "Charcoal")
-        XCTAssertFalse(originalPalette.contains(where: { $0.name == "Gold" }))
+        let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
+        XCTAssertEqual(palette.count, 16)
+        XCTAssertEqual(palette.first?.name, "Red")
+        XCTAssertEqual(palette.first?.hex, "#C0392B")
+        XCTAssertEqual(palette.last?.name, "Charcoal")
+        XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
     }
 
     func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {

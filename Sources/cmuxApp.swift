@@ -12,8 +12,6 @@ struct cmuxApp: App {
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage(WorkspaceTabColorSettings.defaultSchemeKey)
-    private var workspaceTabColorScheme = WorkspaceTabColorSettings.defaultScheme.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
@@ -155,16 +153,6 @@ struct cmuxApp: App {
         defaults.set(targetVersion, forKey: migrationKey)
     }
 
-    private var workspaceTabColorSchemeSelection: Binding<String> {
-        Binding(
-            get: {
-                WorkspaceTabColorDefaultScheme(rawValue: workspaceTabColorScheme)?.rawValue
-                    ?? WorkspaceTabColorSettings.defaultScheme.rawValue
-            },
-            set: { workspaceTabColorScheme = $0 }
-        )
-    }
-
     var body: some Scene {
         WindowGroup {
             ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
@@ -301,21 +289,6 @@ struct cmuxApp: App {
 
                 Button("Open Workspaces for All Tab Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
-                }
-
-                Menu("Workspace Tab Color Scheme") {
-                    Picker("Scheme", selection: workspaceTabColorSchemeSelection) {
-                        ForEach(WorkspaceTabColorDefaultScheme.allCases) { scheme in
-                            Text(scheme.displayName).tag(scheme.rawValue)
-                        }
-                    }
-                    .labelsHidden()
-
-                    Divider()
-
-                    Button("Open Workspaces for Active Scheme") {
-                        appDelegate.openDebugColorComparisonWorkspaces(nil)
-                    }
                 }
 
                 Divider()
@@ -2557,8 +2530,6 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
-    @AppStorage(WorkspaceTabColorSettings.defaultSchemeKey)
-    private var workspaceTabColorDefaultScheme = WorkspaceTabColorSettings.defaultScheme.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2582,25 +2553,10 @@ struct SettingsView: View {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
 
-    private var selectedWorkspaceTabColorDefaultScheme: WorkspaceTabColorDefaultScheme {
-        WorkspaceTabColorDefaultScheme(rawValue: workspaceTabColorDefaultScheme)
-            ?? WorkspaceTabColorSettings.defaultScheme
-    }
-
     private var sidebarIndicatorStyleSelection: Binding<String> {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
-        )
-    }
-
-    private var workspaceTabColorSchemeSelection: Binding<String> {
-        Binding(
-            get: { selectedWorkspaceTabColorDefaultScheme.rawValue },
-            set: { newValue in
-                workspaceTabColorDefaultScheme = newValue
-                reloadWorkspaceTabColorSettings()
-            }
         )
     }
 
@@ -2784,22 +2740,6 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: "Workspace Colors")
                     SettingsCard {
-                        SettingsCardRow(
-                            "Color Scheme",
-                            subtitle: "Select the base palette used by workspace tab colors.",
-                            controlWidth: pickerColumnWidth
-                        ) {
-                            Picker("", selection: workspaceTabColorSchemeSelection) {
-                                ForEach(WorkspaceTabColorDefaultScheme.allCases) { scheme in
-                                    Text(scheme.displayName).tag(scheme.rawValue)
-                                }
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                        }
-
-                        SettingsCardDivider()
-
                         SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
@@ -3331,7 +3271,6 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
-        workspaceTabColorDefaultScheme = WorkspaceTabColorSettings.defaultScheme.rawValue
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

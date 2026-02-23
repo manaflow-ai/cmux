@@ -153,52 +153,10 @@ struct WorkspaceTabColorEntry: Equatable, Identifiable {
     var id: String { "\(name)-\(hex)" }
 }
 
-enum WorkspaceTabColorDefaultScheme: String, CaseIterable, Identifiable {
-    case kelly20
-    case originalPR
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .kelly20:
-            return "Kelly 20"
-        case .originalPR:
-            return "Original PR"
-        }
-    }
-}
-
 enum WorkspaceTabColorSettings {
-    static let defaultSchemeKey = "workspaceTabColor.defaultScheme"
     static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
     static let customColorsKey = "workspaceTabColor.customColors"
     static let maxCustomColors = 24
-
-    static let defaultScheme: WorkspaceTabColorDefaultScheme = .kelly20
-
-    private static let kelly20Palette: [WorkspaceTabColorEntry] = [
-        WorkspaceTabColorEntry(name: "Red", hex: "#FF0000"),
-        WorkspaceTabColorEntry(name: "Blue", hex: "#0000FF"),
-        WorkspaceTabColorEntry(name: "Green", hex: "#00A651"),
-        WorkspaceTabColorEntry(name: "Yellow", hex: "#FFD700"),
-        WorkspaceTabColorEntry(name: "Orange", hex: "#FF6600"),
-        WorkspaceTabColorEntry(name: "Purple", hex: "#800080"),
-        WorkspaceTabColorEntry(name: "Cyan", hex: "#00FFFF"),
-        WorkspaceTabColorEntry(name: "Magenta", hex: "#FF00FF"),
-        WorkspaceTabColorEntry(name: "Brown", hex: "#8B4513"),
-        WorkspaceTabColorEntry(name: "Pink", hex: "#FF69B4"),
-        WorkspaceTabColorEntry(name: "Lime", hex: "#BFFF00"),
-        WorkspaceTabColorEntry(name: "Teal", hex: "#008080"),
-        WorkspaceTabColorEntry(name: "Navy", hex: "#000080"),
-        WorkspaceTabColorEntry(name: "Maroon", hex: "#800000"),
-        WorkspaceTabColorEntry(name: "Olive", hex: "#808000"),
-        WorkspaceTabColorEntry(name: "Coral", hex: "#FF7F50"),
-        WorkspaceTabColorEntry(name: "Slate Gray", hex: "#708090"),
-        WorkspaceTabColorEntry(name: "Turquoise", hex: "#40E0D0"),
-        WorkspaceTabColorEntry(name: "Indigo", hex: "#4B0082"),
-        WorkspaceTabColorEntry(name: "Gold", hex: "#DAA520"),
-    ]
 
     private static let originalPRPalette: [WorkspaceTabColorEntry] = [
         WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
@@ -220,28 +178,7 @@ enum WorkspaceTabColorSettings {
     ]
 
     static var defaultPalette: [WorkspaceTabColorEntry] {
-        activeDefaultPalette()
-    }
-
-    static func currentScheme(defaults: UserDefaults = .standard) -> WorkspaceTabColorDefaultScheme {
-        guard let raw = defaults.string(forKey: defaultSchemeKey),
-              let scheme = WorkspaceTabColorDefaultScheme(rawValue: raw) else {
-            return defaultScheme
-        }
-        return scheme
-    }
-
-    static func setDefaultScheme(_ scheme: WorkspaceTabColorDefaultScheme, defaults: UserDefaults = .standard) {
-        defaults.set(scheme.rawValue, forKey: defaultSchemeKey)
-    }
-
-    static func activeDefaultPalette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        switch currentScheme(defaults: defaults) {
-        case .kelly20:
-            return kelly20Palette
-        case .originalPR:
-            return originalPRPalette
-        }
+        originalPRPalette
     }
 
     static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
@@ -249,7 +186,7 @@ enum WorkspaceTabColorSettings {
     }
 
     static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let palette = activeDefaultPalette(defaults: defaults)
+        let palette = defaultPalette
         let overrides = defaultOverrideMap(defaults: defaults)
         return palette.map { entry in
             WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
@@ -257,7 +194,7 @@ enum WorkspaceTabColorSettings {
     }
 
     static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
-        let palette = activeDefaultPalette(defaults: defaults)
+        let palette = defaultPalette
         guard let entry = palette.first(where: { $0.name == name }) else {
             return palette.first?.hex ?? "#1565C0"
         }
@@ -265,7 +202,7 @@ enum WorkspaceTabColorSettings {
     }
 
     static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
-        let palette = activeDefaultPalette(defaults: defaults)
+        let palette = defaultPalette
         guard let entry = palette.first(where: { $0.name == name }),
               let normalized = normalizedHex(hex) else { return }
 
@@ -372,7 +309,7 @@ enum WorkspaceTabColorSettings {
 
     private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
         guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
-        let validNames = Set(activeDefaultPalette(defaults: defaults).map(\.name))
+        let validNames = Set(defaultPalette.map(\.name))
         var normalized: [String: String] = [:]
         for (name, hex) in raw {
             guard validNames.contains(name),
