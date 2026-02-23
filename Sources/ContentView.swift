@@ -1343,6 +1343,8 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     private static let commandPaletteCommandsPrefix = ">"
+    private static let minimumSidebarWidth: CGFloat = 186
+    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
     private enum SidebarResizerHandle: Hashable {
         case divider
@@ -1352,8 +1354,31 @@ struct ContentView: View {
         SidebarResizeInteraction.hitWidthPerSide
     }
 
-    private var maxSidebarWidth: CGFloat {
-        (NSApp.keyWindow?.screen?.frame.width ?? NSScreen.main?.frame.width ?? 1920) * 2 / 3
+    private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
+        let resolvedAvailableWidth = availableWidth
+            ?? observedWindow?.contentView?.bounds.width
+            ?? observedWindow?.contentLayoutRect.width
+            ?? NSApp.keyWindow?.contentView?.bounds.width
+            ?? NSApp.keyWindow?.contentLayoutRect.width
+        if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
+            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+        }
+
+        let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
+            ?? NSScreen.main?.frame.width
+            ?? 1920
+        return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+    }
+
+    private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        let nextWidth = max(
+            Self.minimumSidebarWidth,
+            min(maxSidebarWidth(availableWidth: availableWidth), sidebarWidth)
+        )
+        guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
+        withTransaction(Transaction(animation: nil)) {
+            sidebarWidth = nextWidth
+        }
     }
 
     private func activateSidebarResizerCursor() {
@@ -1498,6 +1523,7 @@ struct ContentView: View {
     private func sidebarResizerHandleOverlay(
         _ handle: SidebarResizerHandle,
         width: CGFloat,
+        availableWidth: CGFloat,
         accessibilityIdentifier: String? = nil
     ) -> some View {
         Color.clear
@@ -1543,7 +1569,10 @@ struct ContentView: View {
 
                         activateSidebarResizerCursor()
                         let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                        let nextWidth = max(186, min(maxSidebarWidth, startWidth + value.translation.width))
+                        let nextWidth = max(
+                            Self.minimumSidebarWidth,
+                            min(maxSidebarWidth(availableWidth: availableWidth), startWidth + value.translation.width)
+                        )
                         withTransaction(Transaction(animation: nil)) {
                             sidebarWidth = nextWidth
                         }
@@ -1574,6 +1603,7 @@ struct ContentView: View {
                 sidebarResizerHandleOverlay(
                     .divider,
                     width: sidebarResizerHitWidthPerSide * 2,
+                    availableWidth: totalWidth,
                     accessibilityIdentifier: "SidebarResizer"
                 )
 
@@ -1582,6 +1612,12 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
             .frame(width: totalWidth, height: proxy.size.height, alignment: .leading)
+            .onAppear {
+                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
+            }
+            .onChange(of: totalWidth) {
+                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
+            }
         }
     }
 
@@ -2125,6 +2161,13 @@ struct ContentView: View {
             AppDelegate.shared?.fullscreenControlsViewModel = nil
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
+            updateSidebarResizerBandState()
+        })
+
         view = AnyView(view.onChange(of: sidebarWidth) { _ in
             updateSidebarResizerBandState()
         })
@@ -2152,6 +2195,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     observedWindow = window
                     isFullScreen = window.styleMask.contains(.fullScreen)
+                    clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
