@@ -1365,6 +1365,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         env["CMUX_PANEL_ID"] = id.uuidString
         env["CMUX_TAB_ID"] = tabId.uuidString
         env["CMUX_SOCKET_PATH"] = SocketControlSettings.socketPath()
+        if let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty {
+            env["CMUX_BUNDLE_ID"] = bundleId
+        }
 
         // Port range for this workspace (base/range snapshotted once per app session)
         do {
