@@ -843,7 +843,6 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var titlebarThemeUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
@@ -1128,7 +1127,16 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: isVisible,
                         isWorkspaceInputActive: isInputActive,
-                        workspacePortalPriority: portalPriority
+                        workspacePortalPriority: portalPriority,
+                        onThemeRefreshRequest: { reason, eventId, source, payloadHex in
+                            scheduleTitlebarThemeRefreshFromWorkspace(
+                                workspaceId: tab.id,
+                                reason: reason,
+                                backgroundEventId: eventId,
+                                backgroundSource: source,
+                                notificationPayloadHex: payloadHex
+                            )
+                        }
                     )
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
@@ -1261,10 +1269,45 @@ struct ContentView: View {
         }
     }
 
-    private func scheduleTitlebarThemeRefresh() {
-        titlebarThemeUpdateCoalescer.signal {
-            titlebarThemeGeneration &+= 1
+    private func scheduleTitlebarThemeRefresh(
+        reason: String,
+        backgroundEventId: UInt64? = nil,
+        backgroundSource: String? = nil,
+        notificationPayloadHex: String? = nil
+    ) {
+        let previousGeneration = titlebarThemeGeneration
+        titlebarThemeGeneration &+= 1
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let eventLabel = backgroundEventId.map(String.init) ?? "nil"
+            let sourceLabel = backgroundSource ?? "nil"
+            let payloadLabel = notificationPayloadHex ?? "nil"
+            GhosttyApp.shared.logBackground(
+                "titlebar theme refresh scheduled reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousGeneration=\(previousGeneration) generation=\(titlebarThemeGeneration) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+            )
         }
+    }
+
+    private func scheduleTitlebarThemeRefreshFromWorkspace(
+        workspaceId: UUID,
+        reason: String,
+        backgroundEventId: UInt64?,
+        backgroundSource: String?,
+        notificationPayloadHex: String?
+    ) {
+        guard tabManager.selectedTabId == workspaceId else {
+            guard GhosttyApp.shared.backgroundLogEnabled else { return }
+            GhosttyApp.shared.logBackground(
+                "titlebar theme refresh skipped workspace=\(workspaceId.uuidString) selected=\(tabManager.selectedTabId?.uuidString ?? "nil") reason=\(reason)"
+            )
+            return
+        }
+
+        scheduleTitlebarThemeRefresh(
+            reason: reason,
+            backgroundEventId: backgroundEventId,
+            backgroundSource: backgroundSource,
+            notificationPayloadHex: notificationPayloadHex
+        )
     }
 
     private var focusedDirectory: String? {
@@ -1405,12 +1448,11 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyConfigDidReload"))) { _ in
-            scheduleTitlebarThemeRefresh()
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { _ in
-            scheduleTitlebarThemeRefresh()
+        view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
+            guard GhosttyApp.shared.backgroundLogEnabled else { return }
+            GhosttyApp.shared.logBackground(
+                "titlebar theme refresh applied oldGeneration=\(oldValue) generation=\(newValue) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+            )
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in
