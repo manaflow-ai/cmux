@@ -4166,7 +4166,6 @@ struct ContentView: View {
     }
 
     private func presentCommandPalette(initialQuery: String) {
-        sentryBreadcrumb("commandPalette.open")
         if let panelContext = focusedPanelContext {
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
@@ -4193,7 +4192,6 @@ struct ContentView: View {
     }
 
     private func dismissCommandPalette(restoreFocus: Bool = true) {
-        sentryBreadcrumb("commandPalette.close")
         let focusTarget = commandPaletteRestoreFocusTarget
         isCommandPalettePresented = false
         commandPaletteMode = .commands
