@@ -1,0 +1,110 @@
+name: cmux
+options:
+  bundleIdPrefix: dev.cmux
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "16.0"
+
+schemes:
+  cmux:
+    build:
+      targets:
+        cmux: all
+    test:
+      targets:
+        - cmuxTests
+        - cmuxUITests
+
+configs:
+  Debug: debug
+  Beta: release
+  Release: release
+
+packages:
+  ConvexMobile:
+    url: https://github.com/get-convex/convex-swift
+    from: "0.1.0"
+  StackAuth:
+    path: vendor/stack-auth-swift-sdk-prerelease
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: "8.0.0"
+
+targets:
+  cmux:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Assets.xcassets
+    dependencies:
+      - package: ConvexMobile
+      - package: StackAuth
+      - package: Sentry
+    settings:
+      base:
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "8"
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.dev
+          PRODUCT_NAME: cmux DEV
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Dev
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_ENTITLEMENTS: cmux.dev.entitlements
+        Beta:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.beta
+          PRODUCT_NAME: cmux Beta
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon-Beta
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: BETA
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_ENTITLEMENTS: cmux.prod.entitlements
+        Release:
+          PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app
+          PRODUCT_NAME: cmux
+          ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: RELEASE
+          CODE_SIGN_ENTITLEMENTS: cmux.prod.entitlements
+    info:
+      path: Info.plist
+      properties:
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: ""
+          UIImageName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+  cmuxTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - cmuxTests
+    dependencies:
+      - target: cmux
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/cmux DEV"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+  cmuxUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - cmuxUITests
+    dependencies:
+      - target: cmux
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.dev.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        DEVELOPMENT_TEAM: 7WLXT3NR37
