@@ -1616,6 +1616,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+#if DEBUG
+        let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
+        dlog(
+            "zoom.create surface=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(surfaceContext)) " +
+            "templateFont=\(templateFontText)"
+        )
+#endif
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
         defer {
@@ -1761,6 +1768,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             #endif
             return
         }
+        guard let createdSurface = surface else { return }
 
         // For vsync-driven rendering, Ghostty needs to know which display we're on so it can
         // start a CVDisplayLink with the right refresh rate. If we don't set this early, the
@@ -1772,21 +1780,48 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let screen = view.window?.screen ?? NSScreen.main,
            let displayID = screen.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            ghostty_surface_set_display_id(createdSurface, displayID)
         }
 
-        ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
+        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
         let wpx = UInt32((view.bounds.width * scaleFactors.x).rounded(.toNearestOrAwayFromZero))
         let hpx = UInt32((view.bounds.height * scaleFactors.y).rounded(.toNearestOrAwayFromZero))
         if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(surface, wpx, hpx)
+            ghostty_surface_set_size(createdSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
 
+        // Some GhosttyKit builds can drop inherited font_size during post-create
+        // config/scale reconciliation. If runtime points don't match the inherited
+        // template points, re-apply via binding action so all creation paths
+        // (new surface, split, new workspace) preserve zoom from the source terminal.
+        if let inheritedFontPoints = configTemplate?.font_size,
+           inheritedFontPoints > 0 {
+            let currentFontPoints = cmuxCurrentSurfaceFontSizePoints(createdSurface)
+            let shouldReapply = {
+                guard let currentFontPoints else { return true }
+                return abs(currentFontPoints - inheritedFontPoints) > 0.05
+            }()
+            if shouldReapply {
+                let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
+                _ = performBindingAction(action)
+            }
+        }
+
         flushPendingTextIfNeeded()
+
+#if DEBUG
+        let runtimeFontText = cmuxCurrentSurfaceFontSizePoints(createdSurface).map {
+            String(format: "%.2f", $0)
+        } ?? "nil"
+        dlog(
+            "zoom.create.done surface=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(surfaceContext)) " +
+            "runtimeFont=\(runtimeFontText)"
+        )
+#endif
     }
 
     func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
