@@ -2712,6 +2712,7 @@ class TerminalController {
                     "type": panel.panelType.rawValue,
                     "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "focused": panel.id == focusedSurfaceId,
+                    "cwd": v2OrNull(ws.panelDirectories[panel.id]),
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                     "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id]),
