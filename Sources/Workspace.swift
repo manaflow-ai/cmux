@@ -960,6 +960,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
+        let previousFocusedPanelId = focusedPanelId
 
 	        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
 	        // so we can hand it to focusPanel as the "move focus FROM" view.
@@ -989,7 +990,17 @@ final class Workspace: Identifiable, ObservableObject {
 	                previousHostedView?.clearSuppressReparentFocus()
 	            }
 	        } else {
-	            scheduleFocusReconcile()
+                // Bonsplit focuses the newly-created pane by default; restore the caller's
+                // pre-split focus context when this split is explicitly non-focus-intent.
+                if let previousFocusedPanelId, panels[previousFocusedPanelId] != nil {
+                    previousHostedView?.suppressReparentFocus()
+                    focusPanel(previousFocusedPanelId, previousHostedView: previousHostedView)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        previousHostedView?.clearSuppressReparentFocus()
+                    }
+                } else {
+                    scheduleFocusReconcile()
+                }
 	        }
 
 	        return newPanel
@@ -1089,6 +1100,7 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = browserPanel.id
+        let previousFocusedPanelId = focusedPanelId
 
 	        // Create the split with the browser tab already present.
 	        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
@@ -1110,7 +1122,17 @@ final class Workspace: Identifiable, ObservableObject {
 	                previousHostedView?.clearSuppressReparentFocus()
 	            }
 	        } else {
-	            scheduleFocusReconcile()
+                // Bonsplit focuses the newly-created pane by default; restore the caller's
+                // pre-split focus context when this split is explicitly non-focus-intent.
+                if let previousFocusedPanelId, panels[previousFocusedPanelId] != nil {
+                    previousHostedView?.suppressReparentFocus()
+                    focusPanel(previousFocusedPanelId, previousHostedView: previousHostedView)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        previousHostedView?.clearSuppressReparentFocus()
+                    }
+                } else {
+                    scheduleFocusReconcile()
+                }
 	        }
 
         installBrowserPanelSubscription(browserPanel)

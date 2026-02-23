@@ -1800,6 +1800,66 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(browserSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser split to preserve pre-split focus"
+        )
+    }
+
+    func testTerminalSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let terminalSplitPanel = workspace.newTerminalSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected terminal split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(terminalSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal split to preserve pre-split focus"
+        )
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
