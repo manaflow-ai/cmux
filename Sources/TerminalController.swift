@@ -1069,6 +1069,8 @@ class TerminalController {
             return v2Result(id: id, self.v2PaneCreate(params: params))
         case "pane.resize":
             return v2Result(id: id, self.v2PaneResize(params: params))
+        case "pane.zoom":
+            return v2Result(id: id, self.v2PaneZoom(params: params))
         case "pane.swap":
             return v2Result(id: id, self.v2PaneSwap(params: params))
         case "pane.break":
@@ -1373,6 +1375,7 @@ class TerminalController {
             "pane.surfaces",
             "pane.create",
             "pane.resize",
+            "pane.zoom",
             "pane.swap",
             "pane.break",
             "pane.join",
@@ -3704,6 +3707,49 @@ class TerminalController {
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
                 "type": panelType.rawValue
+            ])
+        }
+        return result
+    }
+
+    private func v2PaneZoom(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to toggle pane zoom", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let paneUUID = v2UUID(params, "pane_id") ?? ws.bonsplitController.focusedPaneId?.id
+            guard let paneUUID else {
+                result = .err(code: "not_found", message: "No focused pane", data: nil)
+                return
+            }
+            guard let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID }) else {
+                result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
+                return
+            }
+            guard ws.bonsplitController.togglePaneZoom(paneId) else {
+                result = .err(code: "internal_error", message: "Failed to toggle pane zoom", data: ["pane_id": paneUUID.uuidString])
+                return
+            }
+
+            let zoomedPaneUUID = ws.bonsplitController.zoomedPaneId?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": paneId.id.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "zoomed": ws.bonsplitController.isZoomed,
+                "zoomed_pane_id": v2OrNull(zoomedPaneUUID?.uuidString),
+                "zoomed_pane_ref": v2Ref(kind: .pane, uuid: zoomedPaneUUID)
             ])
         }
         return result

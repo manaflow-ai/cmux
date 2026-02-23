@@ -3445,10 +3445,20 @@ struct CMUXCLI {
             """
         case "resize-pane":
             return """
-            Usage: cmux resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+            Usage: cmux resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D|-Z) [--amount <n>]
 
-            tmux-compatible pane resize command.
-            Note: currently returns not_supported until programmable divider resize is implemented.
+            tmux-compatible pane resize/zoom command.
+
+            Flags:
+              --pane <id|ref>        Target pane (default: focused pane)
+              --workspace <id|ref>   Target workspace (default: current workspace)
+              -L|-R|-U|-D            Resize pane left/right/up/down
+              -Z                     Toggle pane zoom (tmux maximize/restore)
+              --amount <n>           Resize amount for -L|-R|-U|-D (default: 1)
+
+            Example:
+              cmux resize-pane --pane pane:2 -R --amount 20
+              cmux resize-pane --pane pane:2 -Z
             """
         case "pipe-pane":
             return """
@@ -3945,17 +3955,44 @@ struct CMUXCLI {
         case "resize-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
             let paneArg = optionValue(commandArgs, name: "--pane")
+            let hasZoomToggle = commandArgs.contains("-Z")
+            let directionFlags = ["-L", "-R", "-U", "-D"].filter { commandArgs.contains($0) }
             let amountArg = optionValue(commandArgs, name: "--amount")
+            if hasZoomToggle {
+                if !directionFlags.isEmpty || amountArg != nil {
+                    throw CLIError(message: "resize-pane: -Z cannot be combined with directional flags or --amount")
+                }
+
+                var params: [String: Any] = [:]
+                let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+                if let wsId { params["workspace_id"] = wsId }
+                let paneId = try normalizePaneHandle(paneArg, client: client, workspaceHandle: wsId, allowFocused: true)
+                if let paneId { params["pane_id"] = paneId }
+                let payload = try client.sendV2(method: "pane.zoom", params: params)
+                printV2Payload(
+                    payload,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"])
+                )
+                return
+            }
+
+            if directionFlags.count > 1 {
+                throw CLIError(message: "resize-pane: specify only one of -L|-R|-U|-D")
+            }
             let amount = Int(amountArg ?? "1") ?? 1
             if amount <= 0 {
                 throw CLIError(message: "--amount must be greater than 0")
             }
 
             let direction: String = {
-                if commandArgs.contains("-L") { return "left" }
-                if commandArgs.contains("-R") { return "right" }
-                if commandArgs.contains("-U") { return "up" }
-                if commandArgs.contains("-D") { return "down" }
+                if let flag = directionFlags.first {
+                    if flag == "-L" { return "left" }
+                    if flag == "-R" { return "right" }
+                    if flag == "-U" { return "up" }
+                    if flag == "-D" { return "down" }
+                }
                 return "right"
             }()
 
@@ -4979,7 +5016,7 @@ struct CMUXCLI {
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
-          resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+          resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D|-Z) [--amount <n>]
           pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
           wait-for [-S|--signal] <name> [--timeout <seconds>]
           swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]

@@ -133,6 +133,7 @@ def main() -> int:
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "pane.zoom",
             "pane.swap",
             "pane.break",
             "pane.join",
@@ -252,6 +253,64 @@ def main() -> int:
         _wait_for(
             lambda: _pane_extent(c, resize_target, resize_axis) > pre_extent + 1.0,
             timeout_s=3.0,
+        )
+
+        focus_before_zoom = str((c.identify().get("focused") or {}).get("pane_id") or "")
+        _must(bool(focus_before_zoom), "identify should return focused pane before resize-pane -Z test")
+        zoom_target = next((pid for pid in current_panes if pid != focus_before_zoom), focus_before_zoom)
+
+        zoom_on = _run_cli(
+            cli,
+            ["--json", "--id-format", "both", "resize-pane", "--workspace", ws, "--pane", zoom_target, "-Z"],
+        )
+        zoom_on_payload = json.loads(zoom_on.stdout or "{}")
+        _must(bool(zoom_on_payload.get("zoomed")), f"resize-pane -Z should enable zoom: {zoom_on_payload!r}")
+        _must(
+            str(zoom_on_payload.get("zoomed_pane_id") or "") == zoom_target,
+            f"resize-pane -Z should zoom target pane={zoom_target}, got {zoom_on_payload!r}",
+        )
+        focus_after_zoom_on = str((c.identify().get("focused") or {}).get("pane_id") or "")
+        _must(
+            focus_after_zoom_on == focus_before_zoom,
+            f"resize-pane -Z should not steal focus (before={focus_before_zoom}, after={focus_after_zoom_on})",
+        )
+
+        zoom_off = _run_cli(
+            cli,
+            ["--json", "--id-format", "both", "resize-pane", "--workspace", ws, "--pane", zoom_target, "-Z"],
+        )
+        zoom_off_payload = json.loads(zoom_off.stdout or "{}")
+        _must(not bool(zoom_off_payload.get("zoomed")), f"Second resize-pane -Z should disable zoom: {zoom_off_payload!r}")
+        _must(
+            zoom_off_payload.get("zoomed_pane_id") in (None, ""),
+            f"Unzoomed state should not report zoomed_pane_id: {zoom_off_payload!r}",
+        )
+        focus_after_zoom_off = str((c.identify().get("focused") or {}).get("pane_id") or "")
+        _must(
+            focus_after_zoom_off == focus_before_zoom,
+            f"resize-pane -Z unzoom should not steal focus (before={focus_before_zoom}, after={focus_after_zoom_off})",
+        )
+
+        invalid_zoom_direction = _run_cli(
+            cli,
+            ["resize-pane", "--workspace", ws, "--pane", zoom_target, "-Z", "-L"],
+            expect_ok=False,
+        )
+        invalid_zoom_direction_output = f"{invalid_zoom_direction.stdout}\n{invalid_zoom_direction.stderr}".lower()
+        _must(
+            invalid_zoom_direction.returncode != 0 and "cannot be combined" in invalid_zoom_direction_output,
+            f"Expected resize-pane -Z -L to fail with conflict error, got: {invalid_zoom_direction_output!r}",
+        )
+
+        invalid_zoom_amount = _run_cli(
+            cli,
+            ["resize-pane", "--workspace", ws, "--pane", zoom_target, "-Z", "--amount", "10"],
+            expect_ok=False,
+        )
+        invalid_zoom_amount_output = f"{invalid_zoom_amount.stdout}\n{invalid_zoom_amount.stderr}".lower()
+        _must(
+            invalid_zoom_amount.returncode != 0 and "cannot be combined" in invalid_zoom_amount_output,
+            f"Expected resize-pane -Z --amount to fail with conflict error, got: {invalid_zoom_amount_output!r}",
         )
 
         buffer_token = f"TMUX_BUFFER_{stamp}"

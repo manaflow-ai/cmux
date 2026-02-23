@@ -775,6 +775,23 @@ class cmux:
             raise cmuxError(f"pane.last returned no pane_id: {res}")
         return str(pid)
 
+    def pane_zoom(
+        self,
+        pane: Union[str, int, None] = None,
+        workspace: Union[str, int, None] = None,
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        wsid = self._resolve_workspace_id(workspace)
+        if wsid:
+            params["workspace_id"] = wsid
+        if pane is not None:
+            pid = self._resolve_pane_id(pane, workspace_id=wsid)
+            if not pid:
+                raise cmuxError(f"Invalid pane: {pane!r}")
+            params["pane_id"] = pid
+        res = self._call("pane.zoom", params) or {}
+        return dict(res)
+
     # ---------------------------------------------------------------------
     # Input
     # ---------------------------------------------------------------------
