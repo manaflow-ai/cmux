@@ -17,36 +17,16 @@ private extension Color {
     }
 }
 
-private func coloredCircleImage(hex: String) -> NSImage {
-    let nsColor = NSColor(hex: hex) ?? NSColor.gray
+private func coloredCircleImage(color: NSColor) -> NSImage {
     let size = NSSize(width: 14, height: 14)
     let image = NSImage(size: size, flipped: false) { rect in
-        nsColor.setFill()
+        color.setFill()
         NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
         return true
     }
     image.isTemplate = false
     return image
 }
-
-private let sidebarTabColorPalette: [(name: String, hex: String)] = [
-    ("Red",       "#C0392B"),
-    ("Crimson",   "#922B21"),
-    ("Orange",    "#A04000"),
-    ("Amber",     "#7D6608"),
-    ("Olive",     "#4A5C18"),
-    ("Green",     "#196F3D"),
-    ("Teal",      "#006B6B"),
-    ("Aqua",      "#0E6B8C"),
-    ("Blue",      "#1565C0"),
-    ("Navy",      "#1A5276"),
-    ("Indigo",    "#283593"),
-    ("Purple",    "#6A1B9A"),
-    ("Magenta",   "#AD1457"),
-    ("Rose",      "#880E4F"),
-    ("Brown",     "#7B3F00"),
-    ("Charcoal",  "#3E4B5E"),
-]
 
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
@@ -2482,6 +2462,7 @@ private struct SidebarEmptyArea: View {
 private struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var tab: Tab
     let index: Int
     let rowSpacing: CGFloat
@@ -2504,6 +2485,8 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
     var isActive: Bool {
         tabManager.selectedTabId == tab.id
@@ -2515,6 +2498,65 @@ private struct TabItemView: View {
 
     private var isBeingDragged: Bool {
         draggedTabId == tab.id
+    }
+
+    private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
+    }
+
+    private var titleFontWeight: Font.Weight {
+        .semibold
+    }
+
+    private var showsLeadingRail: Bool {
+        explicitRailColor != nil
+    }
+
+    private var activeBorderLineWidth: CGFloat {
+        switch activeTabIndicatorStyle {
+        case .leftRail:
+            return 0
+        case .solidFill:
+            return isActive ? 1.5 : 0
+        }
+    }
+
+    private var activeBorderColor: Color {
+        guard isActive else { return .clear }
+        switch activeTabIndicatorStyle {
+        case .leftRail:
+            return .clear
+        case .solidFill:
+            return Color.primary.opacity(0.5)
+        }
+    }
+
+    private var usesInvertedActiveForeground: Bool {
+        isActive
+    }
+
+    private var activePrimaryTextColor: Color {
+        usesInvertedActiveForeground ? .white : .primary
+    }
+
+    private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
+        usesInvertedActiveForeground ? .white.opacity(opacity) : .secondary
+    }
+
+    private var activeUnreadBadgeFillColor: Color {
+        usesInvertedActiveForeground ? Color.white.opacity(0.25) : Color.accentColor
+    }
+
+    private var activeProgressTrackColor: Color {
+        usesInvertedActiveForeground ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2)
+    }
+
+    private var activeProgressFillColor: Color {
+        usesInvertedActiveForeground ? Color.white.opacity(0.8) : Color.accentColor
+    }
+
+    private var shortcutHintEmphasis: Double {
+        usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
     private var workspaceShortcutDigit: Int? {
@@ -2553,7 +2595,7 @@ private struct TabItemView: View {
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
-                            .fill(isActive ? Color.white.opacity(0.25) : Color.accentColor)
+                            .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
@@ -2564,12 +2606,12 @@ private struct TabItemView: View {
                 if tab.isPinned {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .foregroundColor(activeSecondaryColor(0.8))
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundColor(isActive ? .white : .primary)
+                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
@@ -2584,7 +2626,7 @@ private struct TabItemView: View {
                     }) {
                         Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
+                            .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
                     .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
@@ -2598,10 +2640,10 @@ private struct TabItemView: View {
                             .fixedSize(horizontal: true, vertical: false)
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .monospacedDigit()
-                            .foregroundColor(isActive ? .white : .primary)
+                            .foregroundColor(activePrimaryTextColor)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(ShortcutHintPillBackground(emphasis: isActive ? 1.0 : 0.9))
+                            .background(ShortcutHintPillBackground(emphasis: shortcutHintEmphasis))
                             .offset(
                                 x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
                                 y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
@@ -2616,7 +2658,7 @@ private struct TabItemView: View {
             if let subtitle = latestNotificationText {
                 Text(subtitle)
                     .font(.system(size: 10))
-                    .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                    .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
@@ -2628,7 +2670,7 @@ private struct TabItemView: View {
                         if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
                         return lhs.key < rhs.key
                     }),
-                    isActive: isActive,
+                    isActive: usesInvertedActiveForeground,
                     onFocus: { updateSelection() }
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -2639,10 +2681,10 @@ private struct TabItemView: View {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
                         .font(.system(size: 8))
-                        .foregroundColor(logLevelColor(latestLog.level, isActive: isActive))
+                        .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
                         .font(.system(size: 10))
-                        .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                        .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -2655,9 +2697,9 @@ private struct TabItemView: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
-                                .fill(isActive ? Color.white.opacity(0.15) : Color.secondary.opacity(0.2))
+                                .fill(activeProgressTrackColor)
                             Capsule()
-                                .fill(isActive ? Color.white.opacity(0.8) : Color.accentColor)
+                                .fill(activeProgressFillColor)
                                 .frame(width: max(0, geo.size.width * CGFloat(progress.value)))
                         }
                     }
@@ -2666,7 +2708,7 @@ private struct TabItemView: View {
                     if let label = progress.label {
                         Text(label)
                             .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
                 }
@@ -2680,7 +2722,7 @@ private struct TabItemView: View {
                         if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
                             Image(systemName: "arrow.triangle.branch")
                                 .font(.system(size: 9))
-                                .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                .foregroundColor(activeSecondaryColor(0.6))
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
@@ -2688,20 +2730,20 @@ private struct TabItemView: View {
                                     if let branch = line.branch {
                                         Text(branch)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .foregroundColor(activeSecondaryColor(0.75))
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                     }
                                     if line.branch != nil, line.directory != nil {
                                         Image(systemName: "circle.fill")
                                             .font(.system(size: 3))
-                                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                                            .foregroundColor(activeSecondaryColor(0.6))
                                             .padding(.horizontal, 1)
                                     }
                                     if let directory = line.directory {
                                         Text(directory)
                                             .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                                            .foregroundColor(activeSecondaryColor(0.75))
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                     }
@@ -2715,11 +2757,11 @@ private struct TabItemView: View {
                     if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 9))
-                            .foregroundColor(isActive ? .white.opacity(0.6) : .secondary)
+                            .foregroundColor(activeSecondaryColor(0.6))
                     }
                     Text(dirRow)
                         .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                        .foregroundColor(activeSecondaryColor(0.75))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
@@ -2729,7 +2771,7 @@ private struct TabItemView: View {
             if sidebarShowPorts, !tab.listeningPorts.isEmpty {
                 Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(isActive ? .white.opacity(0.75) : .secondary)
+                    .foregroundColor(activeSecondaryColor(0.75))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -2741,10 +2783,20 @@ private struct TabItemView: View {
         .background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(backgroundColor)
-                .overlay(
+                .overlay {
                     RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(Color.primary.opacity(isActive ? 0.5 : 0), lineWidth: 1.5)
-                )
+                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                }
+                .overlay(alignment: .leading) {
+                    if showsLeadingRail {
+                        Capsule(style: .continuous)
+                            .fill(railColor)
+                            .frame(width: 3)
+                            .padding(.leading, 4)
+                            .padding(.vertical, 5)
+                            .offset(x: -1)
+                    }
+                }
         )
         .padding(.horizontal, 6)
         .background {
@@ -2812,6 +2864,7 @@ private struct TabItemView: View {
         }
         .contextMenu {
             let targetIds = contextTargetIds()
+            let tabColorPalette = WorkspaceTabColorSettings.palette()
             let shouldPin = !tab.isPinned
             let pinLabel = targetIds.count > 1
                 ? (shouldPin ? "Pin Workspaces" : "Unpin Workspaces")
@@ -2839,21 +2892,33 @@ private struct TabItemView: View {
             }
 
             Menu("Tab Color") {
-                ForEach(sidebarTabColorPalette, id: \.hex) { entry in
+                if tab.customColor != nil {
                     Button {
-                        tabManager.setTabColor(tabId: tab.id, color: entry.hex)
+                        applyTabColor(nil, targetIds: targetIds)
+                    } label: {
+                        Label("Clear Color", systemImage: "xmark.circle")
+                    }
+                }
+
+                Button {
+                    promptCustomColor(targetIds: targetIds)
+                } label: {
+                    Label("Choose Custom Color…", systemImage: "paintpalette")
+                }
+
+                if !tabColorPalette.isEmpty {
+                    Divider()
+                }
+
+                ForEach(tabColorPalette, id: \.id) { entry in
+                    Button {
+                        applyTabColor(entry.hex, targetIds: targetIds)
                     } label: {
                         Label {
                             Text(entry.name)
                         } icon: {
-                            Image(nsImage: coloredCircleImage(hex: entry.hex))
+                            Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
                         }
-                    }
-                }
-                if tab.customColor != nil {
-                    Divider()
-                    Button("Clear Color") {
-                        tabManager.setTabColor(tabId: tab.id, color: nil)
                     }
                 }
             }
@@ -2913,14 +2978,50 @@ private struct TabItemView: View {
     }
 
     private var backgroundColor: Color {
-        if let hex = tab.customColor, let custom = Color(hex: hex) {
-            if isActive        { return custom }
-            if isMultiSelected { return custom.opacity(0.35) }
-            return custom.opacity(0.7)
+        switch activeTabIndicatorStyle {
+        case .leftRail:
+            if isActive        { return Color.accentColor }
+            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            return Color.clear
+        case .solidFill:
+            if let custom = resolvedCustomTabColor {
+                if isActive        { return custom }
+                if isMultiSelected { return custom.opacity(0.35) }
+                return custom.opacity(0.7)
+            }
+            if isActive        { return Color.accentColor }
+            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            return Color.clear
         }
-        if isActive        { return Color.accentColor }
-        if isMultiSelected { return Color.accentColor.opacity(0.25) }
-        return Color.clear
+    }
+
+    private var railColor: Color {
+        explicitRailColor ?? .clear
+    }
+
+    private var explicitRailColor: Color? {
+        guard activeTabIndicatorStyle == .leftRail,
+              let custom = resolvedCustomTabColor else {
+            return nil
+        }
+        return custom.opacity(0.95)
+    }
+
+    private var resolvedCustomTabColor: Color? {
+        guard let hex = tab.customColor else { return nil }
+        return WorkspaceTabColorSettings.displayColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: activeTabIndicatorStyle == .leftRail
+        )
+    }
+
+    private func tabColorSwatchColor(for hex: String) -> NSColor {
+        WorkspaceTabColorSettings.displayNSColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: activeTabIndicatorStyle == .leftRail
+        ) ?? NSColor(hex: hex) ?? .gray
     }
 
     private var showsCenteredTopDropIndicator: Bool {
@@ -3191,6 +3292,55 @@ private struct TabItemView: View {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
+    }
+
+    private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
+        for targetId in targetIds {
+            tabManager.setTabColor(tabId: targetId, color: hex)
+        }
+    }
+
+    private func promptCustomColor(targetIds: [UUID]) {
+        let alert = NSAlert()
+        alert.messageText = "Custom Tab Color"
+        alert.informativeText = "Enter a hex color in the format #RRGGBB."
+
+        let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
+        let input = NSTextField(string: seed)
+        input.placeholderString = "#1565C0"
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Cancel")
+
+        let alertWindow = alert.window
+        alertWindow.initialFirstResponder = input
+        DispatchQueue.main.async {
+            alertWindow.makeFirstResponder(input)
+            input.selectText(nil)
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
+            showInvalidColorAlert(input.stringValue)
+            return
+        }
+        applyTabColor(normalized, targetIds: targetIds)
+    }
+
+    private func showInvalidColorAlert(_ value: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Invalid Color"
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            alert.informativeText = "Enter a hex color in the format #RRGGBB."
+        } else {
+            alert.informativeText = "\"\(trimmed)\" is not a valid hex color. Use #RRGGBB."
+        }
+        alert.addButton(withTitle: "OK")
+        _ = alert.runModal()
     }
 
     private func promptRename() {
