@@ -590,9 +590,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
-        let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
+        let toggleSidebar = { _ = AppDelegate.shared?.activeSidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
-        let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
+        let newTab = { _ = AppDelegate.shared?.activeTabManager?.addTab() }
 
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(

@@ -665,6 +665,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func preferredMainWindowContextForServiceWorkspace() -> MainWindowContext? {
+        activeMainWindowContext()
+    }
+
+    /// Resolves the main-window context for the currently active window.
+    /// If a specific window is provided it is checked first, then NSApp.keyWindow,
+    /// then NSApp.mainWindow, and finally any available context as a fallback.
+    /// Use this instead of the cached `tabManager`/`sidebarState` pointers so that
+    /// actions target the correct window in multi-window configurations.
+    private func activeMainWindowContext(for window: NSWindow? = nil) -> MainWindowContext? {
+        if let window = window,
+           isMainTerminalWindow(window),
+           let context = mainWindowContexts[ObjectIdentifier(window)] {
+            return context
+        }
+
         if let keyWindow = NSApp.keyWindow,
            isMainTerminalWindow(keyWindow),
            let context = mainWindowContexts[ObjectIdentifier(keyWindow)] {
@@ -678,6 +693,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return mainWindowContexts.values.first
+    }
+
+    /// Convenience: the TabManager for the currently active main window.
+    var activeTabManager: TabManager? {
+        activeMainWindowContext()?.tabManager
+    }
+
+    /// Convenience: the SidebarState for the currently active main window.
+    var activeSidebarState: SidebarState? {
+        activeMainWindowContext()?.sidebarState
     }
 
     @discardableResult
@@ -1678,6 +1703,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Resolve the active window's context at event time so shortcuts
+        // operate on the correct window in multi-window configurations.
+        let ctx = activeMainWindowContext()
+        let tabManager = ctx?.tabManager
+        let sidebarState = ctx?.sidebarState
+
         // Keep keyboard routing deterministic after split close/reparent transitions:
         // before processing shortcuts, converge first responder with the focused terminal panel.
         if isControlD {
@@ -1957,7 +1988,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func focusBrowserAddressBar(panelId: UUID) -> Bool {
-        guard let tabManager,
+        guard let tabManager = activeTabManager,
               let workspace = tabManager.selectedWorkspace,
               let panel = workspace.browserPanel(for: panelId) else {
             return false
@@ -2071,7 +2102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
-        tabManager?.createSplit(direction: direction)
+        activeTabManager?.createSplit(direction: direction)
 #if DEBUG
         recordGotoSplitSplitIfNeeded(direction: direction)
 #endif
@@ -2080,7 +2111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        guard let panelId = activeTabManager?.createBrowserSplit(direction: direction) else { return false }
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }

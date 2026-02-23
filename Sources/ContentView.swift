@@ -576,7 +576,7 @@ struct ContentView: View {
         TitlebarControlsView(
             notificationStore: TerminalNotificationStore.shared,
             viewModel: fullscreenControlsViewModel,
-            onToggleSidebar: { AppDelegate.shared?.sidebarState?.toggle() },
+            onToggleSidebar: { _ = AppDelegate.shared?.activeSidebarState?.toggle() },
             onToggleNotifications: { [fullscreenControlsViewModel] in
                 AppDelegate.shared?.toggleNotificationsPopover(
                     animated: true,
