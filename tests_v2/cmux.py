@@ -918,6 +918,27 @@ class cmux:
     def activate_app(self) -> None:
         self._call("debug.app.activate")
 
+    def open_command_palette_rename_tab_input(self, window_id: Optional[str] = None) -> None:
+        params: Dict[str, Any] = {}
+        if window_id is not None:
+            params["window_id"] = str(window_id)
+        self._call("debug.command_palette.rename_tab.open", params)
+
+    def command_palette_results(self, window_id: str, limit: int = 20) -> dict:
+        res = self._call(
+            "debug.command_palette.results",
+            {"window_id": str(window_id), "limit": int(limit)},
+        ) or {}
+        return dict(res)
+
+    def command_palette_rename_select_all(self) -> bool:
+        res = self._call("debug.command_palette.rename_input.select_all") or {}
+        return bool(res.get("enabled"))
+
+    def set_command_palette_rename_select_all(self, enabled: bool) -> bool:
+        res = self._call("debug.command_palette.rename_input.select_all", {"enabled": bool(enabled)}) or {}
+        return bool(res.get("enabled"))
+
     def is_terminal_focused(self, panel: Union[str, int]) -> bool:
         sid = self._resolve_surface_id(panel)
         res = self._call("debug.terminal.is_focused", {"surface_id": sid}) or {}

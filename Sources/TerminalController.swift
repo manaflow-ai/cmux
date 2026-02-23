@@ -45,6 +45,7 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
+        "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate"
     ]
@@ -1279,6 +1280,26 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugType(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.command_palette.toggle":
+            return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
+        case "debug.command_palette.rename_tab.open":
+            return v2Result(id: id, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
+        case "debug.command_palette.visible":
+            return v2Result(id: id, self.v2DebugCommandPaletteVisible(params: params))
+        case "debug.command_palette.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
+        case "debug.command_palette.results":
+            return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.rename_input.interact":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
+        case "debug.command_palette.rename_input.delete_backward":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputDeleteBackward(params: params))
+        case "debug.command_palette.rename_input.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelection(params: params))
+        case "debug.command_palette.rename_input.select_all":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
+        case "debug.sidebar.visible":
+            return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
         case "debug.terminal.read_text":
@@ -1475,6 +1496,16 @@ class TerminalController {
             "debug.shortcut.simulate",
             "debug.type",
             "debug.app.activate",
+            "debug.command_palette.toggle",
+            "debug.command_palette.rename_tab.open",
+            "debug.command_palette.visible",
+            "debug.command_palette.selection",
+            "debug.command_palette.results",
+            "debug.command_palette.rename_input.interact",
+            "debug.command_palette.rename_input.delete_backward",
+            "debug.command_palette.rename_input.selection",
+            "debug.command_palette.rename_input.select_all",
+            "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
@@ -7564,6 +7595,268 @@ class TerminalController {
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
     }
 
+    private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: ["window_id": requestedWindowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugOpenCommandPaletteRenameTabInput(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
+    private func v2DebugCommandPaletteSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        var selectedIndex = 0
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex)
+        ])
+    }
+
+    private func v2DebugCommandPaletteResults(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let requestedLimit = params["limit"] as? Int
+        let limit = max(1, min(100, requestedLimit ?? 20))
+
+        var visible = false
+        var selectedIndex = 0
+        var snapshot = CommandPaletteDebugSnapshot.empty
+
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+            snapshot = AppDelegate.shared?.commandPaletteSnapshot(windowId: windowId) ?? .empty
+        }
+
+        let rows = Array(snapshot.results.prefix(limit)).map { row in
+            [
+                "command_id": row.commandId,
+                "title": row.title,
+                "shortcut_hint": v2OrNull(row.shortcutHint),
+                "trailing_label": v2OrNull(row.trailingLabel),
+                "score": row.score
+            ] as [String: Any]
+        }
+
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex),
+            "query": snapshot.query,
+            "mode": snapshot.mode,
+            "results": rows
+        ])
+    }
+
+    private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputInteractionRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputDeleteBackward(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputDeleteBackwardRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "focused": false,
+            "selection_location": 0,
+            "selection_length": 0,
+            "text_length": 0
+        ])
+
+        DispatchQueue.main.sync {
+            guard let window = AppDelegate.shared?.mainWindow(for: windowId) else {
+                result = .err(
+                    code: "not_found",
+                    message: "Window not found",
+                    data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+                )
+                return
+            }
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+                return
+            }
+            let selectedRange = editor.selectedRange()
+            let textLength = (editor.string as NSString).length
+            result = .ok([
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "focused": true,
+                "selection_location": max(0, selectedRange.location),
+                "selection_length": max(0, selectedRange.length),
+                "text_length": max(0, textLength)
+            ])
+        }
+
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelectAll(params: [String: Any]) -> V2CallResult {
+        if let rawEnabled = params["enabled"] {
+            guard let enabled = rawEnabled as? Bool else {
+                return .err(
+                    code: "invalid_params",
+                    message: "enabled must be a bool",
+                    data: ["enabled": rawEnabled]
+                )
+            }
+            DispatchQueue.main.sync {
+                UserDefaults.standard.set(
+                    enabled,
+                    forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+                )
+            }
+        }
+
+        var enabled = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        DispatchQueue.main.sync {
+            enabled = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
+        }
+
+        return .ok([
+            "enabled": enabled
+        ])
+    }
+
+    private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visibility: Bool?
+        DispatchQueue.main.sync {
+            visibility = AppDelegate.shared?.sidebarVisibility(windowId: windowId)
+        }
+        guard let visible = visibility else {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+            )
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
     private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
         guard let surfaceId = v2String(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
@@ -8003,17 +8296,24 @@ class TerminalController {
 	
 	        var result = "ERROR: Failed to create event"
 	        DispatchQueue.main.sync {
-	            // Tests can run while the app is activating (no keyWindow yet). Prefer a visible
-	            // window to keep input simulation deterministic in debug builds.
-	            let targetWindow = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first
+	            // Prefer the current active-tab-manager window so shortcut simulation stays
+	            // scoped to the intended window even when NSApp.keyWindow is stale.
+	            let targetWindow: NSWindow? = {
+	                if let activeTabManager = self.tabManager,
+	                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
+	                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+	                    return window
+	                }
+	                return NSApp.keyWindow
+	                    ?? NSApp.mainWindow
+	                    ?? NSApp.windows.first(where: { $0.isVisible })
+	                    ?? NSApp.windows.first
+	            }()
 	            if let targetWindow {
 	                NSApp.activate(ignoringOtherApps: true)
 	                targetWindow.makeKeyAndOrderFront(nil)
 	            }
-	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
+	            let windowNumber = targetWindow?.windowNumber ?? 0
 	            guard let keyDownEvent = NSEvent.keyEvent(
 	                with: .keyDown,
 	                location: .zero,
@@ -8706,6 +9006,10 @@ class TerminalController {
         let charactersIgnoringModifiers: String
 
         switch keyToken.lowercased() {
+        case "esc", "escape":
+            storedKey = "\u{1b}"
+            keyCode = UInt16(kVK_Escape)
+            charactersIgnoringModifiers = storedKey
         case "left":
             storedKey = "←"
             keyCode = 123
@@ -8725,6 +9029,10 @@ class TerminalController {
         case "enter", "return":
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
+            charactersIgnoringModifiers = storedKey
+        case "backspace", "delete", "del":
+            storedKey = "\u{7f}"
+            keyCode = UInt16(kVK_Delete)
             charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
