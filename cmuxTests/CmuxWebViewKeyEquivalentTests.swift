@@ -1238,6 +1238,10 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
             browserZoomShortcutAction(flags: [.command, .shift], chars: "+", keyCode: 24),
             .zoomIn
         )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 30),
+            .zoomIn
+        )
     }
 
     func testZoomOutSupportsMinusAndUnderscoreVariants() {
@@ -1313,6 +1317,30 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 keyCode: 45
             )
         )
+    }
+}
+
+final class GhosttyResponderResolutionTests: XCTestCase {
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    func testResolvesGhosttyViewFromDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        ghosttyView.addSubview(descendant)
+
+        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+    }
+
+    func testResolvesGhosttyViewFromGhosttyResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+    }
+
+    func testReturnsNilForUnrelatedResponder() {
+        let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        XCTAssertNil(cmuxOwningGhosttyView(for: view))
     }
 }
 
@@ -2310,6 +2338,141 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+}
+
+@MainActor
+final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
+    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected workspace split setup to succeed")
+            return
+        }
+
+        // Programmatic split focuses the new right panel by default.
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: leftPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftPanelId,
+            "Expected inheritance to use the selected terminal in the target pane"
+        )
+    }
+
+    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected workspace browser setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: paneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected inheritance to fall back to a terminal in the pane when browser is selected"
+        )
+    }
+
+    func testPreferredTerminalPanelWinsWhenProvided() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a terminal panel")
+            return
+        }
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(preferredPanelId: terminalPanelId)
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testPrefersLastFocusedTerminalWhenBrowserFocusedInDifferentPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: rightPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected inheritance to prefer last focused terminal when browser is focused in another pane"
+        )
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
+    func testUsesFocusedTerminalWhenTerminalIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testFallsBackToTerminalWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected selected workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected new workspace inheritance source to resolve to the pane terminal when browser is focused"
+        )
+    }
+
+    func testPrefersLastFocusedTerminalAcrossPanesWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected workspace inheritance source to use last focused terminal across panes"
+        )
     }
 }
 

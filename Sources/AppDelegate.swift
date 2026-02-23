@@ -194,6 +194,54 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     return browserZoomShortcutAction(flags: flags, chars: chars, keyCode: keyCode) != nil
 }
 
+func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    guard let responder else { return nil }
+    if let ghosttyView = responder as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    if let view = responder as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: view) {
+        return ghosttyView
+    }
+
+    if let textView = responder as? NSTextView,
+       let delegateView = textView.delegate as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
+        return ghosttyView
+    }
+
+    var current = responder.nextResponder
+    while let next = current {
+        if let ghosttyView = next as? GhosttyNSView {
+            return ghosttyView
+        }
+        if let view = next as? NSView,
+           let ghosttyView = cmuxOwningGhosttyView(for: view) {
+            return ghosttyView
+        }
+        current = next.nextResponder
+    }
+
+    return nil
+}
+
+private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
+    if let ghosttyView = view as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    var current: NSView? = view.superview
+    while let candidate = current {
+        if let ghosttyView = candidate as? GhosttyNSView {
+            return ghosttyView
+        }
+        current = candidate.superview
+    }
+
+    return nil
+}
+
 #if DEBUG
 func browserZoomShortcutTraceCandidate(
     flags: NSEvent.ModifierFlags,
@@ -2300,7 +2348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
         // input), don't intercept key events — let them flow through to the input method.
-        if let ghosttyView = NSApp.keyWindow?.firstResponder as? GhosttyNSView,
+        if let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
             return false
         }
@@ -2345,7 +2393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
         if browserAddressBarFocusedPanelId != nil,
-           NSApp.keyWindow?.firstResponder is GhosttyNSView {
+           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
 #if DEBUG
             dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
 #endif
@@ -4441,7 +4489,8 @@ private extension NSWindow {
         // Command shortcuts when the terminal is focused — the local event monitor
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
-        if let ghosttyView = self.firstResponder as? GhosttyNSView {
+        let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
+        if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing, don't intercept key events — let them flow
             // through normal AppKit event dispatch so the input method can process them.
             if ghosttyView.hasMarkedText() {
@@ -4484,7 +4533,7 @@ private extension NSWindow {
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
-        if self.firstResponder is GhosttyNSView,
+        if firstResponderGhosttyView != nil,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
            let mainMenu = NSApp.mainMenu {
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
