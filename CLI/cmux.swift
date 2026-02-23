@@ -1745,6 +1745,13 @@ struct CMUXCLI {
         let workspaceName: String?
         let sshOptions: [String]
         let extraArguments: [String]
+        let localSocketPath: String
+        let remoteRelayPort: Int
+    }
+
+    private func generateRemoteRelayPort() -> Int {
+        // Random port in the ephemeral range (49152-65535)
+        Int.random(in: 49152...65535)
     }
 
     private func runSSH(
@@ -1753,7 +1760,9 @@ struct CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let sshOptions = try parseSSHCommandOptions(commandArgs)
+        let localSocketPath = ProcessInfo.processInfo.environment["CMUX_SOCKET_PATH"] ?? "/tmp/cmux.sock"
+        let remoteRelayPort = generateRemoteRelayPort()
+        let sshOptions = try parseSSHCommandOptions(commandArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
         let sshCommand = buildSSHCommandText(sshOptions)
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
         let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
@@ -1790,6 +1799,10 @@ struct CMUXCLI {
         if !sshOptions.sshOptions.isEmpty {
             configureParams["ssh_options"] = sshOptions.sshOptions
         }
+        if sshOptions.remoteRelayPort > 0 {
+            configureParams["relay_port"] = sshOptions.remoteRelayPort
+            configureParams["local_socket_path"] = sshOptions.localSocketPath
+        }
 
         var payload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
 
@@ -1798,6 +1811,7 @@ struct CMUXCLI {
         payload["ssh_env_overrides"] = [
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
+        payload["remote_relay_port"] = remoteRelayPort
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
         } else {
@@ -1808,7 +1822,7 @@ struct CMUXCLI {
         }
     }
 
-    private func parseSSHCommandOptions(_ commandArgs: [String]) throws -> SSHCommandOptions {
+    private func parseSSHCommandOptions(_ commandArgs: [String], localSocketPath: String = "", remoteRelayPort: Int = 0) throws -> SSHCommandOptions {
         var destination: String?
         var port: Int?
         var identityFile: String?
@@ -1883,12 +1897,18 @@ struct CMUXCLI {
             identityFile: identityFile,
             workspaceName: workspaceName,
             sshOptions: sshOptions,
-            extraArguments: extraArguments
+            extraArguments: extraArguments,
+            localSocketPath: localSocketPath,
+            remoteRelayPort: remoteRelayPort
         )
     }
 
     private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
         var parts: [String] = ["ssh", "-o", "StrictHostKeyChecking=accept-new"]
+        // The reverse relay (-R) is handled by a separate background SSH process
+        // spawned by WorkspaceRemoteSessionController (direct child of cmux app,
+        // passes the ancestry access check). The terminal SSH session just uses
+        // normal ControlMaster settings and sets up the remote environment.
         if !hasSSHOptionKey(options.sshOptions, key: "ControlMaster") {
             parts += ["-o", "ControlMaster=auto"]
         }
@@ -1910,6 +1930,7 @@ struct CMUXCLI {
             guard !trimmed.isEmpty else { continue }
             parts += ["-o", trimmed]
         }
+
         parts.append(options.destination)
         parts.append(contentsOf: options.extraArguments)
         return parts.map(shellQuote).joined(separator: " ")
