@@ -155,6 +155,17 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func cmuxFlatSymbolColorRendering() -> some View {
+        if #available(macOS 26.0, *) {
+            self.symbolColorRenderingMode(.flat)
+        } else {
+            self
+        }
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -487,6 +498,7 @@ struct BrowserPanelView: View {
         }) {
             Image(systemName: devToolsIconOption.rawValue)
                 .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
@@ -513,7 +525,8 @@ struct BrowserPanelView: View {
         } label: {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: devToolsButtonIconSize - 1, weight: .light))
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
