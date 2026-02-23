@@ -75,7 +75,12 @@
 				F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 				F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */; };
-		/* End PBXBuildFile section */
+			FF000011A1B2C3D4E5F60011 /* SidebarContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */; };
+		FF000012A1B2C3D4E5F60012 /* FileTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */; };
+		FF000013A1B2C3D4E5F60013 /* FileTreeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */; };
+		FF000014A1B2C3D4E5F60014 /* FileTreeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */; };
+		FF000015A1B2C3D4E5F60015 /* FileTreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */; };
+	/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		A5001020 /* Embed Frameworks */ = {
@@ -197,7 +202,12 @@
 			F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 			F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 			F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
-		/* End PBXFileReference section */
+			FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/SidebarContentMode.swift; sourceTree = "<group>"; };
+		FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeNode.swift; sourceTree = "<group>"; };
+		FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeModel.swift; sourceTree = "<group>"; };
+		FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeRow.swift; sourceTree = "<group>"; };
+		FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeSidebar.swift; sourceTree = "<group>"; };
+	/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 			A5001030 /* Frameworks */ = {
@@ -345,6 +355,7 @@
 				A5001219 /* WindowToolbarController.swift */,
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
+				FF000020A1B2C3D4E5F60020 /* FileTree */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -404,6 +415,18 @@
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 			);
 			path = cmuxTests;
+			sourceTree = "<group>";
+		};
+		FF000020A1B2C3D4E5F60020 /* FileTree */ = {
+			isa = PBXGroup;
+			children = (
+				FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */,
+				FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */,
+				FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */,
+				FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */,
+				FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */,
+			);
+			name = FileTree;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -574,6 +597,11 @@
 				A5001209 /* WindowToolbarController.swift in Sources */,
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
+				FF000011A1B2C3D4E5F60011 /* SidebarContentMode.swift in Sources */,
+				FF000012A1B2C3D4E5F60012 /* FileTreeNode.swift in Sources */,
+				FF000013A1B2C3D4E5F60013 /* FileTreeModel.swift in Sources */,
+				FF000014A1B2C3D4E5F60014 /* FileTreeRow.swift in Sources */,
+				FF000015A1B2C3D4E5F60015 /* FileTreeSidebar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

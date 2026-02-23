@@ -8,6 +8,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var sidebarContentModeState = SidebarContentModeState()
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -160,6 +161,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .environmentObject(sidebarContentModeState)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -410,6 +412,17 @@ struct cmuxApp: App {
             CommandGroup(after: .toolbar) {
                 Button("Toggle Sidebar") {
                     sidebarState.toggle()
+                }
+
+                Button("Toggle File Tree") {
+                    if sidebarContentModeState.mode == .fileTree {
+                        sidebarContentModeState.mode = .tabs
+                    } else {
+                        sidebarContentModeState.mode = .fileTree
+                        if !sidebarState.isVisible {
+                            sidebarState.toggle()
+                        }
+                    }
                 }
 
                 Divider()
