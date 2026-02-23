@@ -1491,115 +1491,34 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
-    func testFirstEntryAlwaysPinsToTopWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testFirstEntryPinsToTopAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 0,
-            previousIndex: 1,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 8, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .top)
+        XCTAssertEqual(anchor, UnitPoint.top)
     }
 
-    func testLastEntryAlwaysPinsToBottomWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testLastEntryPinsToBottomAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 19,
-            previousIndex: 18,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 188, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .bottom)
+        XCTAssertEqual(anchor, UnitPoint.bottom)
     }
 
-    func testFullyVisibleMiddleEntryDoesNotScroll() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testMiddleEntryUsesNilAnchorForMinimalScroll() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 6,
-            previousIndex: 5,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 120, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
         XCTAssertNil(anchor)
     }
 
-    func testOutOfViewMiddleEntryUsesDirectionForAnchor() {
-        let downAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 9,
-            previousIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 210, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(downAnchor, .bottom)
-
-        let upAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 8,
-            previousIndex: 9,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: -6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(upAnchor, .top)
-    }
-}
-
-final class CommandPaletteEdgeVisibilityCorrectionTests: XCTestCase {
-    func testTopEdgeReturnsTopWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+    func testEmptyResultsProduceNoAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(anchor, .top)
-    }
-
-    func testBottomEdgeReturnsBottomWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 170, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(anchor, .bottom)
-    }
-
-    func testPinnedTopAndBottomReturnNil() {
-        let topAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 0, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(topAnchor)
-
-        let bottomAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 192, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(bottomAnchor)
-    }
-
-    func testMiddleSelectionNeverForcesCorrection() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 96, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 0
         )
         XCTAssertNil(anchor)
     }
@@ -3289,6 +3208,63 @@ final class FinderServicePathResolverTests: XCTestCase {
                 "/tmp/cmux-services/a",
             ]
         )
+    }
+}
+
+final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
+    private func environment(
+        existingPaths: Set<String>,
+        homeDirectoryPath: String = "/Users/tester"
+    ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
+        TerminalDirectoryOpenTarget.DetectionEnvironment(
+            homeDirectoryPath: homeDirectoryPath,
+            fileExistsAtPath: { existingPaths.contains($0) }
+        )
+    }
+
+    func testAvailableTargetsDetectSystemApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/System/Library/CoreServices/Finder.app",
+                "/System/Applications/Utilities/Terminal.app",
+                "/Applications/Zed Preview.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.vscode))
+        XCTAssertTrue(availableTargets.contains(.finder))
+        XCTAssertTrue(availableTargets.contains(.terminal))
+        XCTAssertTrue(availableTargets.contains(.zed))
+        XCTAssertFalse(availableTargets.contains(.cursor))
+    }
+
+    func testAvailableTargetsFallbackToUserApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Users/tester/Applications/Cursor.app",
+                "/Users/tester/Applications/Warp.app",
+                "/Users/tester/Applications/Android Studio.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.cursor))
+        XCTAssertTrue(availableTargets.contains(.warp))
+        XCTAssertTrue(availableTargets.contains(.androidStudio))
+        XCTAssertFalse(availableTargets.contains(.vscode))
+    }
+
+    func testITerm2DetectsLegacyBundleName() {
+        let env = environment(existingPaths: ["/Applications/iTerm.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
+    }
+
+    func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
+        let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
     }
 }
 

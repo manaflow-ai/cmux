@@ -36,6 +36,188 @@ enum FinderServicePathResolver {
     }
 }
 
+enum TerminalDirectoryOpenTarget: String, CaseIterable {
+    case vscode
+    case cursor
+    case windsurf
+    case antigravity
+    case finder
+    case terminal
+    case iterm2
+    case ghostty
+    case warp
+    case xcode
+    case androidStudio
+    case zed
+
+    struct DetectionEnvironment {
+        let homeDirectoryPath: String
+        let fileExistsAtPath: (String) -> Bool
+
+        static let live = DetectionEnvironment(
+            homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+        )
+    }
+
+    static var commandPaletteShortcutTargets: [Self] {
+        Array(allCases)
+    }
+
+    static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
+        Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
+    }
+
+    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
+
+    var commandPaletteCommandId: String {
+        "palette.terminalOpenDirectory.\(rawValue)"
+    }
+
+    var commandPaletteTitle: String {
+        switch self {
+        case .vscode:
+            return "Open Current Directory in VS Code"
+        case .cursor:
+            return "Open Current Directory in Cursor"
+        case .windsurf:
+            return "Open Current Directory in Windsurf"
+        case .antigravity:
+            return "Open Current Directory in Antigravity"
+        case .finder:
+            return "Open Current Directory in Finder"
+        case .terminal:
+            return "Open Current Directory in Terminal"
+        case .iterm2:
+            return "Open Current Directory in iTerm2"
+        case .ghostty:
+            return "Open Current Directory in Ghostty"
+        case .warp:
+            return "Open Current Directory in Warp"
+        case .xcode:
+            return "Open Current Directory in Xcode"
+        case .androidStudio:
+            return "Open Current Directory in Android Studio"
+        case .zed:
+            return "Open Current Directory in Zed"
+        }
+    }
+
+    var commandPaletteKeywords: [String] {
+        let common = ["terminal", "directory", "open", "ide"]
+        switch self {
+        case .vscode:
+            return common + ["vs", "code", "visual", "studio"]
+        case .cursor:
+            return common + ["cursor"]
+        case .windsurf:
+            return common + ["windsurf"]
+        case .antigravity:
+            return common + ["antigravity"]
+        case .finder:
+            return common + ["finder", "file", "manager", "reveal"]
+        case .terminal:
+            return common + ["terminal", "shell"]
+        case .iterm2:
+            return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .ghostty:
+            return common + ["ghostty", "terminal", "shell"]
+        case .warp:
+            return common + ["warp", "terminal", "shell"]
+        case .xcode:
+            return common + ["xcode", "apple"]
+        case .androidStudio:
+            return common + ["android", "studio"]
+        case .zed:
+            return common + ["zed"]
+        }
+    }
+
+    func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
+        applicationPath(in: environment) != nil
+    }
+
+    func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
+        guard let path = applicationPath(in: environment) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private func applicationPath(in environment: DetectionEnvironment) -> String? {
+        for path in expandedCandidatePaths(in: environment) where environment.fileExistsAtPath(path) {
+            return path
+        }
+        return nil
+    }
+
+    private func expandedCandidatePaths(in environment: DetectionEnvironment) -> [String] {
+        let globalPrefix = "/Applications/"
+        let userPrefix = "\(environment.homeDirectoryPath)/Applications/"
+        var expanded: [String] = []
+
+        for candidate in applicationBundlePathCandidates {
+            expanded.append(candidate)
+            if candidate.hasPrefix(globalPrefix) {
+                let suffix = String(candidate.dropFirst(globalPrefix.count))
+                expanded.append(userPrefix + suffix)
+            }
+        }
+
+        return uniquePreservingOrder(expanded)
+    }
+
+    private var applicationBundlePathCandidates: [String] {
+        switch self {
+        case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
+        case .cursor:
+            return [
+                "/Applications/Cursor.app",
+                "/Applications/Cursor Preview.app",
+                "/Applications/Cursor Nightly.app",
+            ]
+        case .windsurf:
+            return ["/Applications/Windsurf.app"]
+        case .antigravity:
+            return ["/Applications/Antigravity.app"]
+        case .finder:
+            return ["/System/Library/CoreServices/Finder.app"]
+        case .terminal:
+            return ["/System/Applications/Utilities/Terminal.app"]
+        case .iterm2:
+            return [
+                "/Applications/iTerm.app",
+                "/Applications/iTerm2.app",
+            ]
+        case .ghostty:
+            return ["/Applications/Ghostty.app"]
+        case .warp:
+            return ["/Applications/Warp.app"]
+        case .xcode:
+            return ["/Applications/Xcode.app"]
+        case .androidStudio:
+            return ["/Applications/Android Studio.app"]
+        case .zed:
+            return [
+                "/Applications/Zed.app",
+                "/Applications/Zed Preview.app",
+                "/Applications/Zed Nightly.app",
+            ]
+        }
+    }
+
+    private func uniquePreservingOrder(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var deduped: [String] = []
+        for path in paths where seen.insert(path).inserted {
+            deduped.append(path)
+        }
+        return deduped
+    }
+}
+
 enum WorkspaceShortcutMapper {
     /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
     /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
