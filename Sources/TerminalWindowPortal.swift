@@ -17,6 +17,12 @@ private func portalDebugToken(_ view: NSView?) -> String {
 private func portalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
+
+private func portalDebugFrameInWindow(_ view: NSView?) -> String {
+    guard let view else { return "nil" }
+    guard view.window != nil else { return "no-window" }
+    return portalDebugFrame(view.convert(view.bounds, to: nil))
+}
 #endif
 
 final class WindowTerminalHostView: NSView {
@@ -536,6 +542,9 @@ final class WindowTerminalPortal: NSObject {
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
+#if DEBUG
+    private var lastLoggedBonsplitContainerSignature: String?
+#endif
 
     private struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
@@ -648,6 +657,35 @@ final class WindowTerminalPortal: NSObject {
         }
         return viewIndex > referenceIndex
     }
+
+#if DEBUG
+    private func nearestBonsplitContainer(from anchorView: NSView) -> NSView? {
+        var current: NSView? = anchorView
+        while let view = current {
+            let className = NSStringFromClass(type(of: view))
+            if className.contains("PaneDragContainerView") || className.contains("Bonsplit") {
+                return view
+            }
+            current = view.superview
+        }
+        return installedReferenceView
+    }
+
+    private func logBonsplitContainerFrameIfNeeded(anchorView: NSView, hostedView: GhosttySurfaceScrollView) {
+        guard let container = nearestBonsplitContainer(from: anchorView) else { return }
+        let containerFrame = container.convert(container.bounds, to: nil)
+        let signature = "\(ObjectIdentifier(container)):\(portalDebugFrame(containerFrame))"
+        guard signature != lastLoggedBonsplitContainerSignature else { return }
+        lastLoggedBonsplitContainerSignature = signature
+
+        let containerClass = NSStringFromClass(type(of: container))
+        dlog(
+            "portal.bonsplit.container hosted=\(portalDebugToken(hostedView)) " +
+            "class=\(containerClass) frame=\(portalDebugFrame(containerFrame)) " +
+            "host=\(portalDebugFrameInWindow(hostView)) anchor=\(portalDebugFrameInWindow(anchorView))"
+        )
+    }
+#endif
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
@@ -839,6 +877,9 @@ final class WindowTerminalPortal: NSObject {
 
         let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
         let frameInHost = hostView.convert(frameInWindow, from: nil)
+#if DEBUG
+        logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
+#endif
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
