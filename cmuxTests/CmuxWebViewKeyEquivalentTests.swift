@@ -1355,58 +1355,42 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 }
 
-final class CommandPaletteEdgeVisibilityCorrectionTests: XCTestCase {
-    func testTopEdgeReturnsTopWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+final class CommandPalettePendingSelectionScrollTests: XCTestCase {
+    func testNoPendingSelectionDisablesAutoScrollCorrection() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
+                pendingSelectedIndex: nil,
+                selectedIndex: 0,
+                resultCount: 20
+            )
         )
-        XCTAssertEqual(anchor, .top)
     }
 
-    func testBottomEdgeReturnsBottomWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 170, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+    func testPendingSelectionMustMatchCurrentSelection() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
+                pendingSelectedIndex: 3,
+                selectedIndex: 4,
+                resultCount: 20
+            )
         )
-        XCTAssertEqual(anchor, .bottom)
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
+                pendingSelectedIndex: 4,
+                selectedIndex: 4,
+                resultCount: 20
+            )
+        )
     }
 
-    func testPinnedTopAndBottomReturnNil() {
-        let topAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 0, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+    func testEmptyResultsNeverApplyPendingScroll() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
+                pendingSelectedIndex: 0,
+                selectedIndex: 0,
+                resultCount: 0
+            )
         )
-        XCTAssertNil(topAnchor)
-
-        let bottomAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 192, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(bottomAnchor)
-    }
-
-    func testMiddleSelectionNeverForcesCorrection() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 96, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(anchor)
     }
 }
 

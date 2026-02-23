@@ -69,6 +69,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
     }
 
+    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
+
     var commandPaletteCommandId: String {
         switch self {
         case .defaultIDE:
