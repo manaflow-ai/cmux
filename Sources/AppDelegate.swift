@@ -349,6 +349,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let visibleFrame: CGRect
     }
 
+    private struct PersistedWindowGeometry: Codable, Sendable {
+        let frame: SessionRectSnapshot
+        let display: SessionDisplaySnapshot?
+    }
+
+    private static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v1"
+
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
@@ -734,29 +741,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
+    private func persistedWindowGeometry(
+        defaults: UserDefaults = .standard
+    ) -> PersistedWindowGeometry? {
+        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data)
+    }
+
+    private func persistWindowGeometry(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?,
+        defaults: UserDefaults = .standard
+    ) {
+        guard let frame else { return }
+        let payload = PersistedWindowGeometry(frame: frame, display: display)
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+    }
+
+    private func persistWindowGeometry(from window: NSWindow?) {
+        guard let window else { return }
+        persistWindowGeometry(
+            frame: SessionRectSnapshot(window.frame),
+            display: displaySnapshot(for: window)
+        )
+    }
+
+    private func currentDisplayGeometries() -> (
+        available: [SessionDisplayGeometry],
+        fallback: SessionDisplayGeometry?
+    ) {
+        let available = NSScreen.screens.map { screen in
+            SessionDisplayGeometry(
+                displayID: screen.cmuxDisplayID,
+                frame: screen.frame,
+                visibleFrame: screen.visibleFrame
+            )
+        }
+        let fallback = (NSScreen.main ?? NSScreen.screens.first).map { screen in
+            SessionDisplayGeometry(
+                displayID: screen.cmuxDisplayID,
+                frame: screen.frame,
+                visibleFrame: screen.visibleFrame
+            )
+        }
+        return (available, fallback)
+    }
+
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
         guard !didAttemptStartupSessionRestore else { return }
         didAttemptStartupSessionRestore = true
         guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let startupSessionSnapshot else { return }
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
-        guard let primaryWindowSnapshot = startupSessionSnapshot.windows.first else { return }
 
-        applySessionWindowSnapshot(
-            primaryWindowSnapshot,
-            to: primaryContext,
-            window: primaryWindow
-        )
+        let startupSnapshot = startupSessionSnapshot
+        let primaryWindowSnapshot = startupSnapshot?.windows.first
+        if let primaryWindowSnapshot {
+            applySessionWindowSnapshot(
+                primaryWindowSnapshot,
+                to: primaryContext,
+                window: primaryWindow
+            )
+        } else {
+            let displays = currentDisplayGeometries()
+            let fallbackGeometry = persistedWindowGeometry()
+            if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
+                primarySnapshot: nil,
+                fallbackFrame: fallbackGeometry?.frame,
+                fallbackDisplaySnapshot: fallbackGeometry?.display,
+                availableDisplays: displays.available,
+                fallbackDisplay: displays.fallback
+            ) {
+                primaryWindow.setFrame(restoredFrame, display: true)
+            }
+        }
 
-        let additionalWindows = startupSessionSnapshot
-            .windows
-            .dropFirst()
-            .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1))
-        if !additionalWindows.isEmpty {
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                for windowSnapshot in additionalWindows {
-                    _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+        if let startupSnapshot {
+            let additionalWindows = startupSnapshot
+                .windows
+                .dropFirst()
+                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1))
+            if !additionalWindows.isEmpty {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    for windowSnapshot in additionalWindows {
+                        _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                    }
                 }
             }
         }
@@ -782,25 +854,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
-        let displays = NSScreen.screens.map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
-        }
-        let fallbackDisplay = (NSScreen.main ?? NSScreen.screens.first).map { screen in
-            SessionDisplayGeometry(
-                displayID: screen.cmuxDisplayID,
-                frame: screen.frame,
-                visibleFrame: screen.visibleFrame
-            )
-        }
-
+        let displays = currentDisplayGeometries()
         return Self.resolvedWindowFrame(
             from: snapshot?.frame,
             display: snapshot?.display,
-            availableDisplays: displays,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
+    }
+
+    nonisolated static func resolvedStartupPrimaryWindowFrame(
+        primarySnapshot: SessionWindowSnapshot?,
+        fallbackFrame: SessionRectSnapshot?,
+        fallbackDisplaySnapshot: SessionDisplaySnapshot?,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect? {
+        if let primary = resolvedWindowFrame(
+            from: primarySnapshot?.frame,
+            display: primarySnapshot?.display,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        ) {
+            return primary
+        }
+
+        return resolvedWindowFrame(
+            from: fallbackFrame,
+            display: fallbackDisplaySnapshot,
+            availableDisplays: availableDisplays,
             fallbackDisplay: fallbackDisplay
         )
     }
@@ -1106,6 +1188,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 SessionPersistenceStore.removeSnapshot()
             }
             return false
+        }
+        if let primaryWindow = snapshot.windows.first {
+            persistWindowGeometry(
+                frame: primaryWindow.frame,
+                display: primaryWindow.display
+            )
         }
         return SessionPersistenceStore.save(snapshot)
     }
@@ -4301,6 +4389,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        // Keep geometry available as a fallback even if the full session snapshot
+        // is removed when the last window closes.
+        persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)

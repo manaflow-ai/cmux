@@ -312,6 +312,74 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 350, accuracy: 0.001)
     }
 
+    func testResolvedStartupPrimaryWindowFrameFallsBackToPersistedGeometryWhenPrimaryMissing() {
+        let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
+        let fallbackDisplay = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+
+        let restored = AppDelegate.resolvedStartupPrimaryWindowFrame(
+            primarySnapshot: nil,
+            fallbackFrame: fallbackFrame,
+            fallbackDisplaySnapshot: fallbackDisplay,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 180, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 140, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 900, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 640, accuracy: 0.001)
+    }
+
+    func testResolvedStartupPrimaryWindowFramePrefersPrimarySnapshotOverFallback() {
+        let primarySnapshot = SessionWindowSnapshot(
+            frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
+            display: SessionDisplaySnapshot(
+                displayID: 1,
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+            ),
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 220)
+        )
+        let fallbackFrame = SessionRectSnapshot(x: 40, y: 30, width: 700, height: 500)
+        let fallbackDisplay = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+
+        let restored = AppDelegate.resolvedStartupPrimaryWindowFrame(
+            primarySnapshot: primarySnapshot,
+            fallbackFrame: fallbackFrame,
+            fallbackDisplaySnapshot: fallbackDisplay,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 220, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 160, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 980, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 700, accuracy: 0.001)
+    }
+
     func testResolvedWindowFrameCentersInFallbackDisplayWhenOffscreen() {
         let savedFrame = SessionRectSnapshot(x: 4_000, y: 4_000, width: 900, height: 700)
         let display = AppDelegate.SessionDisplayGeometry(
