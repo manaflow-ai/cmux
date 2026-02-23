@@ -324,6 +324,7 @@ struct BrowserPanelView: View {
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
+            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
         }
         .onChange(of: panel.focusFlashToken) { _ in
@@ -363,6 +364,7 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 addressBarFocused = false
             }
+            syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
@@ -390,6 +392,7 @@ struct BrowserPanelView: View {
                 }
                 inlineCompletion = nil
             }
+            syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
@@ -713,6 +716,21 @@ struct BrowserPanelView: View {
         }
         focusFlashFadeWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
+    }
+
+    private func syncWebViewResponderPolicyWithViewState(reason: String) {
+        guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
+        let next = isFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) reason=\(reason)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     private func syncURLFromPanel() {
