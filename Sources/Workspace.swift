@@ -332,28 +332,10 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(from: config.backgroundColor)
     }
 
-    private static func usesDarkChrome(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
-    ) -> Bool {
-        guard let appAppearance else { return false }
-        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-    }
-
-    private static func resolvedChromeBackgroundHex(
-        from backgroundColor: NSColor,
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
-    ) -> String? {
-        guard usesDarkChrome(appAppearance: appAppearance) else { return nil }
-        return backgroundColor.hexString()
-    }
-
-    private static func resolvedChromeColors(
+    nonisolated static func resolvedChromeColors(
         from backgroundColor: NSColor
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
-        guard let backgroundHex = resolvedChromeBackgroundHex(from: backgroundColor) else {
-            return .init()
-        }
-        return .init(backgroundHex: backgroundHex)
+        .init(backgroundHex: backgroundColor.hexString())
     }
 
     private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {

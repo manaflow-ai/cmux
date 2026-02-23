@@ -208,6 +208,30 @@ final class GhosttyConfigTests: XCTestCase {
     }
 }
 
+final class WorkspaceChromeThemeTests: XCTestCase {
+    func testResolvedChromeColorsUsesLightGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
+        XCTAssertNil(colors.borderHex)
+    }
+
+    func testResolvedChromeColorsUsesDarkGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertNil(colors.borderHex)
+    }
+}
+
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
