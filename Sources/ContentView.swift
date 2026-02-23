@@ -843,7 +843,6 @@ struct ContentView: View {
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    @State private var titlebarThemeUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
@@ -1261,9 +1260,14 @@ struct ContentView: View {
         }
     }
 
-    private func scheduleTitlebarThemeRefresh() {
-        titlebarThemeUpdateCoalescer.signal {
+    private func scheduleTitlebarThemeRefresh(reason: String) {
+        withTransaction(Transaction(animation: nil)) {
             titlebarThemeGeneration &+= 1
+        }
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "titlebar theme refresh reason=\(reason) generation=\(titlebarThemeGeneration)"
+            )
         }
     }
 
@@ -1406,11 +1410,16 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyConfigDidReload"))) { _ in
-            scheduleTitlebarThemeRefresh()
+            scheduleTitlebarThemeRefresh(reason: "ghosttyConfigDidReload")
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { _ in
-            scheduleTitlebarThemeRefresh()
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: Notification.Name("ghosttyDefaultBackgroundDidChange"))) { notification in
+            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
+            let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
+            scheduleTitlebarThemeRefresh(
+                reason: "ghosttyDefaultBackgroundDidChange:event=\(eventId.map(String.init) ?? "nil"):source=\(source):payload=\(payloadHex)"
+            )
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidBecomeFirstResponderSurface)) { notification in

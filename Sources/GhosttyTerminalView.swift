@@ -283,7 +283,9 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
-        GhosttyDefaultBackgroundNotificationDispatcher(logEvent: { [weak self] message in
+        // Theme chrome should track terminal theme changes in the same frame.
+        // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
+        GhosttyDefaultBackgroundNotificationDispatcher(delay: 0, logEvent: { [weak self] message in
             guard let self, self.backgroundLogEnabled else { return }
             self.logBackground(message)
         })

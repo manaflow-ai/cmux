@@ -183,7 +183,9 @@ struct WorkspaceContentView: View {
         logTheme(
             "theme refresh workspace=\(workspace.id.uuidString) reason=\(reason) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
-        config = next
+        withTransaction(Transaction(animation: nil)) {
+            config = next
+        }
         workspace.applyGhosttyChrome(from: next)
     }
 
