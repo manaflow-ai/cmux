@@ -1353,44 +1353,27 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
         )
         XCTAssertEqual(upAnchor, .top)
     }
-}
 
-final class CommandPalettePendingSelectionScrollTests: XCTestCase {
-    func testNoPendingSelectionDisablesAutoScrollCorrection() {
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
-                pendingSelectedIndex: nil,
-                selectedIndex: 0,
-                resultCount: 20
-            )
+    func testNilSelectedFrameStillScrollsByDirection() {
+        let downAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 10,
+            previousIndex: 9,
+            resultCount: 20,
+            selectedFrame: nil,
+            viewportHeight: 216,
+            contentHeight: 480
         )
-    }
+        XCTAssertEqual(downAnchor, .bottom)
 
-    func testPendingSelectionMustMatchCurrentSelection() {
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
-                pendingSelectedIndex: 3,
-                selectedIndex: 4,
-                resultCount: 20
-            )
+        let upAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 9,
+            previousIndex: 10,
+            resultCount: 20,
+            selectedFrame: nil,
+            viewportHeight: 216,
+            contentHeight: 480
         )
-        XCTAssertTrue(
-            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
-                pendingSelectedIndex: 4,
-                selectedIndex: 4,
-                resultCount: 20
-            )
-        )
-    }
-
-    func testEmptyResultsNeverApplyPendingScroll() {
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldApplyPendingSelectionScroll(
-                pendingSelectedIndex: 0,
-                selectedIndex: 0,
-                resultCount: 0
-            )
-        )
+        XCTAssertEqual(upAnchor, .top)
     }
 }
 

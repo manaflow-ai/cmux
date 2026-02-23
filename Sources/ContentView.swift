@@ -1121,7 +1121,7 @@ struct ContentView: View {
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteHoveredResultIndex: Int?
     @State private var commandPaletteLastSelectionIndex: Int = 0
-    @State private var commandPalettePendingScrollRequest: CommandPaletteSelectionScrollRequest?
+    @State private var commandPaletteRowFrames: [Int: CGRect] = [:]
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -1200,14 +1200,6 @@ struct ContentView: View {
     enum CommandPaletteScrollAnchor: Equatable {
         case top
         case bottom
-    }
-
-    private struct CommandPaletteSelectionScrollRequest {
-        let selectedIndex: Int
-        let previousIndex: Int
-        let resultCount: Int
-        let viewportHeight: CGFloat
-        let contentHeight: CGFloat
     }
 
     private struct CommandPaletteTrailingLabel {
@@ -2485,17 +2477,11 @@ struct ContentView: View {
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(rowBackground)
                                     .background(
-                                        Group {
-                                            if isSelected {
-                                                GeometryReader { geometry in
-                                                    Color.clear.preference(
-                                                        key: CommandPaletteRowFramePreferenceKey.self,
-                                                        value: [index: geometry.frame(in: .named("commandPaletteListScroll"))]
-                                                    )
-                                                }
-                                            } else {
-                                                Color.clear
-                                            }
+                                        GeometryReader { geometry in
+                                            Color.clear.preference(
+                                                key: CommandPaletteRowFramePreferenceKey.self,
+                                                value: [index: geometry.frame(in: .named("commandPaletteListScroll"))]
+                                            )
                                         }
                                     )
                                     .contentShape(Rectangle())
@@ -2518,58 +2504,38 @@ struct ContentView: View {
                 .coordinateSpace(name: "commandPaletteListScroll")
                 .frame(height: commandPaletteListHeight)
                 .onChange(of: commandPaletteSelectedResultIndex) { _ in
-                    guard !visibleResults.isEmpty else {
-                        commandPalettePendingScrollRequest = nil
-                        return
-                    }
+                    guard !visibleResults.isEmpty else { return }
                     let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
                     let previousIndex = commandPaletteLastSelectionIndex
-                    commandPaletteLastSelectionIndex = index
-                    commandPalettePendingScrollRequest = CommandPaletteSelectionScrollRequest(
+                    defer { commandPaletteLastSelectionIndex = index }
+
+                    guard let anchorDecision = Self.commandPaletteScrollAnchor(
                         selectedIndex: index,
                         previousIndex: previousIndex,
                         resultCount: visibleResults.count,
+                        selectedFrame: commandPaletteRowFrames[index],
                         viewportHeight: commandPaletteListHeight,
                         contentHeight: commandPaletteListContentHeight
-                    )
+                    ) else { return }
+
+                    let anchor: UnitPoint
+                    switch anchorDecision {
+                    case .top:
+                        anchor = .top
+                    case .bottom:
+                        anchor = .bottom
+                    }
+                    DispatchQueue.main.async {
+                        withAnimation(.easeOut(duration: 0.1)) {
+                            proxy.scrollTo(index, anchor: anchor)
+                        }
+                    }
                 }
                 .onChange(of: visibleResults.count) { _ in
                     commandPaletteLastSelectionIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-                    commandPalettePendingScrollRequest = nil
                 }
                 .onPreferenceChange(CommandPaletteRowFramePreferenceKey.self) { frames in
-                    guard let request = commandPalettePendingScrollRequest else { return }
-                    let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-                    guard Self.commandPaletteShouldApplyPendingSelectionScroll(
-                        pendingSelectedIndex: request.selectedIndex,
-                        selectedIndex: selectedIndex,
-                        resultCount: visibleResults.count
-                    ) else {
-                        commandPalettePendingScrollRequest = nil
-                        return
-                    }
-                    guard request.resultCount == visibleResults.count else {
-                        commandPalettePendingScrollRequest = nil
-                        return
-                    }
-                    guard let anchorDecision = Self.commandPaletteScrollAnchor(
-                        selectedIndex: request.selectedIndex,
-                        previousIndex: request.previousIndex,
-                        resultCount: request.resultCount,
-                        selectedFrame: frames[request.selectedIndex],
-                        viewportHeight: request.viewportHeight,
-                        contentHeight: request.contentHeight
-                    ) else {
-                        commandPalettePendingScrollRequest = nil
-                        return
-                    }
-                    let anchor: UnitPoint = anchorDecision == .top ? .top : .bottom
-                    commandPalettePendingScrollRequest = nil
-                    DispatchQueue.main.async {
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(request.selectedIndex, anchor: anchor)
-                        }
-                    }
+                    commandPaletteRowFrames = frames
                 }
             }
 
@@ -2586,20 +2552,19 @@ struct ContentView: View {
         .onAppear {
             commandPaletteHoveredResultIndex = nil
             commandPaletteLastSelectionIndex = commandPaletteSelectedResultIndex
-            commandPalettePendingScrollRequest = nil
+            commandPaletteRowFrames = [:]
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { _ in
             commandPaletteSelectedResultIndex = 0
             commandPaletteHoveredResultIndex = nil
             commandPaletteLastSelectionIndex = 0
-            commandPalettePendingScrollRequest = nil
+            commandPaletteRowFrames = [:]
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: visibleResults.count) { _ in
             commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
             commandPaletteLastSelectionIndex = commandPaletteSelectedResultIndex
-            commandPalettePendingScrollRequest = nil
             if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResults.count {
                 commandPaletteHoveredResultIndex = nil
             }
@@ -4022,15 +3987,6 @@ struct ContentView: View {
         return selectedIndex >= previousIndex ? .bottom : .top
     }
 
-    static func commandPaletteShouldApplyPendingSelectionScroll(
-        pendingSelectedIndex: Int?,
-        selectedIndex: Int,
-        resultCount: Int
-    ) -> Bool {
-        guard resultCount > 0, let pendingSelectedIndex else { return false }
-        return pendingSelectedIndex == selectedIndex
-    }
-
     private func moveCommandPaletteSelection(by delta: Int) {
         let count = commandPaletteResults.count
         guard count > 0 else {
@@ -4223,7 +4179,7 @@ struct ContentView: View {
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
         commandPaletteLastSelectionIndex = 0
-        commandPalettePendingScrollRequest = nil
+        commandPaletteRowFrames = [:]
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -4237,7 +4193,7 @@ struct ContentView: View {
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
         commandPaletteLastSelectionIndex = 0
-        commandPalettePendingScrollRequest = nil
+        commandPaletteRowFrames = [:]
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
