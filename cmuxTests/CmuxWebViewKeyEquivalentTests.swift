@@ -5111,6 +5111,38 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserExternalNavigationSchemeTests: XCTestCase {
+    func testCustomAppSchemesOpenExternally() throws {
+        let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
+        let slack = try XCTUnwrap(URL(string: "slack://open"))
+        let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
+        let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
+
+        XCTAssertTrue(browserShouldOpenURLExternally(discord))
+        XCTAssertTrue(browserShouldOpenURLExternally(slack))
+        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
+        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
+    }
+
+    func testEmbeddedBrowserSchemesStayInWebView() throws {
+        let https = try XCTUnwrap(URL(string: "https://example.com"))
+        let http = try XCTUnwrap(URL(string: "http://example.com"))
+        let about = try XCTUnwrap(URL(string: "about:blank"))
+        let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
+        let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
+
+        XCTAssertFalse(browserShouldOpenURLExternally(https))
+        XCTAssertFalse(browserShouldOpenURLExternally(http))
+        XCTAssertFalse(browserShouldOpenURLExternally(about))
+        XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
+        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
+    }
+}
+
 final class BrowserHostWhitelistTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
