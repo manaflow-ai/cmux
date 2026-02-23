@@ -329,10 +329,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(
-            from: config.backgroundColor,
-            splitDividerColor: config.resolvedSplitDividerColor
-        )
+        bonsplitAppearance(from: config.backgroundColor)
     }
 
     private static func usesDarkChrome(
@@ -350,39 +347,17 @@ final class Workspace: Identifiable, ObservableObject {
         return backgroundColor.hexString()
     }
 
-    private static func resolvedChromeBorderColor(
-        from backgroundColor: NSColor,
-        splitDividerColor: NSColor?
-    ) -> NSColor {
-        if let splitDividerColor {
-            return splitDividerColor
-        }
-        let isLightBackground = backgroundColor.isLightColor
-        return backgroundColor.darken(by: isLightBackground ? 0.08 : 0.4)
-    }
-
     private static func resolvedChromeColors(
-        from backgroundColor: NSColor,
-        splitDividerColor: NSColor? = nil
+        from backgroundColor: NSColor
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         guard let backgroundHex = resolvedChromeBackgroundHex(from: backgroundColor) else {
             return .init()
         }
-        let borderHex = resolvedChromeBorderColor(
-            from: backgroundColor,
-            splitDividerColor: splitDividerColor
-        ).hexString()
-        return .init(backgroundHex: backgroundHex, borderHex: borderHex)
+        return .init(backgroundHex: backgroundHex)
     }
 
-    private static func bonsplitAppearance(
-        from backgroundColor: NSColor,
-        splitDividerColor: NSColor? = nil
-    ) -> BonsplitConfiguration.Appearance {
-        let chromeColors = resolvedChromeColors(
-            from: backgroundColor,
-            splitDividerColor: splitDividerColor
-        )
+    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
+        let chromeColors = resolvedChromeColors(from: backgroundColor)
         return BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
@@ -391,24 +366,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig) {
-        applyGhosttyChrome(
-            backgroundColor: config.backgroundColor,
-            splitDividerColor: config.resolvedSplitDividerColor
-        )
+        applyGhosttyChrome(backgroundColor: config.backgroundColor)
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor) {
-        applyGhosttyChrome(backgroundColor: backgroundColor, splitDividerColor: nil)
-    }
-
-    private func applyGhosttyChrome(
-        backgroundColor: NSColor,
-        splitDividerColor: NSColor?
-    ) {
-        let nextChromeColors = Self.resolvedChromeColors(
-            from: backgroundColor,
-            splitDividerColor: splitDividerColor
-        )
+        let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
         if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextChromeColors.backgroundHex &&
             bonsplitController.configuration.appearance.chromeColors.borderHex == nextChromeColors.borderHex {
             return
