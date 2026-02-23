@@ -20,6 +20,8 @@ AcceptEnv TERM_PROGRAM TERM_PROGRAM_VERSION COLORTERM
 
 X11Forwarding no
 AllowTcpForwarding yes
+AllowStreamLocalForwarding yes
+StreamLocalBindUnlink yes
 GatewayPorts no
 PermitTunnel no
 ClientAliveInterval 30
