@@ -555,6 +555,30 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
 }
 
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
+    func testRenameTabShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.label, "Rename Tab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.defaultsKey, "shortcut.renameTab")
+
+        let shortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
+        XCTAssertEqual(shortcut.key, "r")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testCloseWindowShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWindow.label, "Close Window")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWindow.defaultsKey, "shortcut.closeWindow")
+
+        let shortcut = KeyboardShortcutSettings.Action.closeWindow.defaultShortcut
+        XCTAssertEqual(shortcut.key, "w")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertTrue(shortcut.control)
+    }
+
     func testRenameWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.label, "Rename Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey, "shortcut.renameWorkspace")

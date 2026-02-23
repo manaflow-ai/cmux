@@ -8230,6 +8230,37 @@ class TerminalController {
     }
 
 #if DEBUG
+    private func debugShortcutName(for action: KeyboardShortcutSettings.Action) -> String {
+        let snakeCase = action.rawValue.replacingOccurrences(
+            of: "([a-z0-9])([A-Z])",
+            with: "$1_$2",
+            options: .regularExpression
+        )
+        return snakeCase.lowercased()
+    }
+
+    private func debugShortcutAction(named rawName: String) -> KeyboardShortcutSettings.Action? {
+        let normalized = rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let snakeCaseName = debugShortcutName(for: action)
+            if normalized == snakeCaseName || normalized == snakeCaseName.replacingOccurrences(of: "_", with: "") {
+                return action
+            }
+        }
+        return nil
+    }
+
+    private func debugShortcutSupportedNames() -> String {
+        KeyboardShortcutSettings.Action.allCases
+            .map(debugShortcutName(for:))
+            .sorted()
+            .joined(separator: ", ")
+    }
+
     private func setShortcut(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -8237,29 +8268,15 @@ class TerminalController {
             return "ERROR: Usage: set_shortcut <name> <combo|clear>"
         }
 
-        let name = parts[0].lowercased()
+        let name = parts[0]
         let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaultsKey: String?
-        switch name {
-        case "focus_left", "focusleft":
-            defaultsKey = KeyboardShortcutSettings.focusLeftKey
-        case "focus_right", "focusright":
-            defaultsKey = KeyboardShortcutSettings.focusRightKey
-        case "focus_up", "focusup":
-            defaultsKey = KeyboardShortcutSettings.focusUpKey
-        case "focus_down", "focusdown":
-            defaultsKey = KeyboardShortcutSettings.focusDownKey
-        default:
-            defaultsKey = nil
-        }
-
-        guard let defaultsKey else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down"
+        guard let action = debugShortcutAction(named: name) else {
+            return "ERROR: Unknown shortcut name. Supported: \(debugShortcutSupportedNames())"
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             return "OK"
         }
 
@@ -8277,7 +8294,7 @@ class TerminalController {
         guard let data = try? JSONEncoder().encode(shortcut) else {
             return "ERROR: Failed to encode shortcut"
         }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.standard.set(data, forKey: action.defaultsKey)
         return "OK"
     }
 

@@ -8,6 +8,7 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newWindow
+        case closeWindow
         case showNotifications
         case jumpToUnread
         case triggerFlash
@@ -17,6 +18,7 @@ enum KeyboardShortcutSettings {
         case prevSurface
         case nextSidebarTab
         case prevSidebarTab
+        case renameTab
         case renameWorkspace
         case closeWorkspace
         case newSurface
@@ -43,6 +45,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return "Toggle Sidebar"
             case .newTab: return "New Workspace"
             case .newWindow: return "New Window"
+            case .closeWindow: return "Close Window"
             case .showNotifications: return "Show Notifications"
             case .jumpToUnread: return "Jump to Latest Unread"
             case .triggerFlash: return "Flash Focused Panel"
@@ -50,6 +53,7 @@ enum KeyboardShortcutSettings {
             case .prevSurface: return "Previous Surface"
             case .nextSidebarTab: return "Next Workspace"
             case .prevSidebarTab: return "Previous Workspace"
+            case .renameTab: return "Rename Tab"
             case .renameWorkspace: return "Rename Workspace"
             case .closeWorkspace: return "Close Workspace"
             case .newSurface: return "New Surface"
@@ -72,11 +76,13 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return "shortcut.toggleSidebar"
             case .newTab: return "shortcut.newTab"
             case .newWindow: return "shortcut.newWindow"
+            case .closeWindow: return "shortcut.closeWindow"
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
             case .triggerFlash: return "shortcut.triggerFlash"
             case .nextSidebarTab: return "shortcut.nextSidebarTab"
             case .prevSidebarTab: return "shortcut.prevSidebarTab"
+            case .renameTab: return "shortcut.renameTab"
             case .renameWorkspace: return "shortcut.renameWorkspace"
             case .closeWorkspace: return "shortcut.closeWorkspace"
             case .focusLeft: return "shortcut.focusLeft"
@@ -104,6 +110,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newWindow:
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
+            case .closeWindow:
+                return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
             case .showNotifications:
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:
@@ -114,6 +122,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: true)
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
+            case .renameTab:
+                return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .closeWorkspace:

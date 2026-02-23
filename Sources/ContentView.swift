@@ -2380,7 +2380,7 @@ struct ContentView: View {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .regular))
-                    .tint(.blue)
+                    .tint(.white)
                     .focused($isCommandPaletteSearchFocused)
                     .onSubmit {
                         runSelectedCommandPaletteResult(visibleResults: visibleResults)
@@ -2582,7 +2582,7 @@ struct ContentView: View {
             TextField(target.placeholder, text: $commandPaletteRenameDraft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .regular))
-                .tint(.blue)
+                .tint(.white)
                 .focused($isCommandPaletteRenameFocused)
                 .backport.onKeyPress(.delete) { modifiers in
                     handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
@@ -2941,7 +2941,7 @@ struct ContentView: View {
                     rank: nextRank,
                     title: contribution.title(context),
                     subtitle: contribution.subtitle(context),
-                    shortcutHint: commandPaletteShortcutHint(for: contribution),
+                    shortcutHint: commandPaletteShortcutHint(for: contribution, context: context),
                     keywords: contribution.keywords,
                     dismissOnRun: contribution.dismissOnRun,
                     action: action
@@ -2953,7 +2953,15 @@ struct ContentView: View {
         return commands
     }
 
-    private func commandPaletteShortcutHint(for contribution: CommandPaletteCommandContribution) -> String? {
+    private func commandPaletteShortcutHint(
+        for contribution: CommandPaletteCommandContribution,
+        context: CommandPaletteContextSnapshot
+    ) -> String? {
+        // Preserve browser reload semantics for Cmd+R when a browser tab is focused.
+        if contribution.commandId == "palette.renameTab",
+           context.bool(CommandPaletteContextKeys.panelIsBrowser) {
+            return nil
+        }
         if let action = commandPaletteShortcutAction(for: contribution.commandId) {
             return KeyboardShortcutSettings.shortcut(for: action).displayString
         }
@@ -2967,16 +2975,22 @@ struct ContentView: View {
         switch commandId {
         case "palette.newWorkspace":
             return .newTab
+        case "palette.newWindow":
+            return .newWindow
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
             return .openBrowser
+        case "palette.closeWindow":
+            return .closeWindow
         case "palette.toggleSidebar":
             return .toggleSidebar
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":
             return .jumpToUnread
+        case "palette.renameTab":
+            return .renameTab
         case "palette.renameWorkspace":
             return .renameWorkspace
         case "palette.nextWorkspace":
@@ -3110,6 +3124,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newWindow",
+                title: constant("New Window"),
+                subtitle: constant("Window"),
+                keywords: ["create", "new", "window"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant("New Tab (Terminal)"),
                 subtitle: constant("Tab"),
@@ -3142,6 +3164,14 @@ struct ContentView: View {
                 subtitle: constant("Workspace"),
                 shortcutHint: "⌘⇧W",
                 keywords: ["close", "workspace"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeWindow",
+                title: constant("Close Window"),
+                subtitle: constant("Window"),
+                keywords: ["close", "window"]
             )
         )
         contributions.append(
@@ -3543,6 +3573,9 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
         }
+        registry.register(commandId: "palette.newWindow") {
+            AppDelegate.shared?.openNewMainWindow(nil)
+        }
         registry.register(commandId: "palette.newTerminalTab") {
             tabManager.newSurface()
         }
@@ -3554,6 +3587,13 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.closeWorkspace") {
             tabManager.closeCurrentWorkspaceWithConfirmation()
+        }
+        registry.register(commandId: "palette.closeWindow") {
+            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+                NSSound.beep()
+                return
+            }
+            window.performClose(nil)
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             _ = tabManager.reopenMostRecentlyClosedBrowserPanel()
