@@ -2479,6 +2479,7 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage("sidebarFileTreeLayout") private var fileTreeLayout = SidebarFileTreeLayout.toggle.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2594,6 +2595,23 @@ struct SettingsView: View {
                             Picker("", selection: $sidebarBranchVerticalLayout) {
                                 Text("Vertical").tag(true)
                                 Text("Inline").tag(false)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Sidebar File Tree",
+                            subtitle: fileTreeLayout == SidebarFileTreeLayout.split.rawValue
+                                ? "Split: tabs and file tree shown together with a draggable divider."
+                                : "Toggle: switch between tabs and file tree with Cmd+Shift+E.",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $fileTreeLayout) {
+                                Text("Toggle").tag(SidebarFileTreeLayout.toggle.rawValue)
+                                Text("Split").tag(SidebarFileTreeLayout.split.rawValue)
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)

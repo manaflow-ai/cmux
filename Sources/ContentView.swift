@@ -824,6 +824,9 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @EnvironmentObject var sidebarContentModeState: SidebarContentModeState
     @StateObject private var fileTreeModel = FileTreeModel()
+    @AppStorage("sidebarFileTreeLayout") private var fileTreeLayout = SidebarFileTreeLayout.toggle.rawValue
+    @State private var splitDividerRatio: CGFloat = 0.4
+    @State private var splitDragStartRatio: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -1092,6 +1095,19 @@ struct ContentView: View {
                 .frame(height: 28) // traffic light padding
             sidebarModeHeader
             Divider().opacity(0.5)
+            if fileTreeLayout == SidebarFileTreeLayout.split.rawValue {
+                sidebarSplitContent
+            } else {
+                sidebarToggleContent
+            }
+        }
+        .frame(width: sidebarWidth)
+        .ignoresSafeArea()
+        .background(SidebarBackdrop().ignoresSafeArea())
+    }
+
+    private var sidebarToggleContent: some View {
+        Group {
             switch sidebarContentModeState.mode {
             case .tabs:
                 VerticalTabsSidebar(
@@ -1119,32 +1135,108 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(width: sidebarWidth)
-        .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
+    }
+
+    private var sidebarSplitContent: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                VerticalTabsSidebar(
+                    updateViewModel: updateViewModel,
+                    selection: $sidebarSelectionState.selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+                .frame(height: geo.size.height * splitDividerRatio)
+
+                splitDividerHandle
+
+                if let workspace = tabManager.selectedWorkspace {
+                    FileTreeSidebar(
+                        model: fileTreeModel,
+                        workspace: workspace,
+                        onFileAction: { path in
+                            openInEditor(path, tabManager: tabManager)
+                        }
+                    )
+                    .frame(maxHeight: .infinity)
+                } else {
+                    VStack {
+                        Spacer()
+                        Text("No workspace")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    private var splitDividerHandle: some View {
+        ZStack {
+            Divider()
+        }
+        .frame(height: 8)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    guard let parent = NSApp.keyWindow?.contentView else { return }
+                    let parentHeight = parent.frame.height
+                    guard parentHeight > 0 else { return }
+                    if splitDragStartRatio == nil {
+                        splitDragStartRatio = splitDividerRatio
+                    }
+                    let delta = value.translation.height / parentHeight
+                    let newRatio = (splitDragStartRatio ?? splitDividerRatio) + delta
+                    splitDividerRatio = min(max(newRatio, 0.15), 0.85)
+                }
+                .onEnded { _ in
+                    splitDragStartRatio = nil
+                }
+        )
+    }
+
+    private var isSplitLayout: Bool {
+        fileTreeLayout == SidebarFileTreeLayout.split.rawValue
+    }
+
+    private var showFileTreeControls: Bool {
+        isSplitLayout || sidebarContentModeState.mode == .fileTree
     }
 
     private var sidebarModeHeader: some View {
         HStack(spacing: 6) {
-            Button {
-                sidebarContentModeState.mode = .tabs
-            } label: {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(sidebarContentModeState.mode == .tabs ? .accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
+            if !isSplitLayout {
+                Button {
+                    sidebarContentModeState.mode = .tabs
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(sidebarContentModeState.mode == .tabs ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
 
-            Button {
-                sidebarContentModeState.mode = .fileTree
-            } label: {
-                Image(systemName: "folder")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(sidebarContentModeState.mode == .fileTree ? .accentColor : .secondary)
+                Button {
+                    sidebarContentModeState.mode = .fileTree
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(sidebarContentModeState.mode == .fileTree ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
-            if sidebarContentModeState.mode == .fileTree {
+            if showFileTreeControls {
                 Text(fileTreeDirectoryBasename)
                     .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
@@ -1154,7 +1246,7 @@ struct ContentView: View {
 
             Spacer()
 
-            if sidebarContentModeState.mode == .fileTree {
+            if showFileTreeControls {
                 Button {
                     fileTreeModel.toggleHiddenFiles()
                 } label: {
@@ -1546,6 +1638,18 @@ struct ContentView: View {
 
         view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
             updateWindowGlassTint()
+        })
+
+        view = AnyView(view.onChange(of: fileTreeLayout) { newLayout in
+            if newLayout == SidebarFileTreeLayout.split.rawValue {
+                // Entering split mode: load file tree if workspace available
+                if let dir = tabManager.selectedTab?.currentDirectory {
+                    fileTreeModel.loadDirectory(dir)
+                }
+            } else {
+                // Returning to toggle mode: default to tabs
+                sidebarContentModeState.mode = .tabs
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
