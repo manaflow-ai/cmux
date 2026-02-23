@@ -1548,6 +1548,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = didInstallWindowFirstResponderSwizzle
     }
 
+#if DEBUG
+    static func setWindowFirstResponderGuardTesting(currentEvent: NSEvent?, hitView: NSView?) {
+        cmuxFirstResponderGuardCurrentEventOverride = currentEvent
+        cmuxFirstResponderGuardHitViewOverride = hitView
+    }
+
+    static func clearWindowFirstResponderGuardTesting() {
+        cmuxFirstResponderGuardCurrentEventOverride = nil
+        cmuxFirstResponderGuardHitViewOverride = nil
+    }
+#endif
+
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
@@ -2887,6 +2899,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] notification in
             guard let self else { return }
             guard let panelId = notification.object as? UUID else { return }
+            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
             if self.browserAddressBarFocusedPanelId == panelId {
                 self.browserAddressBarFocusedPanelId = nil
                 self.stopBrowserOmnibarSelectionRepeat()
@@ -3853,19 +3866,59 @@ enum MenuBarIconRenderer {
 }
 
 
+#if DEBUG
+private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
+private var cmuxFirstResponderGuardHitViewOverride: NSView?
+#endif
+
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let responder,
            let webView = Self.cmuxOwningWebView(for: responder),
-           !webView.allowsFirstResponderAcquisition {
-#if DEBUG
-            dlog(
-                "focus.guard blockedFirstResponder responder=\(String(describing: type(of: responder))) " +
-                "window=\(ObjectIdentifier(self))"
+           !webView.allowsFirstResponderAcquisitionEffective {
+            let currentEvent = Self.cmuxCurrentEvent(for: self)
+            let pointerInitiatedFocus = Self.cmuxShouldAllowPointerInitiatedWebViewFocus(
+                window: self,
+                webView: webView,
+                event: currentEvent
             )
+            if pointerInitiatedFocus {
+#if DEBUG
+                dlog(
+                    "focus.guard allowPointerFirstResponder responder=\(String(describing: type(of: responder))) " +
+                    "window=\(ObjectIdentifier(self)) " +
+                    "web=\(ObjectIdentifier(webView)) " +
+                    "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
+                    "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
+                )
 #endif
-            return false
+            } else {
+#if DEBUG
+                dlog(
+                    "focus.guard blockedFirstResponder responder=\(String(describing: type(of: responder))) " +
+                    "window=\(ObjectIdentifier(self)) " +
+                    "web=\(ObjectIdentifier(webView)) " +
+                    "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                    "pointerDepth=\(webView.debugPointerFocusAllowanceDepth) " +
+                    "eventType=\(currentEvent.map { String(describing: $0.type) } ?? "nil")"
+                )
+#endif
+                return false
+            }
         }
+#if DEBUG
+        if let responder,
+           let webView = Self.cmuxOwningWebView(for: responder) {
+            dlog(
+                "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
+                "window=\(ObjectIdentifier(self)) " +
+                "web=\(ObjectIdentifier(webView)) " +
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+            )
+        }
+#endif
         return cmux_makeFirstResponder(responder)
     }
 
@@ -4023,5 +4076,50 @@ private extension NSWindow {
         }
 
         return nil
+    }
+
+    private static func cmuxCurrentEvent(for _: NSWindow) -> NSEvent? {
+#if DEBUG
+        if let override = cmuxFirstResponderGuardCurrentEventOverride {
+            return override
+        }
+#endif
+        return NSApp.currentEvent
+    }
+
+    private static func cmuxHitViewForCurrentEvent(in window: NSWindow, event: NSEvent) -> NSView? {
+#if DEBUG
+        if let override = cmuxFirstResponderGuardHitViewOverride {
+            return override
+        }
+#endif
+        return window.contentView?.hitTest(event.locationInWindow)
+    }
+
+    private static func cmuxShouldAllowPointerInitiatedWebViewFocus(
+        window: NSWindow,
+        webView: CmuxWebView,
+        event: NSEvent?
+    ) -> Bool {
+        guard let event else { return false }
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            break
+        default:
+            return false
+        }
+
+        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+            return false
+        }
+        if let eventWindow = event.window, eventWindow !== window {
+            return false
+        }
+
+        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event),
+              let hitWebView = cmuxOwningWebView(for: hitView) else {
+            return false
+        }
+        return hitWebView === webView
     }
 }

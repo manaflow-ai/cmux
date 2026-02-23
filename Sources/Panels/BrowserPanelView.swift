@@ -291,6 +291,13 @@ struct BrowserPanelView: View {
             guard let webView = note.object as? CmuxWebView else { return false }
             return webView === panel?.webView
         }) { _ in
+#if DEBUG
+            dlog(
+                "browser.focus.clickIntent panel=\(panel.id.uuidString.prefix(5)) " +
+                "isFocused=\(isFocused ? 1 : 0) " +
+                "addressFocused=\(addressBarFocused ? 1 : 0)"
+            )
+#endif
             onRequestPanelFocus()
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
@@ -317,6 +324,7 @@ struct BrowserPanelView: View {
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
+            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
         }
         .onChange(of: panel.focusFlashToken) { _ in
@@ -356,6 +364,7 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 addressBarFocused = false
             }
+            syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
@@ -383,6 +392,7 @@ struct BrowserPanelView: View {
                 }
                 inlineCompletion = nil
             }
+            syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
@@ -713,6 +723,21 @@ struct BrowserPanelView: View {
         case .easeOut:
             return .easeOut(duration: duration)
         }
+    }
+
+    private func syncWebViewResponderPolicyWithViewState(reason: String) {
+        guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
+        let next = isFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) reason=\(reason)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     private func syncURLFromPanel() {
@@ -3379,7 +3404,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         isPanelFocused: Bool
     ) {
         guard let cmuxWebView = webView as? CmuxWebView else { return }
-        cmuxWebView.allowsFirstResponderAcquisition = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
+                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {

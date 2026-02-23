@@ -2117,10 +2117,20 @@ extension BrowserPanel {
     }
 
     func beginSuppressWebViewFocusForAddressBar() {
+        if !suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = true
     }
 
     func endSuppressWebViewFocusForAddressBar() {
+        if suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = false
     }
 

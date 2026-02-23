@@ -137,6 +137,38 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
+    func testPointerFocusAllowanceCanTemporarilyOverrideBlockedFirstResponderAcquisition() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected focus to stay blocked by policy")
+
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(webView.becomeFirstResponder(), "Expected explicit pointer intent to bypass policy")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected pointer allowance to be temporary")
+    }
+
+    @MainActor
     func testWindowFirstResponderGuardBlocksDescendantWhenPaneIsUnfocused() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -170,6 +202,97 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         if let firstResponderView = window.firstResponder as? NSView {
             XCTAssertFalse(firstResponderView === descendant || firstResponderView.isDescendant(of: webView))
         }
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsDescendantDuringPointerFocusAllowance() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus outside pointer allowance")
+
+        _ = window.makeFirstResponder(nil)
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(window.makeFirstResponder(descendant), "Expected pointer allowance to bypass guard")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer allowance to remain temporary")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusWhenPolicyIsBlocked() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus without pointer click context")
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 5, y: 5),
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: descendant)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(window.makeFirstResponder(descendant), "Expected pointer click context to bypass blocked policy")
+
+        AppDelegate.clearWindowFirstResponderGuardTesting()
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
     }
 
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {

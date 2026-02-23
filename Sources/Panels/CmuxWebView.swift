@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import ObjectiveC
 import WebKit
 
@@ -25,10 +26,56 @@ final class CmuxWebView: WKWebView {
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
+    private var pointerFocusAllowanceDepth: Int = 0
+    var allowsFirstResponderAcquisitionEffective: Bool {
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+    }
+    var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
     override func becomeFirstResponder() -> Bool {
-        guard allowsFirstResponderAcquisition else { return false }
-        return super.becomeFirstResponder()
+        guard allowsFirstResponderAcquisitionEffective else {
+#if DEBUG
+            let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+            dlog(
+                "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
+                "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+            )
+#endif
+            return false
+        }
+        let result = super.becomeFirstResponder()
+#if DEBUG
+        let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        dlog(
+            "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+        )
+#endif
+        return result
+    }
+
+    /// Temporarily permits focus acquisition for explicit pointer-driven interactions
+    /// (mouse click into this webview) while keeping background autofocus blocked.
+    func withPointerFocusAllowance(_ body: () -> Void) {
+        pointerFocusAllowanceDepth += 1
+#if DEBUG
+        dlog(
+            "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
+            "depth=\(pointerFocusAllowanceDepth)"
+        )
+#endif
+        defer {
+            pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
+#if DEBUG
+            dlog(
+                "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
+                "depth=\(pointerFocusAllowanceDepth)"
+            )
+#endif
+        }
+        body()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -71,8 +118,19 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
+#if DEBUG
+        let windowNumber = window?.windowNumber ?? -1
+        let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
+        )
+#endif
         NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        super.mouseDown(with: event)
+        withPointerFocusAllowance {
+            super.mouseDown(with: event)
+        }
     }
 
     // MARK: - Mouse back/forward buttons & middle-click
