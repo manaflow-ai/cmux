@@ -5,6 +5,7 @@ import Metal
 import QuartzCore
 import Combine
 import Darwin
+import Carbon
 import Sentry
 import Bonsplit
 import IOSurface
@@ -2338,6 +2339,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return false
     }
 
+    /// Return the current keyboard input source ID (e.g. "com.apple.keylayout.US",
+    /// "net.mtgto.inputmethod.macSKK.hiragana"). Used to detect when an IME captures
+    /// a key event by changing the active input source.
+    private func currentKeyboardInputSourceId() -> String? {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let ptr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }
+        return unsafeBitCast(ptr, to: CFString.self) as String
+    }
+
     override func keyDown(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyDown(with: event)
@@ -2365,8 +2375,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // These keys are terminal control input, not text composition, so we bypass
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
+        //
+        // However, an active IME (e.g. macSKK) may use Ctrl-modified keys for mode
+        // switching. We let interpretKeyEvents run first and check whether the keyboard
+        // input source changed; if it did, the IME consumed the event and we bail out.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) {
+            let kbBefore = currentKeyboardInputSourceId()
+            interpretKeyEvents([event])
+            if kbBefore != currentKeyboardInputSourceId() {
+                return
+            }
+
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -2441,8 +2461,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so we can detect when composition ends.
         let markedTextBefore = markedText.length > 0
 
+        // Record the keyboard input source before interpretKeyEvents so we can
+        // detect when an IME (e.g. macSKK) captures the key by changing the source.
+        let kbIdBefore: String? = if !markedTextBefore {
+            currentKeyboardInputSourceId()
+        } else {
+            nil
+        }
+
         // Let the input system handle the event (for IME, dead keys, etc.)
         interpretKeyEvents([translationEvent])
+
+        // If the keyboard input source changed, an IME grabbed the key. Don't
+        // forward it to the terminal.
+        if !markedTextBefore, kbIdBefore != currentKeyboardInputSourceId() {
+            return
+        }
 
         // Sync the preedit state with Ghostty so it can render the IME
         // composition overlay (e.g. for Korean, Japanese, Chinese input).
