@@ -707,46 +707,36 @@ struct BrowserPanelView: View {
         VStack {
             Spacer(minLength: 22)
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Start browsing")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Text("Search the web, enter a URL, or import cookies/history from another browser.")
-                    .font(.system(size: 13))
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Import browser data")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(InstalledBrowserDetector.summaryText(for: emptyStateImportBrowsers))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
-                    Button("Focus Address Bar") {
-                        onRequestPanelFocus()
-                        addressBarFocused = true
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button("Import Browser Data…") {
-                        refreshEmptyStateImportBrowsers()
-                        BrowserDataImportCoordinator.shared.presentImportDialog()
-                    }
-                    .buttonStyle(.borderedProminent)
+                Button("Import…") {
+                    refreshEmptyStateImportBrowsers()
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .padding(16)
-            .frame(maxWidth: 460, alignment: .leading)
+            .padding(12)
+            .frame(maxWidth: 360, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.9))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(
+                    Color(nsColor: .separatorColor).opacity(0.45),
+                    lineWidth: 1
+                )
             )
-            .shadow(color: Color.black.opacity(0.12), radius: 12, y: 4)
+            .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)
 
             Spacer()
         }
