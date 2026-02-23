@@ -1450,7 +1450,11 @@ class TabManager: ObservableObject {
     }
 
     func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
-        guard tabs.contains(where: { $0.id == tabId }) else { return }
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if let surfaceId, tab.panels[surfaceId] != nil {
+            // Keep selected-surface intent stable across selectedTabId didSet async restore.
+            lastFocusedPanelByTab[tabId] = surfaceId
+        }
         selectedTabId = tabId
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
@@ -1469,7 +1473,7 @@ class TabManager: ObservableObject {
         if let surfaceId {
             if !suppressFlash {
                 focusSurface(tabId: tabId, surfaceId: surfaceId)
-            } else if let tab = tabs.first(where: { $0.id == tabId }) {
+            } else {
                 tab.focusPanel(surfaceId)
             }
         }
@@ -3055,6 +3059,13 @@ enum ResizeDirection {
 }
 
 extension Notification.Name {
+    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
+    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
+    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
+    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
+    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")

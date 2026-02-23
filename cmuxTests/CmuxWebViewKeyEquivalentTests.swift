@@ -1125,6 +1125,267 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
     }
 }
 
+final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+    func testArrowKeysMoveSelectionWithoutModifiers() {
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [],
+                chars: "",
+                keyCode: 125
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [],
+                chars: "",
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.shift],
+                chars: "",
+                keyCode: 125
+            )
+        )
+    }
+
+    func testControlLetterNavigationSupportsPrintableAndControlChars() {
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "n",
+                keyCode: 45
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0e}",
+                keyCode: 45
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "p",
+                keyCode: 35
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{10}",
+                keyCode: 35
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "j",
+                keyCode: 38
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0a}",
+                keyCode: 38
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "k",
+                keyCode: 40
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0b}",
+                keyCode: 40
+            ),
+            -1
+        )
+    }
+
+    func testIgnoresUnsupportedModifiersAndKeys() {
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control, .shift],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "x",
+                keyCode: 7
+            )
+        )
+    }
+}
+
+final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
+    private let suiteName = "cmux.tests.commandPaletteRenameSelection.\(UUID().uuidString)"
+
+    private func makeDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    func testDefaultsToSelectAllWhenUnset() {
+        let defaults = makeDefaults()
+        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+
+    func testReturnsFalseWhenStoredFalse() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+        XCTAssertFalse(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+
+    func testReturnsTrueWhenStoredTrue() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+}
+
+final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
+    func testFirstEntryAlwaysPinsToTopWhenScrollable() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 0,
+            previousIndex: 1,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 8, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .top)
+    }
+
+    func testLastEntryAlwaysPinsToBottomWhenScrollable() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 19,
+            previousIndex: 18,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 188, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .bottom)
+    }
+
+    func testFullyVisibleMiddleEntryDoesNotScroll() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 6,
+            previousIndex: 5,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 120, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(anchor)
+    }
+
+    func testOutOfViewMiddleEntryUsesDirectionForAnchor() {
+        let downAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 9,
+            previousIndex: 8,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 210, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(downAnchor, .bottom)
+
+        let upAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 8,
+            previousIndex: 9,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: -6, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(upAnchor, .top)
+    }
+}
+
+final class CommandPaletteEdgeVisibilityCorrectionTests: XCTestCase {
+    func testTopEdgeReturnsTopWhenNotPinned() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 0,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 6, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .top)
+    }
+
+    func testBottomEdgeReturnsBottomWhenNotPinned() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 19,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 170, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .bottom)
+    }
+
+    func testPinnedTopAndBottomReturnNil() {
+        let topAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 0,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 0, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(topAnchor)
+
+        let bottomAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 19,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 192, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(bottomAnchor)
+    }
+
+    func testMiddleSelectionNeverForcesCorrection() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 8,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 96, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(anchor)
+    }
+}
+
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
         XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))

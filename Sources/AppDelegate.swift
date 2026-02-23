@@ -103,10 +103,55 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
+func commandPaletteSelectionDeltaForKeyboardNavigation(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Int? {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function])
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [] {
+        switch keyCode {
+        case 125: return 1    // Down arrow
+        case 126: return -1   // Up arrow
+        default: break
+        }
+    }
+
+    if normalizedFlags == [.control] {
+        // Control modifiers can surface as either printable chars or ASCII control chars.
+        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
+        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
+        if keyCode == 38 || normalizedChars == "j" || normalizedChars == "\u{0a}" { return 1 }    // Ctrl+J
+        if keyCode == 40 || normalizedChars == "k" || normalizedChars == "\u{0b}" { return -1 }   // Ctrl+K
+    }
+
+    return nil
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
     case reset
+}
+
+struct CommandPaletteDebugResultRow {
+    let commandId: String
+    let title: String
+    let shortcutHint: String?
+    let trailingLabel: String?
+    let score: Int
+}
+
+struct CommandPaletteDebugSnapshot {
+    let query: String
+    let mode: String
+    let results: [CommandPaletteDebugResultRow]
+
+    static let empty = CommandPaletteDebugSnapshot(query: "", mode: "commands", results: [])
 }
 
 func browserZoomShortcutAction(
@@ -337,6 +382,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
+    private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
+    private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -563,6 +611,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.unregisterMainWindow(closing)
             }
         }
+        commandPaletteVisibilityByWindowId[windowId] = false
+        commandPaletteSelectionByWindowId[windowId] = 0
+        commandPaletteSnapshotByWindowId[windowId] = .empty
 
         if window.isKeyWindow {
             setActiveMainWindow(window)
@@ -597,6 +648,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func windowId(for tabManager: TabManager) -> UUID? {
         mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId
+    }
+
+    func mainWindow(for windowId: UUID) -> NSWindow? {
+        windowForMainWindowId(windowId)
+    }
+
+    func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
+        guard let windowId = mainWindowId(for: window) else { return }
+        commandPaletteVisibilityByWindowId[windowId] = visible
+    }
+
+    func isCommandPaletteVisible(windowId: UUID) -> Bool {
+        commandPaletteVisibilityByWindowId[windowId] ?? false
+    }
+
+    func setCommandPaletteSelectionIndex(_ index: Int, for window: NSWindow) {
+        guard let windowId = mainWindowId(for: window) else { return }
+        commandPaletteSelectionByWindowId[windowId] = max(0, index)
+    }
+
+    func commandPaletteSelectionIndex(windowId: UUID) -> Int {
+        commandPaletteSelectionByWindowId[windowId] ?? 0
+    }
+
+    func setCommandPaletteSnapshot(_ snapshot: CommandPaletteDebugSnapshot, for window: NSWindow) {
+        guard let windowId = mainWindowId(for: window) else { return }
+        commandPaletteSnapshotByWindowId[windowId] = snapshot
+    }
+
+    func commandPaletteSnapshot(windowId: UUID) -> CommandPaletteDebugSnapshot {
+        commandPaletteSnapshotByWindowId[windowId] ?? .empty
+    }
+
+    func isCommandPaletteVisible(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        return commandPaletteVisibilityByWindowId[windowId] ?? false
+    }
+
+    func shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
+        window: NSWindow,
+        responder: NSResponder?
+    ) -> Bool {
+        guard isCommandPaletteVisible(for: window) else { return false }
+        guard let responder else { return false }
+        guard !isCommandPaletteResponder(responder) else { return false }
+        return isFocusStealingResponderWhileCommandPaletteVisible(responder)
+    }
+
+    private func isCommandPaletteResponder(_ responder: NSResponder) -> Bool {
+        if let textView = responder as? NSTextView, textView.isFieldEditor {
+            if let delegateView = textView.delegate as? NSView {
+                return isInsideCommandPaletteOverlay(delegateView)
+            }
+            // SwiftUI can attach a non-view delegate to TextField editors.
+            // When command palette is visible, its search/rename editor is the
+            // only expected field editor inside the main window.
+            return true
+        }
+        if let view = responder as? NSView {
+            return isInsideCommandPaletteOverlay(view)
+        }
+        return false
+    }
+
+    private func isFocusStealingResponderWhileCommandPaletteVisible(_ responder: NSResponder) -> Bool {
+        if responder is GhosttyNSView || responder is WKWebView {
+            return true
+        }
+
+        if let textView = responder as? NSTextView,
+           !textView.isFieldEditor,
+           let delegateView = textView.delegate as? NSView {
+            return isTerminalOrBrowserView(delegateView)
+        }
+
+        if let view = responder as? NSView {
+            return isTerminalOrBrowserView(view)
+        }
+
+        return false
+    }
+
+    private func isTerminalOrBrowserView(_ view: NSView) -> Bool {
+        if view is GhosttyNSView || view is WKWebView {
+            return true
+        }
+        var current: NSView? = view.superview
+        while let candidate = current {
+            if candidate is GhosttyNSView || candidate is WKWebView {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private func isInsideCommandPaletteOverlay(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
     }
 
     func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
@@ -654,6 +810,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let expectedIdentifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
+    }
+
+    private func mainWindowId(for window: NSWindow) -> UUID? {
+        if let context = mainWindowContexts[ObjectIdentifier(window)] {
+            return context.windowId
+        }
+        guard let rawIdentifier = window.identifier?.rawValue,
+              rawIdentifier.hasPrefix("cmux.main.") else { return nil }
+        let idPart = String(rawIdentifier.dropFirst("cmux.main.".count))
+        return UUID(uuidString: idPart)
+    }
+
+    private func activeCommandPaletteWindow() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow,
+           let windowId = mainWindowId(for: keyWindow),
+           commandPaletteVisibilityByWindowId[windowId] == true {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow,
+           let windowId = mainWindowId(for: mainWindow),
+           commandPaletteVisibilityByWindowId[windowId] == true {
+            return mainWindow
+        }
+        if let visibleWindowId = commandPaletteVisibilityByWindowId.first(where: { $0.value })?.key {
+            return windowForMainWindowId(visibleWindowId)
+        }
+        return nil
+    }
+
+    private func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
+        guard let window, isMainTerminalWindow(window) else { return nil }
+        return mainWindowContexts[ObjectIdentifier(window)]
+    }
+
+    private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
+        if let context = contextForMainWindow(event.window) {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.keyWindow) {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context
+        }
+        return mainWindowContexts.values.first
+    }
+
+    private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
+        guard let context = preferredMainWindowContextForShortcuts(event: event),
+              let window = context.window ?? windowForMainWindowId(context.windowId) else { return }
+        setActiveMainWindow(window)
+    }
+
+    @discardableResult
+    func toggleSidebarInActiveMainWindow() -> Bool {
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            if let window = activeContext.window ?? windowForMainWindowId(activeContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            activeContext.sidebarState.toggle()
+            return true
+        }
+        if let keyContext = contextForMainWindow(NSApp.keyWindow) {
+            if let window = keyContext.window ?? windowForMainWindowId(keyContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            keyContext.sidebarState.toggle()
+            return true
+        }
+        if let mainContext = contextForMainWindow(NSApp.mainWindow) {
+            if let window = mainContext.window ?? windowForMainWindowId(mainContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            mainContext.sidebarState.toggle()
+            return true
+        }
+        if let fallbackContext = mainWindowContexts.values.first {
+            if let window = fallbackContext.window ?? windowForMainWindowId(fallbackContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            fallbackContext.sidebarState.toggle()
+            return true
+        }
+        if let sidebarState {
+            sidebarState.toggle()
+            return true
+        }
+        return false
+    }
+
+    func sidebarVisibility(windowId: UUID) -> Bool? {
+        mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
@@ -1865,7 +2114,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let normalizedFlags = flags.subtracting([.numericPad, .function])
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+
+        if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
+            flags: event.modifierFlags,
+            chars: chars,
+            keyCode: event.keyCode
+        ),
+           let paletteWindow = activeCommandPaletteWindow() {
+            NotificationCenter.default.post(
+                name: .commandPaletteMoveSelection,
+                object: paletteWindow,
+                userInfo: ["delta": delta]
+            )
+            return true
+        }
+
+        let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
+        if isCommandP {
+            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            return true
+        }
+
+        let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
+        if isCommandShiftP {
+            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            return true
+        }
+
         if normalizedFlags == [.command], chars == "q" {
             return handleQuitShortcutWarning()
         }
@@ -1894,6 +2172,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            (notificationStore?.notifications.isEmpty ?? false) {
             return true
         }
+
+        // Route all shortcut handling through the window that actually produced
+        // the event to avoid cross-window actions when app-global pointers are stale.
+        activateMainWindowContextForShortcutEvent(event)
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
         // before processing shortcuts, converge first responder with the focused terminal panel.
@@ -1942,7 +2224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
-            sidebarState?.toggle()
+            _ = toggleSidebarInActiveMainWindow()
             return true
         }
 
@@ -2926,6 +3208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func unregisterMainWindow(_ window: NSWindow) {
         let key = ObjectIdentifier(window)
         guard let removed = mainWindowContexts.removeValue(forKey: key) else { return }
+        commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
@@ -3873,6 +4158,19 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
+            window: self,
+            responder: responder
+        ) == true {
+#if DEBUG
+            dlog(
+                "focus.guard commandPaletteBlocked responder=\(String(describing: responder.map { type(of: $0) })) " +
+                "window=\(ObjectIdentifier(self))"
+            )
+#endif
+            return false
+        }
+
         if let responder,
            let webView = Self.cmuxOwningWebView(for: responder),
            !webView.allowsFirstResponderAcquisitionEffective {

@@ -363,6 +363,20 @@ struct cmuxApp: App {
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
+                Button("Go to Workspace or Tab…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+
+                Button("Command Palette…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Divider()
+
                 // Terminal semantics:
                 // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
                 // tab in the last workspace, it closes the window.
@@ -422,7 +436,9 @@ struct cmuxApp: App {
             // Tab navigation
             CommandGroup(after: .toolbar) {
                 splitCommandButton(title: "Toggle Sidebar", shortcut: toggleSidebarMenuShortcut) {
-                    sidebarState.toggle()
+                    if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
+                        sidebarState.toggle()
+                    }
                 }
 
                 Divider()
@@ -2533,6 +2549,18 @@ enum QuitWarningSettings {
     }
 }
 
+enum CommandPaletteRenameSelectionSettings {
+    static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
+    static let defaultSelectAllOnFocus = true
+
+    static func selectAllOnFocusEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: selectAllOnFocusKey) == nil {
+            return defaultSelectAllOnFocus
+        }
+        return defaults.bool(forKey: selectAllOnFocusKey)
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
@@ -2565,6 +2593,8 @@ struct SettingsView: View {
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -2755,6 +2785,19 @@ struct SettingsView: View {
                                 : "Cmd+Q quits immediately without confirmation."
                         ) {
                             Toggle("", isOn: $warnBeforeQuitShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Rename Selects Existing Name",
+                            subtitle: commandPaletteRenameSelectAllOnFocus
+                                ? "Command Palette rename starts with all text selected."
+                                : "Command Palette rename keeps the caret at the end."
+                        ) {
+                            Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -3310,6 +3353,7 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
