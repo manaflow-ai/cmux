@@ -103,14 +103,13 @@ struct WorkspaceContentView: View {
             refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
-            if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                refreshGhosttyAppearanceConfig(
-                    reason: "ghosttyDefaultBackgroundDidChange:withPayload",
-                    backgroundOverride: backgroundColor
-                )
-            } else {
-                refreshGhosttyAppearanceConfig(reason: "ghosttyDefaultBackgroundDidChange:withoutPayload")
-            }
+            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            // Payload ordering can lag across rapid config/theme updates.
+            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
+            // with Ghostty's current runtime theme.
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyDefaultBackgroundDidChange:payload=\(payloadHex)"
+            )
         }
     }
 
