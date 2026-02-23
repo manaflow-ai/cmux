@@ -486,6 +486,7 @@ struct BrowserPanelView: View {
             openDevTools()
         }) {
             Image(systemName: devToolsIconOption.rawValue)
+                .symbolRenderingMode(.monochrome)
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
@@ -511,6 +512,7 @@ struct BrowserPanelView: View {
             }
         } label: {
             Image(systemName: browserThemeMode.iconName)
+                .symbolRenderingMode(.monochrome)
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
