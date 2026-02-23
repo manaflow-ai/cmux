@@ -194,7 +194,9 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var isBrowserThemeMenuPresented = false
-    private let omnibarPillCornerRadius: CGFloat = 12
+    // Keep this below half of the compact omnibar height so it reads as a squircle,
+    // not a capsule.
+    private let omnibarPillCornerRadius: CGFloat = 10
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
