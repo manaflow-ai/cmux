@@ -63,6 +63,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
     }
 
+    private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -97,6 +101,75 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
         XCTAssertTrue(webView.performKeyEquivalent(with: event!))
         XCTAssertTrue(spy.invoked)
+    }
+
+    @MainActor
+    func testCanBlockFirstResponderAcquisitionWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(webView))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(webView.becomeFirstResponder())
+
+        _ = window.makeFirstResponder(webView)
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === webView || firstResponderView.isDescendant(of: webView))
+        }
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardBlocksDescendantWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(descendant))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(window.makeFirstResponder(descendant))
+
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === descendant || firstResponderView.isDescendant(of: webView))
+        }
     }
 
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
@@ -1800,6 +1873,120 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(browserSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser split to preserve pre-split focus"
+        )
+    }
+
+    func testTerminalSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let terminalSplitPanel = workspace.newTerminalSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected terminal split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(terminalSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal split to preserve pre-split focus"
+        )
+    }
+
+    func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+        guard let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected focused pane for initial panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+        guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
+              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
+              let splitTab = workspace.bonsplitController
+              .tabs(inPane: splitPaneId)
+              .first(where: { $0.id == splitTabId }) else {
+            XCTFail("Expected split pane/tab mapping")
+            return
+        }
+
+        // Simulate one delayed stale split-selection callback from bonsplit.
+        DispatchQueue.main.async {
+            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus split to reassert the pre-split focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.focusedPaneId,
+            originalPaneId,
+            "Expected focused pane to converge back to the pre-split pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to converge back to the pre-split focused panel"
+        )
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
@@ -4139,6 +4326,26 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionFallsBackToLegacyLinkToggleWhenUnset() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
     }
 }
 

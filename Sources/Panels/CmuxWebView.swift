@@ -22,6 +22,14 @@ final class CmuxWebView: WKWebView {
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    /// Guard against background panes stealing first responder (e.g. page autofocus).
+    /// BrowserPanelView updates this as pane focus state changes.
+    var allowsFirstResponderAcquisition: Bool = true
+
+    override func becomeFirstResponder() -> Bool {
+        guard allowsFirstResponderAcquisition else { return false }
+        return super.becomeFirstResponder()
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
