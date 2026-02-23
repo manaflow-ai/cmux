@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Docker integration: verify cmux CLI commands work over SSH via reverse socket forwarding."""
+
+from __future__ import annotations
+
+import glob
+import json
+import os
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from cmux import cmux, cmuxError
+
+
+SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_REMOTE_HTTP_PORT", "43173"))
+
+
+def _must(cond: bool, msg: str) -> None:
+    if not cond:
+        raise cmuxError(msg)
+
+
+def _find_cli_binary() -> str:
+    env_cli = os.environ.get("CMUXTERM_CLI")
+    if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
+        return env_cli
+
+    fixed = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/cmux-tests-v2/Build/Products/Debug/cmux")
+    if os.path.isfile(fixed) and os.access(fixed, os.X_OK):
+        return fixed
+
+    candidates = glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug/cmux"), recursive=True)
+    candidates += glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux")
+    candidates = [p for p in candidates if os.path.isfile(p) and os.access(p, os.X_OK)]
+    if not candidates:
+        raise cmuxError("Could not locate cmux CLI binary; set CMUXTERM_CLI")
+    candidates.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    return candidates[0]
+
+
+def _run(cmd: list[str], *, env: dict[str, str] | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    if check and proc.returncode != 0:
+        merged = f"{proc.stdout}\n{proc.stderr}".strip()
+        raise cmuxError(f"Command failed ({' '.join(cmd)}): {merged}")
+    return proc
+
+
+def _run_cli_json(cli: str, args: list[str]) -> dict:
+    env = dict(os.environ)
+    env.pop("CMUX_WORKSPACE_ID", None)
+    env.pop("CMUX_SURFACE_ID", None)
+    env.pop("CMUX_TAB_ID", None)
+
+    proc = _run([cli, "--socket", SOCKET_PATH, "--json", *args], env=env)
+    try:
+        return json.loads(proc.stdout or "{}")
+    except Exception as exc:  # noqa: BLE001
+        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})")
+
+
+def _docker_available() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    probe = _run(["docker", "info"], check=False)
+    return probe.returncode == 0
+
+
+def _parse_host_port(docker_port_output: str) -> int:
+    text = docker_port_output.strip()
+    if not text:
+        raise cmuxError("docker port output was empty")
+    last = text.split(":")[-1]
+    return int(last)
+
+
+def _shell_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _ssh_run(host: str, host_port: int, key_path: Path, script: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return _run(
+        [
+            "ssh",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=5",
+            "-p", str(host_port),
+            "-i", str(key_path),
+            host,
+            f"sh -lc {_shell_single_quote(script)}",
+        ],
+        check=check,
+    )
+
+
+def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        probe = _ssh_run(host, host_port, key_path, "echo ready", check=False)
+        if probe.returncode == 0 and "ready" in probe.stdout:
+            return
+        time.sleep(0.5)
+    raise cmuxError("Timed out waiting for SSH server in docker fixture to become ready")
+
+
+def main() -> int:
+    if not _docker_available():
+        print("SKIP: docker is not available")
+        return 0
+
+    cli = _find_cli_binary()
+    repo_root = Path(__file__).resolve().parents[1]
+    fixture_dir = repo_root / "tests" / "fixtures" / "ssh-remote"
+    _must(fixture_dir.is_dir(), f"Missing docker fixture directory: {fixture_dir}")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="cmux-ssh-cli-relay-"))
+    image_tag = f"cmux-ssh-test:{secrets.token_hex(4)}"
+    container_name = f"cmux-ssh-cli-relay-{secrets.token_hex(4)}"
+    workspace_id = ""
+
+    try:
+        # Generate SSH key pair
+        key_path = temp_dir / "id_ed25519"
+        _run(["ssh-keygen", "-t", "ed25519", "-N", "", "-f", str(key_path)])
+        pubkey = (key_path.with_suffix(".pub")).read_text(encoding="utf-8").strip()
+        _must(bool(pubkey), "Generated SSH public key was empty")
+
+        # Build and start Docker container
+        _run(["docker", "build", "-t", image_tag, str(fixture_dir)])
+        _run([
+            "docker", "run", "-d", "--rm",
+            "--name", container_name,
+            "-e", f"AUTHORIZED_KEY={pubkey}",
+            "-e", f"REMOTE_HTTP_PORT={REMOTE_HTTP_PORT}",
+            "-p", "127.0.0.1::22",
+            image_tag,
+        ])
+
+        port_info = _run(["docker", "port", container_name, "22/tcp"]).stdout
+        host_ssh_port = _parse_host_port(port_info)
+        host = "root@127.0.0.1"
+        _wait_for_ssh(host, host_ssh_port, key_path)
+
+        with cmux(SOCKET_PATH) as client:
+            # Create SSH workspace (this sets up the reverse socket forward)
+            payload = _run_cli_json(
+                cli,
+                [
+                    "ssh",
+                    host,
+                    "--name", "docker-cli-relay",
+                    "--port", str(host_ssh_port),
+                    "--identity", str(key_path),
+                    "--ssh-option", "UserKnownHostsFile=/dev/null",
+                    "--ssh-option", "StrictHostKeyChecking=no",
+                ],
+            )
+            workspace_id = str(payload.get("workspace_id") or "")
+            workspace_ref = str(payload.get("workspace_ref") or "")
+            if not workspace_id and workspace_ref.startswith("workspace:"):
+                listed = client._call("workspace.list", {}) or {}
+                for row in listed.get("workspaces") or []:
+                    if str(row.get("ref") or "") == workspace_ref:
+                        workspace_id = str(row.get("id") or "")
+                        break
+            _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+
+            remote_relay_port = payload.get("remote_relay_port")
+            _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
+            remote_relay_port = int(remote_relay_port)
+            _must(49152 <= remote_relay_port <= 65535, f"remote_relay_port should be in ephemeral range: {remote_relay_port}")
+            remote_socket_addr = f"127.0.0.1:{remote_relay_port}"
+
+            # Wait for daemon to be ready
+            deadline = time.time() + 45.0
+            last_status = {}
+            while time.time() < deadline:
+                last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+                remote = last_status.get("remote") or {}
+                daemon = remote.get("daemon") or {}
+                state = str(remote.get("state") or "")
+                daemon_state = str(daemon.get("state") or "")
+                if state == "connected" and daemon_state == "ready":
+                    break
+                time.sleep(0.5)
+            else:
+                raise cmuxError(f"Remote daemon did not become ready: {last_status}")
+
+            # Verify the cmux symlink exists on the remote
+            symlink_check = _ssh_run(
+                host, host_ssh_port, key_path,
+                "test -L \"$HOME/.cmux/bin/cmux\" && echo symlink-ok",
+                check=False,
+            )
+            _must(
+                "symlink-ok" in symlink_check.stdout,
+                f"Expected cmux symlink at ~/.cmux/bin/cmux on remote: {symlink_check.stdout} {symlink_check.stderr}",
+            )
+
+            # Test 1: cmux ping (v1)
+            ping_result = _ssh_run(
+                host, host_ssh_port, key_path,
+                f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux ping",
+                check=False,
+            )
+            _must(
+                ping_result.returncode == 0 and "pong" in ping_result.stdout.lower(),
+                f"cmux ping failed: rc={ping_result.returncode} stdout={ping_result.stdout!r} stderr={ping_result.stderr!r}",
+            )
+
+            # Test 2: cmux list-workspaces --json (v2)
+            list_ws_result = _ssh_run(
+                host, host_ssh_port, key_path,
+                f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux --json list-workspaces",
+                check=False,
+            )
+            _must(
+                list_ws_result.returncode == 0,
+                f"cmux list-workspaces failed: rc={list_ws_result.returncode} stderr={list_ws_result.stderr!r}",
+            )
+            try:
+                ws_data = json.loads(list_ws_result.stdout.strip())
+                _must(isinstance(ws_data, dict), f"list-workspaces should return JSON object: {list_ws_result.stdout!r}")
+            except json.JSONDecodeError:
+                raise cmuxError(f"list-workspaces returned invalid JSON: {list_ws_result.stdout!r}")
+
+            # Test 3: cmux new-window (v1)
+            new_win_result = _ssh_run(
+                host, host_ssh_port, key_path,
+                f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux new-window",
+                check=False,
+            )
+            _must(
+                new_win_result.returncode == 0,
+                f"cmux new-window failed: rc={new_win_result.returncode} stderr={new_win_result.stderr!r}",
+            )
+
+            # Test 4: cmux rpc system.capabilities (v2 passthrough)
+            rpc_result = _ssh_run(
+                host, host_ssh_port, key_path,
+                f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux rpc system.capabilities",
+                check=False,
+            )
+            _must(
+                rpc_result.returncode == 0,
+                f"cmux rpc system.capabilities failed: rc={rpc_result.returncode} stderr={rpc_result.stderr!r}",
+            )
+            try:
+                caps_data = json.loads(rpc_result.stdout.strip())
+                _must(isinstance(caps_data, dict), f"rpc capabilities should return JSON: {rpc_result.stdout!r}")
+            except json.JSONDecodeError:
+                raise cmuxError(f"rpc system.capabilities returned invalid JSON: {rpc_result.stdout!r}")
+
+            # Cleanup
+            try:
+                client.close_workspace(workspace_id)
+            except Exception:
+                pass
+            workspace_id = ""
+
+        print("PASS: cmux CLI commands relay correctly over SSH reverse socket forwarding")
+        return 0
+
+    finally:
+        if workspace_id:
+            try:
+                with cmux(SOCKET_PATH) as cleanup_client:
+                    cleanup_client.close_workspace(workspace_id)
+            except Exception:
+                pass
+
+        _run(["docker", "rm", "-f", container_name], check=False)
+        _run(["docker", "rmi", "-f", image_tag], check=False)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
