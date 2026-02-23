@@ -2342,6 +2342,62 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
+    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected workspace split setup to succeed")
+            return
+        }
+
+        // Programmatic split focuses the new right panel by default.
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: leftPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftPanelId,
+            "Expected inheritance to use the selected terminal in the target pane"
+        )
+    }
+
+    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected workspace browser setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: paneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected inheritance to fall back to a terminal in the pane when browser is selected"
+        )
+    }
+
+    func testPreferredTerminalPanelWinsWhenProvided() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a terminal panel")
+            return
+        }
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(preferredPanelId: terminalPanelId)
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+}
+
+@MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()

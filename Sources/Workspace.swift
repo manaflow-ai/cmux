@@ -919,6 +919,60 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
+    /// Picks the terminal panel used as the source when creating inherited Ghostty config.
+    /// Preference order:
+    /// 1) explicitly preferred terminal panel (when the caller has one),
+    /// 2) selected terminal in the target pane,
+    /// 3) currently focused terminal in the workspace,
+    /// 4) first terminal tab in the target pane,
+    /// 5) deterministic workspace fallback.
+    func terminalPanelForConfigInheritance(
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> TerminalPanel? {
+        if let preferredPanelId,
+           let terminalPanel = terminalPanel(for: preferredPanelId) {
+            return terminalPanel
+        }
+
+        if let preferredPaneId,
+           let selectedSurfaceId = bonsplitController.selectedTab(inPane: preferredPaneId)?.id,
+           let selectedPanelId = panelIdFromSurfaceId(selectedSurfaceId),
+           let selectedTerminalPanel = terminalPanel(for: selectedPanelId) {
+            return selectedTerminalPanel
+        }
+
+        if let focusedTerminalPanel {
+            return focusedTerminalPanel
+        }
+
+        if let preferredPaneId {
+            for tab in bonsplitController.tabs(inPane: preferredPaneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id),
+                      let terminalPanel = terminalPanel(for: panelId) else { continue }
+                return terminalPanel
+            }
+        }
+
+        return panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+            .first
+    }
+
+    private func inheritedTerminalConfig(
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> ghostty_surface_config_s? {
+        guard let sourceSurface = terminalPanelForConfigInheritance(
+            preferredPanelId: preferredPanelId,
+            inPane: preferredPaneId
+        )?.surface.surface else {
+            return nil
+        }
+        return ghostty_surface_inherited_config(sourceSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -927,22 +981,6 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true
     ) -> TerminalPanel? {
-        // Get inherited config from the source terminal when possible.
-        // If the split is initiated from a non-terminal panel (for example browser),
-        // fall back to any terminal in the workspace.
-        let inheritedConfig: ghostty_surface_config_s? = {
-            if let sourceTerminal = terminalPanel(for: panelId),
-               let existing = sourceTerminal.surface.surface {
-                return ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-            }
-            if let fallbackSurface = panels.values
-                .compactMap({ ($0 as? TerminalPanel)?.surface.surface })
-                .first {
-                return ghostty_surface_inherited_config(fallbackSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-            }
-            return nil
-        }()
-
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -955,6 +993,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
@@ -1024,16 +1063,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurface(inPane paneId: PaneID, focus: Bool? = nil) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        // Get an existing terminal panel to inherit config from
-        let inheritedConfig: ghostty_surface_config_s? = {
-            for panel in panels.values {
-                if let terminalPanel = panel as? TerminalPanel,
-                   let surface = terminalPanel.surface.surface {
-                    return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-                }
-            }
-            return nil
-        }()
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -2519,15 +2549,7 @@ extension Workspace: BonsplitDelegate {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig: ghostty_surface_config_s? = {
-                        for panel in panels.values {
-                            if let terminalPanel = panel as? TerminalPanel,
-                               let surface = terminalPanel.surface.surface {
-                                return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-                            }
-                        }
-                        return nil
-                    }()
+                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
