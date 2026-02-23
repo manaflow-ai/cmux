@@ -66,29 +66,13 @@ enum BrowserSearchSettings {
 
 enum BrowserForcedDarkModeSettings {
     static let enabledKey = "browserForcedDarkModeEnabled"
-    static let opacityKey = "browserForcedDarkModeOpacity"
     static let defaultEnabled: Bool = false
-    static let defaultOpacity: Double = 45
-    static let minOpacity: Double = 5
-    static let maxOpacity: Double = 90
 
     static func enabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: enabledKey) == nil {
             return defaultEnabled
         }
         return defaults.bool(forKey: enabledKey)
-    }
-
-    static func opacity(defaults: UserDefaults = .standard) -> Double {
-        if defaults.object(forKey: opacityKey) == nil {
-            return defaultOpacity
-        }
-        return normalizedOpacity(defaults.double(forKey: opacityKey))
-    }
-
-    static func normalizedOpacity(_ rawValue: Double) -> Double {
-        guard rawValue.isFinite else { return defaultOpacity }
-        return min(maxOpacity, max(minOpacity, rawValue))
     }
 }
 
@@ -1158,7 +1142,6 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var forcedDarkModeEnabled: Bool
-    private var forcedDarkModeOpacity: Double
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1183,7 +1166,6 @@ final class BrowserPanel: Panel, ObservableObject {
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.forcedDarkModeEnabled = BrowserForcedDarkModeSettings.enabled()
-        self.forcedDarkModeOpacity = BrowserForcedDarkModeSettings.opacity()
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -2029,9 +2011,8 @@ extension BrowserPanel {
         try await webView.evaluateJavaScript(script)
     }
 
-    func setForcedDarkMode(enabled: Bool, opacity: Double) {
+    func setForcedDarkMode(enabled: Bool) {
         forcedDarkModeEnabled = enabled
-        forcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacity)
         applyForcedDarkModeIfNeeded()
     }
 
@@ -2116,10 +2097,10 @@ extension BrowserPanel {
 
 private extension BrowserPanel {
     func applyForcedDarkModeIfNeeded() {
-        let script = makeForcedDarkModeScript(
-            enabled: forcedDarkModeEnabled,
-            opacityPercent: forcedDarkModeOpacity
-        )
+        // Prefer a real dark appearance so WebKit can resolve prefers-color-scheme as dark.
+        webView.appearance = forcedDarkModeEnabled ? NSAppearance(named: .darkAqua) : nil
+
+        let script = makeForcedDarkModeScript(enabled: forcedDarkModeEnabled)
         webView.evaluateJavaScript(script) { _, error in
             #if DEBUG
             if let error {
@@ -2129,37 +2110,33 @@ private extension BrowserPanel {
         }
     }
 
-    func makeForcedDarkModeScript(enabled: Bool, opacityPercent: Double) -> String {
-        let clampedOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacityPercent) / 100.0
-        let opacityLiteral = String(format: "%.4f", clampedOpacity)
+    func makeForcedDarkModeScript(enabled: Bool) -> String {
         let enabledLiteral = enabled ? "true" : "false"
         return """
         (() => {
-          const overlayId = 'cmux-forced-dark-mode-overlay';
+          const metaId = 'cmux-forced-dark-mode-meta';
           const shouldEnable = \(enabledLiteral);
-          const overlayOpacity = \(opacityLiteral);
           const root = document.documentElement || document.body;
           if (!root) return;
 
-          let overlay = document.getElementById(overlayId);
-          if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = overlayId;
-            overlay.style.position = 'fixed';
-            overlay.style.top = '0';
-            overlay.style.left = '0';
-            overlay.style.right = '0';
-            overlay.style.bottom = '0';
-            overlay.style.backgroundColor = 'black';
-            overlay.style.pointerEvents = 'none';
-            overlay.style.zIndex = '2147483647';
-            overlay.style.transition = 'opacity 120ms ease';
-            overlay.style.opacity = '0';
-            root.appendChild(overlay);
+          let meta = document.getElementById(metaId);
+          if (shouldEnable) {
+            root.style.setProperty('color-scheme', 'dark', 'important');
+            root.setAttribute('data-cmux-forced-dark-mode', '1');
+            if (!meta) {
+              meta = document.createElement('meta');
+              meta.id = metaId;
+              meta.name = 'color-scheme';
+              (document.head || root).appendChild(meta);
+            }
+            meta.setAttribute('content', 'dark');
+          } else {
+            root.style.removeProperty('color-scheme');
+            root.removeAttribute('data-cmux-forced-dark-mode');
+            if (meta) {
+              meta.remove();
+            }
           }
-
-          overlay.style.display = shouldEnable ? 'block' : 'none';
-          overlay.style.opacity = shouldEnable ? String(overlayOpacity) : '0';
         })();
         """
     }

@@ -2457,7 +2457,6 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserForcedDarkModeSettings.enabledKey) private var browserForcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
-    @AppStorage(BrowserForcedDarkModeSettings.opacityKey) private var browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.defaultOpacity
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
@@ -2778,40 +2777,11 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             "Force Dark Mode",
-                            subtitle: "Dims bright pages in the embedded browser with a lightweight overlay."
+                            subtitle: "Requests dark color scheme in the embedded browser so sites can render dark themes."
                         ) {
                             Toggle("", isOn: $browserForcedDarkModeEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            "Dimmer Opacity",
-                            subtitle: "\(Int(BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity).rounded()))%"
-                        ) {
-                            HStack(spacing: 8) {
-                                Slider(
-                                    value: Binding(
-                                        get: {
-                                            BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity)
-                                        },
-                                        set: { newValue in
-                                            browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(newValue)
-                                        }
-                                    ),
-                                    in: BrowserForcedDarkModeSettings.minOpacity...BrowserForcedDarkModeSettings.maxOpacity,
-                                    step: 1
-                                )
-                                .frame(width: 132)
-                                .disabled(!browserForcedDarkModeEnabled)
-
-                                Text("\(Int(BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity).rounded()))%")
-                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 38, alignment: .trailing)
-                            }
                         }
 
                         SettingsCardDivider()
@@ -3039,7 +3009,6 @@ struct SettingsView: View {
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
-            browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity)
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
         }
@@ -3088,7 +3057,6 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserForcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
-        browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.defaultOpacity
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText

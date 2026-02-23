@@ -276,25 +276,15 @@ final class BrowserForcedDarkModeSettingsTests: XCTestCase {
             BrowserForcedDarkModeSettings.enabled(defaults: defaults),
             BrowserForcedDarkModeSettings.defaultEnabled
         )
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.defaultOpacity
-        )
     }
 
-    func testOpacityIsClampedToSupportedRange() {
+    func testEnabledReadsPersistedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(-100.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.minOpacity
-        )
+        defaults.set(true, forKey: BrowserForcedDarkModeSettings.enabledKey)
+        XCTAssertTrue(BrowserForcedDarkModeSettings.enabled(defaults: defaults))
 
-        defaults.set(999.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.maxOpacity
-        )
+        defaults.set(false, forKey: BrowserForcedDarkModeSettings.enabledKey)
+        XCTAssertFalse(BrowserForcedDarkModeSettings.enabled(defaults: defaults))
     }
 }
 
@@ -372,6 +362,16 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertTrue(panel.isShowingNewTabPage)
         panel.navigate(to: URL(string: "https://example.com")!)
         XCTAssertFalse(panel.isShowingNewTabPage)
+    }
+
+    func testBrowserPanelForcedDarkModeUpdatesWebViewAppearance() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.setForcedDarkMode(enabled: true)
+        XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+
+        panel.setForcedDarkMode(enabled: false)
+        XCTAssertNil(panel.webView.appearance)
     }
 }
 
