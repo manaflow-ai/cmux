@@ -190,7 +190,7 @@ struct BrowserPanelView: View {
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
     @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashFadeWorkItem: DispatchWorkItem?
+    @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var isBrowserThemeMenuPresented = false
@@ -255,10 +255,10 @@ struct BrowserPanelView: View {
             webView
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
                 .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(6)
+                .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
@@ -692,20 +692,27 @@ struct BrowserPanelView: View {
     }
 
     private func triggerFocusFlashAnimation() {
-        focusFlashFadeWorkItem?.cancel()
-        focusFlashFadeWorkItem = nil
+        focusFlashAnimationGeneration &+= 1
+        let generation = focusFlashAnimationGeneration
+        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
 
-        withAnimation(.easeOut(duration: 0.08)) {
-            focusFlashOpacity = 1.0
-        }
-
-        let item = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.35)) {
-                focusFlashOpacity = 0.0
+        for segment in FocusFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                guard focusFlashAnimationGeneration == generation else { return }
+                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                    focusFlashOpacity = segment.targetOpacity
+                }
             }
         }
-        focusFlashFadeWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
+    }
+
+    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
+        switch curve {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
     }
 
     private func syncURLFromPanel() {
