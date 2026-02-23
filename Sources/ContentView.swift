@@ -1275,6 +1275,8 @@ struct ContentView: View {
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
+
+        static let updateHasAvailable = "update.hasAvailable"
     }
 
     private struct CommandPaletteCommandContribution {
@@ -3190,6 +3192,10 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
         }
 
+        if case .updateAvailable = updateViewModel.effectiveState {
+            snapshot.setBool(CommandPaletteContextKeys.updateHasAvailable, true)
+        }
+
         return snapshot
     }
 
@@ -3335,7 +3341,8 @@ struct ContentView: View {
                 commandId: "palette.applyUpdateIfAvailable",
                 title: constant("Apply Update (If Available)"),
                 subtitle: constant("Global"),
-                keywords: ["apply", "install", "update", "available"]
+                keywords: ["apply", "install", "update", "available"],
+                when: { $0.bool(CommandPaletteContextKeys.updateHasAvailable) }
             )
         )
         contributions.append(

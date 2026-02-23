@@ -53,8 +53,20 @@ def main() -> int:
 
     expect_regex(
         content_view,
-        r'commandId:\s*"palette\.applyUpdateIfAvailable".*?title:\s*constant\("Apply Update \(If Available\)"\).*?keywords:\s*\[[^\]]*"apply"[^\]]*"install"[^\]]*"update"[^\]]*"available"[^\]]*\]',
-        "Missing or incomplete `palette.applyUpdateIfAvailable` contribution",
+        r'static\s+let\s+updateHasAvailable\s*=\s*"update\.hasAvailable"',
+        "Missing `CommandPaletteContextKeys.updateHasAvailable`",
+        failures,
+    )
+    expect_regex(
+        content_view,
+        r'if\s+case\s+\.updateAvailable\s*=\s*updateViewModel\.effectiveState\s*\{\s*snapshot\.setBool\(CommandPaletteContextKeys\.updateHasAvailable,\s*true\)\s*\}',
+        "Command palette context no longer tracks update-available state",
+        failures,
+    )
+    expect_regex(
+        content_view,
+        r'commandId:\s*"palette\.applyUpdateIfAvailable".*?title:\s*constant\("Apply Update \(If Available\)"\).*?keywords:\s*\[[^\]]*"apply"[^\]]*"install"[^\]]*"update"[^\]]*"available"[^\]]*\].*?when:\s*\{\s*\$0\.bool\(CommandPaletteContextKeys\.updateHasAvailable\)\s*\}',
+        "Missing or incomplete `palette.applyUpdateIfAvailable` contribution visibility gating",
         failures,
     )
     expect_regex(
