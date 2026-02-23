@@ -2761,10 +2761,12 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                         }
 
-                        SettingsCardDivider()
+                    }
 
+                    SettingsSectionHeader(title: "Workspace Colors")
+                    SettingsCard {
                         SettingsCardRow(
-                            "Active Workspace Indicator",
+                            "Workspace Color Indicator",
                             controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: sidebarIndicatorStyleSelection) {
@@ -2775,10 +2777,9 @@ struct SettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.menu)
                         }
-                    }
 
-                    SettingsSectionHeader(title: "Workspace Colors")
-                    SettingsCard {
+                        SettingsCardDivider()
+
                         SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
