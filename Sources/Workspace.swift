@@ -347,11 +347,11 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func applyGhosttyChrome(from config: GhosttyConfig) {
-        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor, reason: reason)
     }
 
-    func applyGhosttyChrome(backgroundColor: NSColor) {
+    func applyGhosttyChrome(backgroundColor: NSColor, reason: String = "unspecified") {
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
         let isNoOp = currentChromeColors.backgroundHex == nextChromeColors.backgroundHex &&
@@ -361,7 +361,7 @@ final class Workspace: Identifiable, ObservableObject {
             let currentBackgroundHex = currentChromeColors.backgroundHex ?? "nil"
             let nextBackgroundHex = nextChromeColors.backgroundHex ?? "nil"
             GhosttyApp.shared.logBackground(
-                "theme apply workspace=\(id.uuidString) currentBg=\(currentBackgroundHex) nextBg=\(nextBackgroundHex) currentBorder=\(currentChromeColors.borderHex ?? "nil") nextBorder=\(nextChromeColors.borderHex ?? "nil") noop=\(isNoOp)"
+                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) nextBg=\(nextBackgroundHex) currentBorder=\(currentChromeColors.borderHex ?? "nil") nextBorder=\(nextChromeColors.borderHex ?? "nil") noop=\(isNoOp)"
             )
         }
 
@@ -369,6 +369,11 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme applied workspace=\(id.uuidString) reason=\(reason) resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") resultingBorder=\(bonsplitController.configuration.appearance.chromeColors.borderHex ?? "nil")"
+            )
+        }
     }
 
     init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {

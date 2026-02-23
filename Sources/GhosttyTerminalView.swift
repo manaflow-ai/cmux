@@ -183,7 +183,9 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
                 let source = pendingSource
                 pendingUserInfo = nil
                 logEvent?("bg notify flushed id=\(eventId) source=\(source)")
+                logEvent?("bg notify posting id=\(eventId) source=\(source)")
                 postNotification(userInfo)
+                logEvent?("bg notify posted id=\(eventId) source=\(source)")
             }
         }
 
@@ -278,6 +280,9 @@ class GhosttyApp {
         return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
     }()
     private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
+    private let backgroundLogStartUptime = ProcessInfo.processInfo.systemUptime
+    private let backgroundLogLock = NSLock()
+    private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
@@ -1168,8 +1173,10 @@ class GhosttyApp {
                 source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
                 scope: .surface
             )
-            DispatchQueue.main.async {
-                surfaceView.applyWindowBackgroundIfActive()
+            if backgroundLogEnabled {
+                logBackground(
+                    "surface config change deferred terminal bg apply tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
+                )
             }
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
@@ -1275,7 +1282,16 @@ class GhosttyApp {
 
     func logBackground(_ message: String) {
         let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
-        let line = "\(timestamp) cmux bg: \(message)\n"
+        let uptimeMs = (ProcessInfo.processInfo.systemUptime - backgroundLogStartUptime) * 1000
+        let frame60 = Int((CACurrentMediaTime() * 60.0).rounded(.down))
+        let frame120 = Int((CACurrentMediaTime() * 120.0).rounded(.down))
+        let threadLabel = Thread.isMainThread ? "main" : "background"
+        backgroundLogLock.lock()
+        defer { backgroundLogLock.unlock() }
+        backgroundLogSequence &+= 1
+        let sequence = backgroundLogSequence
+        let line =
+            "\(timestamp) seq=\(sequence) t+\(String(format: "%.3f", uptimeMs))ms thread=\(threadLabel) frame60=\(frame60) frame120=\(frame120) cmux bg: \(message)\n"
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
                 FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
@@ -1967,6 +1983,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
     private var appliedColorScheme: ghostty_color_scheme_e?
+    private var lastLoggedSurfaceBackgroundSignature: String?
+    private var lastLoggedWindowBackgroundSignature: String?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
 #if DEBUG
@@ -2027,6 +2045,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             CATransaction.commit()
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let signature = "\(color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
+            if signature != lastLoggedSurfaceBackgroundSignature {
+                lastLoggedSurfaceBackgroundSignature = signature
+                GhosttyApp.shared.logBackground(
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                )
+            }
+        }
     }
 
     func applyWindowBackgroundIfActive() {
@@ -2044,7 +2071,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             window.isOpaque = color.alphaComponent >= 1.0
         }
         if GhosttyApp.shared.backgroundLogEnabled {
-            GhosttyApp.shared.logBackground("applied window background tab=\(tabId?.uuidString ?? "unknown") color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
+            let signature = "\(cmuxShouldUseTransparentBackgroundWindow() ? "transparent" : color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
+            if signature != lastLoggedWindowBackgroundSignature {
+                lastLoggedWindowBackgroundSignature = signature
+                GhosttyApp.shared.logBackground(
+                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") transparent=\(cmuxShouldUseTransparentBackgroundWindow()) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                )
+            }
         }
     }
 
