@@ -488,6 +488,14 @@ final class Workspace: Identifiable, ObservableObject {
     private var focusReconcileScheduled = false
     private var geometryReconcileScheduled = false
     private var isNormalizingPinnedTabOrder = false
+    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
+    private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
+
+    private struct PendingNonFocusSplitFocusReassert {
+        let generation: UInt64
+        let preferredPanelId: UUID
+        let splitPanelId: UUID
+    }
 
     struct DetachedSurfaceTransfer {
         let panelId: UUID
@@ -1553,14 +1561,21 @@ final class Workspace: Identifiable, ObservableObject {
         previousHostedView: GhosttySurfaceScrollView?
     ) {
         guard let preferredPanelId, panels[preferredPanelId] != nil else {
+            clearNonFocusSplitFocusReassert()
             scheduleFocusReconcile()
             return
         }
+
+        let generation = beginNonFocusSplitFocusReassert(
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
 
         // Bonsplit splitPane focuses the newly created pane and may emit one delayed
         // didSelect/didFocus callback. Re-assert focus over multiple turns so model
         // focus and AppKit first responder stay aligned with non-focus-intent splits.
         reassertFocusAfterNonFocusSplit(
+            generation: generation,
             preferredPanelId: preferredPanelId,
             splitPanelId: splitPanelId,
             previousHostedView: previousHostedView,
@@ -1570,6 +1585,7 @@ final class Workspace: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.reassertFocusAfterNonFocusSplit(
+                generation: generation,
                 preferredPanelId: preferredPanelId,
                 splitPanelId: splitPanelId,
                 previousHostedView: previousHostedView,
@@ -1579,23 +1595,37 @@ final class Workspace: Identifiable, ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.reassertFocusAfterNonFocusSplit(
+                    generation: generation,
                     preferredPanelId: preferredPanelId,
                     splitPanelId: splitPanelId,
                     previousHostedView: previousHostedView,
                     allowPreviousHostedView: false
                 )
                 self.scheduleFocusReconcile()
+                self.clearNonFocusSplitFocusReassert(generation: generation)
             }
         }
     }
 
     private func reassertFocusAfterNonFocusSplit(
+        generation: UInt64,
         preferredPanelId: UUID,
         splitPanelId: UUID,
         previousHostedView: GhosttySurfaceScrollView?,
         allowPreviousHostedView: Bool
     ) {
-        guard panels[preferredPanelId] != nil else { return }
+        guard matchesPendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        ) else {
+            return
+        }
+
+        guard panels[preferredPanelId] != nil else {
+            clearNonFocusSplitFocusReassert(generation: generation)
+            return
+        }
 
         if focusedPanelId == splitPanelId {
             focusPanel(
@@ -1613,6 +1643,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
+        markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
@@ -2054,6 +2085,11 @@ extension Workspace: BonsplitDelegate {
               let panel = panels[panelId] else {
             return
         }
+
+        if shouldTreatCurrentEventAsExplicitFocusIntent() {
+            markExplicitFocusIntent(on: panelId)
+        }
+
         syncPinnedStateForTab(selectedTabId, panelId: panelId)
         syncUnreadBadgeStateForPanel(panelId)
 
@@ -2103,6 +2139,57 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+    }
+
+    private func beginNonFocusSplitFocusReassert(
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> UInt64 {
+        nonFocusSplitFocusReassertGeneration &+= 1
+        let generation = nonFocusSplitFocusReassertGeneration
+        pendingNonFocusSplitFocusReassert = PendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
+        return generation
+    }
+
+    private func matchesPendingNonFocusSplitFocusReassert(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> Bool {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return false }
+        return pending.generation == generation &&
+            pending.preferredPanelId == preferredPanelId &&
+            pending.splitPanelId == splitPanelId
+    }
+
+    private func clearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return }
+        if let generation, pending.generation != generation { return }
+        pendingNonFocusSplitFocusReassert = nil
+    }
+
+    private func shouldTreatCurrentEventAsExplicitFocusIntent() -> Bool {
+        guard let eventType = NSApp.currentEvent?.type else { return false }
+        switch eventType {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+             .otherMouseDown, .otherMouseUp, .keyDown, .keyUp, .scrollWheel,
+             .gesture, .magnify, .rotate, .swipe:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func markExplicitFocusIntent(on panelId: UUID) {
+        guard let pending = pendingNonFocusSplitFocusReassert,
+              pending.splitPanelId == panelId else {
+            return
+        }
+        pendingNonFocusSplitFocusReassert = nil
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
