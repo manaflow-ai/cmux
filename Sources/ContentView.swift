@@ -2368,7 +2368,7 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = Array(commandPaletteResults)
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListMaxHeight: CGFloat = 216
+        let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
         let commandPaletteListContentHeight = visibleResults.isEmpty
