@@ -582,12 +582,25 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             let closedWorkspace = (done["closedWorkspace"] ?? "") == "1"
             let timedOut = (done["timedOut"] ?? "") == "1"
             let triggerMode = done["autoTriggerMode"] ?? ""
+            let exitPanelId = done["exitPanelId"] ?? ""
+            let workspaceId = done["workspaceId"] ?? ""
+            let probeSurfaceId = done["probeShowChildExitedSurfaceId"] ?? ""
+            let probeTabId = done["probeShowChildExitedTabId"] ?? ""
 
             XCTAssertFalse(timedOut, "Attempt \(attempt): early Ctrl+D timed out. data=\(done)")
             XCTAssertEqual(triggerMode, "strict_early_ctrl_d", "Attempt \(attempt): expected strict early Ctrl+D trigger mode. data=\(done)")
             XCTAssertFalse(closedWorkspace, "Attempt \(attempt): workspace/window should stay open after early Ctrl+D. data=\(done)")
             XCTAssertEqual(workspaceCountAfter, 1, "Attempt \(attempt): workspace should remain open after early Ctrl+D. data=\(done)")
             XCTAssertEqual(panelCountAfter, 1, "Attempt \(attempt): only focused pane should close after early Ctrl+D. data=\(done)")
+            if let showChildExitedCount = Int(done["probeShowChildExitedCount"] ?? "") {
+                XCTAssertEqual(showChildExitedCount, 1, "Attempt \(attempt): expected exactly one SHOW_CHILD_EXITED callback for one early Ctrl+D. data=\(done)")
+            }
+            if !exitPanelId.isEmpty, !probeSurfaceId.isEmpty {
+                XCTAssertEqual(probeSurfaceId, exitPanelId, "Attempt \(attempt): SHOW_CHILD_EXITED should target the split opened by Cmd+D. data=\(done)")
+            }
+            if !workspaceId.isEmpty, !probeTabId.isEmpty {
+                XCTAssertEqual(probeTabId, workspaceId, "Attempt \(attempt): SHOW_CHILD_EXITED should resolve to the active workspace. data=\(done)")
+            }
             XCTAssertTrue(
                 waitForWindowCount(app: app, atLeast: 1, timeout: 2.0),
                 "Attempt \(attempt): app window should remain open after early Ctrl+D. data=\(done)"

@@ -229,9 +229,21 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
 
 private final class GhosttySurfaceCallbackContext {
     weak var surfaceView: GhosttyNSView?
+    weak var terminalSurface: TerminalSurface?
+    let surfaceId: UUID
 
-    init(surfaceView: GhosttyNSView) {
+    init(surfaceView: GhosttyNSView, terminalSurface: TerminalSurface) {
         self.surfaceView = surfaceView
+        self.terminalSurface = terminalSurface
+        self.surfaceId = terminalSurface.id
+    }
+
+    var tabId: UUID? {
+        terminalSurface?.tabId ?? surfaceView?.tabId
+    }
+
+    var runtimeSurface: ghostty_surface_t? {
+        terminalSurface?.surface ?? surfaceView?.terminalSurface?.surface
     }
 }
 
@@ -433,8 +445,8 @@ class GhosttyApp {
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             // Read clipboard
-            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
-            guard let surface = surfaceView.terminalSurface?.surface else { return }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let surface = callbackContext.runtimeSurface else { return }
 
             let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
             let value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
@@ -445,8 +457,8 @@ class GhosttyApp {
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
-            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
-            guard let surface = surfaceView.terminalSurface?.surface else { return }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let surface = callbackContext.runtimeSurface else { return }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
         }
@@ -478,16 +490,16 @@ class GhosttyApp {
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
-            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
-            let callbackSurfaceId = surfaceView.terminalSurface?.id
-            let callbackTabId = surfaceView.tabId
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
+            let callbackSurfaceId = callbackContext.surfaceId
+            let callbackTabId = callbackContext.tabId
 
 #if DEBUG
             cmuxWriteChildExitProbe(
                 [
                     "probeCloseSurfaceNeedsConfirm": needsConfirmClose ? "1" : "0",
                     "probeCloseSurfaceTabId": callbackTabId?.uuidString ?? "",
-                    "probeCloseSurfaceSurfaceId": callbackSurfaceId?.uuidString ?? "",
+                    "probeCloseSurfaceSurfaceId": callbackSurfaceId.uuidString,
                 ],
                 increments: ["probeCloseSurfaceCbCount": 1]
             )
@@ -498,7 +510,6 @@ class GhosttyApp {
                 // Close requests must be resolved by the callback's workspace/surface IDs only.
                 // If the mapping is already gone (duplicate/stale callback), ignore it.
                 if let callbackTabId,
-                   let callbackSurfaceId,
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
                    let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
                    workspace.panels[callbackSurfaceId] != nil {
@@ -876,10 +887,9 @@ class GhosttyApp {
         }
     }
 
-    private static func surfaceView(from userdata: UnsafeMutableRawPointer?) -> GhosttyNSView? {
+    private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
         guard let userdata else { return nil }
-        let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
-        return context.surfaceView
+        return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -959,16 +969,49 @@ class GhosttyApp {
 
             return false
         }
-        let surfaceView = Self.surfaceView(from: ghostty_surface_userdata(target.target.surface))
-        guard let surfaceView else { return false }
+        let callbackContext = Self.callbackContext(from: ghostty_surface_userdata(target.target.surface))
+        let callbackTabId = callbackContext?.tabId
+        let callbackSurfaceId = callbackContext?.surfaceId
+
+        if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
+            // The child (shell) exited. Ghostty will fall back to printing
+            // "Process exited. Press any key..." into the terminal unless the host
+            // handles this action. For cmux, the correct behavior is to close
+            // the panel immediately (no prompt).
+#if DEBUG
+            cmuxWriteChildExitProbe(
+                [
+                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
+                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
+                ],
+                increments: ["probeShowChildExitedCount": 1]
+            )
+#endif
+            // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
+            // dispatching this action callback.
+            DispatchQueue.main.async {
+                guard let app = AppDelegate.shared else { return }
+                if let callbackTabId,
+                   let callbackSurfaceId,
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
+                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
+                   workspace.panels[callbackSurfaceId] != nil {
+                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
+                }
+            }
+            // Always report handled so Ghostty doesn't print the fallback prompt.
+            return true
+        }
+
+        guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
             action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
             logAction(
                 action,
                 target: target,
-                tabId: surfaceView.tabId,
-                surfaceId: surfaceView.terminalSurface?.id
+                tabId: callbackTabId ?? surfaceView.tabId,
+                surfaceId: callbackSurfaceId ?? surfaceView.terminalSurface?.id
             )
         }
 
@@ -1132,36 +1175,6 @@ class GhosttyApp {
                     body: body
                 )
             }
-            return true
-        case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
-            // The child (shell) exited. Ghostty will fall back to printing
-            // "Process exited. Press any key..." into the terminal unless the host
-            // handles this action. For cmux, the correct behavior is to close
-            // the panel immediately (no prompt).
-            let callbackTabId = surfaceView.tabId
-            let callbackSurfaceId = surfaceView.terminalSurface?.id
-#if DEBUG
-            cmuxWriteChildExitProbe(
-                [
-                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
-                ],
-                increments: ["probeShowChildExitedCount": 1]
-            )
-#endif
-            // Keep host-close async to avoid re-entrant close/deinit while Ghostty is still
-            // dispatching this action callback.
-            DispatchQueue.main.async {
-                guard let app = AppDelegate.shared else { return }
-                if let callbackTabId,
-                   let callbackSurfaceId,
-                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
-                   workspace.panels[callbackSurfaceId] != nil {
-                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
-                }
-            }
-            // Always report handled so Ghostty doesn't print the fallback prompt.
             return true
         case GHOSTTY_ACTION_COLOR_CHANGE:
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
@@ -1591,7 +1604,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view).toOpaque()
         ))
-        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view))
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view, terminalSurface: self))
         surfaceConfig.userdata = callbackContext.toOpaque()
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
