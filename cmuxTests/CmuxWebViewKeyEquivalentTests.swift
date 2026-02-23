@@ -4217,6 +4217,50 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        )
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        hostedView.moveFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to be first responder before window blur"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Window blur should force terminal surface to resign first responder"
+        )
+    }
+
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
         let surface = TerminalSurface(
             tabId: UUID(),
