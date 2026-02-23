@@ -13,6 +13,15 @@ struct cmuxApp: App {
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.toggleSidebar.defaultsKey) private var toggleSidebarShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.newTab.defaultsKey) private var newWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.newWindow.defaultsKey) private var newWindowShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.showNotifications.defaultsKey) private var showNotificationsShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.nextSurface.defaultsKey) private var nextSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.prevSurface.defaultsKey) private var prevSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey) private var nextWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
@@ -21,6 +30,8 @@ struct cmuxApp: App {
     private var showBrowserJavaScriptConsoleShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -257,11 +268,11 @@ struct cmuxApp: App {
                     Divider()
                 }
 
-                Button("Show Notifications") {
+                splitCommandButton(title: "Show Notifications", shortcut: showNotificationsMenuShortcut) {
                     showNotificationsPopover()
                 }
 
-                Button("Jump to Latest Unread") {
+                splitCommandButton(title: "Jump to Latest Unread", shortcut: jumpToUnreadMenuShortcut) {
                     appDelegate.jumpToLatestUnread()
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
@@ -337,12 +348,11 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                Button("New Window") {
+                splitCommandButton(title: "New Window", shortcut: newWindowMenuShortcut) {
                     appDelegate.openNewMainWindow(nil)
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
 
-                Button("New Workspace") {
+                splitCommandButton(title: "New Workspace", shortcut: newWorkspaceMenuShortcut) {
                     (AppDelegate.shared?.tabManager ?? tabManager).addTab()
                 }
             }
@@ -359,10 +369,9 @@ struct cmuxApp: App {
 
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
                 // is the last workspace, it closes the window.
-                Button("Close Workspace") {
+                splitCommandButton(title: "Close Workspace", shortcut: closeWorkspaceMenuShortcut) {
                     closeTabOrWindow()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
 
                 Button("Reopen Closed Browser Panel") {
                     _ = (AppDelegate.shared?.tabManager ?? tabManager).reopenMostRecentlyClosedBrowserPanel()
@@ -408,17 +417,17 @@ struct cmuxApp: App {
 
             // Tab navigation
             CommandGroup(after: .toolbar) {
-                Button("Toggle Sidebar") {
+                splitCommandButton(title: "Toggle Sidebar", shortcut: toggleSidebarMenuShortcut) {
                     sidebarState.toggle()
                 }
 
                 Divider()
 
-                Button("Next Surface") {
+                splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
                 }
 
-                Button("Previous Surface") {
+                splitCommandButton(title: "Previous Surface", shortcut: prevSurfaceMenuShortcut) {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
                 }
 
@@ -470,15 +479,15 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
-                Button("Next Workspace") {
+                splitCommandButton(title: "Next Workspace", shortcut: nextWorkspaceMenuShortcut) {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
                 }
 
-                Button("Previous Workspace") {
+                splitCommandButton(title: "Previous Workspace", shortcut: prevWorkspaceMenuShortcut) {
                     (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
                 }
 
-                Button("Rename Workspace…") {
+                splitCommandButton(title: "Rename Workspace…", shortcut: renameWorkspaceMenuShortcut) {
                     _ = AppDelegate.shared?.promptRenameSelectedWorkspace()
                 }
 
@@ -515,11 +524,11 @@ struct cmuxApp: App {
 
                 Divider()
 
-                Button("Jump to Latest Unread") {
+                splitCommandButton(title: "Jump to Latest Unread", shortcut: jumpToUnreadMenuShortcut) {
                     AppDelegate.shared?.jumpToLatestUnread()
                 }
 
-                Button("Show Notifications") {
+                splitCommandButton(title: "Show Notifications", shortcut: showNotificationsMenuShortcut) {
                     showNotificationsPopover()
                 }
             }
@@ -578,6 +587,54 @@ struct cmuxApp: App {
         decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
     }
 
+    private var toggleSidebarMenuShortcut: StoredShortcut {
+        decodeShortcut(from: toggleSidebarShortcutData, fallback: KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut)
+    }
+
+    private var newWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: newWorkspaceShortcutData, fallback: KeyboardShortcutSettings.Action.newTab.defaultShortcut)
+    }
+
+    private var newWindowMenuShortcut: StoredShortcut {
+        decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var showNotificationsMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: showNotificationsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.showNotifications.defaultShortcut
+        )
+    }
+
+    private var jumpToUnreadMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: jumpToUnreadShortcutData,
+            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+    }
+
+    private var nextSurfaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: nextSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.nextSurface.defaultShortcut)
+    }
+
+    private var prevSurfaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: prevSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.prevSurface.defaultShortcut)
+    }
+
+    private var nextWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: nextWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        )
+    }
+
+    private var prevWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: prevWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        )
+    }
+
     private var splitDownMenuShortcut: StoredShortcut {
         decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
     }
@@ -607,6 +664,20 @@ struct cmuxApp: App {
         decodeShortcut(
             from: splitBrowserDownShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
+    private var renameWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: renameWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        )
+    }
+
+    private var closeWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: closeWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
         )
     }
 
@@ -651,48 +722,12 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
-        if let key = keyEquivalent(for: shortcut) {
+        if let key = shortcut.keyEquivalent {
             Button(title, action: action)
-                .keyboardShortcut(key, modifiers: eventModifiers(for: shortcut))
+                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
             Button(title, action: action)
         }
-    }
-
-    private func keyEquivalent(for shortcut: StoredShortcut) -> KeyEquivalent? {
-        switch shortcut.key {
-        case "←":
-            return .leftArrow
-        case "→":
-            return .rightArrow
-        case "↑":
-            return .upArrow
-        case "↓":
-            return .downArrow
-        case "\t":
-            return .tab
-        default:
-            let lowered = shortcut.key.lowercased()
-            guard lowered.count == 1, let character = lowered.first else { return nil }
-            return KeyEquivalent(character)
-        }
-    }
-
-    private func eventModifiers(for shortcut: StoredShortcut) -> EventModifiers {
-        var modifiers: EventModifiers = []
-        if shortcut.command {
-            modifiers.insert(.command)
-        }
-        if shortcut.shift {
-            modifiers.insert(.shift)
-        }
-        if shortcut.option {
-            modifiers.insert(.option)
-        }
-        if shortcut.control {
-            modifiers.insert(.control)
-        }
-        return modifiers
     }
 
     private func closePanelOrWindow() {

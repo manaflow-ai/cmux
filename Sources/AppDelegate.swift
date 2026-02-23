@@ -1967,6 +1967,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspace)) {
+            tabManager?.closeCurrentWorkspaceWithConfirmation()
+            return true
+        }
+
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
         if flags == [.command],
            let manager = tabManager,
@@ -3305,6 +3310,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         stateHintItem.title = snapshot.stateHintTitle
 
+        applyShortcut(KeyboardShortcutSettings.shortcut(for: .showNotifications), to: showNotificationsItem)
+        applyShortcut(KeyboardShortcutSettings.shortcut(for: .jumpToUnread), to: jumpToUnreadItem)
+
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications
         clearAllItem.isEnabled = snapshot.hasNotifications
@@ -3317,6 +3325,16 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
                 ? "cmux"
                 : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
         }
+    }
+
+    private func applyShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
+        guard let keyEquivalent = shortcut.menuItemKeyEquivalent else {
+            item.keyEquivalent = ""
+            item.keyEquivalentModifierMask = []
+            return
+        }
+        item.keyEquivalent = keyEquivalent
+        item.keyEquivalentModifierMask = shortcut.modifierFlags
     }
 
     private func rebuildInlineNotificationItems(recentNotifications: [TerminalNotification]) {
