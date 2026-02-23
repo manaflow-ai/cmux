@@ -20,6 +20,17 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 }
 #endif
 
+private func browserPortalIsEffectivelyHidden(_ view: NSView) -> Bool {
+    var node: NSView? = view
+    while let current = node {
+        if current.isHidden || current.alphaValue <= 0.001 {
+            return true
+        }
+        node = current.superview
+    }
+    return false
+}
+
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -213,7 +224,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in view: NSView) -> DividerCursorKind? {
-        guard !view.isHidden else { return nil }
+        guard !browserPortalIsEffectivelyHidden(view) else { return nil }
 
         if let splitView = view as? NSSplitView {
             let pointInSplit = splitView.convert(windowPoint, from: nil)
@@ -266,7 +277,7 @@ final class WindowBrowserHostView: NSView {
     }
 
     private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
-        guard !view.isHidden else { return }
+        guard !browserPortalIsEffectivelyHidden(view) else { return }
 
         if let splitView = view as? NSSplitView {
             let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
@@ -410,13 +421,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let v = current {
-            if v.isHidden { return true }
-            current = v.superview
-        }
-        return false
+        browserPortalIsEffectivelyHidden(view)
     }
 
     private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
