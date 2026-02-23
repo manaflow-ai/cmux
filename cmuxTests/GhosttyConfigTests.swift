@@ -340,6 +340,81 @@ final class NotificationBurstCoalescerTests: XCTestCase {
     }
 }
 
+final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
+    func testSignalCoalescesBurstToLatestBackground() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "coalesced notification")
+        expectation.expectedFulfillmentCount = 1
+        var postedUserInfos: [[AnyHashable: Any]] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(delay: 0.01) { userInfo in
+            postedUserInfos.append(userInfo)
+            expectation.fulfill()
+        }
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 0.95)
+            dispatcher.signal(backgroundColor: light, opacity: 0.75)
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedUserInfos.count, 1)
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString(),
+            "#FDF6E3"
+        )
+        XCTAssertEqual(
+            postedOpacity(from: postedUserInfos[0][GhosttyNotificationKey.backgroundOpacity]),
+            0.75,
+            accuracy: 0.0001
+        )
+    }
+
+    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "two notifications")
+        expectation.expectedFulfillmentCount = 2
+        var postedHexes: [String] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(delay: 0.01) { userInfo in
+            let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            postedHexes.append(hex)
+            expectation.fulfill()
+        }
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 1.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                dispatcher.signal(backgroundColor: light, opacity: 1.0)
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedHexes, ["#272822", "#FDF6E3"])
+    }
+
+    private func postedOpacity(from value: Any?) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.doubleValue
+        }
+        XCTFail("Expected background opacity payload")
+        return -1
+    }
+}
+
 final class RecentlyClosedBrowserStackTests: XCTestCase {
     func testPopReturnsEntriesInLIFOOrder() {
         var stack = RecentlyClosedBrowserStack(capacity: 20)

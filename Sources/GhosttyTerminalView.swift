@@ -124,6 +124,48 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
+/// Coalesces Ghostty background notifications so consumers only observe
+/// the latest runtime background for a burst of updates.
+final class GhosttyDefaultBackgroundNotificationDispatcher {
+    private let coalescer: NotificationBurstCoalescer
+    private let postNotification: ([AnyHashable: Any]) -> Void
+    private var pendingUserInfo: [AnyHashable: Any]?
+
+    init(
+        delay: TimeInterval = 1.0 / 30.0,
+        postNotification: @escaping ([AnyHashable: Any]) -> Void = { userInfo in
+            NotificationCenter.default.post(
+                name: .ghosttyDefaultBackgroundDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+    ) {
+        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.postNotification = postNotification
+    }
+
+    func signal(backgroundColor: NSColor, opacity: Double) {
+        let signalOnMain = { [self] in
+            pendingUserInfo = [
+                GhosttyNotificationKey.backgroundColor: backgroundColor,
+                GhosttyNotificationKey.backgroundOpacity: opacity
+            ]
+            coalescer.signal { [self] in
+                guard let userInfo = pendingUserInfo else { return }
+                pendingUserInfo = nil
+                postNotification(userInfo)
+            }
+        }
+
+        if Thread.isMainThread {
+            signalOnMain()
+        } else {
+            DispatchQueue.main.async(execute: signalOnMain)
+        }
+    }
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -203,6 +245,7 @@ class GhosttyApp {
     }()
     private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
     private var appObservers: [NSObjectProtocol] = []
+    private let defaultBackgroundNotificationDispatcher = GhosttyDefaultBackgroundNotificationDispatcher()
 
     // Scroll lag tracking
     private(set) var isScrolling = false
@@ -631,22 +674,10 @@ class GhosttyApp {
     }
 
     private func notifyDefaultBackgroundDidChange() {
-        let userInfo: [AnyHashable: Any] = [
-            GhosttyNotificationKey.backgroundColor: defaultBackgroundColor,
-            GhosttyNotificationKey.backgroundOpacity: defaultBackgroundOpacity
-        ]
-        let post = {
-            NotificationCenter.default.post(
-                name: .ghosttyDefaultBackgroundDidChange,
-                object: nil,
-                userInfo: userInfo
-            )
-        }
-        if Thread.isMainThread {
-            post()
-        } else {
-            DispatchQueue.main.async(execute: post)
-        }
+        defaultBackgroundNotificationDispatcher.signal(
+            backgroundColor: defaultBackgroundColor,
+            opacity: defaultBackgroundOpacity
+        )
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
