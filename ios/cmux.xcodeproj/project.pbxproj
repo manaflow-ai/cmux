@@ -25,10 +25,13 @@
 		5FE9793039F5691D04C24116 /* StackAuthUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EA26D914C01843EF8738A6 /* StackAuthUser.swift */; };
 		65E76B2DE8870BF62C89A260 /* MarkdownDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B26AF47B779BEDAA689F7CAA /* MarkdownDebugView.swift */; };
 		6A5960808C1C40C3C1DEEA2E /* ChatFix5_ReducePadding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C74190A1F266AB5E2C38455 /* ChatFix5_ReducePadding.swift */; };
+		6AAA7241570E298F09DEFFF4 /* GhosttyToySurfaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D462ECF2FAB3DFDB5D899BC /* GhosttyToySurfaceView.swift */; };
 		6DAA11BC61CC059E80AE3598 /* AuthPresentationContextProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194FA6A3C28159BD0744F6F5 /* AuthPresentationContextProvider.swift */; };
 		6ED3832765AAB169F7254054 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */; };
+		7A6CB32581C96A6C5296B8DF /* GhosttyToyRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC9C858262915EAD4CA56AE8 /* GhosttyToyRuntime.swift */; };
 		7B08C95E79299E6478B7EA27 /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E4AC3E9289C53B42C020633 /* ChatViewModel.swift */; };
 		7BCA02347A773584F73D8374 /* CodexOAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298CBAF0C277F506858D625E /* CodexOAuthView.swift */; };
+		7CEB70A3CBC95288F0E89525 /* TerminalSidebarStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10453F655BBD1B9BA56E633B /* TerminalSidebarStoreTests.swift */; };
 		7E0146088B71697EB516611F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B005E08ACAAF83F6A13F9D8C /* Assets.xcassets */; };
 		8030869706BE8FD94533D58A /* ChatApproachI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9788FAF68766BFAA9A451A8D /* ChatApproachI.swift */; };
 		83357B66D3EF312F35A86BB1 /* CMuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72E20F7A729081D044495605 /* CMuxApp.swift */; };
@@ -68,6 +71,7 @@
 		F3849C68122B1FDC0AF85654 /* StackAuthSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 245DF39EF320A4BE4F9693E1 /* StackAuthSessionTests.swift */; };
 		F51147F292563E8B2503D43E /* ChatFix1_ContentInsetNever.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38A50394379F40101C8A95FC /* ChatFix1_ContentInsetNever.swift */; };
 		F6098AD7DB98B95086FD932A /* ChatKeyboardContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA367B39118F09C4A8989FF /* ChatKeyboardContainer.swift */; };
+		F71E8618CF810AB6E4D574F7 /* TerminalSidebarRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F109D38A196A6E1D2EC346 /* TerminalSidebarRootView.swift */; };
 		FA5C9FC319F208F785750A51 /* ConvexApiTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F94540C907EB9AC1DCCD6DD /* ConvexApiTypes.swift */; };
 		FC7437EF35914FCEEF7909AF /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEF1E409D552C017B2175D56 /* CrashReporter.swift */; };
 /* End PBXBuildFile section */
@@ -91,9 +95,11 @@
 
 /* Begin PBXFileReference section */
 		0BE5CB8A89417C399DB8D166 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		10453F655BBD1B9BA56E633B /* TerminalSidebarStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarStoreTests.swift; sourceTree = "<group>"; };
 		194FA6A3C28159BD0744F6F5 /* AuthPresentationContextProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthPresentationContextProvider.swift; sourceTree = "<group>"; };
 		1B8CDE2F6CDCAB37E3107C76 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1C74190A1F266AB5E2C38455 /* ChatFix5_ReducePadding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix5_ReducePadding.swift; sourceTree = "<group>"; };
+		22364067C394BD7F6751E54B /* GhosttyToy-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "GhosttyToy-Bridging-Header.h"; sourceTree = "<group>"; };
 		2371E50D0E3E362104DE9177 /* ChatFix4_ScrollViewDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix4_ScrollViewDelegate.swift; sourceTree = "<group>"; };
 		245DF39EF320A4BE4F9693E1 /* StackAuthSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthSessionTests.swift; sourceTree = "<group>"; };
 		263881D640CF9D1EEC1D093E /* AuthError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthError.swift; sourceTree = "<group>"; };
@@ -104,6 +110,7 @@
 		4296ACD1C15CC2E35AE162CC /* ChatFix1MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatFix1MainView.swift; sourceTree = "<group>"; };
 		46410B90D2F45E6882E585AD /* cmux.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4873F8C34F5557AD1E6F6CF3 /* DebugLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogStore.swift; sourceTree = "<group>"; };
+		4D462ECF2FAB3DFDB5D899BC /* GhosttyToySurfaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyToySurfaceView.swift; sourceTree = "<group>"; };
 		4EFD4970FE1D3699CBDB7029 /* UITestConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestConfig.swift; sourceTree = "<group>"; };
 		5D62642C09CEB3EB28FD2733 /* ConversationReadOverrides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationReadOverrides.swift; sourceTree = "<group>"; };
 		605A8CE9A196BFC7BD787310 /* MessagePositionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePositionUITests.swift; sourceTree = "<group>"; };
@@ -124,6 +131,7 @@
 		9788FAF68766BFAA9A451A8D /* ChatApproachI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatApproachI.swift; sourceTree = "<group>"; };
 		9E4AC3E9289C53B42C020633 /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
 		9F680356269E010CC8DDF11B /* ShortThreadLayoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortThreadLayoutUITests.swift; sourceTree = "<group>"; };
+		A0F109D38A196A6E1D2EC346 /* TerminalSidebarRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSidebarRootView.swift; sourceTree = "<group>"; };
 		A55B47F6C8EE5C8DE853A4EB /* StackAuthApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthApp.swift; sourceTree = "<group>"; };
 		A5B2D4A0933DB97461CCAB77 /* ConversationsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationsViewModel.swift; sourceTree = "<group>"; };
 		A6673EB0D4EAD00E8605146E /* MultilineInputUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultilineInputUITests.swift; sourceTree = "<group>"; };
@@ -134,6 +142,7 @@
 		B79B9D0409D6912DC37DC5B0 /* UITestMockData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestMockData.swift; sourceTree = "<group>"; };
 		B87CA70AD58D024077E85845 /* DebugInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugInputBar.swift; sourceTree = "<group>"; };
 		BAD03EB210A4715A9AAA35B3 /* cmuxTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC9C858262915EAD4CA56AE8 /* GhosttyToyRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyToyRuntime.swift; sourceTree = "<group>"; };
 		BCD6DF60D6756BE09A1CFEE9 /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 		BF2848CBEF6B2A130DF4C9D2 /* StackAuthProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StackAuthProvider.swift; sourceTree = "<group>"; };
 		C032FB689174A5691978BF3C /* InputStrategyLabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputStrategyLabUITests.swift; sourceTree = "<group>"; };
@@ -187,6 +196,7 @@
 				836C6B232CBB4E70EA93010E /* AssistantMessageItemBuilderTests.swift */,
 				68BEA95345A362BB4709F31F /* MarkdownLinkSafetyPolicyTests.swift */,
 				245DF39EF320A4BE4F9693E1 /* StackAuthSessionTests.swift */,
+				10453F655BBD1B9BA56E633B /* TerminalSidebarStoreTests.swift */,
 				2B426546C011580A0014F89F /* ToolCallFormattingTests.swift */,
 			);
 			path = cmuxTests;
@@ -228,6 +238,17 @@
 				E6EA26D914C01843EF8738A6 /* StackAuthUser.swift */,
 			);
 			path = Auth;
+			sourceTree = "<group>";
+		};
+		4CDF062C8C5E0A351C836B92 /* Terminal */ = {
+			isa = PBXGroup;
+			children = (
+				22364067C394BD7F6751E54B /* GhosttyToy-Bridging-Header.h */,
+				BC9C858262915EAD4CA56AE8 /* GhosttyToyRuntime.swift */,
+				4D462ECF2FAB3DFDB5D899BC /* GhosttyToySurfaceView.swift */,
+				A0F109D38A196A6E1D2EC346 /* TerminalSidebarRootView.swift */,
+			);
+			path = Terminal;
 			sourceTree = "<group>";
 		};
 		601CC1311CE726A1EC6F0BAB /* Generated */ = {
@@ -331,6 +352,7 @@
 				BBE2BE334F53D4E47636EF15 /* Debug */,
 				601CC1311CE726A1EC6F0BAB /* Generated */,
 				ABA710BCFF8BE52B6A1575C3 /* Notifications */,
+				4CDF062C8C5E0A351C836B92 /* Terminal */,
 				C87B2E36E5CBDE9207470555 /* ViewModels */,
 			);
 			path = Sources;
@@ -493,6 +515,8 @@
 				A2B59D2AD87AE0BA84CFFC76 /* DebugLogsView.swift in Sources */,
 				8DF015A1566E9F288F30C460 /* DebugSettings.swift in Sources */,
 				EC388CAF55CB58BE5B5D2654 /* Environment.swift in Sources */,
+				7A6CB32581C96A6C5296B8DF /* GhosttyToyRuntime.swift in Sources */,
+				6AAA7241570E298F09DEFFF4 /* GhosttyToySurfaceView.swift in Sources */,
 				B6A62131AD984521B5A6B183 /* InputStrategyLabView.swift in Sources */,
 				65E76B2DE8870BF62C89A260 /* MarkdownDebugView.swift in Sources */,
 				361B05C412BFA1E44BDCAD39 /* Models.swift in Sources */,
@@ -502,6 +526,7 @@
 				8D3227A416DC344EFBA9B571 /* StackAuthApp.swift in Sources */,
 				3A6FD7E27F3723EF627744A9 /* StackAuthProvider.swift in Sources */,
 				5FE9793039F5691D04C24116 /* StackAuthUser.swift in Sources */,
+				F71E8618CF810AB6E4D574F7 /* TerminalSidebarRootView.swift in Sources */,
 				3A4695603F64ECCDFE601043 /* ToolCallModels.swift in Sources */,
 				C335C06261DCD7CA24B1D003 /* UITestConfig.swift in Sources */,
 				546B55F43E170A912E2EC394 /* UITestMockData.swift in Sources */,
@@ -532,6 +557,7 @@
 				AFF36DFB0FF0DD03BE8B5FBA /* AssistantMessageItemBuilderTests.swift in Sources */,
 				A48BAECA5F3A97AD824F37DB /* MarkdownLinkSafetyPolicyTests.swift in Sources */,
 				F3849C68122B1FDC0AF85654 /* StackAuthSessionTests.swift in Sources */,
+				7CEB70A3CBC95288F0E89525 /* TerminalSidebarStoreTests.swift in Sources */,
 				3DE7F3A79D502AEDDC40CB8C /* ToolCallFormattingTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -558,6 +584,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -576,6 +606,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -661,17 +695,34 @@
 				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-fat.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta;
 				PRODUCT_NAME = "cmux Beta";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = BETA;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/GhosttyToy-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Beta;
@@ -682,6 +733,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -756,6 +811,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -778,17 +837,34 @@
 				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-fat.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.dev;
 				PRODUCT_NAME = "cmux DEV";
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/GhosttyToy-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -802,17 +878,34 @@
 				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers",
+				);
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				INFOPLIST_FILE = Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-fat.a",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-fat.a",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app;
 				PRODUCT_NAME = cmux;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = RELEASE;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Sources/Terminal/GhosttyToy-Bridging-Header.h";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -879,6 +972,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -897,6 +994,10 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				DEVELOPMENT_TEAM = 7WLXT3NR37;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

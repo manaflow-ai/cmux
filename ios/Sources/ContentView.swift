@@ -52,7 +52,7 @@ struct SessionRestoreView: View {
 
 struct MainTabView: View {
     var body: some View {
-        ConversationListView()
+        TerminalSidebarRootView()
     }
 }
 

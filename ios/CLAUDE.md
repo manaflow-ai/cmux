@@ -38,6 +38,10 @@ This script copies only public keys from `~/fun/cmux/.env.local` and
 This generates `Sources/Generated/ConvexApiTypes.swift` from the Convex schema
 in `~/fun/cmux/packages/convex`.
 
+## Living Spec
+- `docs/terminal-sidebar-living-spec.md` tracks the sidebar terminal migration plan.
+- Keep this document updated as implementation status changes.
+
 ## TestFlight
 ```bash
 ./scripts/testflight.sh  # Auto-increments build number, archives, uploads

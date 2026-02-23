@@ -17,3 +17,7 @@ From the `ios/` directory:
 - `sync-convex-types.sh` regenerates
   `Sources/Generated/ConvexApiTypes.swift` using Convex schema from
   `~/fun/cmux/packages/convex`.
+
+## Living Spec
+- Sidebar terminal roadmap and implementation status:
+  `docs/terminal-sidebar-living-spec.md`.

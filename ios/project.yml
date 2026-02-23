@@ -48,6 +48,19 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_EMIT_LOC_STRINGS: "YES"
         DEVELOPMENT_TEAM: 7WLXT3NR37
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Terminal/GhosttyToy-Bridging-Header.h
+        HEADER_SEARCH_PATHS[sdk=iphoneos*]:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/Headers"
+        HEADER_SEARCH_PATHS[sdk=iphonesimulator*]:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers"
+        OTHER_LDFLAGS[sdk=iphoneos*]:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64/libghostty-fat.a"
+        OTHER_LDFLAGS[sdk=iphonesimulator*]:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/libghostty-fat.a"
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.dev
@@ -96,6 +109,9 @@ targets:
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/cmux DEV"
         BUNDLE_LOADER: "$(TEST_HOST)"
         DEVELOPMENT_TEAM: 7WLXT3NR37
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers"
   cmuxUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -108,3 +124,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.app.dev.uitests
         GENERATE_INFOPLIST_FILE: "YES"
         DEVELOPMENT_TEAM: 7WLXT3NR37
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/../GhosttyKit.xcframework/ios-arm64-simulator/Headers"
