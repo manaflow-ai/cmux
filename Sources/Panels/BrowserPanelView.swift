@@ -515,6 +515,7 @@ struct BrowserPanelView: View {
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
+        .menuIndicator(.hidden)
         .menuStyle(.borderlessButton)
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
