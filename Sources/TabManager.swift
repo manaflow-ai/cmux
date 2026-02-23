@@ -336,7 +336,13 @@ enum WorkspaceTabColorSettings {
         rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
 
         let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
-        let boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+        // Preserve neutral grays when brightening to avoid introducing hue shifts.
+        let boostedSaturation: CGFloat
+        if saturation <= 0.08 {
+            boostedSaturation = saturation
+        } else {
+            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+        }
 
         return NSColor(
             hue: hue,

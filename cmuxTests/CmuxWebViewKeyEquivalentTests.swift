@@ -1010,6 +1010,23 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
 
+    func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
+        let originalHex = "#808080"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark
+              ),
+              let renderedSRGB = rendered.usingColorSpace(.sRGB) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+        XCTAssertLessThan(abs(renderedSRGB.redComponent - renderedSRGB.greenComponent), 0.003)
+        XCTAssertLessThan(abs(renderedSRGB.greenComponent - renderedSRGB.blueComponent), 0.003)
+    }
+
     func testDisplayColorForceBrightensInLightMode() {
         let originalHex = "#1A5276"
         guard let base = NSColor(hex: originalHex),
