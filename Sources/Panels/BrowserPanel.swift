@@ -2874,6 +2874,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
 enum BrowserImportScope: String, CaseIterable, Identifiable {
     case cookiesOnly
+    case historyOnly
     case cookiesAndHistory
     case everything
 
@@ -2883,6 +2884,8 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
         switch self {
         case .cookiesOnly:
             return "Cookies only"
+        case .historyOnly:
+            return "History only"
         case .cookiesAndHistory:
             return "Cookies + history"
         case .everything:
@@ -2894,6 +2897,8 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
         switch self {
         case .cookiesOnly, .cookiesAndHistory, .everything:
             return true
+        case .historyOnly:
+            return false
         }
     }
 
@@ -2901,9 +2906,27 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
         switch self {
         case .cookiesOnly:
             return false
-        case .cookiesAndHistory, .everything:
+        case .historyOnly, .cookiesAndHistory, .everything:
             return true
         }
+    }
+
+    static func fromSelection(
+        includeCookies: Bool,
+        includeHistory: Bool,
+        includeAdditionalData: Bool
+    ) -> BrowserImportScope? {
+        guard includeCookies || includeHistory else { return nil }
+        if includeAdditionalData {
+            return .everything
+        }
+        if includeCookies && includeHistory {
+            return .cookiesAndHistory
+        }
+        if includeCookies {
+            return .cookiesOnly
+        }
+        return .historyOnly
     }
 }
 
@@ -4134,14 +4157,20 @@ final class BrowserDataImportCoordinator {
         let domainFilters: [String]
     }
 
+    private enum ImportOptionsPromptResult {
+        case proceed(scope: BrowserImportScope, domainFilters: [String])
+        case back
+        case cancel
+    }
+
     private func presentImportDialog(prefilledBrowsers: [InstalledBrowserCandidate]?) {
         guard !importInProgress else { return }
         let browsers = prefilledBrowsers ?? InstalledBrowserDetector.detectInstalledBrowsers()
         guard !browsers.isEmpty else {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "No supported browsers detected"
-            alert.informativeText = "cmux could not find installed browser profiles to import from."
+            alert.messageText = "No importable browsers found"
+            alert.informativeText = "cmux could not find browser profiles to import from on this Mac."
             alert.addButton(withTitle: "OK")
             alert.runModal()
             return
@@ -4171,84 +4200,154 @@ final class BrowserDataImportCoordinator {
     }
 
     private func promptForSelection(browsers: [InstalledBrowserCandidate]) -> ImportSelection? {
+        guard !browsers.isEmpty else { return nil }
+        var preselectedBrowser = browsers[0]
+
+        while true {
+            guard let selectedBrowser = promptForBrowserSelection(
+                browsers: browsers,
+                preselectedBrowserID: preselectedBrowser.id
+            ) else {
+                return nil
+            }
+            preselectedBrowser = selectedBrowser
+
+            switch promptForImportOptions(for: selectedBrowser) {
+            case .proceed(let scope, let domainFilters):
+                return ImportSelection(
+                    browser: selectedBrowser,
+                    scope: scope,
+                    domainFilters: domainFilters
+                )
+            case .back:
+                continue
+            case .cancel:
+                return nil
+            }
+        }
+    }
+
+    private func promptForBrowserSelection(
+        browsers: [InstalledBrowserCandidate],
+        preselectedBrowserID: String
+    ) -> InstalledBrowserCandidate? {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Import Browser Data"
-        alert.informativeText = "Choose a browser and what to import."
-        alert.addButton(withTitle: "Import")
+        alert.informativeText = "Step 1 of 2: Choose the browser to import from."
+        alert.addButton(withTitle: "Next")
         alert.addButton(withTitle: "Cancel")
 
         let browserPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         for browser in browsers {
             browserPopup.addItem(withTitle: browser.displayName)
         }
-        browserPopup.selectItem(at: 0)
-
-        let scopePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        for scope in BrowserImportScope.allCases {
-            scopePopup.addItem(withTitle: scope.displayName)
-            scopePopup.item(at: scopePopup.numberOfItems - 1)?.representedObject = scope.rawValue
+        if let index = browsers.firstIndex(where: { $0.id == preselectedBrowserID }) {
+            browserPopup.selectItem(at: index)
+        } else {
+            browserPopup.selectItem(at: 0)
         }
-        if let defaultIndex = BrowserImportScope.allCases.firstIndex(of: .cookiesAndHistory) {
-            scopePopup.selectItem(at: defaultIndex)
-        }
-
-        let domainField = NSTextField(frame: .zero)
-        domainField.placeholderString = "Optional domains (comma or space separated)"
-        domainField.stringValue = ""
 
         let browserRow = NSStackView()
         browserRow.orientation = .horizontal
         browserRow.spacing = 8
         browserRow.alignment = .centerY
-        let browserLabel = NSTextField(labelWithString: "Browser")
+        let browserLabel = NSTextField(labelWithString: "Source")
         browserLabel.alignment = .right
-        browserLabel.frame.size.width = 72
+        browserLabel.frame.size.width = 80
         browserRow.addArrangedSubview(browserLabel)
         browserRow.addArrangedSubview(browserPopup)
 
-        let scopeRow = NSStackView()
-        scopeRow.orientation = .horizontal
-        scopeRow.spacing = 8
-        scopeRow.alignment = .centerY
-        let scopeLabel = NSTextField(labelWithString: "Import")
-        scopeLabel.alignment = .right
-        scopeLabel.frame.size.width = 72
-        scopeRow.addArrangedSubview(scopeLabel)
-        scopeRow.addArrangedSubview(scopePopup)
-
-        let domainRow = NSStackView()
-        domainRow.orientation = .horizontal
-        domainRow.spacing = 8
-        domainRow.alignment = .centerY
-        let domainLabel = NSTextField(labelWithString: "Domains")
-        domainLabel.alignment = .right
-        domainLabel.frame.size.width = 72
-        domainRow.addArrangedSubview(domainLabel)
-        domainRow.addArrangedSubview(domainField)
+        let hintLabel = NSTextField(wrappingLabelWithString: InstalledBrowserDetector.summaryText(for: browsers))
+        hintLabel.font = NSFont.systemFont(ofSize: 11)
+        hintLabel.textColor = .secondaryLabelColor
 
         let accessory = NSStackView()
         accessory.orientation = .vertical
         accessory.spacing = 8
         accessory.alignment = .leading
         accessory.addArrangedSubview(browserRow)
-        accessory.addArrangedSubview(scopeRow)
-        accessory.addArrangedSubview(domainRow)
-        accessory.setFrameSize(NSSize(width: 420, height: 108))
+        accessory.addArrangedSubview(hintLabel)
+        accessory.setFrameSize(NSSize(width: 420, height: 72))
         alert.accessoryView = accessory
 
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         let browserIndex = max(0, min(browserPopup.indexOfSelectedItem, browsers.count - 1))
-        let selectedBrowser = browsers[browserIndex]
-        let selectedScopeRaw = scopePopup.selectedItem?.representedObject as? String ?? BrowserImportScope.cookiesAndHistory.rawValue
-        let selectedScope = BrowserImportScope(rawValue: selectedScopeRaw) ?? .cookiesAndHistory
-        let domainFilters = BrowserDataImporter.parseDomainFilters(domainField.stringValue)
+        return browsers[browserIndex]
+    }
 
-        return ImportSelection(
-            browser: selectedBrowser,
-            scope: selectedScope,
-            domainFilters: domainFilters
-        )
+    private func promptForImportOptions(for browser: InstalledBrowserCandidate) -> ImportOptionsPromptResult {
+        while true {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Choose What to Import"
+            alert.informativeText = "Step 2 of 2: Pick data types from \(browser.displayName). Nothing is imported until you click Start Import."
+            alert.addButton(withTitle: "Start Import")
+            alert.addButton(withTitle: "Back")
+            alert.addButton(withTitle: "Cancel")
+
+            let cookiesCheckbox = NSButton(checkboxWithTitle: "Cookies (site sign-ins)", target: nil, action: nil)
+            cookiesCheckbox.state = .on
+
+            let historyCheckbox = NSButton(checkboxWithTitle: "History (visited pages)", target: nil, action: nil)
+            historyCheckbox.state = .on
+
+            let domainField = NSTextField(frame: .zero)
+            domainField.placeholderString = "Optional domains only (e.g. github.com, openai.com)"
+            domainField.stringValue = ""
+
+            let domainRow = NSStackView()
+            domainRow.orientation = .horizontal
+            domainRow.spacing = 8
+            domainRow.alignment = .centerY
+            let domainLabel = NSTextField(labelWithString: "Limit to")
+            domainLabel.alignment = .right
+            domainLabel.frame.size.width = 80
+            domainRow.addArrangedSubview(domainLabel)
+            domainRow.addArrangedSubview(domainField)
+
+            let noteLabel = NSTextField(
+                wrappingLabelWithString: "Bookmarks and settings import is not available yet."
+            )
+            noteLabel.font = NSFont.systemFont(ofSize: 11)
+            noteLabel.textColor = .secondaryLabelColor
+
+            let accessory = NSStackView()
+            accessory.orientation = .vertical
+            accessory.spacing = 8
+            accessory.alignment = .leading
+            accessory.addArrangedSubview(cookiesCheckbox)
+            accessory.addArrangedSubview(historyCheckbox)
+            accessory.addArrangedSubview(domainRow)
+            accessory.addArrangedSubview(noteLabel)
+            accessory.setFrameSize(NSSize(width: 440, height: 122))
+            alert.accessoryView = accessory
+
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                let includeCookies = cookiesCheckbox.state == .on
+                let includeHistory = historyCheckbox.state == .on
+                guard let scope = BrowserImportScope.fromSelection(
+                    includeCookies: includeCookies,
+                    includeHistory: includeHistory,
+                    includeAdditionalData: false
+                ) else {
+                    let validationAlert = NSAlert()
+                    validationAlert.alertStyle = .warning
+                    validationAlert.messageText = "Choose at least one data type"
+                    validationAlert.informativeText = "Select Cookies, History, or both before starting import."
+                    validationAlert.addButton(withTitle: "OK")
+                    validationAlert.runModal()
+                    continue
+                }
+                let domainFilters = BrowserDataImporter.parseDomainFilters(domainField.stringValue)
+                return .proceed(scope: scope, domainFilters: domainFilters)
+            case .alertSecondButtonReturn:
+                return .back
+            default:
+                return .cancel
+            }
+        }
     }
 
     private func showProgressWindow(title: String, message: String) -> NSWindow {

@@ -603,3 +603,41 @@ final class BrowserInstallDetectorTests: XCTestCase {
         _ = FileManager.default.createFile(atPath: url.path, contents: contents)
     }
 }
+
+final class BrowserImportScopeTests: XCTestCase {
+    func testFromSelectionCookiesOnly() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: true,
+            includeHistory: false,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .cookiesOnly)
+    }
+
+    func testFromSelectionHistoryOnly() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: true,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .historyOnly)
+    }
+
+    func testFromSelectionCookiesAndHistory() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: true,
+            includeHistory: true,
+            includeAdditionalData: false
+        )
+        XCTAssertEqual(scope, .cookiesAndHistory)
+    }
+
+    func testFromSelectionRejectsEmptySelection() {
+        let scope = BrowserImportScope.fromSelection(
+            includeCookies: false,
+            includeHistory: false,
+            includeAdditionalData: false
+        )
+        XCTAssertNil(scope)
+    }
+}

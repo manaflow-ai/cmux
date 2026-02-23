@@ -470,7 +470,7 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
-                Button("Import Browser Data…") {
+                Button("Import From Browser…") {
                     BrowserDataImportCoordinator.shared.presentImportDialog()
                 }
 
@@ -2926,9 +2926,9 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow("Import Browser Data", subtitle: browserImportSubtitle) {
+                        SettingsCardRow("Import From Browser", subtitle: browserImportSubtitle) {
                             HStack(spacing: 8) {
-                                Button("Import…") {
+                                Button("Choose…") {
                                     BrowserDataImportCoordinator.shared.presentImportDialog()
                                     refreshDetectedImportBrowsers()
                                 }
