@@ -232,6 +232,51 @@ final class WorkspaceChromeThemeTests: XCTestCase {
     }
 }
 
+final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
+    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let loadedForeground = NSColor(hex: "#ABCDEF") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+        loaded.foregroundColor = loadedForeground
+        loaded.unfocusedSplitOpacity = 0.42
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#FDF6E3")
+        XCTAssertEqual(resolved.foregroundColor.hexString(), "#ABCDEF")
+        XCTAssertEqual(resolved.unfocusedSplitOpacity, 0.42, accuracy: 0.0001)
+    }
+
+    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let explicitOverride = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            backgroundOverride: explicitOverride,
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
+    }
+}
+
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)

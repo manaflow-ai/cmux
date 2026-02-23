@@ -9,7 +9,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
-    @State private var config = GhosttyConfig.load()
+    @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -87,7 +87,7 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
-            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            refreshGhosttyAppearanceConfig()
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -104,9 +104,9 @@ struct WorkspaceContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
+                refreshGhosttyAppearanceConfig(backgroundOverride: backgroundColor)
             } else {
-                workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+                refreshGhosttyAppearanceConfig()
             }
         }
     }
@@ -141,8 +141,18 @@ struct WorkspaceContentView: View {
         }
     }
 
-    private func refreshGhosttyAppearanceConfig() {
-        let next = GhosttyConfig.load()
+    static func resolveGhosttyAppearanceConfig(
+        backgroundOverride: NSColor? = nil,
+        loadConfig: () -> GhosttyConfig = GhosttyConfig.load,
+        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
+    ) -> GhosttyConfig {
+        var next = loadConfig()
+        next.backgroundColor = backgroundOverride ?? defaultBackground()
+        return next
+    }
+
+    private func refreshGhosttyAppearanceConfig(backgroundOverride: NSColor? = nil) {
+        let next = Self.resolveGhosttyAppearanceConfig(backgroundOverride: backgroundOverride)
         config = next
         workspace.applyGhosttyChrome(from: next)
     }
