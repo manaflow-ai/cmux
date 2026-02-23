@@ -410,8 +410,10 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            forcedDarkModeButton
-            developerToolsButton
+            if !panel.isShowingNewTabPage {
+                forcedDarkModeButton
+                developerToolsButton
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -516,12 +518,12 @@ struct BrowserPanelView: View {
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(
                     forcedDarkModeEnabled
-                    ? Color.orange
+                    ? Color.white
                     : Color(nsColor: .secondaryLabelColor)
                 )
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .help(forcedDarkModeEnabled ? "Forced Dark Mode On" : "Forced Dark Mode Off")
         .accessibilityIdentifier("BrowserForcedDarkModeButton")

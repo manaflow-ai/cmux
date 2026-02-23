@@ -361,8 +361,17 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
         XCTAssertEqual(panel.displayTitle, "New tab")
         XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertTrue(panel.isShowingNewTabPage)
         XCTAssertNil(panel.webView.url)
         XCTAssertNil(panel.currentURL)
+    }
+
+    func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertTrue(panel.isShowingNewTabPage)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        XCTAssertFalse(panel.isShowingNewTabPage)
     }
 }
 

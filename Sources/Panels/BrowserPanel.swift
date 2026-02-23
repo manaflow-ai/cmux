@@ -1097,6 +1097,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
 
+    /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
+    var isShowingNewTabPage: Bool {
+        !shouldRenderWebView
+    }
+
     /// Published page title
     @Published private(set) var pageTitle: String = ""
 
