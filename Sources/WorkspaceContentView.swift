@@ -9,7 +9,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
-    @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig()
+    @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -87,7 +87,7 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
-            refreshGhosttyAppearanceConfig()
+            refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -96,17 +96,20 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig()
+            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
-        .onChange(of: colorScheme) { _, _ in
+        .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
-            refreshGhosttyAppearanceConfig()
+            refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                refreshGhosttyAppearanceConfig(backgroundOverride: backgroundColor)
+                refreshGhosttyAppearanceConfig(
+                    reason: "ghosttyDefaultBackgroundDidChange:withPayload",
+                    backgroundOverride: backgroundColor
+                )
             } else {
-                refreshGhosttyAppearanceConfig()
+                refreshGhosttyAppearanceConfig(reason: "ghosttyDefaultBackgroundDidChange:withoutPayload")
             }
         }
     }
@@ -142,19 +145,50 @@ struct WorkspaceContentView: View {
     }
 
     static func resolveGhosttyAppearanceConfig(
+        reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = GhosttyConfig.load,
         defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
     ) -> GhosttyConfig {
         var next = loadConfig()
-        next.backgroundColor = backgroundOverride ?? defaultBackground()
+        let loadedBackgroundHex = next.backgroundColor.hexString()
+        let defaultBackgroundHex: String
+        let resolvedBackground: NSColor
+
+        if let backgroundOverride {
+            resolvedBackground = backgroundOverride
+            defaultBackgroundHex = "skipped"
+        } else {
+            let fallback = defaultBackground()
+            resolvedBackground = fallback
+            defaultBackgroundHex = fallback.hexString()
+        }
+
+        next.backgroundColor = resolvedBackground
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) theme=\(next.theme ?? "nil")"
+            )
+        }
         return next
     }
 
-    private func refreshGhosttyAppearanceConfig(backgroundOverride: NSColor? = nil) {
-        let next = Self.resolveGhosttyAppearanceConfig(backgroundOverride: backgroundOverride)
+    private func refreshGhosttyAppearanceConfig(reason: String, backgroundOverride: NSColor? = nil) {
+        let previousBackgroundHex = config.backgroundColor.hexString()
+        let next = Self.resolveGhosttyAppearanceConfig(
+            reason: reason,
+            backgroundOverride: backgroundOverride
+        )
+        logTheme(
+            "theme refresh workspace=\(workspace.id.uuidString) reason=\(reason) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
+        )
         config = next
         workspace.applyGhosttyChrome(from: next)
+    }
+
+    private func logTheme(_ message: String) {
+        guard GhosttyApp.shared.backgroundLogEnabled else { return }
+        GhosttyApp.shared.logBackground(message)
     }
 }
 

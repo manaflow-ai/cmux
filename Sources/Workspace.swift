@@ -352,9 +352,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor) {
+        let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
-        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextChromeColors.backgroundHex &&
-            bonsplitController.configuration.appearance.chromeColors.borderHex == nextChromeColors.borderHex {
+        let isNoOp = currentChromeColors.backgroundHex == nextChromeColors.backgroundHex &&
+            currentChromeColors.borderHex == nextChromeColors.borderHex
+
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let currentBackgroundHex = currentChromeColors.backgroundHex ?? "nil"
+            let nextBackgroundHex = nextChromeColors.backgroundHex ?? "nil"
+            GhosttyApp.shared.logBackground(
+                "theme apply workspace=\(id.uuidString) currentBg=\(currentBackgroundHex) nextBg=\(nextBackgroundHex) currentBorder=\(currentChromeColors.borderHex ?? "nil") nextBorder=\(nextChromeColors.borderHex ?? "nil") noop=\(isNoOp)"
+            )
+        }
+
+        if isNoOp {
             return
         }
         bonsplitController.configuration.appearance.chromeColors = nextChromeColors

@@ -166,8 +166,31 @@ class GhosttyApp {
     private(set) var config: ghostty_config_t?
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
+    private static func resolveBackgroundLogURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let explicitPath = environment["CMUX_DEBUG_BG_LOG"],
+           !explicitPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: explicitPath)
+        }
+
+        if let debugLogPath = environment["CMUX_DEBUG_LOG"],
+           !debugLogPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let baseURL = URL(fileURLWithPath: debugLogPath)
+            let extensionSeparatorIndex = baseURL.lastPathComponent.lastIndex(of: ".")
+            let stem = extensionSeparatorIndex.map { String(baseURL.lastPathComponent[..<$0]) } ?? baseURL.lastPathComponent
+            let bgName = "\(stem)-bg.log"
+            return baseURL.deletingLastPathComponent().appendingPathComponent(bgName)
+        }
+
+        return URL(fileURLWithPath: "/tmp/cmux-bg.log")
+    }
+
     let backgroundLogEnabled = {
         if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
+            return true
+        }
+        if ProcessInfo.processInfo.environment["CMUX_DEBUG_LOG"] != nil {
             return true
         }
         if ProcessInfo.processInfo.environment["GHOSTTYTABS_DEBUG_BG"] == "1" {
@@ -178,7 +201,7 @@ class GhosttyApp {
         }
         return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
     }()
-    private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
+    private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
     private var appObservers: [NSObjectProtocol] = []
 
     // Scroll lag tracking
