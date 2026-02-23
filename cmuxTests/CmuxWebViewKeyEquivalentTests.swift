@@ -424,6 +424,31 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertTrue(resolved === managerA, "Expected fallback to preserve current active manager instead of arbitrary window")
         XCTAssertTrue(app.tabManager === managerA)
     }
+
+    func testSynchronizeActiveMainWindowContextUsesRegisteredWindowEvenIfIdentifierMutates() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // SwiftUI can replace the NSWindow identifier string at runtime.
+        window.identifier = NSUserInterfaceItemIdentifier("SwiftUI.AppWindow.IdentifierChanged")
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+        XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
+        XCTAssertTrue(app.tabManager === manager)
+    }
 }
 
 final class FocusFlashPatternTests: XCTestCase {
