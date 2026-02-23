@@ -1296,84 +1296,36 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
-    func testFirstEntryAlwaysPinsToTopWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testFirstEntryPinsToTopAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 0,
-            previousIndex: 1,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 8, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .top)
+        XCTAssertEqual(anchor, UnitPoint.top)
     }
 
-    func testLastEntryAlwaysPinsToBottomWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testLastEntryPinsToBottomAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 19,
-            previousIndex: 18,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 188, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .bottom)
+        XCTAssertEqual(anchor, UnitPoint.bottom)
     }
 
-    func testFullyVisibleMiddleEntryDoesNotScroll() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testMiddleEntryUsesNilAnchorForMinimalScroll() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 6,
-            previousIndex: 5,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 120, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
         XCTAssertNil(anchor)
     }
 
-    func testOutOfViewMiddleEntryUsesDirectionForAnchor() {
-        let downAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 9,
-            previousIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 210, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+    func testEmptyResultsProduceNoAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
+            selectedIndex: 0,
+            resultCount: 0
         )
-        XCTAssertEqual(downAnchor, .bottom)
-
-        let upAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 8,
-            previousIndex: 9,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: -6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(upAnchor, .top)
-    }
-
-    func testNilSelectedFrameStillScrollsByDirection() {
-        let downAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 10,
-            previousIndex: 9,
-            resultCount: 20,
-            selectedFrame: nil,
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(downAnchor, .bottom)
-
-        let upAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 9,
-            previousIndex: 10,
-            resultCount: 20,
-            selectedFrame: nil,
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(upAnchor, .top)
+        XCTAssertNil(anchor)
     }
 }
 
