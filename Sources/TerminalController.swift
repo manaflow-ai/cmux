@@ -189,6 +189,16 @@ class TerminalController {
         return current.branch != branch || current.isDirty != isDirty
     }
 
+    nonisolated static func shouldReplacePullRequest(
+        current: SidebarPullRequestState?,
+        number: Int,
+        url: URL,
+        status: SidebarPullRequestStatus
+    ) -> Bool {
+        guard let current else { return true }
+        return current.number != number || current.url != url || current.status != status
+    }
+
     nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
         let currentSorted = Array(Set(current ?? [])).sorted()
         let nextSorted = Array(Set(next)).sorted()
@@ -732,6 +742,12 @@ class TerminalController {
 
         case "clear_git_branch":
             return clearGitBranch(args)
+
+        case "report_pr":
+            return reportPullRequest(args)
+
+        case "clear_pr":
+            return clearPullRequest(args)
 
         case "report_ports":
             return reportPorts(args)
@@ -7879,6 +7895,8 @@ class TerminalController {
           clear_progress [--tab=X] - Clear progress bar
           report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
+          report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request
+          clear_pr [--tab=X] [--panel=Y] - Clear pull request
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
@@ -11092,6 +11110,119 @@ class TerminalController {
         return result
     }
 
+    private func reportPullRequest(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+        }
+
+        let rawNumber = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let numberToken = rawNumber.hasPrefix("#") ? String(rawNumber.dropFirst()) : rawNumber
+        guard let number = Int(numberToken), number > 0 else {
+            return "ERROR: Invalid pull request number '\(rawNumber)'"
+        }
+
+        let rawURL = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return "ERROR: Invalid pull request URL '\(rawURL)'"
+        }
+
+        let statusRaw = (parsed.options["state"] ?? "open").lowercased()
+        guard let status = SidebarPullRequestStatus(rawValue: statusRaw) else {
+            return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            guard Self.shouldReplacePullRequest(
+                current: tab.panelPullRequests[surfaceId],
+                number: number,
+                url: url,
+                status: status
+            ) else {
+                return
+            }
+
+            tab.updatePanelPullRequest(panelId: surfaceId, number: number, url: url, status: status)
+        }
+        return result
+    }
+
+    private func clearPullRequest(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: clear_pr [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.clearPanelPullRequest(panelId: surfaceId)
+        }
+        return result
+    }
+
     private func reportPorts(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
@@ -11383,6 +11514,12 @@ class TerminalController {
                 lines.append("git_branch=none")
             }
 
+            if let pr = tab.pullRequest {
+                lines.append("pr=#\(pr.number) \(pr.status.rawValue) \(pr.url.absoluteString)")
+            } else {
+                lines.append("pr=none")
+            }
+
             if tab.listeningPorts.isEmpty {
                 lines.append("ports=none")
             } else {
@@ -11426,6 +11563,8 @@ class TerminalController {
             tab.progress = nil
             tab.gitBranch = nil
             tab.panelGitBranches.removeAll()
+            tab.pullRequest = nil
+            tab.panelPullRequests.removeAll()
             tab.surfaceListeningPorts.removeAll()
             tab.listeningPorts.removeAll()
         }

@@ -37,6 +37,18 @@ struct SidebarGitBranchState {
     let isDirty: Bool
 }
 
+enum SidebarPullRequestStatus: String {
+    case open
+    case merged
+    case closed
+}
+
+struct SidebarPullRequestState: Equatable {
+    let number: Int
+    let url: URL
+    let status: SidebarPullRequestStatus
+}
+
 enum SidebarBranchOrdering {
     struct BranchEntry: Equatable {
         let name: String
@@ -115,6 +127,43 @@ enum SidebarBranchOrdering {
         return orderedNames.map { name in
             BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
         }
+    }
+
+    static func orderedUniquePullRequests(
+        orderedPanelIds: [UUID],
+        panelPullRequests: [UUID: SidebarPullRequestState],
+        fallbackPullRequest: SidebarPullRequestState?
+    ) -> [SidebarPullRequestState] {
+        func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
+            switch status {
+            case .merged: return 3
+            case .open: return 2
+            case .closed: return 1
+            }
+        }
+
+        var orderedNumbers: [Int] = []
+        var pullRequestsByNumber: [Int: SidebarPullRequestState] = [:]
+
+        for panelId in orderedPanelIds {
+            guard let state = panelPullRequests[panelId] else { continue }
+            let number = state.number
+            if pullRequestsByNumber[number] == nil {
+                orderedNumbers.append(number)
+                pullRequestsByNumber[number] = state
+                continue
+            }
+            guard let existing = pullRequestsByNumber[number] else { continue }
+            if statusPriority(state.status) > statusPriority(existing.status) {
+                pullRequestsByNumber[number] = state
+            }
+        }
+
+        if orderedNumbers.isEmpty, let fallbackPullRequest {
+            return [fallbackPullRequest]
+        }
+
+        return orderedNumbers.compactMap { pullRequestsByNumber[$0] }
     }
 
     static func orderedUniqueBranchDirectoryEntries(
@@ -300,6 +349,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
     @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
+    @Published var pullRequest: SidebarPullRequestState?
+    @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -803,6 +854,24 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelPullRequest(panelId: UUID, number: Int, url: URL, status: SidebarPullRequestStatus) {
+        let state = SidebarPullRequestState(number: number, url: url, status: status)
+        let existing = panelPullRequests[panelId]
+        if existing != state {
+            panelPullRequests[panelId] = state
+        }
+        if panelId == focusedPanelId {
+            pullRequest = state
+        }
+    }
+
+    func clearPanelPullRequest(panelId: UUID) {
+        panelPullRequests.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            pullRequest = nil
+        }
+    }
+
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -851,6 +920,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 
@@ -898,6 +968,14 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories: panelDirectories,
             defaultDirectory: currentDirectory,
             fallbackBranch: gitBranch
+        )
+    }
+
+    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+        SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: sidebarOrderedPanelIds(),
+            panelPullRequests: panelPullRequests,
+            fallbackPullRequest: pullRequest
         )
     }
 
@@ -1797,6 +1875,7 @@ final class Workspace: Identifiable, ObservableObject {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]
+        pullRequest = panelPullRequests[targetPanelId]
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -2018,6 +2097,7 @@ extension Workspace: BonsplitDelegate {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[panelId]
+        pullRequest = panelPullRequests[panelId]
 
         // Post notification
         NotificationCenter.default.post(
@@ -2156,6 +2236,7 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -2248,6 +2329,7 @@ extension Workspace: BonsplitDelegate {
                 panels.removeValue(forKey: panelId)
                 panelDirectories.removeValue(forKey: panelId)
                 panelGitBranches.removeValue(forKey: panelId)
+                panelPullRequests.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)

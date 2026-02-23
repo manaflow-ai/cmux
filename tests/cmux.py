@@ -572,6 +572,37 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def report_pr(
+        self,
+        number: int,
+        url: str,
+        state: str = None,
+        tab: str = None,
+        panel: str = None,
+    ) -> None:
+        """Report pull-request metadata for sidebar display."""
+        cmd = f"report_pr {number} {url}"
+        if state:
+            cmd += f" --state={state}"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_pr(self, tab: str = None, panel: str = None) -> None:
+        """Clear pull-request metadata for sidebar display."""
+        cmd = "clear_pr"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def report_ports(self, *ports: int, tab: str = None) -> None:
         """Report listening ports for sidebar display."""
         port_str = " ".join(str(p) for p in ports)

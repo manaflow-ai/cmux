@@ -2481,6 +2481,7 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -2765,6 +2766,33 @@ private struct TabItemView: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
+            }
+
+            // Pull request row
+            if sidebarShowPullRequest, let pullRequest = primaryPullRequestDisplay {
+                Button(action: {
+                    updateSelection()
+                    NSWorkspace.shared.open(pullRequest.url)
+                }) {
+                    HStack(spacing: 4) {
+                        PullRequestStatusIcon(
+                            status: pullRequest.status,
+                            color: pullRequestForegroundColor
+                        )
+                        Text("PR #\(pullRequest.number)")
+                            .underline()
+                        Text(pullRequestStatusLabel(pullRequest.status))
+                        if pullRequest.extraCount > 0 {
+                            Text("+\(pullRequest.extraCount)")
+                                .opacity(0.75)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(pullRequestForegroundColor)
+                }
+                .buttonStyle(.plain)
+                .help("Open Pull Request #\(pullRequest.number)")
             }
 
             // Ports row
@@ -3270,6 +3298,36 @@ private struct TabItemView: View {
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
     }
 
+    private struct PullRequestDisplay {
+        let number: Int
+        let url: URL
+        let status: SidebarPullRequestStatus
+        let extraCount: Int
+    }
+
+    private var primaryPullRequestDisplay: PullRequestDisplay? {
+        let pullRequests = tab.sidebarPullRequestsInDisplayOrder()
+        guard let first = pullRequests.first else { return nil }
+        return PullRequestDisplay(
+            number: first.number,
+            url: first.url,
+            status: first.status,
+            extraCount: max(0, pullRequests.count - 1)
+        )
+    }
+
+    private var pullRequestForegroundColor: Color {
+        isActive ? .white.opacity(0.75) : .secondary
+    }
+
+    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
+        switch status {
+        case .open: return "open"
+        case .merged: return "merged"
+        case .closed: return "closed"
+        }
+    }
+
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -3309,6 +3367,101 @@ private struct TabItemView: View {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
+    }
+
+    private struct PullRequestStatusIcon: View {
+        let status: SidebarPullRequestStatus
+        let color: Color
+        private static let frameSize: CGFloat = 14
+
+        var body: some View {
+            switch status {
+            case .open:
+                PullRequestOpenIcon(color: color)
+            case .merged:
+                PullRequestMergedIcon(color: color)
+            case .closed:
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 9, weight: .regular))
+                    .foregroundColor(color)
+                    .frame(width: Self.frameSize, height: Self.frameSize)
+            }
+        }
+    }
+
+    private struct PullRequestOpenIcon: View {
+        let color: Color
+        private static let stroke = StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.4
+        private static let frameSize: CGFloat = 14
+
+        var body: some View {
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 3.0, y: 4.8))
+                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
+
+                    path.move(to: CGPoint(x: 4.8, y: 3.0))
+                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
+                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
+                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
+                }
+                .stroke(color, style: Self.stroke)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 3.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 11.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 11.0, y: 11.0)
+            }
+            .frame(width: Self.frameSize, height: Self.frameSize)
+        }
+    }
+
+    private struct PullRequestMergedIcon: View {
+        let color: Color
+        private static let stroke = StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.4
+        private static let frameSize: CGFloat = 14
+
+        var body: some View {
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 4.6, y: 4.6))
+                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
+
+                    path.move(to: CGPoint(x: 4.6, y: 9.4))
+                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                }
+                .stroke(color, style: Self.stroke)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 3.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 11.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 11.0, y: 7.0)
+            }
+            .frame(width: Self.frameSize, height: Self.frameSize)
+        }
     }
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {

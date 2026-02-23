@@ -2568,6 +2568,7 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2773,6 +2774,16 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                         }
 
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Pull Requests in Sidebar",
+                            subtitle: "Display PR status, number, and a clickable link when available."
+                        ) {
+                            Toggle("", isOn: $sidebarShowPullRequest)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
                     }
 
                     SettingsSectionHeader(title: "Workspace Colors")
@@ -3300,6 +3311,7 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarShowPullRequest = true
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""
