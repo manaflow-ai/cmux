@@ -257,9 +257,9 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     }
 }
 
-final class BrowserForcedDarkModeSettingsTests: XCTestCase {
+final class BrowserThemeSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "BrowserForcedDarkModeSettingsTests.\(UUID().uuidString)"
+        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fatalError("Failed to create defaults suite")
         }
@@ -273,18 +273,30 @@ final class BrowserForcedDarkModeSettingsTests: XCTestCase {
     func testDefaultsMatchConfiguredFallbacks() {
         let defaults = makeIsolatedDefaults()
         XCTAssertEqual(
-            BrowserForcedDarkModeSettings.enabled(defaults: defaults),
-            BrowserForcedDarkModeSettings.defaultEnabled
+            BrowserThemeSettings.mode(defaults: defaults),
+            BrowserThemeSettings.defaultMode
         )
     }
 
-    func testEnabledReadsPersistedValue() {
+    func testModeReadsPersistedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(true, forKey: BrowserForcedDarkModeSettings.enabledKey)
-        XCTAssertTrue(BrowserForcedDarkModeSettings.enabled(defaults: defaults))
+        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
 
-        defaults.set(false, forKey: BrowserForcedDarkModeSettings.enabledKey)
-        XCTAssertFalse(BrowserForcedDarkModeSettings.enabled(defaults: defaults))
+        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .light)
+    }
+
+    func testModeMigratesLegacyForcedDarkModeFlag() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
+
+        let otherDefaults = makeIsolatedDefaults()
+        otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
+        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
     }
 }
 
@@ -364,13 +376,16 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertFalse(panel.isShowingNewTabPage)
     }
 
-    func testBrowserPanelForcedDarkModeUpdatesWebViewAppearance() {
+    func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
         let panel = BrowserPanel(workspaceId: UUID())
 
-        panel.setForcedDarkMode(enabled: true)
+        panel.setBrowserThemeMode(.dark)
         XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
 
-        panel.setForcedDarkMode(enabled: false)
+        panel.setBrowserThemeMode(.light)
+        XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.aqua, .darkAqua]), .aqua)
+
+        panel.setBrowserThemeMode(.system)
         XCTAssertNil(panel.webView.appearance)
     }
 }

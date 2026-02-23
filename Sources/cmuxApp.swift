@@ -2456,7 +2456,7 @@ struct SettingsView: View {
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
-    @AppStorage(BrowserForcedDarkModeSettings.enabledKey) private var browserForcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
+    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
@@ -2484,6 +2484,19 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var selectedBrowserThemeMode: BrowserThemeMode {
+        BrowserThemeSettings.mode(for: browserThemeMode)
+    }
+
+    private var browserThemeModeSelection: Binding<String> {
+        Binding(
+            get: { browserThemeMode },
+            set: { newValue in
+                browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
+            }
+        )
     }
 
     private var socketModeSelection: Binding<String> {
@@ -2776,12 +2789,19 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            "Force Dark Mode",
-                            subtitle: "Requests dark color scheme in the embedded browser so sites can render dark themes."
+                            "Browser Theme",
+                            subtitle: selectedBrowserThemeMode == .system
+                                ? "System follows app and macOS appearance."
+                                : "\(selectedBrowserThemeMode.displayName) forces that color scheme for compatible pages.",
+                            controlWidth: pickerColumnWidth
                         ) {
-                            Toggle("", isOn: $browserForcedDarkModeEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
+                            Picker("", selection: browserThemeModeSelection) {
+                                ForEach(BrowserThemeMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -3009,6 +3029,7 @@ struct SettingsView: View {
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
+            browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
         }
@@ -3056,7 +3077,7 @@ struct SettingsView: View {
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
-        browserForcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
+        browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText

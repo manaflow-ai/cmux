@@ -64,15 +64,62 @@ enum BrowserSearchSettings {
     }
 }
 
-enum BrowserForcedDarkModeSettings {
-    static let enabledKey = "browserForcedDarkModeEnabled"
-    static let defaultEnabled: Bool = false
+enum BrowserThemeMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
 
-    static func enabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
         }
-        return defaults.bool(forKey: enabledKey)
+    }
+
+    var iconName: String {
+        switch self {
+        case .system:
+            return "circle.lefthalf.filled"
+        case .light:
+            return "sun.max.fill"
+        case .dark:
+            return "moon.fill"
+        }
+    }
+}
+
+enum BrowserThemeSettings {
+    static let modeKey = "browserThemeMode"
+    static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
+    static let defaultMode: BrowserThemeMode = .system
+
+    static func mode(for rawValue: String?) -> BrowserThemeMode {
+        guard let rawValue, let mode = BrowserThemeMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> BrowserThemeMode {
+        let resolvedMode = mode(for: defaults.string(forKey: modeKey))
+        if defaults.string(forKey: modeKey) != nil {
+            return resolvedMode
+        }
+
+        // Migrate the legacy bool toggle only when the new mode key is unset.
+        if defaults.object(forKey: legacyForcedDarkModeEnabledKey) != nil {
+            let migratedMode: BrowserThemeMode = defaults.bool(forKey: legacyForcedDarkModeEnabledKey) ? .dark : .system
+            defaults.set(migratedMode.rawValue, forKey: modeKey)
+            return migratedMode
+        }
+
+        return defaultMode
     }
 }
 
@@ -1141,7 +1188,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
-    private var forcedDarkModeEnabled: Bool
+    private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1165,7 +1212,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.forcedDarkModeEnabled = BrowserForcedDarkModeSettings.enabled()
+        self.browserThemeMode = BrowserThemeSettings.mode()
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -1204,7 +1251,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
-                self?.applyForcedDarkModeIfNeeded()
+                self?.applyBrowserThemeModeIfNeeded()
             }
         }
         navDelegate.didFailNavigation = { [weak self] _, failedURL in
@@ -1265,7 +1312,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Observe web view properties
         setupObservers()
-        applyForcedDarkModeIfNeeded()
+        applyBrowserThemeModeIfNeeded()
 
         // Navigate to initial URL if provided
         if let url = initialURL {
@@ -2011,9 +2058,9 @@ extension BrowserPanel {
         try await webView.evaluateJavaScript(script)
     }
 
-    func setForcedDarkMode(enabled: Bool) {
-        forcedDarkModeEnabled = enabled
-        applyForcedDarkModeIfNeeded()
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) {
+        browserThemeMode = mode
+        applyBrowserThemeModeIfNeeded()
     }
 
     func refreshAppearanceDrivenColors() {
@@ -2096,43 +2143,58 @@ extension BrowserPanel {
 }
 
 private extension BrowserPanel {
-    func applyForcedDarkModeIfNeeded() {
-        // Prefer a real dark appearance so WebKit can resolve prefers-color-scheme as dark.
-        webView.appearance = forcedDarkModeEnabled ? NSAppearance(named: .darkAqua) : nil
+    func applyBrowserThemeModeIfNeeded() {
+        switch browserThemeMode {
+        case .system:
+            webView.appearance = nil
+        case .light:
+            webView.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            webView.appearance = NSAppearance(named: .darkAqua)
+        }
 
-        let script = makeForcedDarkModeScript(enabled: forcedDarkModeEnabled)
+        let script = makeBrowserThemeModeScript(mode: browserThemeMode)
         webView.evaluateJavaScript(script) { _, error in
             #if DEBUG
             if let error {
-                dlog("browser.forcedDarkMode error=\(error.localizedDescription)")
+                dlog("browser.themeMode error=\(error.localizedDescription)")
             }
             #endif
         }
     }
 
-    func makeForcedDarkModeScript(enabled: Bool) -> String {
-        let enabledLiteral = enabled ? "true" : "false"
+    func makeBrowserThemeModeScript(mode: BrowserThemeMode) -> String {
+        let colorSchemeLiteral: String
+        switch mode {
+        case .system:
+            colorSchemeLiteral = "null"
+        case .light:
+            colorSchemeLiteral = "'light'"
+        case .dark:
+            colorSchemeLiteral = "'dark'"
+        }
+
         return """
         (() => {
-          const metaId = 'cmux-forced-dark-mode-meta';
-          const shouldEnable = \(enabledLiteral);
+          const metaId = 'cmux-browser-theme-mode-meta';
+          const colorScheme = \(colorSchemeLiteral);
           const root = document.documentElement || document.body;
           if (!root) return;
 
           let meta = document.getElementById(metaId);
-          if (shouldEnable) {
-            root.style.setProperty('color-scheme', 'dark', 'important');
-            root.setAttribute('data-cmux-forced-dark-mode', '1');
+          if (colorScheme) {
+            root.style.setProperty('color-scheme', colorScheme, 'important');
+            root.setAttribute('data-cmux-browser-theme', colorScheme);
             if (!meta) {
               meta = document.createElement('meta');
               meta.id = metaId;
               meta.name = 'color-scheme';
               (document.head || root).appendChild(meta);
             }
-            meta.setAttribute('content', 'dark');
+            meta.setAttribute('content', colorScheme);
           } else {
             root.style.removeProperty('color-scheme');
-            root.removeAttribute('data-cmux-forced-dark-mode');
+            root.removeAttribute('data-cmux-browser-theme');
             if (meta) {
               meta.remove();
             }
