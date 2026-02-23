@@ -8,6 +8,7 @@
 
 SYSTEM_OPEN_BIN="${CMUX_OPEN_WRAPPER_SYSTEM_OPEN:-/usr/bin/open}"
 DEFAULTS_BIN="${CMUX_OPEN_WRAPPER_DEFAULTS:-/usr/bin/defaults}"
+PYTHON3_BIN="${CMUX_OPEN_WRAPPER_PYTHON3:-}"
 
 if [[ ! -x "$SYSTEM_OPEN_BIN" ]]; then
     SYSTEM_OPEN_BIN="/usr/bin/open"
@@ -15,6 +16,14 @@ fi
 
 if [[ ! -x "$DEFAULTS_BIN" ]]; then
     DEFAULTS_BIN="/usr/bin/defaults"
+fi
+
+if [[ -n "$PYTHON3_BIN" ]]; then
+    if [[ ! -x "$PYTHON3_BIN" ]]; then
+        PYTHON3_BIN=""
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON3_BIN="$(command -v python3)"
 fi
 
 settings_domain="${CMUX_BUNDLE_ID:-}"
@@ -32,10 +41,74 @@ trim() {
     printf '%s' "$value"
 }
 
+to_lower_ascii() {
+    # Bash 3.2-compatible lowercase conversion.
+    LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+normalize_boolean() {
+    to_lower_ascii "$(trim "$1")"
+}
+
+is_false_setting() {
+    local normalized
+    normalized="$(normalize_boolean "$1")"
+    case "$normalized" in
+        0|false|no|off)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+canonicalize_idn_host() {
+    local value="$1"
+    [[ -z "$PYTHON3_BIN" ]] && {
+        printf '%s' "$value"
+        return 0
+    }
+
+    local canonicalized
+    canonicalized="$("$PYTHON3_BIN" - "$value" <<'PY' 2>/dev/null || true
+import sys
+
+host = sys.argv[1].strip().rstrip(".")
+if not host:
+    raise SystemExit(1)
+
+labels = host.split(".")
+if any(not label for label in labels):
+    raise SystemExit(1)
+
+try:
+    canonical = ".".join(label.encode("idna").decode("ascii") for label in labels)
+except Exception:
+    raise SystemExit(1)
+
+sys.stdout.write(canonical.lower())
+PY
+)"
+    if [[ -n "$canonicalized" ]]; then
+        printf '%s' "$canonicalized"
+        return 0
+    fi
+    printf '%s' "$value"
+}
+
+is_http_url() {
+    local value="$1"
+    case "$value" in
+        [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 normalize_host() {
     local value
     value="$(trim "$1")"
-    value="${value,,}"
+    value="$(to_lower_ascii "$value")"
     [[ -z "$value" ]] && return 1
 
     if [[ "$value" == *"://"* ]]; then
@@ -68,13 +141,14 @@ normalize_host() {
     done
 
     [[ -z "$value" ]] && return 1
+    value="$(canonicalize_idn_host "$value")"
     printf '%s' "$value"
 }
 
 normalize_whitelist_pattern() {
     local value
     value="$(trim "$1")"
-    value="${value,,}"
+    value="$(to_lower_ascii "$value")"
     [[ -z "$value" ]] && return 1
 
     if [[ "$value" == \*.* ]]; then
@@ -152,13 +226,14 @@ for arg in "$@"; do
             passthrough=true
             break
             ;;
-        http://*|https://*)
-            urls+=("$arg")
-            ;;
         *)
-            # Non-URL, non-flag argument (file path, etc.) → pass through all
-            passthrough=true
-            break
+            if is_http_url "$arg"; then
+                urls+=("$arg")
+            else
+                # Non-URL, non-flag argument (file path, etc.) → pass through all
+                passthrough=true
+                break
+            fi
             ;;
     esac
 done
@@ -174,11 +249,9 @@ if [[ -n "$settings_domain" ]]; then
         # Backward compatibility for installs that predate the dedicated open-wrapper toggle.
         open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
     fi
-    case "${open_in_cmux,,}" in
-        0|false|no)
-            system_open "$@"
-            ;;
-    esac
+    if is_false_setting "$open_in_cmux"; then
+        system_open "$@"
+    fi
 
     whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
     if [[ -n "$whitelist_raw" ]]; then
