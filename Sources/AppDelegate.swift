@@ -2315,6 +2315,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWindow)) {
+            guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+                NSSound.beep()
+                return true
+            }
+            targetWindow.performClose(nil)
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameTab)) {
+            // Keep Cmd+R browser reload behavior when a browser panel is focused.
+            if tabManager?.focusedBrowserPanel != nil {
+                return false
+            }
+            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+            return true
+        }
+
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
         if flags == [.command],
            let manager = tabManager,
