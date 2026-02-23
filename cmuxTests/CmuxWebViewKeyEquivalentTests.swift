@@ -1860,6 +1860,60 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+        guard let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected focused pane for initial panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+        guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
+              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
+              let splitTab = workspace.bonsplitController
+              .tabs(inPane: splitPaneId)
+              .first(where: { $0.id == splitTabId }) else {
+            XCTFail("Expected split pane/tab mapping")
+            return
+        }
+
+        // Simulate one delayed stale split-selection callback from bonsplit.
+        DispatchQueue.main.async {
+            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus split to reassert the pre-split focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.focusedPaneId,
+            originalPaneId,
+            "Expected focused pane to converge back to the pre-split pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to converge back to the pre-split focused panel"
+        )
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {

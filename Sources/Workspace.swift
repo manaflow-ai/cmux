@@ -962,49 +962,43 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[newTab.id] = newPanel.id
         let previousFocusedPanelId = focusedPanelId
 
-	        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
-	        // so we can hand it to focusPanel as the "move focus FROM" view.
-	        let previousHostedView = focusedTerminalPanel?.hostedView
+        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
+        // so we can hand it to focusPanel as the "move focus FROM" view.
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
-	        // Create the split with the new tab already present in the new pane.
-	        isProgrammaticSplit = true
-	        defer { isProgrammaticSplit = false }
-	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
-	            panels.removeValue(forKey: newPanel.id)
-	            panelTitles.removeValue(forKey: newPanel.id)
-	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-	            return nil
-	        }
+        // Create the split with the new tab already present in the new pane.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            return nil
+        }
 
 #if DEBUG
-	        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
 #endif
 
-	        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
-	        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
-	        // stealing focus from the new panel and creating model/surface divergence.
-	        if focus {
-	            previousHostedView?.suppressReparentFocus()
-	            focusPanel(newPanel.id, previousHostedView: previousHostedView)
-	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	                previousHostedView?.clearSuppressReparentFocus()
-	            }
-	        } else {
-                // Bonsplit focuses the newly-created pane by default; restore the caller's
-                // pre-split focus context when this split is explicitly non-focus-intent.
-                if let previousFocusedPanelId, panels[previousFocusedPanelId] != nil {
-                    previousHostedView?.suppressReparentFocus()
-                    focusPanel(previousFocusedPanelId, previousHostedView: previousHostedView)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        previousHostedView?.clearSuppressReparentFocus()
-                    }
-                } else {
-                    scheduleFocusReconcile()
-                }
-	        }
+        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
+        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
+        // stealing focus from the new panel and creating model/surface divergence.
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(newPanel.id, previousHostedView: previousHostedView)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
 
-	        return newPanel
-	    }
+        return newPanel
+    }
 
     /// Create a new surface (nested tab) in the specified pane with a terminal panel.
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
@@ -1102,38 +1096,32 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[newTab.id] = browserPanel.id
         let previousFocusedPanelId = focusedPanelId
 
-	        // Create the split with the browser tab already present.
-	        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
-	        isProgrammaticSplit = true
-	        defer { isProgrammaticSplit = false }
-	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
-	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-	            panels.removeValue(forKey: browserPanel.id)
-	            panelTitles.removeValue(forKey: browserPanel.id)
-	            return nil
-	        }
+        // Create the split with the browser tab already present.
+        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: browserPanel.id)
+            panelTitles.removeValue(forKey: browserPanel.id)
+            return nil
+        }
 
-	        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
-	        let previousHostedView = focusedTerminalPanel?.hostedView
-	        if focus {
-	            previousHostedView?.suppressReparentFocus()
-	            focusPanel(browserPanel.id)
-	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	                previousHostedView?.clearSuppressReparentFocus()
-	            }
-	        } else {
-                // Bonsplit focuses the newly-created pane by default; restore the caller's
-                // pre-split focus context when this split is explicitly non-focus-intent.
-                if let previousFocusedPanelId, panels[previousFocusedPanelId] != nil {
-                    previousHostedView?.suppressReparentFocus()
-                    focusPanel(previousFocusedPanelId, previousHostedView: previousHostedView)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        previousHostedView?.clearSuppressReparentFocus()
-                    }
-                } else {
-                    scheduleFocusReconcile()
-                }
-	        }
+        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(browserPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: browserPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
 
         installBrowserPanelSubscription(browserPanel)
 
@@ -1558,6 +1546,71 @@ final class Workspace: Identifiable, ObservableObject {
         return detached.panelId
     }
     // MARK: - Focus Management
+
+    private func preserveFocusAfterNonFocusSplit(
+        preferredPanelId: UUID?,
+        splitPanelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?
+    ) {
+        guard let preferredPanelId, panels[preferredPanelId] != nil else {
+            scheduleFocusReconcile()
+            return
+        }
+
+        // Bonsplit splitPane focuses the newly created pane and may emit one delayed
+        // didSelect/didFocus callback. Re-assert focus over multiple turns so model
+        // focus and AppKit first responder stay aligned with non-focus-intent splits.
+        reassertFocusAfterNonFocusSplit(
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId,
+            previousHostedView: previousHostedView,
+            allowPreviousHostedView: true
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reassertFocusAfterNonFocusSplit(
+                preferredPanelId: preferredPanelId,
+                splitPanelId: splitPanelId,
+                previousHostedView: previousHostedView,
+                allowPreviousHostedView: false
+            )
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.reassertFocusAfterNonFocusSplit(
+                    preferredPanelId: preferredPanelId,
+                    splitPanelId: splitPanelId,
+                    previousHostedView: previousHostedView,
+                    allowPreviousHostedView: false
+                )
+                self.scheduleFocusReconcile()
+            }
+        }
+    }
+
+    private func reassertFocusAfterNonFocusSplit(
+        preferredPanelId: UUID,
+        splitPanelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?,
+        allowPreviousHostedView: Bool
+    ) {
+        guard panels[preferredPanelId] != nil else { return }
+
+        if focusedPanelId == splitPanelId {
+            focusPanel(
+                preferredPanelId,
+                previousHostedView: allowPreviousHostedView ? previousHostedView : nil
+            )
+            return
+        }
+
+        guard focusedPanelId == preferredPanelId,
+              let terminalPanel = terminalPanel(for: preferredPanelId) else {
+            return
+        }
+        terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
+    }
 
     func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
 #if DEBUG
