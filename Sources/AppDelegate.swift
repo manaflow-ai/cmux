@@ -844,6 +844,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts[ObjectIdentifier(window)]
     }
 
+    /// Re-sync app-level active window pointers from the currently focused main terminal window.
+    /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
+    @discardableResult
+    func synchronizeActiveMainWindowContext(preferredWindow: NSWindow? = nil) -> TabManager? {
+        let context: MainWindowContext? = {
+            if let preferredWindow,
+               let context = contextForMainWindow(preferredWindow) {
+                return context
+            }
+            if let context = contextForMainWindow(NSApp.keyWindow) {
+                return context
+            }
+            if let context = contextForMainWindow(NSApp.mainWindow) {
+                return context
+            }
+            if let activeManager = tabManager,
+               let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+                return activeContext
+            }
+            return mainWindowContexts.values.first
+        }()
+
+        guard let context else { return tabManager }
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        } else {
+            tabManager = context.tabManager
+            sidebarState = context.sidebarState
+            sidebarSelectionState = context.sidebarSelectionState
+            TerminalController.shared.setActiveTabManager(context.tabManager)
+        }
+        return context.tabManager
+    }
+
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
         if let context = contextForMainWindow(event.window) {
             return context
@@ -854,13 +888,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context
         }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return activeContext
+        }
         return mainWindowContexts.values.first
     }
 
     private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
-        guard let context = preferredMainWindowContextForShortcuts(event: event),
-              let window = context.window ?? windowForMainWindowId(context.windowId) else { return }
-        setActiveMainWindow(window)
+        _ = synchronizeActiveMainWindowContext(preferredWindow: event.window)
     }
 
     @discardableResult
@@ -2770,6 +2806,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         let directionLabel: String
         switch direction {
         case .left: directionLabel = "left"
@@ -2835,6 +2873,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
         _ = focusBrowserAddressBar(panelId: panelId)
         return true

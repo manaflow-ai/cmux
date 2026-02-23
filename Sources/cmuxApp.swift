@@ -357,7 +357,7 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: "New Workspace", shortcut: newWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
+                    activeTabManager.addTab()
                 }
             }
 
@@ -392,7 +392,7 @@ struct cmuxApp: App {
                 }
 
                 Button("Reopen Closed Browser Panel") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).reopenMostRecentlyClosedBrowserPanel()
+                    _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
             }
@@ -401,35 +401,35 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).startSearch()
+                        activeTabManager.startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
 
                     Button("Find Next") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findNext()
+                        activeTabManager.findNext()
                     }
                     .keyboardShortcut("g", modifiers: .command)
 
                     Button("Find Previous") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findPrevious()
+                        activeTabManager.findPrevious()
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Hide Find Bar") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).hideFind()
+                        activeTabManager.hideFind()
                     }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).isFindVisible))
+                    .disabled(!(activeTabManager.isFindVisible))
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).searchSelection()
+                        activeTabManager.searchSelection()
                     }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).canUseSelectionForFind))
+                    .disabled(!(activeTabManager.canUseSelectionForFind))
                 }
             }
 
@@ -444,54 +444,54 @@ struct cmuxApp: App {
                 Divider()
 
                 splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
+                    activeTabManager.selectNextSurface()
                 }
 
                 splitCommandButton(title: "Previous Surface", shortcut: prevSurfaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
+                    activeTabManager.selectPreviousSurface()
                 }
 
                 Button("Back") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goBack()
+                    activeTabManager.focusedBrowserPanel?.goBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goForward()
+                    activeTabManager.focusedBrowserPanel?.goForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
                 Button("Reload Page") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
+                    activeTabManager.focusedBrowserPanel?.reload()
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
                 splitCommandButton(title: "Toggle Developer Tools", shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.toggleDeveloperToolsFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 splitCommandButton(title: "Show JavaScript Console", shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.showJavaScriptConsoleFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 Button("Zoom In") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
+                    _ = activeTabManager.zoomInFocusedBrowser()
                 }
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button("Zoom Out") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomOutFocusedBrowser()
+                    _ = activeTabManager.zoomOutFocusedBrowser()
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
                 Button("Actual Size") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).resetZoomFocusedBrowser()
+                    _ = activeTabManager.resetZoomFocusedBrowser()
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
@@ -500,11 +500,11 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: "Next Workspace", shortcut: nextWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
+                    activeTabManager.selectNextTab()
                 }
 
                 splitCommandButton(title: "Previous Workspace", shortcut: prevWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
+                    activeTabManager.selectPreviousTab()
                 }
 
                 splitCommandButton(title: "Rename Workspace…", shortcut: renameWorkspaceMenuShortcut) {
@@ -534,7 +534,7 @@ struct cmuxApp: App {
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button("Workspace \(number)") {
-                        let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                        let manager = activeTabManager
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
                         }
@@ -705,6 +705,12 @@ struct cmuxApp: App {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
 
+    private var activeTabManager: TabManager {
+        AppDelegate.shared?.synchronizeActiveMainWindowContext(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) ?? tabManager
+    }
+
     private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
         guard !data.isEmpty,
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
@@ -756,11 +762,11 @@ struct cmuxApp: App {
             window.performClose(nil)
             return
         }
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentPanelWithConfirmation()
+        activeTabManager.closeCurrentPanelWithConfirmation()
     }
 
     private func closeTabOrWindow() {
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentTabWithConfirmation()
+        activeTabManager.closeCurrentTabWithConfirmation()
     }
 
     private func showNotificationsPopover() {
