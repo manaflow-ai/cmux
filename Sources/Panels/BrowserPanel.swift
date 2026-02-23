@@ -87,9 +87,9 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
         case .system:
             return "circle.lefthalf.filled"
         case .light:
-            return "sun.max.fill"
+            return "sun.max"
         case .dark:
-            return "moon.fill"
+            return "moon"
         }
     }
 }
