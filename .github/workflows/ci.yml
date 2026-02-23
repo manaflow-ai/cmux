@@ -7,6 +7,15 @@ on:
   pull_request:
 
 jobs:
+  workflow-guard-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate self-hosted runner guards
+        run: ./tests/test_ci_self_hosted_guard.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -26,6 +35,8 @@ jobs:
         run: bun tsc --noEmit
 
   ui-tests:
+    # Never run self-hosted jobs for fork pull requests.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
     concurrency:
       group: self-hosted-build
