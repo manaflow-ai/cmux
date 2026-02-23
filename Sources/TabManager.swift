@@ -2736,6 +2736,10 @@ class TabManager: ObservableObject {
         let strictKeyOnly = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] == "1"
         let triggerMode = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] ?? "shell_input")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let useEarlyCtrlShiftTrigger = triggerMode == "early_ctrl_shift_d"
+        let useEarlyCtrlDTrigger = triggerMode == "early_ctrl_d"
+        let useEarlyTrigger = useEarlyCtrlShiftTrigger || useEarlyCtrlDTrigger
+        let triggerUsesShift = triggerMode == "ctrl_shift_d" || useEarlyCtrlShiftTrigger
         let layout = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] ?? "lr")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let expectedPanelsAfter = max(
@@ -2874,7 +2878,9 @@ class TabManager: ObservableObject {
             }
 
             tab.focusPanel(exitPanelId)
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            if !useEarlyTrigger {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
 
             let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
             let firstResponderPanelBefore = tab.panels.compactMap { (panelId, panel) -> UUID? in
@@ -2978,21 +2984,31 @@ class TabManager: ObservableObject {
                         return
                     }
 
-                    // Wait for the target panel to be fully attached after split churn.
-                    let readyDeadline = Date().addingTimeInterval(2.0)
+                    let triggerModifiers: NSEvent.ModifierFlags = triggerUsesShift
+                        ? [.control, .shift]
+                        : [.control]
+                    let shouldWaitForSurface = !useEarlyTrigger
+
                     var attachedBeforeTrigger = false
                     var hasSurfaceBeforeTrigger = false
-                    while Date() < readyDeadline {
-                        guard let panel = tab.terminalPanel(for: exitPanelId) else {
-                            write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
-                            return
+                    if shouldWaitForSurface {
+                        // Wait for the target panel to be fully attached after split churn.
+                        let readyDeadline = Date().addingTimeInterval(2.0)
+                        while Date() < readyDeadline {
+                            guard let panel = tab.terminalPanel(for: exitPanelId) else {
+                                write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
+                                return
+                            }
+                            attachedBeforeTrigger = panel.hostedView.window != nil
+                            hasSurfaceBeforeTrigger = panel.surface.surface != nil
+                            if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
+                                break
+                            }
+                            try? await Task.sleep(nanoseconds: 50_000_000)
                         }
+                    } else if let panel = tab.terminalPanel(for: exitPanelId) {
                         attachedBeforeTrigger = panel.hostedView.window != nil
                         hasSurfaceBeforeTrigger = panel.surface.surface != nil
-                        if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
-                            break
-                        }
-                        try? await Task.sleep(nanoseconds: 50_000_000)
                     }
                     write([
                         "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
@@ -3004,7 +3020,7 @@ class TabManager: ObservableObject {
                         return
                     }
                     // Exercise the real key path (ghostty_surface_key for Ctrl+D).
-                    if panel.hostedView.sendSyntheticCtrlDForUITest() {
+                    if panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
                         write(["autoTriggerSentCtrlDKey1": "1"])
                     } else {
                         write([
@@ -3016,13 +3032,20 @@ class TabManager: ObservableObject {
 
                     // In strict mode, never mask routing bugs with fallback writes.
                     if strictKeyOnly {
-                        write(["autoTriggerMode": "strict_ctrl_d"])
+                        let strictModeLabel: String = {
+                            if useEarlyCtrlShiftTrigger { return "strict_early_ctrl_shift_d" }
+                            if useEarlyCtrlDTrigger { return "strict_early_ctrl_d" }
+                            if triggerUsesShift { return "strict_ctrl_shift_d" }
+                            return "strict_ctrl_d"
+                        }()
+                        write(["autoTriggerMode": strictModeLabel])
                         return
                     }
 
                     // Non-strict mode keeps one additional Ctrl+D retry for startup timing variance.
                     try? await Task.sleep(nanoseconds: 450_000_000)
-                    if tab.panels[exitPanelId] != nil, panel.hostedView.sendSyntheticCtrlDForUITest() {
+                    if tab.panels[exitPanelId] != nil,
+                       panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
                         write(["autoTriggerSentCtrlDKey2": "1"])
                     }
                 }

@@ -227,6 +227,14 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+private final class GhosttySurfaceCallbackContext {
+    weak var surfaceView: GhosttyNSView?
+
+    init(surfaceView: GhosttyNSView) {
+        self.surfaceView = surfaceView
+    }
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -425,8 +433,7 @@ class GhosttyApp {
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             // Read clipboard
-            guard let userdata else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             guard let surface = surfaceView.terminalSurface?.surface else { return }
 
             let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
@@ -437,8 +444,8 @@ class GhosttyApp {
             }
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
-            guard let userdata, let content else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let content else { return }
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             guard let surface = surfaceView.terminalSurface?.surface else { return }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
@@ -471,8 +478,7 @@ class GhosttyApp {
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
-            guard let userdata else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             let callbackSurfaceId = surfaceView.terminalSurface?.id
             let callbackTabId = surfaceView.tabId
 
@@ -870,6 +876,12 @@ class GhosttyApp {
         }
     }
 
+    private static func surfaceView(from userdata: UnsafeMutableRawPointer?) -> GhosttyNSView? {
+        guard let userdata else { return nil }
+        let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+        return context.surfaceView
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -947,8 +959,8 @@ class GhosttyApp {
 
             return false
         }
-        guard let userdata = ghostty_surface_userdata(target.target.surface) else { return false }
-        let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+        let surfaceView = Self.surfaceView(from: ghostty_surface_userdata(target.target.surface))
+        guard let surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
             action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
@@ -1126,11 +1138,13 @@ class GhosttyApp {
             // "Process exited. Press any key..." into the terminal unless the host
             // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
+            let callbackTabId = surfaceView.tabId
+            let callbackSurfaceId = surfaceView.terminalSurface?.id
 #if DEBUG
             cmuxWriteChildExitProbe(
                 [
-                    "probeShowChildExitedTabId": surfaceView.tabId?.uuidString ?? "",
-                    "probeShowChildExitedSurfaceId": surfaceView.terminalSurface?.id.uuidString ?? "",
+                    "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
+                    "probeShowChildExitedSurfaceId": callbackSurfaceId?.uuidString ?? "",
                 ],
                 increments: ["probeShowChildExitedCount": 1]
             )
@@ -1139,12 +1153,12 @@ class GhosttyApp {
             // dispatching this action callback.
             DispatchQueue.main.async {
                 guard let app = AppDelegate.shared else { return }
-                if let tabId = surfaceView.tabId,
-                   let surfaceId = surfaceView.terminalSurface?.id,
-                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
-                   let workspace = manager.tabs.first(where: { $0.id == tabId }),
-                   workspace.panels[surfaceId] != nil {
-                    manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+                if let callbackTabId,
+                   let callbackSurfaceId,
+                   let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
+                   let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
+                   workspace.panels[callbackSurfaceId] != nil {
+                    manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.
@@ -1379,6 +1393,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1576,7 +1591,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view).toOpaque()
         ))
-        surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view))
+        surfaceConfig.userdata = callbackContext.toOpaque()
+        surfaceCallbackContext?.release()
+        surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
         var envVars: [ghostty_env_var_s] = []
@@ -1705,6 +1723,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if surface == nil {
+            surfaceCallbackContext?.release()
+            surfaceCallbackContext = nil
             print("Failed to create ghostty surface")
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
@@ -1945,8 +1965,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        if let surface = surface {
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        guard let surface else {
+            callbackContext?.release()
+            return
+        }
+
+        // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
+        // callback userdata until surface free completes so callbacks never dereference
+        // a deallocated view pointer.
+        Task { @MainActor in
             ghostty_surface_free(surface)
+            callbackContext?.release()
         }
     }
 }
@@ -4066,7 +4098,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
     /// unlike `sendText`, which bypasses key translation.
     @discardableResult
-    func sendSyntheticCtrlDForUITest() -> Bool {
+    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
         guard let window else { return false }
         window.makeFirstResponder(surfaceView)
 
@@ -4074,7 +4106,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let keyDown = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
-            modifierFlags: [.control],
+            modifierFlags: modifierFlags,
             timestamp: timestamp,
             windowNumber: window.windowNumber,
             context: nil,
@@ -4087,7 +4119,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let keyUp = NSEvent.keyEvent(
             with: .keyUp,
             location: .zero,
-            modifierFlags: [.control],
+            modifierFlags: modifierFlags,
             timestamp: timestamp + 0.001,
             windowNumber: window.windowNumber,
             context: nil,
