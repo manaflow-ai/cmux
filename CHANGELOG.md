@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Split zoom now treats alpha-hidden pane trees as hidden in portal sync and divider traversal, preventing zoomed browser panes from rendering behind terminal panes.
+
 ## [0.60.0] - 2026-02-21
 
 ### Added
