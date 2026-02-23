@@ -114,6 +114,7 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌃ ⌘ ] | Next workspace |
 | ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
+| ⌘ ⇧ R | Rename workspace |
 | ⌘ B | Toggle sidebar |
 
 ### Surfaces

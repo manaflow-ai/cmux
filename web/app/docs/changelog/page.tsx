@@ -75,17 +75,24 @@ function parseChangelog(markdown: string): ChangelogVersion[] {
   return versions;
 }
 
-function InlineCode({ text }: { text: string }) {
-  const parts = text.split(/(`[^`]+`)/g);
+function InlineMarkdown({ text }: { text: string }) {
+  const parts = text.split(/(`[^`]+`|\[[^\]]+\]\([^)]+\))/g);
   return (
     <>
-      {parts.map((part, i) =>
-        part.startsWith("`") && part.endsWith("`") ? (
-          <code key={i}>{part.slice(1, -1)}</code>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
+      {parts.map((part, i) => {
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return <code key={i}>{part.slice(1, -1)}</code>;
+        }
+        const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return (
+            <a key={i} href={linkMatch[2]}>
+              {linkMatch[1]}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
     </>
   );
 }
@@ -115,7 +122,7 @@ export default function ChangelogPage() {
               <ul>
                 {section.items.map((item, j) => (
                   <li key={j}>
-                    <InlineCode text={item} />
+                    <InlineMarkdown text={item} />
                   </li>
                 ))}
               </ul>

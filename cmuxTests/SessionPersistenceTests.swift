@@ -215,12 +215,40 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testShouldRemoveExportedScreenFileOnlyWithinTemporaryRoot() {
+        let tempRoot = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cmux-export-tests-\(UUID().uuidString)", isDirectory: true)
+        let tempFile = tempRoot
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("screen.txt", isDirectory: false)
+        let outsideFile = URL(fileURLWithPath: "/Users/example/screen.txt")
+
+        XCTAssertTrue(
+            TerminalController.shouldRemoveExportedScreenFile(
+                fileURL: tempFile,
+                temporaryDirectory: tempRoot
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldRemoveExportedScreenFile(
+                fileURL: outsideFile,
+                temporaryDirectory: tempRoot
+            )
+        )
+    }
+
     func testWindowUnregisterSnapshotPersistencePolicy() {
         XCTAssertTrue(
             AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false)
         )
         XCTAssertFalse(
             AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true)
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(isTerminatingApp: false)
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(isTerminatingApp: true)
         )
     }
 

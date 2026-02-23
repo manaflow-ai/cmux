@@ -1,6 +1,8 @@
 import XCTest
 import AppKit
+import SwiftUI
 import WebKit
+import SwiftUI
 import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
@@ -61,6 +63,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
     }
 
+    private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -97,6 +103,198 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    @MainActor
+    func testCanBlockFirstResponderAcquisitionWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(webView))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(webView.becomeFirstResponder())
+
+        _ = window.makeFirstResponder(webView)
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === webView || firstResponderView.isDescendant(of: webView))
+        }
+    }
+
+    @MainActor
+    func testPointerFocusAllowanceCanTemporarilyOverrideBlockedFirstResponderAcquisition() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected focus to stay blocked by policy")
+
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(webView.becomeFirstResponder(), "Expected explicit pointer intent to bypass policy")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(webView.becomeFirstResponder(), "Expected pointer allowance to be temporary")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardBlocksDescendantWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(descendant))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(window.makeFirstResponder(descendant))
+
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === descendant || firstResponderView.isDescendant(of: webView))
+        }
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsDescendantDuringPointerFocusAllowance() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus outside pointer allowance")
+
+        _ = window.makeFirstResponder(nil)
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(window.makeFirstResponder(descendant), "Expected pointer allowance to bypass guard")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer allowance to remain temporary")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAllowsPointerInitiatedClickFocusWhenPolicyIsBlocked() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus without pointer click context")
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 5, y: 5),
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: descendant)
+        _ = window.makeFirstResponder(nil)
+        XCTAssertTrue(window.makeFirstResponder(descendant), "Expected pointer click context to bypass blocked policy")
+
+        AppDelegate.clearWindowFirstResponderGuardTesting()
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
@@ -129,6 +327,163 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             isARepeat: false,
             keyCode: keyCode
         )
+    }
+}
+
+@MainActor
+final class AppDelegateWindowContextRoutingTests: XCTestCase {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowB.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowB)
+        XCTAssertTrue(app.tabManager === managerB)
+
+        windowA.makeKeyAndOrderFront(nil)
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(resolved === managerA, "Expected provided active window to win over stale active manager")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextFallsBackToActiveManagerWithoutFocusedWindow() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // Seed active manager and clear focus windows to force fallback routing.
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(app.tabManager === managerA)
+        windowA.orderOut(nil)
+        windowB.orderOut(nil)
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: nil)
+        XCTAssertTrue(resolved === managerA, "Expected fallback to preserve current active manager instead of arbitrary window")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextUsesRegisteredWindowEvenIfIdentifierMutates() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // SwiftUI can replace the NSWindow identifier string at runtime.
+        window.identifier = NSUserInterfaceItemIdentifier("SwiftUI.AppWindow.IdentifierChanged")
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+        XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
+        XCTAssertTrue(app.tabManager === manager)
+    }
+}
+
+final class FocusFlashPatternTests: XCTestCase {
+    func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
+        XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
+        XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
+        XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
+        XCTAssertEqual(FocusFlashPattern.ringInset, 6, accuracy: 0.0001)
+        XCTAssertEqual(FocusFlashPattern.ringCornerRadius, 10, accuracy: 0.0001)
+    }
+
+    func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
+        let segments = FocusFlashPattern.segments
+        XCTAssertEqual(segments.count, 4)
+
+        XCTAssertEqual(segments[0].delay, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].targetOpacity, 1, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].curve, .easeOut)
+
+        XCTAssertEqual(segments[1].delay, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].targetOpacity, 0, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].curve, .easeIn)
+
+        XCTAssertEqual(segments[2].delay, 0.45, accuracy: 0.0001)
+        XCTAssertEqual(segments[2].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[2].targetOpacity, 1, accuracy: 0.0001)
+        XCTAssertEqual(segments[2].curve, .easeOut)
+
+        XCTAssertEqual(segments[3].delay, 0.675, accuracy: 0.0001)
+        XCTAssertEqual(segments[3].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[3].targetOpacity, 0, accuracy: 0.0001)
+        XCTAssertEqual(segments[3].curve, .easeIn)
     }
 }
 
@@ -257,9 +612,9 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
     }
 }
 
-final class BrowserForcedDarkModeSettingsTests: XCTestCase {
+final class BrowserThemeSettingsTests: XCTestCase {
     private func makeIsolatedDefaults() -> UserDefaults {
-        let suiteName = "BrowserForcedDarkModeSettingsTests.\(UUID().uuidString)"
+        let suiteName = "BrowserThemeSettingsTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             fatalError("Failed to create defaults suite")
         }
@@ -273,28 +628,30 @@ final class BrowserForcedDarkModeSettingsTests: XCTestCase {
     func testDefaultsMatchConfiguredFallbacks() {
         let defaults = makeIsolatedDefaults()
         XCTAssertEqual(
-            BrowserForcedDarkModeSettings.enabled(defaults: defaults),
-            BrowserForcedDarkModeSettings.defaultEnabled
-        )
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.defaultOpacity
+            BrowserThemeSettings.mode(defaults: defaults),
+            BrowserThemeSettings.defaultMode
         )
     }
 
-    func testOpacityIsClampedToSupportedRange() {
+    func testModeReadsPersistedValue() {
         let defaults = makeIsolatedDefaults()
-        defaults.set(-100.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.minOpacity
-        )
+        defaults.set(BrowserThemeMode.dark.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
 
-        defaults.set(999.0, forKey: BrowserForcedDarkModeSettings.opacityKey)
-        XCTAssertEqual(
-            BrowserForcedDarkModeSettings.opacity(defaults: defaults),
-            BrowserForcedDarkModeSettings.maxOpacity
-        )
+        defaults.set(BrowserThemeMode.light.rawValue, forKey: BrowserThemeSettings.modeKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .light)
+    }
+
+    func testModeMigratesLegacyForcedDarkModeFlag() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(true, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: defaults), .dark)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
+
+        let otherDefaults = makeIsolatedDefaults()
+        otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
+        XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
+        XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
     }
 }
 
@@ -315,6 +672,125 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(shortcut.option)
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.control)
+    }
+}
+
+final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
+    func testRenameTabShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.label, "Rename Tab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameTab.defaultsKey, "shortcut.renameTab")
+
+        let shortcut = KeyboardShortcutSettings.Action.renameTab.defaultShortcut
+        XCTAssertEqual(shortcut.key, "r")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testCloseWindowShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWindow.label, "Close Window")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWindow.defaultsKey, "shortcut.closeWindow")
+
+        let shortcut = KeyboardShortcutSettings.Action.closeWindow.defaultShortcut
+        XCTAssertEqual(shortcut.key, "w")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertTrue(shortcut.control)
+    }
+
+    func testRenameWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.label, "Rename Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey, "shortcut.renameWorkspace")
+
+        let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        XCTAssertEqual(shortcut.key, "r")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testRenameWorkspaceShortcutConvertsToMenuShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        XCTAssertNotNil(shortcut.keyEquivalent)
+        XCTAssertTrue(shortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.option))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
+    func testCloseWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.label, "Close Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey, "shortcut.closeWorkspace")
+
+        let shortcut = KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        XCTAssertEqual(shortcut.key, "w")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testCloseWorkspaceShortcutConvertsToMenuShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        XCTAssertNotNil(shortcut.keyEquivalent)
+        XCTAssertTrue(shortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.option))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
+    func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+
+        let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        XCTAssertEqual(nextShortcut.key, "]")
+        XCTAssertTrue(nextShortcut.command)
+        XCTAssertFalse(nextShortcut.shift)
+        XCTAssertFalse(nextShortcut.option)
+        XCTAssertTrue(nextShortcut.control)
+
+        let prevShortcut = KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        XCTAssertEqual(prevShortcut.key, "[")
+        XCTAssertTrue(prevShortcut.command)
+        XCTAssertFalse(prevShortcut.shift)
+        XCTAssertFalse(prevShortcut.option)
+        XCTAssertTrue(prevShortcut.control)
+    }
+
+    func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
+        let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        XCTAssertNotNil(nextShortcut.keyEquivalent)
+        XCTAssertEqual(nextShortcut.menuItemKeyEquivalent, "]")
+        XCTAssertTrue(nextShortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(nextShortcut.eventModifiers.contains(.control))
+
+        let prevShortcut = KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        XCTAssertNotNil(prevShortcut.keyEquivalent)
+        XCTAssertEqual(prevShortcut.menuItemKeyEquivalent, "[")
+        XCTAssertTrue(prevShortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
+    }
+
+    func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
+        XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "↑", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertEqual(
+            StoredShortcut(key: "\t", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent,
+            "\t"
+        )
+    }
+
+    func testShortcutDefaultsKeysRemainUnique() {
+        let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
+        XCTAssertEqual(Set(keys).count, keys.count)
     }
 }
 
@@ -361,8 +837,30 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
         XCTAssertEqual(panel.displayTitle, "New tab")
         XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertTrue(panel.isShowingNewTabPage)
         XCTAssertNil(panel.webView.url)
         XCTAssertNil(panel.currentURL)
+    }
+
+    func testBrowserPanelLeavesNewTabPageStateWhenNavigationStarts() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertTrue(panel.isShowingNewTabPage)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        XCTAssertFalse(panel.isShowingNewTabPage)
+    }
+
+    func testBrowserPanelThemeModeUpdatesWebViewAppearance() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.setBrowserThemeMode(.dark)
+        XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.darkAqua, .aqua]), .darkAqua)
+
+        panel.setBrowserThemeMode(.light)
+        XCTAssertEqual(panel.webView.appearance?.bestMatch(from: [.aqua, .darkAqua]), .aqua)
+
+        panel.setBrowserThemeMode(.system)
+        XCTAssertNil(panel.webView.appearance)
     }
 }
 
@@ -625,6 +1123,25 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
+    func testArrowNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 125
+            ),
+            1
+        )
+    }
+
     func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForCommandNavigation(
@@ -677,6 +1194,414 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
             ),
             1
         )
+    }
+
+    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.control, .capsLock],
+                chars: "n"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .capsLock],
+                chars: "p"
+            ),
+            -1
+        )
+    }
+
+    func testSubmitOnReturnIgnoresCapsLockModifier() {
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: []))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.capsLock]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command, .capsLock]))
+    }
+}
+
+final class BrowserZoomShortcutActionTests: XCTestCase {
+    func testZoomInSupportsEqualsAndPlusVariants() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "=", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command, .shift], chars: "+", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 30),
+            .zoomIn
+        )
+    }
+
+    func testZoomOutSupportsMinusAndUnderscoreVariants() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "-", keyCode: 27),
+            .zoomOut
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command, .shift], chars: "_", keyCode: 27),
+            .zoomOut
+        )
+    }
+
+    func testZoomRequiresCommandWithoutOptionOrControl() {
+        XCTAssertNil(browserZoomShortcutAction(flags: [], chars: "=", keyCode: 24))
+        XCTAssertNil(browserZoomShortcutAction(flags: [.command, .option], chars: "=", keyCode: 24))
+        XCTAssertNil(browserZoomShortcutAction(flags: [.command, .control], chars: "-", keyCode: 27))
+    }
+
+    func testResetSupportsCommandZero() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "0", keyCode: 29),
+            .reset
+        )
+    }
+}
+
+final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
+    func testRoutesWhenGhosttyIsFirstResponderAndShortcutIsZoom() {
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "=",
+                keyCode: 24
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "-",
+                keyCode: 27
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "0",
+                keyCode: 29
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenFirstResponderIsNotGhostty() {
+        XCTAssertFalse(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: false,
+                flags: [.command],
+                chars: "=",
+                keyCode: 24
+            )
+        )
+    }
+
+    func testDoesNotRouteForNonZoomShortcuts() {
+        XCTAssertFalse(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+    }
+}
+
+final class GhosttyResponderResolutionTests: XCTestCase {
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    func testResolvesGhosttyViewFromDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        ghosttyView.addSubview(descendant)
+
+        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+    }
+
+    func testResolvesGhosttyViewFromGhosttyResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+    }
+
+    func testReturnsNilForUnrelatedResponder() {
+        let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        XCTAssertNil(cmuxOwningGhosttyView(for: view))
+    }
+}
+
+final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+    func testArrowKeysMoveSelectionWithoutModifiers() {
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [],
+                chars: "",
+                keyCode: 125
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [],
+                chars: "",
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.shift],
+                chars: "",
+                keyCode: 125
+            )
+        )
+    }
+
+    func testControlLetterNavigationSupportsPrintableAndControlChars() {
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "n",
+                keyCode: 45
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0e}",
+                keyCode: 45
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "p",
+                keyCode: 35
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{10}",
+                keyCode: 35
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "j",
+                keyCode: 38
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0a}",
+                keyCode: 38
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "k",
+                keyCode: 40
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "\u{0b}",
+                keyCode: 40
+            ),
+            -1
+        )
+    }
+
+    func testIgnoresUnsupportedModifiersAndKeys() {
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control, .shift],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertNil(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control],
+                chars: "x",
+                keyCode: 7
+            )
+        )
+    }
+}
+
+final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
+    private let suiteName = "cmux.tests.commandPaletteRenameSelection.\(UUID().uuidString)"
+
+    private func makeDefaults() -> UserDefaults {
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    func testDefaultsToSelectAllWhenUnset() {
+        let defaults = makeDefaults()
+        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+
+    func testReturnsFalseWhenStoredFalse() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+        XCTAssertFalse(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+
+    func testReturnsTrueWhenStoredTrue() {
+        let defaults = makeDefaults()
+        defaults.set(true, forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+        XCTAssertTrue(CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(defaults: defaults))
+    }
+}
+
+final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
+    func testFirstEntryAlwaysPinsToTopWhenScrollable() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 0,
+            previousIndex: 1,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 8, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .top)
+    }
+
+    func testLastEntryAlwaysPinsToBottomWhenScrollable() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 19,
+            previousIndex: 18,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 188, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .bottom)
+    }
+
+    func testFullyVisibleMiddleEntryDoesNotScroll() {
+        let anchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 6,
+            previousIndex: 5,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 120, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(anchor)
+    }
+
+    func testOutOfViewMiddleEntryUsesDirectionForAnchor() {
+        let downAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 9,
+            previousIndex: 8,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 210, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(downAnchor, .bottom)
+
+        let upAnchor = ContentView.commandPaletteScrollAnchor(
+            selectedIndex: 8,
+            previousIndex: 9,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: -6, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(upAnchor, .top)
+    }
+}
+
+final class CommandPaletteEdgeVisibilityCorrectionTests: XCTestCase {
+    func testTopEdgeReturnsTopWhenNotPinned() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 0,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 6, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .top)
+    }
+
+    func testBottomEdgeReturnsBottomWhenNotPinned() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 19,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 170, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertEqual(anchor, .bottom)
+    }
+
+    func testPinnedTopAndBottomReturnNil() {
+        let topAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 0,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 0, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(topAnchor)
+
+        let bottomAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 19,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 192, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(bottomAnchor)
+    }
+
+    func testMiddleSelectionNeverForcesCorrection() {
+        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+            selectedIndex: 8,
+            resultCount: 20,
+            selectedFrame: CGRect(x: 0, y: 96, width: 200, height: 24),
+            viewportHeight: 216,
+            contentHeight: 480
+        )
+        XCTAssertNil(anchor)
     }
 }
 
@@ -878,6 +1803,171 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class WorkspaceTabColorSettingsTests: XCTestCase {
+    func testNormalizedHexAcceptsAndNormalizesValidInput() {
+        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("#abc123"), "#ABC123")
+        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("  aBcDeF "), "#ABCDEF")
+        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#1234"))
+        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#GG1234"))
+    }
+
+    func testBuiltInPaletteMatchesOriginalPRPalette() {
+        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
+        XCTAssertEqual(palette.count, 16)
+        XCTAssertEqual(palette.first?.name, "Red")
+        XCTAssertEqual(palette.first?.hex, "#C0392B")
+        XCTAssertEqual(palette.last?.name, "Charcoal")
+        XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
+    }
+
+    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {
+        let suiteName = "WorkspaceTabColorSettingsTests.DefaultOverride.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = WorkspaceTabColorSettings.defaultPalette[0]
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#00aa33", defaults: defaults)
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            "#00AA33"
+        )
+
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: first.hex, defaults: defaults)
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+    }
+
+    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() {
+        let suiteName = "WorkspaceTabColorSettingsTests.CustomColors.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor(" #00aa33 ", defaults: defaults),
+            "#00AA33"
+        )
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor("#112233", defaults: defaults),
+            "#112233"
+        )
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor("#00AA33", defaults: defaults),
+            "#00AA33"
+        )
+        XCTAssertNil(WorkspaceTabColorSettings.addCustomColor("nope", defaults: defaults))
+
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.customColors(defaults: defaults),
+            ["#00AA33", "#112233"]
+        )
+    }
+
+    func testPaletteIncludesCustomEntriesAndResetClearsAll() {
+        let suiteName = "WorkspaceTabColorSettingsTests.Reset.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = WorkspaceTabColorSettings.defaultPalette[0]
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#334455", defaults: defaults)
+        _ = WorkspaceTabColorSettings.addCustomColor("#778899", defaults: defaults)
+
+        let paletteBeforeReset = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(paletteBeforeReset.count, WorkspaceTabColorSettings.defaultPalette.count + 1)
+        XCTAssertEqual(paletteBeforeReset[0].hex, "#334455")
+        XCTAssertEqual(paletteBeforeReset.last?.name, "Custom 1")
+        XCTAssertEqual(paletteBeforeReset.last?.hex, "#778899")
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+
+        XCTAssertEqual(WorkspaceTabColorSettings.customColors(defaults: defaults), [])
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+    }
+
+    func testDisplayColorLightModeKeepsOriginalHex() {
+        let originalHex = "#1A5276"
+        let rendered = WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .light
+        )
+
+        XCTAssertEqual(rendered?.hexString(), originalHex)
+    }
+
+    func testDisplayColorDarkModeBrightensColor() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertNotEqual(rendered.hexString(), originalHex)
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
+
+    func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
+        let originalHex = "#808080"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark
+              ),
+              let renderedSRGB = rendered.usingColorSpace(.sRGB) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+        XCTAssertLessThan(abs(renderedSRGB.redComponent - renderedSRGB.greenComponent), 0.003)
+        XCTAssertLessThan(abs(renderedSRGB.greenComponent - renderedSRGB.blueComponent), 0.003)
+    }
+
+    func testDisplayColorForceBrightensInLightMode() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .light,
+                  forceBright: true
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertNotEqual(rendered.hexString(), originalHex)
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
+}
+
 final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     func testDefaultIsEnabled() {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Default.\(UUID().uuidString)"
@@ -940,6 +2030,44 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
         XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+}
+
+final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
+    func testDefaultStyleWhenUnset() {
+        let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(
+            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
+            SidebarActiveTabIndicatorSettings.defaultStyle
+        )
+    }
+
+    func testStoredStyleParsesAndInvalidFallsBack() {
+        let suiteName = "SidebarActiveTabIndicatorSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+
+        defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+
+        defaults.set("not-a-style", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(
+            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
+            SidebarActiveTabIndicatorSettings.defaultStyle
+        )
     }
 }
 
@@ -1214,6 +2342,141 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
+    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected workspace split setup to succeed")
+            return
+        }
+
+        // Programmatic split focuses the new right panel by default.
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: leftPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftPanelId,
+            "Expected inheritance to use the selected terminal in the target pane"
+        )
+    }
+
+    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected workspace browser setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: paneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected inheritance to fall back to a terminal in the pane when browser is selected"
+        )
+    }
+
+    func testPreferredTerminalPanelWinsWhenProvided() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a terminal panel")
+            return
+        }
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(preferredPanelId: terminalPanelId)
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testPrefersLastFocusedTerminalWhenBrowserFocusedInDifferentPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: rightPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected inheritance to prefer last focused terminal when browser is focused in another pane"
+        )
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
+    func testUsesFocusedTerminalWhenTerminalIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testFallsBackToTerminalWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected selected workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected new workspace inheritance source to resolve to the pane terminal when browser is focused"
+        )
+    }
+
+    func testPrefersLastFocusedTerminalAcrossPanesWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected workspace inheritance source to use last focused terminal across panes"
+        )
+    }
+}
+
+@MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
@@ -1384,6 +2647,149 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testBrowserSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(browserSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser split to preserve pre-split focus"
+        )
+    }
+
+    func testTerminalSplitWithFocusFalsePreservesOriginalFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let terminalSplitPanel = workspace.newTerminalSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected terminal split panel to be created")
+            return
+        }
+
+        drainMainQueue()
+
+        XCTAssertNotEqual(terminalSplitPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal split to preserve pre-split focus"
+        )
+    }
+
+    func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+        guard let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected focused pane for initial panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+        guard let splitPaneId = workspace.paneId(forPanelId: browserSplitPanel.id),
+              let splitTabId = workspace.surfaceIdFromPanelId(browserSplitPanel.id),
+              let splitTab = workspace.bonsplitController
+              .tabs(inPane: splitPaneId)
+              .first(where: { $0.id == splitTabId }) else {
+            XCTFail("Expected split pane/tab mapping")
+            return
+        }
+
+        // Simulate one delayed stale split-selection callback from bonsplit.
+        DispatchQueue.main.async {
+            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus split to reassert the pre-split focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.focusedPaneId,
+            originalPaneId,
+            "Expected focused pane to converge back to the pre-split pane"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to converge back to the pre-split focused panel"
+        )
+    }
+
+    func testBrowserSplitWithFocusFalseAllowsSubsequentExplicitFocusOnSplitPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        guard let browserSplitPanel = workspace.newBrowserSplit(
+            from: originalFocusedPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected browser split panel to be created")
+            return
+        }
+
+        workspace.focusPanel(browserSplitPanel.id)
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            browserSplitPanel.id,
+            "Expected explicit focus intent to keep the split panel focused"
+        )
+    }
+
     func testClosingFocusedSplitRestoresBranchForRemainingFocusedPanel() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId else {
@@ -3164,6 +4570,170 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
     }
+
+    func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        )
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        hostedView.moveFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to be first responder before window blur"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Window blur should force terminal surface to resign first responder"
+        )
+    }
+
+    func testSearchOverlayMountsAndUnmountsWithSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+
+        let searchState = TerminalSurface.SearchState(needle: "example")
+        hostedView.setSearchOverlay(searchState: searchState)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        hostedView.setSearchOverlay(searchState: nil)
+        XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testSearchOverlayMountDoesNotRetainTerminalSurface() {
+        weak var weakSurface: TerminalSurface?
+
+        let hostedView: GhosttySurfaceScrollView = {
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            weakSurface = surface
+            let hostedView = surface.hostedView
+            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
+            return hostedView
+        }()
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+        XCTAssertNil(weakSurface, "Mounted search overlay must not retain TerminalSurface")
+    }
+
+    func testSearchOverlaySurvivesPortalRebindDuringSplitLikeChurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchorA = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 140))
+        let anchorB = NSView(frame: NSRect(x: 220, y: 20, width: 180, height: 140))
+        contentView.addSubview(anchorA)
+        contentView.addSubview(anchorB)
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchorB, visibleInUI: true)
+        XCTAssertTrue(
+            hostedView.debugHasSearchOverlay(),
+            "Split-like anchor churn should not unmount terminal search overlay"
+        )
+    }
+
+    func testSearchOverlaySurvivesPortalVisibilityToggleDuringWorkspaceSwitchLikeChurn() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let portal = WindowTerminalPortal(window: window)
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 220, height: 160))
+        contentView.addSubview(anchor)
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: false)
+        XCTAssertTrue(hostedView.debugHasSearchOverlay())
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        XCTAssertTrue(
+            hostedView.debugHasSearchOverlay(),
+            "Workspace-switch-like visibility toggles should not unmount terminal search overlay"
+        )
+    }
 }
 
 @MainActor
@@ -3604,6 +5174,34 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+
+    func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionFallsBackToLegacyLinkToggleWhenUnset() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testSettingsInitialOpenCommandInterceptionValueFallsBackToLegacyLinkToggleWhenUnset() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
+    }
 }
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
@@ -3673,6 +5271,38 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         default:
             XCTFail("Expected hostless HTTPS URL to open externally")
         }
+    }
+}
+
+final class BrowserExternalNavigationSchemeTests: XCTestCase {
+    func testCustomAppSchemesOpenExternally() throws {
+        let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
+        let slack = try XCTUnwrap(URL(string: "slack://open"))
+        let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
+        let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
+
+        XCTAssertTrue(browserShouldOpenURLExternally(discord))
+        XCTAssertTrue(browserShouldOpenURLExternally(slack))
+        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
+        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
+    }
+
+    func testEmbeddedBrowserSchemesStayInWebView() throws {
+        let https = try XCTUnwrap(URL(string: "https://example.com"))
+        let http = try XCTUnwrap(URL(string: "http://example.com"))
+        let about = try XCTUnwrap(URL(string: "about:blank"))
+        let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
+        let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
+
+        XCTAssertFalse(browserShouldOpenURLExternally(https))
+        XCTAssertFalse(browserShouldOpenURLExternally(http))
+        XCTAssertFalse(browserShouldOpenURLExternally(about))
+        XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
+        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
     }
 }
 

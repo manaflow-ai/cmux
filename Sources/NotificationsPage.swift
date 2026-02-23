@@ -5,6 +5,7 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
+    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,6 +74,8 @@ struct NotificationsPage: View {
             Spacer()
 
             if !notificationStore.notifications.isEmpty {
+                jumpToUnreadButton
+
                 Button("Clear All") {
                     notificationStore.clearAll()
                 }
@@ -97,8 +100,73 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    @ViewBuilder
+    private var jumpToUnreadButton: some View {
+        if let key = jumpToUnreadShortcut.keyEquivalent {
+            Button(action: {
+                AppDelegate.shared?.jumpToLatestUnread()
+            }) {
+                HStack(spacing: 6) {
+                    Text("Jump to Latest Unread")
+                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                }
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
+            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip("Jump to Latest Unread"))
+            .disabled(!hasUnreadNotifications)
+        } else {
+            Button(action: {
+                AppDelegate.shared?.jumpToLatestUnread()
+            }) {
+                HStack(spacing: 6) {
+                    Text("Jump to Latest Unread")
+                    ShortcutAnnotation(text: jumpToUnreadShortcut.displayString)
+                }
+            }
+            .buttonStyle(.bordered)
+            .help(KeyboardShortcutSettings.Action.jumpToUnread.tooltip("Jump to Latest Unread"))
+            .disabled(!hasUnreadNotifications)
+        }
+    }
+
+    private var jumpToUnreadShortcut: StoredShortcut {
+        decodeShortcut(
+            from: jumpToUnreadShortcutData,
+            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+    }
+
+    private var hasUnreadNotifications: Bool {
+        notificationStore.notifications.contains(where: { !$0.isRead })
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    }
+}
+
+private struct ShortcutAnnotation: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
     }
 }
 

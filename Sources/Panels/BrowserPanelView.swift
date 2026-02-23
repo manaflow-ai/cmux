@@ -155,6 +155,17 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func cmuxFlatSymbolColorRendering() -> some View {
+        if #available(macOS 26.0, *) {
+            self.symbolColorRenderingMode(.flat)
+        } else {
+            self
+        }
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -169,8 +180,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
-    @AppStorage(BrowserForcedDarkModeSettings.enabledKey) private var forcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
-    @AppStorage(BrowserForcedDarkModeSettings.opacityKey) private var forcedDarkModeOpacity = BrowserForcedDarkModeSettings.defaultOpacity
+    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -180,10 +190,13 @@ struct BrowserPanelView: View {
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
     @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashFadeWorkItem: DispatchWorkItem?
+    @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
-    private let omnibarPillCornerRadius: CGFloat = 12
+    @State private var isBrowserThemeMenuPresented = false
+    // Keep this below half of the compact omnibar height so it reads as a squircle,
+    // not a capsule.
+    private let omnibarPillCornerRadius: CGFloat = 10
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 26
     private let addressBarVerticalPadding: CGFloat = 4
@@ -221,8 +234,8 @@ struct BrowserPanelView: View {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var normalizedForcedDarkModeOpacity: Double {
-        BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
+    private var browserThemeMode: BrowserThemeMode {
+        BrowserThemeSettings.mode(for: browserThemeModeRaw)
     }
 
     private var browserChromeBackgroundColor: NSColor {
@@ -242,10 +255,10 @@ struct BrowserPanelView: View {
             webView
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
                 .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(6)
+                .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
@@ -278,6 +291,13 @@ struct BrowserPanelView: View {
             guard let webView = note.object as? CmuxWebView else { return false }
             return webView === panel?.webView
         }) { _ in
+#if DEBUG
+            dlog(
+                "browser.focus.clickIntent panel=\(panel.id.uuidString.prefix(5)) " +
+                "isFocused=\(isFocused ? 1 : 0) " +
+                "addressFocused=\(addressBarFocused ? 1 : 0)"
+            )
+#endif
             onRequestPanelFocus()
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
@@ -292,18 +312,19 @@ struct BrowserPanelView: View {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-                BrowserForcedDarkModeSettings.enabledKey: BrowserForcedDarkModeSettings.defaultEnabled,
-                BrowserForcedDarkModeSettings.opacityKey: BrowserForcedDarkModeSettings.defaultOpacity,
+                BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
+            let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
+            if browserThemeModeRaw != resolvedThemeMode.rawValue {
+                browserThemeModeRaw = resolvedThemeMode.rawValue
+            }
             panel.refreshAppearanceDrivenColors()
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
+            panel.setBrowserThemeMode(browserThemeMode)
             applyPendingAddressBarFocusRequestIfNeeded()
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
+            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
         }
         .onChange(of: panel.focusFlashToken) { _ in
@@ -321,21 +342,12 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
-        .onChange(of: forcedDarkModeEnabled) { _ in
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
-        }
-        .onChange(of: forcedDarkModeOpacity) { _ in
-            let normalized = BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
-            if abs(normalized - forcedDarkModeOpacity) > 0.0001 {
-                forcedDarkModeOpacity = normalized
+        .onChange(of: browserThemeModeRaw) { _ in
+            let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
+            if browserThemeModeRaw != normalizedMode.rawValue {
+                browserThemeModeRaw = normalizedMode.rawValue
             }
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalized
-            )
+            panel.setBrowserThemeMode(normalizedMode)
         }
         .onChange(of: colorScheme) { _ in
             panel.refreshAppearanceDrivenColors()
@@ -352,6 +364,7 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 addressBarFocused = false
             }
+            syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
@@ -379,6 +392,7 @@ struct BrowserPanelView: View {
                 }
                 inlineCompletion = nil
             }
+            syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
@@ -410,8 +424,10 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            forcedDarkModeButton
-            developerToolsButton
+            if !panel.isShowingNewTabPage {
+                browserThemeModeButton
+                developerToolsButton
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -494,37 +510,72 @@ struct BrowserPanelView: View {
             openDevTools()
         }) {
             Image(systemName: devToolsIconOption.rawValue)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help("Toggle Developer Tools")
+        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip("Toggle Developer Tools"))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
-    private var forcedDarkModeButton: some View {
+    private var browserThemeModeButton: some View {
         Button(action: {
-            forcedDarkModeEnabled.toggle()
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
+            isBrowserThemeMenuPresented.toggle()
         }) {
-            Image(systemName: forcedDarkModeEnabled ? "moon.fill" : "moon")
+            Image(systemName: browserThemeMode.iconName)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
-                .foregroundStyle(
-                    forcedDarkModeEnabled
-                    ? Color.orange
-                    : Color(nsColor: .secondaryLabelColor)
-                )
+                .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help(forcedDarkModeEnabled ? "Forced Dark Mode On" : "Forced Dark Mode Off")
-        .accessibilityIdentifier("BrowserForcedDarkModeButton")
+        .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
+            browserThemeModePopover
+        }
+        .help("Browser Theme: \(browserThemeMode.displayName)")
+        .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModePopover: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(BrowserThemeMode.allCases) { mode in
+                Button {
+                    applyBrowserThemeModeSelection(mode)
+                    isBrowserThemeMenuPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
+                            .font(.system(size: 10, weight: .semibold))
+                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
+                            .frame(width: 12, alignment: .center)
+                        Text(mode.displayName)
+                            .font(.system(size: 12))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 128)
+    }
+
+    private var browserThemeModeIconColor: Color {
+        devToolsColorOption.color
     }
 
     private var omnibarField: some View {
@@ -651,20 +702,42 @@ struct BrowserPanelView: View {
     }
 
     private func triggerFocusFlashAnimation() {
-        focusFlashFadeWorkItem?.cancel()
-        focusFlashFadeWorkItem = nil
+        focusFlashAnimationGeneration &+= 1
+        let generation = focusFlashAnimationGeneration
+        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
 
-        withAnimation(.easeOut(duration: 0.08)) {
-            focusFlashOpacity = 1.0
-        }
-
-        let item = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.35)) {
-                focusFlashOpacity = 0.0
+        for segment in FocusFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                guard focusFlashAnimationGeneration == generation else { return }
+                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                    focusFlashOpacity = segment.targetOpacity
+                }
             }
         }
-        focusFlashFadeWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
+    }
+
+    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
+        switch curve {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
+
+    private func syncWebViewResponderPolicyWithViewState(reason: String) {
+        guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
+        let next = isFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) reason=\(reason)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     private func syncURLFromPanel() {
@@ -717,6 +790,13 @@ struct BrowserPanelView: View {
         if !panel.toggleDeveloperTools() {
             NSSound.beep()
         }
+    }
+
+    private func applyBrowserThemeModeSelection(_ mode: BrowserThemeMode) {
+        if browserThemeModeRaw != mode.rawValue {
+            browserThemeModeRaw = mode.rawValue
+        }
+        panel.setBrowserThemeMode(mode)
     }
 
     private func handleOmnibarTap() {
@@ -2990,6 +3070,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator: Coordinator,
         generation: Int
     ) {
+        let retryInterval: TimeInterval = 1.0 / 60.0
         // Don't schedule multiple overlapping retries.
         guard coordinator.attachRetryWorkItem == nil else { return }
 
@@ -3022,7 +3103,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // Be generous here: bonsplit structural updates can keep a representable
                 // container off-window longer than a few seconds under load.
                 if coordinator.attachRetryCount < 400 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
                         scheduleAttachRetry(
                             webView,
                             panel: panel,
@@ -3059,13 +3140,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         coordinator.attachRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: work)
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         context.coordinator.panel = panel
         context.coordinator.webView = webView
+        Self.applyWebViewFirstResponderPolicy(
+            panel: panel,
+            webView: webView,
+            isPanelFocused: isPanelFocused
+        )
 
         let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
         if shouldUseWindowPortal {
@@ -3311,6 +3397,26 @@ struct WebViewRepresentable: NSViewRepresentable {
             // clearing first responder here can undo programmatic webview focus (socket tests).
             window.makeFirstResponder(nil)
         }
+    }
+
+    private static func applyWebViewFirstResponderPolicy(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        isPanelFocused: Bool
+    ) {
+        guard let cmuxWebView = webView as? CmuxWebView else { return }
+        let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
+                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
