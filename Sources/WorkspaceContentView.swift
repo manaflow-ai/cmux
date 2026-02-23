@@ -177,6 +177,8 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
+    @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()
 
     private struct ShortcutHint: View {
         let text: String
@@ -211,6 +213,49 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private var newSurfaceShortcut: StoredShortcut {
+        decodeShortcut(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
+    }
+
+    private var openBrowserShortcut: StoredShortcut {
+        decodeShortcut(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
+    @ViewBuilder
+    private func emptyPaneActionButton(
+        title: String,
+        systemImage: String,
+        shortcut: StoredShortcut,
+        action: @escaping () -> Void
+    ) -> some View {
+        if let key = shortcut.keyEquivalent {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Label(title, systemImage: systemImage)
+                    ShortcutHint(text: shortcut.displayString)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        } else {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Label(title, systemImage: systemImage)
+                    ShortcutHint(text: shortcut.displayString)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
@@ -222,27 +267,19 @@ struct EmptyPanelView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
-                Button {
-                    createTerminal()
-                } label: {
-                    HStack(spacing: 10) {
-                        Label("Terminal", systemImage: "terminal.fill")
-                        ShortcutHint(text: "⌘T")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("t", modifiers: [.command])
+                emptyPaneActionButton(
+                    title: "Terminal",
+                    systemImage: "terminal.fill",
+                    shortcut: newSurfaceShortcut,
+                    action: createTerminal
+                )
 
-                Button {
-                    createBrowser()
-                } label: {
-                    HStack(spacing: 10) {
-                        Label("Browser", systemImage: "globe")
-                        ShortcutHint(text: "⌘⇧L")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+                emptyPaneActionButton(
+                    title: "Browser",
+                    systemImage: "globe",
+                    shortcut: openBrowserShortcut,
+                    action: createBrowser
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

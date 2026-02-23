@@ -2544,7 +2544,7 @@ private struct TabItemView: View {
                             .foregroundColor(isActive ? .white.opacity(0.7) : .secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Close Workspace (\(StoredShortcut(key: "w", command: true, shift: true, option: false, control: false).displayString))")
+                    .help(KeyboardShortcutSettings.Action.closeWorkspace.tooltip("Close Workspace"))
                     .frame(width: 16, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
@@ -2772,6 +2772,8 @@ private struct TabItemView: View {
             let closeLabel = targetIds.count > 1 ? "Close Workspaces" : "Close Workspace"
             let markReadLabel = targetIds.count > 1 ? "Mark Workspaces as Read" : "Mark Workspace as Read"
             let markUnreadLabel = targetIds.count > 1 ? "Mark Workspaces as Unread" : "Mark Workspace as Unread"
+            let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
+            let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
             Button(pinLabel) {
                 for id in targetIds {
                     if let tab = tabManager.tabs.first(where: { $0.id == id }) {
@@ -2781,8 +2783,15 @@ private struct TabItemView: View {
                 syncSelectionAfterMutation()
             }
 
-            Button("Rename Workspace…") {
-                promptRename()
+            if let key = renameWorkspaceShortcut.keyEquivalent {
+                Button("Rename Workspace…") {
+                    promptRename()
+                }
+                .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
+            } else {
+                Button("Rename Workspace…") {
+                    promptRename()
+                }
             }
 
             if tab.hasCustomTitle {
@@ -2811,10 +2820,18 @@ private struct TabItemView: View {
 
             Divider()
 
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
+            if let key = closeWorkspaceShortcut.keyEquivalent {
+                Button(closeLabel) {
+                    closeTabs(targetIds, allowPinned: true)
+                }
+                .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
+                .disabled(targetIds.isEmpty)
+            } else {
+                Button(closeLabel) {
+                    closeTabs(targetIds, allowPinned: true)
+                }
+                .disabled(targetIds.isEmpty)
             }
-            .disabled(targetIds.isEmpty)
 
             Button("Close Other Workspaces") {
                 closeOtherTabs(targetIds)

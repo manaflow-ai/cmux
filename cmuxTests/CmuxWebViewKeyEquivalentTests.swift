@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import WebKit
+import SwiftUI
 import ObjectiveC.runtime
 
 #if canImport(cmux_DEV)
@@ -329,6 +330,82 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(shortcut.shift)
         XCTAssertFalse(shortcut.option)
         XCTAssertFalse(shortcut.control)
+    }
+
+    func testRenameWorkspaceShortcutConvertsToMenuShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        XCTAssertNotNil(shortcut.keyEquivalent)
+        XCTAssertTrue(shortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.option))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
+    func testCloseWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.label, "Close Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey, "shortcut.closeWorkspace")
+
+        let shortcut = KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        XCTAssertEqual(shortcut.key, "w")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testCloseWorkspaceShortcutConvertsToMenuShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        XCTAssertNotNil(shortcut.keyEquivalent)
+        XCTAssertTrue(shortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.option))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
+    func testNextPreviousWorkspaceShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.label, "Next Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.label, "Previous Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey, "shortcut.nextSidebarTab")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey, "shortcut.prevSidebarTab")
+
+        let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        XCTAssertEqual(nextShortcut.key, "]")
+        XCTAssertTrue(nextShortcut.command)
+        XCTAssertFalse(nextShortcut.shift)
+        XCTAssertFalse(nextShortcut.option)
+        XCTAssertTrue(nextShortcut.control)
+
+        let prevShortcut = KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        XCTAssertEqual(prevShortcut.key, "[")
+        XCTAssertTrue(prevShortcut.command)
+        XCTAssertFalse(prevShortcut.shift)
+        XCTAssertFalse(prevShortcut.option)
+        XCTAssertTrue(prevShortcut.control)
+    }
+
+    func testNextPreviousWorkspaceShortcutsConvertToMenuShortcut() {
+        let nextShortcut = KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        XCTAssertNotNil(nextShortcut.keyEquivalent)
+        XCTAssertEqual(nextShortcut.menuItemKeyEquivalent, "]")
+        XCTAssertTrue(nextShortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(nextShortcut.eventModifiers.contains(.control))
+
+        let prevShortcut = KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        XCTAssertNotNil(prevShortcut.keyEquivalent)
+        XCTAssertEqual(prevShortcut.menuItemKeyEquivalent, "[")
+        XCTAssertTrue(prevShortcut.eventModifiers.contains(.command))
+        XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
+    }
+
+    func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
+        XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "↑", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertNotNil(StoredShortcut(key: "↓", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
+        XCTAssertEqual(
+            StoredShortcut(key: "\t", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent,
+            "\t"
+        )
     }
 
     func testShortcutDefaultsKeysRemainUnique() {

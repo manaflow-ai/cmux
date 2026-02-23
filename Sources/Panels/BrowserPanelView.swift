@@ -500,7 +500,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help("Toggle Developer Tools")
+        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip("Toggle Developer Tools"))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
