@@ -90,6 +90,26 @@ brew upgrade --cask cmux
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
+## Troubleshooting
+
+### CJK text looks clipped or truncated in terminal output
+
+If Korean/Japanese/Chinese output looks clipped (especially during streaming output), please include the following when reporting:
+
+- `cmux` version and macOS version
+- Ghostty font settings (`font-family`, `font-size`, `font-thicken`, `adjust-cell-height`)
+- Locale (`locale`) and terminal type (`echo $TERM`)
+- A minimal repro command (for example: `echo "가나다라마바사아자차카타파하"`)
+
+Quick checks that help isolate the issue:
+
+1. Compare the same command in standalone Ghostty vs cmux.
+2. Temporarily switch to a known CJK-capable fallback font in your Ghostty config.
+3. Run with default cell metrics (remove custom cell-height/extra shaping options) and retest.
+4. Share a short screen recording when the issue happens during streaming output.
+
+Related tracking issue: [#338](https://github.com/manaflow-ai/cmux/issues/338).
+
 ## Why cmux?
 
 I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore.
