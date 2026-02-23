@@ -605,9 +605,35 @@ final class WindowTerminalPortal: NSObject {
             container.addSubview(overlay, positioned: .above, relativeTo: hostView)
         }
 
+        _ = synchronizeHostFrameToReference()
         ensureDividerOverlayOnTop()
 
         return true
+    }
+
+    @discardableResult
+    private func synchronizeHostFrameToReference() -> Bool {
+        guard let container = installedContainerView,
+              let reference = installedReferenceView else {
+            return false
+        }
+
+        let frameInContainer = container.convert(reference.bounds, from: reference)
+        let hasFiniteFrame =
+            frameInContainer.origin.x.isFinite &&
+            frameInContainer.origin.y.isFinite &&
+            frameInContainer.size.width.isFinite &&
+            frameInContainer.size.height.isFinite
+        guard hasFiniteFrame else { return false }
+
+        if !Self.rectApproximatelyEqual(hostView.frame, frameInContainer) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            hostView.frame = frameInContainer
+            CATransaction.commit()
+        }
+
+        return frameInContainer.width > 1 && frameInContainer.height > 1
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
@@ -838,15 +864,49 @@ final class WindowTerminalPortal: NSObject {
         }
 
         let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
-        let frameInHost = hostView.convert(frameInWindow, from: nil)
+        var frameInHost = hostView.convert(frameInWindow, from: nil)
+        var hostBounds = hostView.bounds
+        let hostBoundsAreReady: (NSRect) -> Bool = { bounds in
+            let finite =
+                bounds.origin.x.isFinite &&
+                bounds.origin.y.isFinite &&
+                bounds.size.width.isFinite &&
+                bounds.size.height.isFinite
+            return finite && bounds.width > 1 && bounds.height > 1
+        }
+        var hostBoundsReady = hostBoundsAreReady(hostBounds)
+        if !hostBoundsReady {
+            // Auto Layout can lag one turn while split/tree frames churn. Try a direct host-frame
+            // resync against the installed reference before declaring bounds unavailable.
+            _ = synchronizeHostFrameToReference()
+            hostBounds = hostView.bounds
+            frameInHost = hostView.convert(frameInWindow, from: nil)
+            hostBoundsReady = hostBoundsAreReady(hostBounds)
+        }
+        if !hostBoundsReady {
+#if DEBUG
+            if !hostedView.isHidden {
+                dlog(
+                    "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=hostBoundsNotReady " +
+                    "host=\(portalDebugFrame(hostBounds)) raw=\(portalDebugFrame(frameInHost))"
+                )
+            }
+#endif
+            hostedView.isHidden = true
+            scheduleDeferredFullSynchronizeAll()
+            return
+        }
+
+        let oldFrame = hostedView.frame
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
             frameInHost.size.width.isFinite &&
             frameInHost.size.height.isFinite
+        let intersectsHostBounds = frameInHost.intersects(hostBounds)
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = frameInHost.width <= 1 || frameInHost.height <= 1
-        let outsideHostBounds = !frameInHost.intersects(hostView.bounds)
+        let outsideHostBounds = !intersectsHostBounds
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
@@ -854,7 +914,6 @@ final class WindowTerminalPortal: NSObject {
             !hasFiniteFrame ||
             outsideHostBounds
 
-        let oldFrame = hostedView.frame
 #if DEBUG
         let collapsedToTiny = oldFrame.width > 1 && oldFrame.height > 1 && tinyFrame
         let restoredFromTiny = (oldFrame.width <= 1 || oldFrame.height <= 1) && !tinyFrame
@@ -888,7 +947,8 @@ final class WindowTerminalPortal: NSObject {
                 "portal.hidden hosted=\(portalDebugToken(hostedView)) value=\(shouldHide ? 1 : 0) " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
                 "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
-                "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
+                "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost)) " +
+                "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
             hostedView.isHidden = shouldHide

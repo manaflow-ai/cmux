@@ -1605,6 +1605,15 @@ struct ContentView: View {
         }
     }
 
+    private func shouldFastTrackWorkspaceHandoff(for workspaceId: UUID) -> Bool {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let focusedPanelId = workspace.focusedPanelId,
+              let focusedPanel = workspace.panels[focusedPanelId] else {
+            return false
+        }
+        return focusedPanel.panelType == .browser
+    }
+
     private func startWorkspaceHandoffIfNeeded(newSelectedId: UUID?) {
         let oldSelectedId = previousSelectedWorkspaceId
         previousSelectedWorkspaceId = newSelectedId
@@ -1635,6 +1644,26 @@ struct ContentView: View {
             )
         }
 #endif
+
+        let fastTrackBrowserFocus = shouldFastTrackWorkspaceHandoff(for: newSelectedId)
+        if fastTrackBrowserFocus {
+#if DEBUG
+            if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
+                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+                dlog(
+                    "ws.handoff.fasttrack id=\(snapshot.id) dt=\(debugMsText(dtMs)) " +
+                    "new=\(debugShortWorkspaceId(newSelectedId)) panel=browser"
+                )
+            } else {
+                dlog("ws.handoff.fasttrack id=none new=\(debugShortWorkspaceId(newSelectedId)) panel=browser")
+            }
+#endif
+            DispatchQueue.main.async { [generation] in
+                guard workspaceHandoffGeneration == generation else { return }
+                guard retiringWorkspaceId != nil else { return }
+                completeWorkspaceHandoff(reason: "browser")
+            }
+        }
 
         workspaceHandoffFallbackTask = Task { [generation] in
             do {

@@ -3064,6 +3064,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -3252,6 +3260,39 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+
+    func testPortalDoesNotShrinkTerminalFrameWhenAnchorOverflowsSidebar() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        // Simulate a transient oversized anchor rect during split churn.
+        let anchor = NSView(frame: NSRect(x: 120, y: 20, width: 260, height: 150))
+        contentView.addSubview(anchor)
+
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        contentView.layoutSubtreeIfNeeded()
+        portal.synchronizeHostedViewForAnchor(anchor)
+
+        XCTAssertFalse(hosted.isHidden, "Partially visible terminal anchor should stay visible")
+        XCTAssertEqual(hosted.frame.origin.x, 120, accuracy: 0.5)
+        XCTAssertEqual(hosted.frame.origin.y, 20, accuracy: 0.5)
+        XCTAssertEqual(hosted.frame.size.width, 260, accuracy: 0.5)
+        XCTAssertEqual(hosted.frame.size.height, 150, accuracy: 0.5)
     }
 }
 
