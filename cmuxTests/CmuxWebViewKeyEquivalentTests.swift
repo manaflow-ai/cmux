@@ -1123,6 +1123,25 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
+    func testArrowNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 125
+            ),
+            1
+        )
+    }
+
     func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForCommandNavigation(
@@ -1175,6 +1194,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
             ),
             1
         )
+    }
+
+    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.control, .capsLock],
+                chars: "n"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .capsLock],
+                chars: "p"
+            ),
+            -1
+        )
+    }
+
+    func testSubmitOnReturnIgnoresCapsLockModifier() {
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: []))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.capsLock]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command, .capsLock]))
     }
 }
 

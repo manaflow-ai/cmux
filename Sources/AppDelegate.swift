@@ -70,10 +70,9 @@ func browserOmnibarSelectionDeltaForCommandNavigation(
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    guard normalizedFlags == [.control] else { return nil }
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+    guard isCommandOrControlOnly else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -85,9 +84,7 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     keyCode: UInt16
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [] else { return nil }
     switch keyCode {
     case 125: return 1
@@ -96,10 +93,14 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
-func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
-    let normalizedFlags = flags
+func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+    flags
         .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
+        .subtracting([.numericPad, .function, .capsLock])
+}
+
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
@@ -2766,10 +2767,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         chars: String
     ) -> Bool {
         guard browserAddressBarFocusedPanelId != nil else { return false }
-        let normalizedFlags = flags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        guard normalizedFlags == [.control] else { return false }
+        let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+        guard isCommandOrControlOnly else { return false }
         return chars == "n" || chars == "p"
     }
 
