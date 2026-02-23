@@ -524,14 +524,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserThemeModeIconColor: Color {
-        switch browserThemeMode {
-        case .system:
-            return Color(nsColor: .secondaryLabelColor)
-        case .light:
-            return Color(nsColor: .labelColor)
-        case .dark:
-            return Color.white
-        }
+        devToolsColorOption.color
     }
 
     private var omnibarField: some View {
