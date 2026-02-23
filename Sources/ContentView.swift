@@ -1610,7 +1610,11 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let isInputActive = isSelectedWorkspace || isRetiringWorkspace
+                    // Keep the retiring workspace visible during handoff, but never input-active.
+                    // Allowing both selected+retiring workspaces to be input-active lets the
+                    // old workspace steal first responder (notably with WKWebView), which can
+                    // delay handoff completion and make browser returns feel laggy.
+                    let isInputActive = isSelectedWorkspace
                     let isVisible = isSelectedWorkspace || isRetiringWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
@@ -1950,6 +1954,25 @@ struct ContentView: View {
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
+            guard let webView = notification.object as? WKWebView,
+                  let selectedTabId = tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  let focusedPanelId = selectedWorkspace.focusedPanelId,
+                  let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
+                  focusedBrowser.webView === webView else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidFocusAddressBar)) { notification in
+            guard let panelId = notification.object as? UUID,
+                  let selectedTabId = tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  selectedWorkspace.focusedPanelId == panelId,
+                  selectedWorkspace.browserPanel(for: panelId) != nil else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
         })
 
         view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
