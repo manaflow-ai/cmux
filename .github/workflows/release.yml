@@ -250,6 +250,20 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+      - name: Upload dSYMs to Sentry
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          brew install getsentry/tools/sentry-cli || true
+          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+
       - name: Generate Sparkle appcast
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
