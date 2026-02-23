@@ -689,6 +689,46 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 }
 
+final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
+    func testLightModeUsesSubtleAccentTintOverThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .light, accentMix: 0.08)
+    }
+
+    func testDarkModeUsesSlightlyStrongerAccentTintOverThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .dark, accentMix: 0.12)
+    }
+
+    private func assertResolvedColorMatchesExpectedBlend(
+        for colorScheme: ColorScheme,
+        accentMix: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let accent = NSColor(srgbRed: 0.25, green: 0.47, blue: 0.92, alpha: 1.0)
+        let expected = themeBackground.blended(withFraction: accentMix, of: accent) ?? themeBackground
+
+        guard
+            let actual = resolvedBrowserOmnibarPillBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground,
+                accentColor: accent
+            ).usingColorSpace(.sRGB),
+            let expectedSRGB = expected.usingColorSpace(.sRGB),
+            let themeSRGB = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expectedSRGB.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expectedSRGB.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

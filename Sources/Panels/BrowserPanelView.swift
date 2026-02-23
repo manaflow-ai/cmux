@@ -178,6 +178,24 @@ func resolvedBrowserChromeBackgroundColor(
     }
 }
 
+func resolvedBrowserOmnibarPillBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor,
+    accentColor: NSColor
+) -> NSColor {
+    let accentMix: CGFloat
+    switch colorScheme {
+    case .light:
+        accentMix = 0.08
+    case .dark:
+        accentMix = 0.12
+    @unknown default:
+        accentMix = 0.08
+    }
+
+    return themeBackgroundColor.blended(withFraction: accentMix, of: accentColor) ?? themeBackgroundColor
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -254,6 +272,14 @@ struct BrowserPanelView: View {
         resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
             themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
+    private var omnibarPillBackgroundColor: NSColor {
+        resolvedBrowserOmnibarPillBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: browserChromeBackgroundColor,
+            accentColor: .controlAccentColor
         )
     }
 
@@ -656,7 +682,7 @@ struct BrowserPanelView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
