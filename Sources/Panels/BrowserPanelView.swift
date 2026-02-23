@@ -155,6 +155,17 @@ private struct OmnibarAddressButtonStyleBody: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func cmuxFlatSymbolColorRendering() -> some View {
+        if #available(macOS 26.0, *) {
+            self.symbolColorRenderingMode(.flat)
+        } else {
+            self
+        }
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -169,8 +180,7 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
-    @AppStorage(BrowserForcedDarkModeSettings.enabledKey) private var forcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled
-    @AppStorage(BrowserForcedDarkModeSettings.opacityKey) private var forcedDarkModeOpacity = BrowserForcedDarkModeSettings.defaultOpacity
+    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -183,6 +193,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var isBrowserThemeMenuPresented = false
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 26
@@ -221,8 +232,8 @@ struct BrowserPanelView: View {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
-    private var normalizedForcedDarkModeOpacity: Double {
-        BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
+    private var browserThemeMode: BrowserThemeMode {
+        BrowserThemeSettings.mode(for: browserThemeModeRaw)
     }
 
     private var browserChromeBackgroundColor: NSColor {
@@ -292,14 +303,14 @@ struct BrowserPanelView: View {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
-                BrowserForcedDarkModeSettings.enabledKey: BrowserForcedDarkModeSettings.defaultEnabled,
-                BrowserForcedDarkModeSettings.opacityKey: BrowserForcedDarkModeSettings.defaultOpacity,
+                BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
+            let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
+            if browserThemeModeRaw != resolvedThemeMode.rawValue {
+                browserThemeModeRaw = resolvedThemeMode.rawValue
+            }
             panel.refreshAppearanceDrivenColors()
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
+            panel.setBrowserThemeMode(browserThemeMode)
             applyPendingAddressBarFocusRequestIfNeeded()
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
@@ -321,21 +332,12 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
-        .onChange(of: forcedDarkModeEnabled) { _ in
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
-        }
-        .onChange(of: forcedDarkModeOpacity) { _ in
-            let normalized = BrowserForcedDarkModeSettings.normalizedOpacity(forcedDarkModeOpacity)
-            if abs(normalized - forcedDarkModeOpacity) > 0.0001 {
-                forcedDarkModeOpacity = normalized
+        .onChange(of: browserThemeModeRaw) { _ in
+            let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
+            if browserThemeModeRaw != normalizedMode.rawValue {
+                browserThemeModeRaw = normalizedMode.rawValue
             }
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalized
-            )
+            panel.setBrowserThemeMode(normalizedMode)
         }
         .onChange(of: colorScheme) { _ in
             panel.refreshAppearanceDrivenColors()
@@ -410,8 +412,10 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            forcedDarkModeButton
-            developerToolsButton
+            if !panel.isShowingNewTabPage {
+                browserThemeModeButton
+                developerToolsButton
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
@@ -494,6 +498,8 @@ struct BrowserPanelView: View {
             openDevTools()
         }) {
             Image(systemName: devToolsIconOption.rawValue)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
@@ -504,27 +510,60 @@ struct BrowserPanelView: View {
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
-    private var forcedDarkModeButton: some View {
+    private var browserThemeModeButton: some View {
         Button(action: {
-            forcedDarkModeEnabled.toggle()
-            panel.setForcedDarkMode(
-                enabled: forcedDarkModeEnabled,
-                opacity: normalizedForcedDarkModeOpacity
-            )
+            isBrowserThemeMenuPresented.toggle()
         }) {
-            Image(systemName: forcedDarkModeEnabled ? "moon.fill" : "moon")
+            Image(systemName: browserThemeMode.iconName)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
-                .foregroundStyle(
-                    forcedDarkModeEnabled
-                    ? Color.orange
-                    : Color(nsColor: .secondaryLabelColor)
-                )
+                .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help(forcedDarkModeEnabled ? "Forced Dark Mode On" : "Forced Dark Mode Off")
-        .accessibilityIdentifier("BrowserForcedDarkModeButton")
+        .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
+            browserThemeModePopover
+        }
+        .help("Browser Theme: \(browserThemeMode.displayName)")
+        .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModePopover: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(BrowserThemeMode.allCases) { mode in
+                Button {
+                    applyBrowserThemeModeSelection(mode)
+                    isBrowserThemeMenuPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
+                            .font(.system(size: 10, weight: .semibold))
+                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
+                            .frame(width: 12, alignment: .center)
+                        Text(mode.displayName)
+                            .font(.system(size: 12))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 128)
+    }
+
+    private var browserThemeModeIconColor: Color {
+        devToolsColorOption.color
     }
 
     private var omnibarField: some View {
@@ -717,6 +756,13 @@ struct BrowserPanelView: View {
         if !panel.toggleDeveloperTools() {
             NSSound.beep()
         }
+    }
+
+    private func applyBrowserThemeModeSelection(_ mode: BrowserThemeMode) {
+        if browserThemeModeRaw != mode.rawValue {
+            browserThemeModeRaw = mode.rawValue
+        }
+        panel.setBrowserThemeMode(mode)
     }
 
     private func handleOmnibarTap() {
