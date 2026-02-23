@@ -903,6 +903,9 @@ class GhosttyApp {
             // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
 #if DEBUG
+            let tabTrace = surfaceView.tabId?.uuidString.prefix(8) ?? "nil"
+            let surfaceTrace = surfaceView.terminalSurface?.id.uuidString.prefix(8) ?? "nil"
+            dlog("ctrlD.trace showChildExited action tab=\(tabTrace) surface=\(surfaceTrace)")
             cmuxWriteChildExitProbe(
                 [
                     "probeShowChildExitedTabId": surfaceView.tabId?.uuidString ?? "",
@@ -920,7 +923,23 @@ class GhosttyApp {
                    let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
                    let workspace = manager.tabs.first(where: { $0.id == tabId }),
                    workspace.panels[surfaceId] != nil {
+#if DEBUG
+                    let closeStart = ProcessInfo.processInfo.systemUptime
+                    let focusedPanel = workspace.focusedPanelId?.uuidString.prefix(8) ?? "nil"
+                    dlog(
+                        "ctrlD.trace showChildExited closeBegin tab=\(tabId.uuidString.prefix(8)) " +
+                        "surface=\(surfaceId.uuidString.prefix(8)) workspacePanels=\(workspace.panels.count) focusedPanel=\(focusedPanel)"
+                    )
+#endif
                     manager.closePanelAfterChildExited(tabId: tabId, surfaceId: surfaceId)
+#if DEBUG
+                    let closeMs = max(0, (ProcessInfo.processInfo.systemUptime - closeStart) * 1000)
+                    let panelCountAfter = workspace.panels.count
+                    dlog(
+                        "ctrlD.trace showChildExited closeEnd tab=\(tabId.uuidString.prefix(8)) " +
+                        "surface=\(surfaceId.uuidString.prefix(8)) workspacePanels=\(panelCountAfter) ms=\(String(format: "%.2f", closeMs))"
+                    )
+#endif
                 }
             }
             // Always report handled so Ghostty doesn't print the fallback prompt.
