@@ -255,10 +255,10 @@ struct BrowserPanelView: View {
             webView
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
                 .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(6)
+                .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {

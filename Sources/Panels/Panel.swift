@@ -24,6 +24,8 @@ enum FocusFlashPattern {
     static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
     static let duration: TimeInterval = 0.9
     static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+    static let ringInset: Double = 6
+    static let ringCornerRadius: Double = 10
 
     static var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)

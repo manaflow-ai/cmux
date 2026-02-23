@@ -4429,16 +4429,29 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateNotificationRingPath() {
-        updateOverlayRingPath(layer: notificationRingLayer, bounds: notificationRingOverlayView.bounds)
+        updateOverlayRingPath(
+            layer: notificationRingLayer,
+            bounds: notificationRingOverlayView.bounds,
+            inset: 2,
+            radius: 6
+        )
     }
 
     private func updateFlashPath() {
-        updateOverlayRingPath(layer: flashLayer, bounds: flashOverlayView.bounds)
+        updateOverlayRingPath(
+            layer: flashLayer,
+            bounds: flashOverlayView.bounds,
+            inset: CGFloat(FocusFlashPattern.ringInset),
+            radius: CGFloat(FocusFlashPattern.ringCornerRadius)
+        )
     }
 
-    private func updateOverlayRingPath(layer: CAShapeLayer, bounds: CGRect) {
-        let inset: CGFloat = 2
-        let radius: CGFloat = 6
+    private func updateOverlayRingPath(
+        layer: CAShapeLayer,
+        bounds: CGRect,
+        inset: CGFloat,
+        radius: CGFloat
+    ) {
         layer.frame = bounds
         guard bounds.width > inset * 2, bounds.height > inset * 2 else {
             layer.path = nil
