@@ -2559,6 +2559,8 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+    private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
@@ -3023,13 +3025,24 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
 
-                        if openTerminalLinksInCmuxBrowser {
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Intercept open http(s) in Terminal",
+                            subtitle: "When off, `open https://...` and `open http://...` always use your default browser."
+                        ) {
+                            Toggle("", isOn: $interceptTerminalOpenCommandInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsCardDivider()
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
                                     "Hosts to Open in Embedded Browser",
-                                    subtitle: "When you click links in terminal output, only these hosts open in cmux. Other hosts open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all links in cmux."
+                                    subtitle: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux."
                                 ) {
                                     EmptyView()
                                 }
@@ -3291,6 +3304,7 @@ struct SettingsView: View {
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText

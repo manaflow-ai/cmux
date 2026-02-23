@@ -127,6 +127,9 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
+    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
+
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
 
@@ -135,6 +138,19 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
+        }
+
+        // Migrate existing behavior for users who only had the link-click toggle.
+        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+        }
+
+        return defaultInterceptTerminalOpenCommandInCmuxBrowser
     }
 
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {

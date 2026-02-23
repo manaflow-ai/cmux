@@ -4140,6 +4140,26 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+
+    func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
+
+    func testOpenCommandInterceptionFallsBackToLegacyLinkToggleWhenUnset() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
+    }
 }
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {

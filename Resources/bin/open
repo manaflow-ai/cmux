@@ -169,7 +169,11 @@ fi
 
 # Respect the same settings used for terminal link clicks.
 if [[ -n "$settings_domain" ]]; then
-    open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
+    open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
+    if [[ -z "$open_in_cmux" ]]; then
+        # Backward compatibility for installs that predate the dedicated open-wrapper toggle.
+        open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
+    fi
     case "${open_in_cmux,,}" in
         0|false|no)
             system_open "$@"

@@ -30,7 +30,8 @@ def read_log(path: Path) -> list[str]:
 def run_wrapper(
     *,
     args: list[str],
-    open_setting: str | None,
+    intercept_setting: str | None,
+    legacy_open_setting: str | None = None,
     whitelist: str | None,
     fail_urls: list[str] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
@@ -63,9 +64,16 @@ if [[ "${1:-}" != "read" ]]; then
 fi
 key="${3:-}"
 case "$key" in
+  browserInterceptTerminalOpenCommandInCmuxBrowser)
+    if [[ -v FAKE_DEFAULTS_INTERCEPT_OPEN ]]; then
+      printf '%s\\n' "$FAKE_DEFAULTS_INTERCEPT_OPEN"
+      exit 0
+    fi
+    exit 1
+    ;;
   browserOpenTerminalLinksInCmuxBrowser)
-    if [[ -v FAKE_DEFAULTS_OPEN ]]; then
-      printf '%s\\n' "$FAKE_DEFAULTS_OPEN"
+    if [[ -v FAKE_DEFAULTS_LEGACY_OPEN ]]; then
+      printf '%s\\n' "$FAKE_DEFAULTS_LEGACY_OPEN"
       exit 0
     fi
     exit 1
@@ -110,10 +118,15 @@ exit 0
         env["FAKE_OPEN_LOG"] = str(open_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
 
-        if open_setting is None:
-            env.pop("FAKE_DEFAULTS_OPEN", None)
+        if intercept_setting is None:
+            env.pop("FAKE_DEFAULTS_INTERCEPT_OPEN", None)
         else:
-            env["FAKE_DEFAULTS_OPEN"] = open_setting
+            env["FAKE_DEFAULTS_INTERCEPT_OPEN"] = intercept_setting
+
+        if legacy_open_setting is None:
+            env.pop("FAKE_DEFAULTS_LEGACY_OPEN", None)
+        else:
+            env["FAKE_DEFAULTS_LEGACY_OPEN"] = legacy_open_setting
 
         if whitelist is None:
             env.pop("FAKE_DEFAULTS_WHITELIST", None)
@@ -145,7 +158,7 @@ def test_toggle_disabled_passthrough(failures: list[str]) -> None:
     url = "https://example.com"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
-        open_setting="0",
+        intercept_setting="0",
         whitelist="",
     )
     expect(code == 0, f"toggle off: wrapper exited {code}: {stderr}", failures)
@@ -157,7 +170,7 @@ def test_whitelist_miss_passthrough(failures: list[str]) -> None:
     url = "https://example.com"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
-        open_setting="1",
+        intercept_setting="1",
         whitelist="localhost\n127.0.0.1",
     )
     expect(code == 0, f"whitelist miss: wrapper exited {code}: {stderr}", failures)
@@ -169,7 +182,7 @@ def test_whitelist_match_routes_to_cmux(failures: list[str]) -> None:
     url = "https://api.example.com/path?q=1"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
-        open_setting="1",
+        intercept_setting="1",
         whitelist="*.example.com",
     )
     expect(code == 0, f"whitelist match: wrapper exited {code}: {stderr}", failures)
@@ -183,7 +196,7 @@ def test_partial_failures_only_fallback_failed_urls(failures: list[str]) -> None
     external = "https://outside.test"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[good, failed, external],
-        open_setting="1",
+        intercept_setting="1",
         whitelist="*.example.com",
         fail_urls=[failed],
     )
@@ -200,12 +213,26 @@ def test_partial_failures_only_fallback_failed_urls(failures: list[str]) -> None
     )
 
 
+def test_legacy_toggle_fallback_passthrough(failures: list[str]) -> None:
+    url = "https://example.com"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting=None,
+        legacy_open_setting="0",
+        whitelist="",
+    )
+    expect(code == 0, f"legacy fallback: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"legacy fallback: cmux should not be called, got {cmux_log}", failures)
+    expect(open_log == [url], f"legacy fallback: expected system open [{url}], got {open_log}", failures)
+
+
 def main() -> int:
     failures: list[str] = []
     test_toggle_disabled_passthrough(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
     test_partial_failures_only_fallback_failed_urls(failures)
+    test_legacy_toggle_fallback_passthrough(failures)
 
     if failures:
         print("open wrapper regression tests failed:")
