@@ -592,6 +592,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState: SidebarSelectionState
     ) {
         let key = ObjectIdentifier(window)
+        #if DEBUG
+        let priorManagerToken = debugManagerToken(self.tabManager)
+        #endif
         if let existing = mainWindowContexts[key] {
             existing.window = window
         } else {
@@ -615,6 +618,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSelectionByWindowId[windowId] = 0
         commandPaletteSnapshotByWindowId[windowId] = .empty
 
+#if DEBUG
+        dlog(
+            "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
+        )
+#endif
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
@@ -844,6 +852,117 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts[ObjectIdentifier(window)]
     }
 
+#if DEBUG
+    private func debugManagerToken(_ manager: TabManager?) -> String {
+        guard let manager else { return "nil" }
+        return String(describing: Unmanaged.passUnretained(manager).toOpaque())
+    }
+
+    private func debugWindowToken(_ window: NSWindow?) -> String {
+        guard let window else { return "nil" }
+        let id = mainWindowId(for: window).map { String($0.uuidString.prefix(8)) } ?? "none"
+        let ident = window.identifier?.rawValue ?? "nil"
+        let shortIdent: String
+        if ident.count > 120 {
+            shortIdent = String(ident.prefix(120)) + "..."
+        } else {
+            shortIdent = ident
+        }
+        return "num=\(window.windowNumber) id=\(id) ident=\(shortIdent) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+    }
+
+    private func debugContextToken(_ context: MainWindowContext?) -> String {
+        guard let context else { return "nil" }
+        let selected = context.tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let hasWindow = (context.window != nil || windowForMainWindowId(context.windowId) != nil) ? 1 : 0
+        return "id=\(String(context.windowId.uuidString.prefix(8))) mgr=\(debugManagerToken(context.tabManager)) tabs=\(context.tabManager.tabs.count) selected=\(selected) hasWindow=\(hasWindow)"
+    }
+
+    private func debugShortcutRouteSnapshot(event: NSEvent? = nil) -> String {
+        let activeManager = tabManager
+        let activeWindowId = activeManager.flatMap { windowId(for: $0) }.map { String($0.uuidString.prefix(8)) } ?? "nil"
+        let selectedWorkspace = activeManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+
+        let contexts = mainWindowContexts.values
+            .map { context in
+                let marker = (activeManager != nil && context.tabManager === activeManager) ? "*" : "-"
+                let window = context.window ?? windowForMainWindowId(context.windowId)
+                let selected = context.tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+                return "\(marker)\(String(context.windowId.uuidString.prefix(8))){mgr=\(debugManagerToken(context.tabManager)),win=\(window?.windowNumber ?? -1),key=\((window?.isKeyWindow ?? false) ? 1 : 0),main=\((window?.isMainWindow ?? false) ? 1 : 0),tabs=\(context.tabManager.tabs.count),selected=\(selected)}"
+            }
+            .sorted()
+            .joined(separator: ",")
+
+        let eventWindowNumber = event.map { String($0.windowNumber) } ?? "nil"
+        let eventWindow = event?.window
+        return "eventWinNum=\(eventWindowNumber) eventWin={\(debugWindowToken(eventWindow))} keyWin={\(debugWindowToken(NSApp.keyWindow))} mainWin={\(debugWindowToken(NSApp.mainWindow))} activeMgr=\(debugManagerToken(activeManager)) activeWinId=\(activeWindowId) activeSelected=\(selectedWorkspace) contexts=[\(contexts)]"
+    }
+#endif
+
+    private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let window = event.window, isMainTerminalWindow(window) {
+            return window
+        }
+        let eventWindowNumber = event.windowNumber
+        if eventWindowNumber > 0,
+           let numberedWindow = NSApp.window(withWindowNumber: eventWindowNumber),
+           isMainTerminalWindow(numberedWindow) {
+            return numberedWindow
+        }
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        return nil
+    }
+
+    /// Re-sync app-level active window pointers from the currently focused main terminal window.
+    /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
+    @discardableResult
+    func synchronizeActiveMainWindowContext(preferredWindow: NSWindow? = nil) -> TabManager? {
+        let (context, source): (MainWindowContext?, String) = {
+            if let preferredWindow,
+               let context = contextForMainWindow(preferredWindow) {
+                return (context, "preferredWindow")
+            }
+            if let context = contextForMainWindow(NSApp.keyWindow) {
+                return (context, "keyWindow")
+            }
+            if let context = contextForMainWindow(NSApp.mainWindow) {
+                return (context, "mainWindow")
+            }
+            if let activeManager = tabManager,
+               let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+                return (activeContext, "activeManager")
+            }
+            return (mainWindowContexts.values.first, "firstContextFallback")
+        }()
+
+#if DEBUG
+        let beforeManagerToken = debugManagerToken(tabManager)
+        dlog(
+            "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+        guard let context else { return tabManager }
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        } else {
+            tabManager = context.tabManager
+            sidebarState = context.sidebarState
+            sidebarSelectionState = context.sidebarSelectionState
+            TerminalController.shared.setActiveTabManager(context.tabManager)
+        }
+#if DEBUG
+        dlog(
+            "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+        return context.tabManager
+    }
+
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
         if let context = contextForMainWindow(event.window) {
             return context
@@ -854,13 +973,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context
         }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return activeContext
+        }
         return mainWindowContexts.values.first
     }
 
     private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
-        guard let context = preferredMainWindowContextForShortcuts(event: event),
-              let window = context.window ?? windowForMainWindowId(context.windowId) else { return }
-        setActiveMainWindow(window)
+        let preferredWindow = mainWindowForShortcutEvent(event)
+#if DEBUG
+        dlog(
+            "shortcut.activate.pre event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+        )
+#endif
+        _ = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
+#if DEBUG
+        dlog(
+            "shortcut.activate.post event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+        )
+#endif
     }
 
     @discardableResult
@@ -1838,7 +1970,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                dlog(
+                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                )
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
@@ -2247,6 +2381,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
+#if DEBUG
+            dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
             // Cmd+N semantics:
             // - If there are no main windows, create a new window.
             // - Otherwise, create a new workspace in the active window.
@@ -2357,6 +2494,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let manager = tabManager,
            let num = Int(chars),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+#if DEBUG
+            dlog(
+                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
             manager.selectTab(at: targetIndex)
             return true
         }
@@ -2425,11 +2567,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performSplitShortcut(direction: .down)
             return true
         }
@@ -2807,6 +2955,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         let directionLabel: String
         switch direction {
         case .left: directionLabel = "left"
@@ -2872,6 +3022,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
@@ -3236,10 +3388,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func setActiveMainWindow(_ window: NSWindow) {
         guard isMainTerminalWindow(window) else { return }
         guard let context = mainWindowContexts[ObjectIdentifier(window)] else { return }
+#if DEBUG
+        let beforeManagerToken = debugManagerToken(tabManager)
+#endif
         tabManager = context.tabManager
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+#if DEBUG
+        dlog(
+            "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
+        )
+#endif
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
@@ -3282,6 +3442,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
+        if mainWindowContexts[ObjectIdentifier(window)] != nil {
+            return true
+        }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }

@@ -3713,8 +3713,13 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            // No-op: focus is driven by first-responder changes.
-            _ = self
+            guard let self, let window = self.window else { return }
+            // Losing key window does not always trigger first-responder resignation, so force
+            // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
+            if let fr = window.firstResponder as? NSView,
+               fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+                window.makeFirstResponder(nil)
+            }
         })
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
     }

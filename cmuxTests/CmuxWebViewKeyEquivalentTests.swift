@@ -330,6 +330,127 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 }
 
+@MainActor
+final class AppDelegateWindowContextRoutingTests: XCTestCase {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowB.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowB)
+        XCTAssertTrue(app.tabManager === managerB)
+
+        windowA.makeKeyAndOrderFront(nil)
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(resolved === managerA, "Expected provided active window to win over stale active manager")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextFallsBackToActiveManagerWithoutFocusedWindow() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // Seed active manager and clear focus windows to force fallback routing.
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(app.tabManager === managerA)
+        windowA.orderOut(nil)
+        windowB.orderOut(nil)
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: nil)
+        XCTAssertTrue(resolved === managerA, "Expected fallback to preserve current active manager instead of arbitrary window")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextUsesRegisteredWindowEvenIfIdentifierMutates() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // SwiftUI can replace the NSWindow identifier string at runtime.
+        window.identifier = NSUserInterfaceItemIdentifier("SwiftUI.AppWindow.IdentifierChanged")
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+        XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
+        XCTAssertTrue(app.tabManager === manager)
+    }
+}
+
 final class FocusFlashPatternTests: XCTestCase {
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
         XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
@@ -4239,6 +4360,50 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         hostedView.setInactiveOverlay(color: .black, opacity: 0.35, visible: false)
         state = hostedView.debugInactiveOverlayState()
         XCTAssertTrue(state.isHidden)
+    }
+
+    func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        )
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        hostedView.moveFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to be first responder before window blur"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Window blur should force terminal surface to resign first responder"
+        )
     }
 
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
