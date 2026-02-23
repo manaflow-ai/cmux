@@ -473,6 +473,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options.debug = false
             #endif
             options.sendDefaultPii = true
+            // Disable automatic HTTP client error capture — browser panels load
+            // user-visited sites whose HTTP errors (e.g. 500 for /favicon.ico)
+            // are not cmux bugs and create Sentry noise. See #241.
+            options.enableCaptureFailedRequests = false
         }
 
         if !isRunningUnderXCTest {
