@@ -162,6 +162,39 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .unscoped,
+                incomingScope: .app
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .app,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .app
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .unscoped
+            )
+        )
+    }
+
     func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -205,6 +238,75 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+}
+
+final class WorkspaceChromeThemeTests: XCTestCase {
+    func testResolvedChromeColorsUsesLightGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
+        XCTAssertNil(colors.borderHex)
+    }
+
+    func testResolvedChromeColorsUsesDarkGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertNil(colors.borderHex)
+    }
+}
+
+final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
+    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let loadedForeground = NSColor(hex: "#ABCDEF") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+        loaded.foregroundColor = loadedForeground
+        loaded.unfocusedSplitOpacity = 0.42
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#FDF6E3")
+        XCTAssertEqual(resolved.foregroundColor.hexString(), "#ABCDEF")
+        XCTAssertEqual(resolved.unfocusedSplitOpacity, 0.42, accuracy: 0.0001)
+    }
+
+    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let explicitOverride = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            backgroundOverride: explicitOverride,
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
 }
 
@@ -268,6 +370,95 @@ final class NotificationBurstCoalescerTests: XCTestCase {
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertEqual(flushCount, 2)
+    }
+}
+
+final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
+    func testSignalCoalescesBurstToLatestBackground() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "coalesced notification")
+        expectation.expectedFulfillmentCount = 1
+        var postedUserInfos: [[AnyHashable: Any]] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                postedUserInfos.append(userInfo)
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
+            dispatcher.signal(backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedUserInfos.count, 1)
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString(),
+            "#FDF6E3"
+        )
+        XCTAssertEqual(
+            postedOpacity(from: postedUserInfos[0][GhosttyNotificationKey.backgroundOpacity]),
+            0.75,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value,
+            2
+        )
+        XCTAssertEqual(
+            postedUserInfos[0][GhosttyNotificationKey.backgroundSource] as? String,
+            "test.light"
+        )
+    }
+
+    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "two notifications")
+        expectation.expectedFulfillmentCount = 2
+        var postedHexes: [String] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+                postedHexes.append(hex)
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                dispatcher.signal(backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedHexes, ["#272822", "#FDF6E3"])
+    }
+
+    private func postedOpacity(from value: Any?) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.doubleValue
+        }
+        XCTFail("Expected background opacity payload")
+        return -1
     }
 }
 

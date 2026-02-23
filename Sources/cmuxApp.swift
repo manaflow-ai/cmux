@@ -211,7 +211,7 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 Button("Reload Configuration") {
-                    GhosttyApp.shared.reloadConfiguration()
+                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
                 Divider()

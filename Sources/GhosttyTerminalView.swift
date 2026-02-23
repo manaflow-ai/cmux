@@ -124,6 +124,77 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
+enum GhosttyDefaultBackgroundUpdateScope: Int {
+    case unscoped = 0
+    case app = 1
+    case surface = 2
+
+    var logLabel: String {
+        switch self {
+        case .unscoped: return "unscoped"
+        case .app: return "app"
+        case .surface: return "surface"
+        }
+    }
+}
+
+/// Coalesces Ghostty background notifications so consumers only observe
+/// the latest runtime background for a burst of updates.
+final class GhosttyDefaultBackgroundNotificationDispatcher {
+    private let coalescer: NotificationBurstCoalescer
+    private let postNotification: ([AnyHashable: Any]) -> Void
+    private var pendingUserInfo: [AnyHashable: Any]?
+    private var pendingEventId: UInt64 = 0
+    private var pendingSource: String = "unspecified"
+    private let logEvent: ((String) -> Void)?
+
+    init(
+        delay: TimeInterval = 1.0 / 30.0,
+        logEvent: ((String) -> Void)? = nil,
+        postNotification: @escaping ([AnyHashable: Any]) -> Void = { userInfo in
+            NotificationCenter.default.post(
+                name: .ghosttyDefaultBackgroundDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+    ) {
+        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.logEvent = logEvent
+        self.postNotification = postNotification
+    }
+
+    func signal(backgroundColor: NSColor, opacity: Double, eventId: UInt64, source: String) {
+        let signalOnMain = { [self] in
+            pendingEventId = eventId
+            pendingSource = source
+            pendingUserInfo = [
+                GhosttyNotificationKey.backgroundColor: backgroundColor,
+                GhosttyNotificationKey.backgroundOpacity: opacity,
+                GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
+                GhosttyNotificationKey.backgroundSource: source
+            ]
+            logEvent?(
+                "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
+            )
+            coalescer.signal { [self] in
+                guard let userInfo = pendingUserInfo else { return }
+                let eventId = pendingEventId
+                let source = pendingSource
+                pendingUserInfo = nil
+                logEvent?("bg notify flushed id=\(eventId) source=\(source)")
+                postNotification(userInfo)
+            }
+        }
+
+        if Thread.isMainThread {
+            signalOnMain()
+        } else {
+            DispatchQueue.main.async(execute: signalOnMain)
+        }
+    }
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -161,13 +232,41 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
 
 class GhosttyApp {
     static let shared = GhosttyApp()
+    private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
+    private static func resolveBackgroundLogURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let explicitPath = environment["CMUX_DEBUG_BG_LOG"],
+           !explicitPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return URL(fileURLWithPath: explicitPath)
+        }
+
+        if let debugLogPath = environment["CMUX_DEBUG_LOG"],
+           !debugLogPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let baseURL = URL(fileURLWithPath: debugLogPath)
+            let extensionSeparatorIndex = baseURL.lastPathComponent.lastIndex(of: ".")
+            let stem = extensionSeparatorIndex.map { String(baseURL.lastPathComponent[..<$0]) } ?? baseURL.lastPathComponent
+            let bgName = "\(stem)-bg.log"
+            return baseURL.deletingLastPathComponent().appendingPathComponent(bgName)
+        }
+
+        return URL(fileURLWithPath: "/tmp/cmux-bg.log")
+    }
+
     let backgroundLogEnabled = {
         if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
+            return true
+        }
+        if ProcessInfo.processInfo.environment["CMUX_DEBUG_LOG"] != nil {
             return true
         }
         if ProcessInfo.processInfo.environment["GHOSTTYTABS_DEBUG_BG"] == "1" {
@@ -178,8 +277,16 @@ class GhosttyApp {
         }
         return UserDefaults.standard.bool(forKey: "GhosttyTabsDebugBG")
     }()
-    private let backgroundLogURL = URL(fileURLWithPath: "/tmp/cmux-bg.log")
+    private let backgroundLogURL = GhosttyApp.resolveBackgroundLogURL()
     private var appObservers: [NSObjectProtocol] = []
+    private var backgroundEventCounter: UInt64 = 0
+    private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
+    private var defaultBackgroundScopeSource: String = "initialize"
+    private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
+        GhosttyDefaultBackgroundNotificationDispatcher(logEvent: { [weak self] message in
+            guard let self, self.backgroundLogEnabled else { return }
+            self.logBackground(message)
+        })
 
     // Scroll lag tracking
     private(set) var isScrolling = false
@@ -295,7 +402,7 @@ class GhosttyApp {
         // Load default config (includes user config). If this fails hard (e.g. due to
         // invalid user config), ghostty_app_new may return nil; we fall back below.
         loadDefaultConfigFilesWithLegacyFallback(primaryConfig)
-        updateDefaultBackground(from: primaryConfig)
+        updateDefaultBackground(from: primaryConfig, source: "initialize.primaryConfig")
 
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
@@ -417,7 +524,7 @@ class GhosttyApp {
             }
 
             ghostty_config_finalize(fallbackConfig)
-            updateDefaultBackground(from: fallbackConfig)
+            updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
 
             guard let created = ghostty_app_new(&runtimeConfig, fallbackConfig) else {
                 #if DEBUG
@@ -477,6 +584,13 @@ class GhosttyApp {
         return true
     }
 
+    static func shouldApplyDefaultBackgroundUpdate(
+        currentScope: GhosttyDefaultBackgroundUpdateScope,
+        incomingScope: GhosttyDefaultBackgroundUpdateScope
+    ) -> Bool {
+        incomingScope.rawValue >= currentScope.rawValue
+    }
+
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
@@ -524,18 +638,31 @@ class GhosttyApp {
         }
     }
 
-    func reloadConfiguration(soft: Bool = false) {
-        guard let app else { return }
+    func reloadConfiguration(soft: Bool = false, source: String = "unspecified") {
+        guard let app else {
+            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
+            return
+        }
+        logThemeAction("reload begin source=\(source) soft=\(soft)")
+        resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             ghostty_app_update_config(app, config)
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+            logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
 
-        guard let newConfig = ghostty_config_new() else { return }
+        guard let newConfig = ghostty_config_new() else {
+            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            return
+        }
         loadDefaultConfigFilesWithLegacyFallback(newConfig)
         ghostty_app_update_config(app, newConfig)
-        updateDefaultBackground(from: newConfig)
+        updateDefaultBackground(
+            from: newConfig,
+            source: "reloadConfiguration(source=\(source))",
+            scope: .unscoped
+        )
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -544,18 +671,7 @@ class GhosttyApp {
         }
         config = newConfig
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-    }
-
-    func reloadConfiguration(for surface: ghostty_surface_t, soft: Bool = false) {
-        if soft, let config {
-            ghostty_surface_update_config(surface, config)
-            return
-        }
-
-        guard let newConfig = ghostty_config_new() else { return }
-        loadDefaultConfigFilesWithLegacyFallback(newConfig)
-        ghostty_surface_update_config(surface, newConfig)
-        ghostty_config_free(newConfig)
+        logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
     func openConfigurationInTextEdit() {
@@ -577,15 +693,30 @@ class GhosttyApp {
         return String(decoding: buffer, as: UTF8.self)
     }
 
-    private func updateDefaultBackground(from config: ghostty_config_t?) {
-        guard let config else { return }
-        let previousHex = defaultBackgroundColor.hexString()
-        let previousOpacity = defaultBackgroundOpacity
+    private func resetDefaultBackgroundUpdateScope(source: String) {
+        let previousScope = defaultBackgroundUpdateScope
+        let previousScopeSource = defaultBackgroundScopeSource
+        defaultBackgroundUpdateScope = .unscoped
+        defaultBackgroundScopeSource = "reset:\(source)"
+        if backgroundLogEnabled {
+            logBackground(
+                "default background scope reset source=\(source) previousScope=\(previousScope.logLabel) previousSource=\(previousScopeSource)"
+            )
+        }
+    }
 
+    private func updateDefaultBackground(
+        from config: ghostty_config_t?,
+        source: String,
+        scope: GhosttyDefaultBackgroundUpdateScope = .unscoped
+    ) {
+        guard let config else { return }
+
+        var resolvedColor = defaultBackgroundColor
         var color = ghostty_config_color_s()
         let bgKey = "background"
         if ghostty_config_get(config, &color, bgKey, UInt(bgKey.lengthOfBytes(using: .utf8))) {
-            defaultBackgroundColor = NSColor(
+            resolvedColor = NSColor(
                 red: CGFloat(color.r) / 255,
                 green: CGFloat(color.g) / 255,
                 blue: CGFloat(color.b) / 255,
@@ -593,37 +724,100 @@ class GhosttyApp {
             )
         }
 
-        var opacity: Double = 1.0
+        var opacity = defaultBackgroundOpacity
         let opacityKey = "background-opacity"
         _ = ghostty_config_get(config, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
+        applyDefaultBackground(
+            color: resolvedColor,
+            opacity: opacity,
+            source: source,
+            scope: scope
+        )
+    }
+
+    private func applyDefaultBackground(
+        color: NSColor,
+        opacity: Double,
+        source: String,
+        scope: GhosttyDefaultBackgroundUpdateScope
+    ) {
+        let previousScope = defaultBackgroundUpdateScope
+        let previousScopeSource = defaultBackgroundScopeSource
+        guard Self.shouldApplyDefaultBackgroundUpdate(currentScope: previousScope, incomingScope: scope) else {
+            if backgroundLogEnabled {
+                logBackground(
+                    "default background skipped source=\(source) incomingScope=\(scope.logLabel) currentScope=\(previousScope.logLabel) currentSource=\(previousScopeSource) color=\(color.hexString()) opacity=\(String(format: "%.3f", opacity))"
+                )
+            }
+            return
+        }
+
+        defaultBackgroundUpdateScope = scope
+        defaultBackgroundScopeSource = source
+
+        let previousHex = defaultBackgroundColor.hexString()
+        let previousOpacity = defaultBackgroundOpacity
+        defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         let hasChanged = previousHex != defaultBackgroundColor.hexString() ||
             abs(previousOpacity - defaultBackgroundOpacity) > 0.0001
         if hasChanged {
-            notifyDefaultBackgroundDidChange()
+            notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
-            logBackground("default background updated color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
+            logBackground(
+                "default background updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousColor=\(previousHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) color=\(defaultBackgroundColor) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) changed=\(hasChanged)"
+            )
         }
     }
 
-    private func notifyDefaultBackgroundDidChange() {
-        let userInfo: [AnyHashable: Any] = [
-            GhosttyNotificationKey.backgroundColor: defaultBackgroundColor,
-            GhosttyNotificationKey.backgroundOpacity: defaultBackgroundOpacity
-        ]
-        let post = {
-            NotificationCenter.default.post(
-                name: .ghosttyDefaultBackgroundDidChange,
-                object: nil,
-                userInfo: userInfo
+    private func nextBackgroundEventId() -> UInt64 {
+        precondition(Thread.isMainThread, "Background event IDs must be generated on main thread")
+        backgroundEventCounter &+= 1
+        return backgroundEventCounter
+    }
+
+    private func notifyDefaultBackgroundDidChange(source: String) {
+        let signal = { [self] in
+            let eventId = nextBackgroundEventId()
+            defaultBackgroundNotificationDispatcher.signal(
+                backgroundColor: defaultBackgroundColor,
+                opacity: defaultBackgroundOpacity,
+                eventId: eventId,
+                source: source
             )
         }
         if Thread.isMainThread {
-            post()
+            signal()
         } else {
-            DispatchQueue.main.async(execute: post)
+            DispatchQueue.main.async(execute: signal)
         }
+    }
+
+    private func logThemeAction(_ message: String) {
+        guard backgroundLogEnabled else { return }
+        logBackground("theme action \(message)")
+    }
+
+    private func actionLabel(for action: ghostty_action_s) -> String {
+        switch action.tag {
+        case GHOSTTY_ACTION_RELOAD_CONFIG:
+            return "reload_config"
+        case GHOSTTY_ACTION_CONFIG_CHANGE:
+            return "config_change"
+        case GHOSTTY_ACTION_COLOR_CHANGE:
+            return "color_change"
+        default:
+            return String(describing: action.tag)
+        }
+    }
+
+    private func logAction(_ action: ghostty_action_s, target: ghostty_target_s, tabId: UUID?, surfaceId: UUID?) {
+        guard backgroundLogEnabled else { return }
+        let targetLabel = target.tag == GHOSTTY_TARGET_SURFACE ? "surface" : "app"
+        logBackground(
+            "action event target=\(targetLabel) action=\(actionLabel(for: action)) tab=\(tabId?.uuidString ?? "nil") surface=\(surfaceId?.uuidString ?? "nil")"
+        )
     }
 
     private func performOnMain<T>(_ work: @MainActor () -> T) -> T {
@@ -671,6 +865,12 @@ class GhosttyApp {
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
+            if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
+                action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
+                action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
+                logAction(action, target: target, tabId: nil, surfaceId: nil)
+            }
+
             if action.tag == GHOSTTY_ACTION_DESKTOP_NOTIFICATION {
                 let actionTitle = action.action.desktop_notification.title
                     .flatMap { String(cString: $0) } ?? ""
@@ -698,8 +898,9 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
+                logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft)
+                    GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
             }
@@ -707,16 +908,18 @@ class GhosttyApp {
             if action.tag == GHOSTTY_ACTION_COLOR_CHANGE,
                action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 let change = action.action.color_change
-                defaultBackgroundColor = NSColor(
+                let resolvedColor = NSColor(
                     red: CGFloat(change.r) / 255,
                     green: CGFloat(change.g) / 255,
                     blue: CGFloat(change.b) / 255,
                     alpha: 1.0
                 )
-                if backgroundLogEnabled {
-                    logBackground("OSC background change (app target) color=\(defaultBackgroundColor)")
-                }
-                notifyDefaultBackgroundDidChange()
+                applyDefaultBackground(
+                    color: resolvedColor,
+                    opacity: defaultBackgroundOpacity,
+                    source: "action.color_change.app",
+                    scope: .app
+                )
                 DispatchQueue.main.async {
                     GhosttyApp.shared.applyBackgroundToKeyWindow()
                 }
@@ -724,7 +927,11 @@ class GhosttyApp {
             }
 
             if action.tag == GHOSTTY_ACTION_CONFIG_CHANGE {
-                updateDefaultBackground(from: action.action.config_change.config)
+                updateDefaultBackground(
+                    from: action.action.config_change.config,
+                    source: "action.config_change.app",
+                    scope: .app
+                )
                 DispatchQueue.main.async {
                     GhosttyApp.shared.applyBackgroundToKeyWindow()
                 }
@@ -735,6 +942,16 @@ class GhosttyApp {
         }
         guard let userdata = ghostty_surface_userdata(target.target.surface) else { return false }
         let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+        if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
+            action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
+            action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
+            logAction(
+                action,
+                target: target,
+                tabId: surfaceView.tabId,
+                surfaceId: surfaceView.terminalSurface?.id
+            )
+        }
 
         switch action.tag {
         case GHOSTTY_ACTION_NEW_SPLIT:
@@ -944,19 +1161,26 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
-            updateDefaultBackground(from: action.action.config_change.config)
+            updateDefaultBackground(
+                from: action.action.config_change.config,
+                source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
+                scope: .surface
+            )
             DispatchQueue.main.async {
                 surfaceView.applyWindowBackgroundIfActive()
             }
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
+            logThemeAction(
+                "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
+            )
             return performOnMain {
-                if let surface = surfaceView.terminalSurface?.surface {
-                    GhosttyApp.shared.reloadConfiguration(for: surface, soft: soft)
-                } else {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft)
-                }
+                // Keep all runtime theme/default-background state in the same path.
+                GhosttyApp.shared.reloadConfiguration(
+                    soft: soft,
+                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
+                )
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
@@ -1048,7 +1272,8 @@ class GhosttyApp {
     }
 
     func logBackground(_ message: String) {
-        let line = "cmux bg: \(message)\n"
+        let timestamp = Self.backgroundLogTimestampFormatter.string(from: Date())
+        let line = "\(timestamp) cmux bg: \(message)\n"
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: backgroundLogURL.path) == false {
                 FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
@@ -1909,6 +2134,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+            GhosttyApp.shared.logBackground(
+                "surface appearance changed tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil")"
+            )
+        }
         applySurfaceColorScheme()
     }
 
@@ -2051,10 +2282,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ? GHOSTTY_COLOR_SCHEME_DARK
             : GHOSTTY_COLOR_SCHEME_LIGHT
         if !force, appliedColorScheme == scheme {
+            if GhosttyApp.shared.backgroundLogEnabled {
+                let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
+                GhosttyApp.shared.logBackground(
+                    "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=false"
+                )
+            }
             return
         }
         ghostty_surface_set_color_scheme(surface, scheme)
         appliedColorScheme = scheme
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
+            GhosttyApp.shared.logBackground(
+                "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=true"
+            )
+        }
     }
 
     @discardableResult
@@ -2974,6 +3217,8 @@ enum GhosttyNotificationKey {
     static let title = "ghostty.title"
     static let backgroundColor = "ghostty.backgroundColor"
     static let backgroundOpacity = "ghostty.backgroundOpacity"
+    static let backgroundEventId = "ghostty.backgroundEventId"
+    static let backgroundSource = "ghostty.backgroundSource"
 }
 
 extension Notification.Name {
