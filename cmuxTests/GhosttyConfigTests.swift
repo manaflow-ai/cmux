@@ -162,6 +162,39 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .unscoped,
+                incomingScope: .app
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .app,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .app
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .unscoped
+            )
+        )
+    }
+
     func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -352,14 +385,17 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         expectation.expectedFulfillmentCount = 1
         var postedUserInfos: [[AnyHashable: Any]] = []
 
-        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(delay: 0.01) { userInfo in
-            postedUserInfos.append(userInfo)
-            expectation.fulfill()
-        }
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                postedUserInfos.append(userInfo)
+                expectation.fulfill()
+            }
+        )
 
         DispatchQueue.main.async {
-            dispatcher.signal(backgroundColor: dark, opacity: 0.95)
-            dispatcher.signal(backgroundColor: light, opacity: 0.75)
+            dispatcher.signal(backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
+            dispatcher.signal(backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
         }
 
         wait(for: [expectation], timeout: 1.0)
@@ -372,6 +408,14 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
             postedOpacity(from: postedUserInfos[0][GhosttyNotificationKey.backgroundOpacity]),
             0.75,
             accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value,
+            2
+        )
+        XCTAssertEqual(
+            postedUserInfos[0][GhosttyNotificationKey.backgroundSource] as? String,
+            "test.light"
         )
     }
 
@@ -386,16 +430,19 @@ final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
         expectation.expectedFulfillmentCount = 2
         var postedHexes: [String] = []
 
-        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(delay: 0.01) { userInfo in
-            let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
-            postedHexes.append(hex)
-            expectation.fulfill()
-        }
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+                postedHexes.append(hex)
+                expectation.fulfill()
+            }
+        )
 
         DispatchQueue.main.async {
-            dispatcher.signal(backgroundColor: dark, opacity: 1.0)
+            dispatcher.signal(backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                dispatcher.signal(backgroundColor: light, opacity: 1.0)
+                dispatcher.signal(backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
             }
         }
 

@@ -1857,6 +1857,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if normalizedFlags == [.command], chars == "q" {
             return handleQuitShortcutWarning()
         }
+        if normalizedFlags == [.command, .shift],
+           (chars == "," || chars == "<" || event.keyCode == 43) {
+            GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
+            return true
+        }
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
         // input), don't intercept key events — let them flow through to the input method.
