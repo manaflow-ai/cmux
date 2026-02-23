@@ -204,6 +204,43 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testWindowFirstResponderGuardAllowsDescendantDuringPointerFocusAllowance() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = false
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected blocked focus outside pointer allowance")
+
+        _ = window.makeFirstResponder(nil)
+        webView.withPointerFocusAllowance {
+            XCTAssertTrue(window.makeFirstResponder(descendant), "Expected pointer allowance to bypass guard")
+        }
+
+        _ = window.makeFirstResponder(nil)
+        XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer allowance to remain temporary")
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 

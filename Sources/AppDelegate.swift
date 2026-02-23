@@ -3857,15 +3857,30 @@ private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if let responder,
            let webView = Self.cmuxOwningWebView(for: responder),
-           !webView.allowsFirstResponderAcquisition {
+           !webView.allowsFirstResponderAcquisitionEffective {
 #if DEBUG
             dlog(
                 "focus.guard blockedFirstResponder responder=\(String(describing: type(of: responder))) " +
-                "window=\(ObjectIdentifier(self))"
+                "window=\(ObjectIdentifier(self)) " +
+                "web=\(ObjectIdentifier(webView)) " +
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
             )
 #endif
             return false
         }
+#if DEBUG
+        if let responder,
+           let webView = Self.cmuxOwningWebView(for: responder) {
+            dlog(
+                "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
+                "window=\(ObjectIdentifier(self)) " +
+                "web=\(ObjectIdentifier(webView)) " +
+                "policy=\(webView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(webView.debugPointerFocusAllowanceDepth)"
+            )
+        }
+#endif
         return cmux_makeFirstResponder(responder)
     }
 

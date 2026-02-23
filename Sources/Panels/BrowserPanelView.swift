@@ -291,6 +291,13 @@ struct BrowserPanelView: View {
             guard let webView = note.object as? CmuxWebView else { return false }
             return webView === panel?.webView
         }) { _ in
+#if DEBUG
+            dlog(
+                "browser.focus.clickIntent panel=\(panel.id.uuidString.prefix(5)) " +
+                "isFocused=\(isFocused ? 1 : 0) " +
+                "addressFocused=\(addressBarFocused ? 1 : 0)"
+            )
+#endif
             onRequestPanelFocus()
         }
         .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
@@ -3372,7 +3379,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         isPanelFocused: Bool
     ) {
         guard let cmuxWebView = webView as? CmuxWebView else { return }
-        cmuxWebView.allowsFirstResponderAcquisition = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
+                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
