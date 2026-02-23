@@ -979,6 +979,12 @@ class GhosttyApp {
             // handles this action. For cmux, the correct behavior is to close
             // the panel immediately (no prompt).
 #if DEBUG
+            dlog(
+                "surface.action.showChildExited tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
+                "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
+#if DEBUG
             cmuxWriteChildExitProbe(
                 [
                     "probeShowChildExitedTabId": callbackTabId?.uuidString ?? "",
@@ -2050,6 +2056,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastSizeSkipSignature: String?
 #endif
 
+    private var hasUsableFocusGeometry: Bool {
+        bounds.width > 1 && bounds.height > 1
+    }
+
         // Visibility is used for focus gating, not for libghostty occlusion.
         fileprivate var isVisibleInUI: Bool { visibleInUI }
         fileprivate func setVisibleInUI(_ visible: Bool) {
@@ -2448,8 +2458,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // focus/selection can converge. Previously this was gated on `surface != nil`, which
             // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
             // stayed behind.
-            if isVisibleInUI {
+            if isVisibleInUI && hasUsableFocusGeometry {
                 onFocus?()
+            } else if isVisibleInUI && !hasUsableFocusGeometry {
+#if DEBUG
+                dlog(
+                    "focus.firstResponder SUPPRESSED (tiny) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(isHiddenOrHasHiddenAncestor ? 1 : 0)"
+                )
+#endif
             }
         }
         if result, let surface = ensureSurfaceReadyForInput() {
@@ -2703,15 +2720,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
             let text = (event.charactersIgnoringModifiers ?? event.characters ?? "")
+            let handled: Bool
             if text.isEmpty {
                 keyEvent.text = nil
-                _ = ghostty_surface_key(surface, keyEvent)
+                handled = ghostty_surface_key(surface, keyEvent)
             } else {
-                text.withCString { ptr in
+                handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    return ghostty_surface_key(surface, keyEvent)
                 }
             }
+#if DEBUG
+            dlog(
+                "key.ctrl path=ghostty surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "handled=\(handled ? 1 : 0) keyCode=\(event.keyCode) chars=\(cmuxScalarHex(event.characters)) " +
+                "ign=\(cmuxScalarHex(event.charactersIgnoringModifiers)) mods=\(event.modifierFlags.rawValue)"
+            )
+#endif
             return
         }
 
@@ -4156,10 +4181,27 @@ final class GhosttySurfaceScrollView: NSView {
             }
         }
 
+        let hasUsablePortalGeometry: Bool = {
+            let size = bounds.size
+            return size.width > 1 && size.height > 1
+        }()
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+
         guard isActive else { return }
         guard surfaceView.terminalSurface?.searchState == nil else { return }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
+            retry()
+            return
+        }
+        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+#if DEBUG
+            dlog(
+                "focus.ensure.defer surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) attempts=\(attemptsRemaining)"
+            )
+#endif
             retry()
             return
         }
@@ -4220,8 +4262,23 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func applyFirstResponderIfNeeded() {
+        let hasUsablePortalGeometry: Bool = {
+            let size = bounds.size
+            return size.width > 1 && size.height > 1
+        }()
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
+        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+#if DEBUG
+            dlog(
+                "focus.apply.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            return
+        }
         guard surfaceView.terminalSurface?.searchState == nil else { return }
         guard let window, window.isKeyWindow else { return }
         if let fr = window.firstResponder as? NSView,
