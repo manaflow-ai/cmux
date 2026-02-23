@@ -2930,6 +2930,12 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
     }
+
+    func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
+        let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
+    }
 }
 
 final class BrowserSearchEngineTests: XCTestCase {

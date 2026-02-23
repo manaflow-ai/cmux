@@ -37,7 +37,6 @@ enum FinderServicePathResolver {
 }
 
 enum TerminalDirectoryOpenTarget: String, CaseIterable {
-    case defaultIDE
     case vscode
     case cursor
     case windsurf
@@ -62,7 +61,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     static var commandPaletteShortcutTargets: [Self] {
-        [.vscode, .cursor, .windsurf, .antigravity, .finder, .terminal, .iterm2, .ghostty, .warp, .xcode, .androidStudio, .zed]
+        Array(allCases)
     }
 
     static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
@@ -72,18 +71,11 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
 
     var commandPaletteCommandId: String {
-        switch self {
-        case .defaultIDE:
-            return "palette.terminalOpenDirectory"
-        default:
-            return "palette.terminalOpenDirectory.\(rawValue)"
-        }
+        "palette.terminalOpenDirectory.\(rawValue)"
     }
 
     var commandPaletteTitle: String {
         switch self {
-        case .defaultIDE:
-            return "Open Current Directory in IDE"
         case .vscode:
             return "Open Current Directory in VS Code"
         case .cursor:
@@ -114,8 +106,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var commandPaletteKeywords: [String] {
         let common = ["terminal", "directory", "open", "ide"]
         switch self {
-        case .defaultIDE:
-            return common + ["default", "app"]
         case .vscode:
             return common + ["vs", "code", "visual", "studio"]
         case .cursor:
@@ -144,12 +134,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
-        switch self {
-        case .defaultIDE:
-            return true
-        default:
-            return applicationPath(in: environment) != nil
-        }
+        applicationPath(in: environment) != nil
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -182,8 +167,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     private var applicationBundlePathCandidates: [String] {
         switch self {
-        case .defaultIDE:
-            return []
         case .vscode:
             return [
                 "/Applications/Visual Studio Code.app",

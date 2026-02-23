@@ -3553,15 +3553,6 @@ struct ContentView: View {
             )
         )
 
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalOpenDirectory",
-                title: constant("Open Current Directory in IDE"),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "directory", "open", "ide", "code", "default app"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
-            )
-        )
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             contributions.append(
                 CommandPaletteCommandContribution(
@@ -3838,11 +3829,6 @@ struct ContentView: View {
             _ = tabManager.createBrowserSplit(direction: .right, url: url)
         }
 
-        registry.register(commandId: "palette.terminalOpenDirectory") {
-            if !openFocusedDirectoryInDefaultApp() {
-                NSSound.beep()
-            }
-        }
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
             registry.register(commandId: target.commandPaletteCommandId) {
                 if !openFocusedDirectory(in: target) {
@@ -4383,11 +4369,6 @@ struct ContentView: View {
         return NSWorkspace.shared.open(url)
     }
 
-    private func openFocusedDirectoryInDefaultApp() -> Bool {
-        guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
-        return openFocusedDirectory(directoryURL, in: .defaultIDE)
-    }
-
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
         guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
         return openFocusedDirectory(directoryURL, in: target)
@@ -4395,8 +4376,6 @@ struct ContentView: View {
 
     private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
         switch target {
-        case .defaultIDE:
-            return NSWorkspace.shared.open(directoryURL)
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
