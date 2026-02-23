@@ -166,6 +166,18 @@ private extension View {
     }
 }
 
+func resolvedBrowserChromeBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    switch colorScheme {
+    case .dark, .light:
+        return themeBackgroundColor
+    @unknown default:
+        return themeBackgroundColor
+    }
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -239,14 +251,10 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        switch colorScheme {
-        case .dark:
-            return GhosttyApp.shared.defaultBackgroundColor
-        case .light:
-            return .windowBackgroundColor
-        @unknown default:
-            return .windowBackgroundColor
-        }
+        resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
     }
 
     var body: some View {

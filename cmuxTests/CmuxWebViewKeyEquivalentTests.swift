@@ -655,6 +655,40 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
+    func testLightModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .light)
+    }
+
+    func testDarkModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .dark)
+    }
+
+    private func assertResolvedColorMatchesTheme(
+        for colorScheme: ColorScheme,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+
+        guard
+            let actual = resolvedBrowserChromeBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expected = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
