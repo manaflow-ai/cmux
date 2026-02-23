@@ -243,6 +243,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var title: String
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
+    @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published var currentDirectory: String
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -753,6 +754,10 @@ final class Workspace: Identifiable, ObservableObject {
         processTitle = title
         guard customTitle == nil else { return }
         self.title = title
+    }
+
+    func setCustomColor(_ hex: String?) {
+        customColor = hex
     }
 
     func setCustomTitle(_ title: String?) {

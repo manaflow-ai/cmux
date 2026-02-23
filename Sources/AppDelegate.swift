@@ -935,6 +935,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    private let debugColorWorkspaceTitlePrefix = "Debug Color - "
+
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
         let tab = tabManager.addTab()
@@ -956,6 +958,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let payload = lines.joined(separator: "\n") + "\n"
         sendTextWhenReady(payload, to: tab)
+    }
+
+    @objc func openDebugColorComparisonWorkspaces(_ sender: Any?) {
+        guard let tabManager else { return }
+
+        let palette = WorkspaceTabColorSettings.palette()
+        guard !palette.isEmpty else { return }
+
+        var existingByTitle: [String: Workspace] = [:]
+        for tab in tabManager.tabs {
+            guard let title = tab.customTitle,
+                  title.hasPrefix(debugColorWorkspaceTitlePrefix) else { continue }
+            existingByTitle[title] = tab
+        }
+
+        for entry in palette {
+            let title = "\(debugColorWorkspaceTitlePrefix)\(entry.name)"
+            let targetTab: Workspace
+            if let existing = existingByTitle[title] {
+                targetTab = existing
+            } else {
+                targetTab = tabManager.addTab()
+            }
+            tabManager.setCustomTitle(tabId: targetTab.id, title: title)
+            tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
+        }
     }
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {

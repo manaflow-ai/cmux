@@ -63,6 +63,48 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
+    case leftRail
+    case solidFill
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .leftRail:
+            return "Left Rail"
+        case .solidFill:
+            return "Solid Fill"
+        }
+    }
+}
+
+enum SidebarActiveTabIndicatorSettings {
+    static let styleKey = "sidebarActiveTabIndicatorStyle"
+    static let defaultStyle: SidebarActiveTabIndicatorStyle = .solidFill
+
+    static func resolvedStyle(rawValue: String?) -> SidebarActiveTabIndicatorStyle {
+        guard let rawValue else { return defaultStyle }
+        if let style = SidebarActiveTabIndicatorStyle(rawValue: rawValue) {
+            return style
+        }
+
+        // Legacy values from earlier iterations map to the closest modern option.
+        switch rawValue {
+        case "rail":
+            return .leftRail
+        case "border", "wash", "lift", "typography", "washRail", "blueWashColorRail":
+            return .solidFill
+        default:
+            return defaultStyle
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarActiveTabIndicatorStyle {
+        resolvedStyle(rawValue: defaults.string(forKey: styleKey))
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
@@ -101,6 +143,213 @@ enum WorkspacePlacementSettings {
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
         }
+    }
+}
+
+struct WorkspaceTabColorEntry: Equatable, Identifiable {
+    let name: String
+    let hex: String
+
+    var id: String { "\(name)-\(hex)" }
+}
+
+enum WorkspaceTabColorSettings {
+    static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    static let customColorsKey = "workspaceTabColor.customColors"
+    static let maxCustomColors = 24
+
+    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
+        WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
+        WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
+        WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
+        WorkspaceTabColorEntry(name: "Amber", hex: "#7D6608"),
+        WorkspaceTabColorEntry(name: "Olive", hex: "#4A5C18"),
+        WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
+        WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B"),
+        WorkspaceTabColorEntry(name: "Aqua", hex: "#0E6B8C"),
+        WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
+        WorkspaceTabColorEntry(name: "Navy", hex: "#1A5276"),
+        WorkspaceTabColorEntry(name: "Indigo", hex: "#283593"),
+        WorkspaceTabColorEntry(name: "Purple", hex: "#6A1B9A"),
+        WorkspaceTabColorEntry(name: "Magenta", hex: "#AD1457"),
+        WorkspaceTabColorEntry(name: "Rose", hex: "#880E4F"),
+        WorkspaceTabColorEntry(name: "Brown", hex: "#7B3F00"),
+        WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
+    ]
+
+    static var defaultPalette: [WorkspaceTabColorEntry] {
+        originalPRPalette
+    }
+
+    static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        defaultPaletteWithOverrides(defaults: defaults) + customColorEntries(defaults: defaults)
+    }
+
+    static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        let palette = defaultPalette
+        let overrides = defaultOverrideMap(defaults: defaults)
+        return palette.map { entry in
+            WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
+        }
+    }
+
+    static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }) else {
+            return palette.first?.hex ?? "#1565C0"
+        }
+        return defaultOverrideMap(defaults: defaults)[name] ?? entry.hex
+    }
+
+    static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }),
+              let normalized = normalizedHex(hex) else { return }
+
+        var overrides = defaultOverrideMap(defaults: defaults)
+        if normalized == entry.hex {
+            overrides.removeValue(forKey: name)
+        } else {
+            overrides[name] = normalized
+        }
+        saveDefaultOverrideMap(overrides, defaults: defaults)
+    }
+
+    static func customColors(defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.array(forKey: customColorsKey) as? [String] else { return [] }
+        var result: [String] = []
+        var seen: Set<String> = []
+        for value in raw {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
+            if result.count >= maxCustomColors { break }
+        }
+        return result
+    }
+
+    static func customColorEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        customColors(defaults: defaults).enumerated().map { index, hex in
+            WorkspaceTabColorEntry(name: "Custom \(index + 1)", hex: hex)
+        }
+    }
+
+    @discardableResult
+    static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
+        guard let normalized = normalizedHex(hex) else { return nil }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        colors.insert(normalized, at: 0)
+        setCustomColors(colors, defaults: defaults)
+        return normalized
+    }
+
+    static func removeCustomColor(_ hex: String, defaults: UserDefaults = .standard) {
+        guard let normalized = normalizedHex(hex) else { return }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        setCustomColors(colors, defaults: defaults)
+    }
+
+    static func setCustomColors(_ hexes: [String], defaults: UserDefaults = .standard) {
+        var normalizedColors: [String] = []
+        var seen: Set<String> = []
+        for value in hexes {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            normalizedColors.append(normalized)
+            if normalizedColors.count >= maxCustomColors { break }
+        }
+
+        if normalizedColors.isEmpty {
+            defaults.removeObject(forKey: customColorsKey)
+        } else {
+            defaults.set(normalizedColors, forKey: customColorsKey)
+        }
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultOverridesKey)
+        defaults.removeObject(forKey: customColorsKey)
+    }
+
+    static func normalizedHex(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard body.count == 6 else { return nil }
+        guard UInt64(body, radix: 16) != nil else { return nil }
+        return "#" + body.uppercased()
+    }
+
+    static func displayColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> Color? {
+        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
+            return nil
+        }
+        return Color(nsColor: color)
+    }
+
+    static func displayNSColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> NSColor? {
+        guard let normalized = normalizedHex(hex),
+              let baseColor = NSColor(hex: normalized) else {
+            return nil
+        }
+
+        if forceBright || colorScheme == .dark {
+            return brightenedForDarkAppearance(baseColor)
+        }
+        return baseColor
+    }
+
+    private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
+        guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
+        let validNames = Set(defaultPalette.map(\.name))
+        var normalized: [String: String] = [:]
+        for (name, hex) in raw {
+            guard validNames.contains(name),
+                  let normalizedHex = normalizedHex(hex) else { continue }
+            normalized[name] = normalizedHex
+        }
+        return normalized
+    }
+
+    private static func saveDefaultOverrideMap(_ map: [String: String], defaults: UserDefaults) {
+        if map.isEmpty {
+            defaults.removeObject(forKey: defaultOverridesKey)
+        } else {
+            defaults.set(map, forKey: defaultOverridesKey)
+        }
+    }
+
+    private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
+        let rgbColor = color.usingColorSpace(.sRGB) ?? color
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
+        // Preserve neutral grays when brightening to avoid introducing hue shifts.
+        let boostedSaturation: CGFloat
+        if saturation <= 0.08 {
+            boostedSaturation = saturation
+        } else {
+            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+        }
+
+        return NSColor(
+            hue: hue,
+            saturation: boostedSaturation,
+            brightness: boostedBrightness,
+            alpha: alpha
+        )
     }
 }
 
@@ -630,6 +879,11 @@ class TabManager: ObservableObject {
 
     func clearCustomTitle(tabId: UUID) {
         setCustomTitle(tabId: tabId, title: nil)
+    }
+
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomColor(color)
     }
 
     func togglePin(tabId: UUID) {

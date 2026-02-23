@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import SwiftUI
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
@@ -1066,6 +1067,171 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+final class WorkspaceTabColorSettingsTests: XCTestCase {
+    func testNormalizedHexAcceptsAndNormalizesValidInput() {
+        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("#abc123"), "#ABC123")
+        XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("  aBcDeF "), "#ABCDEF")
+        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#1234"))
+        XCTAssertNil(WorkspaceTabColorSettings.normalizedHex("#GG1234"))
+    }
+
+    func testBuiltInPaletteMatchesOriginalPRPalette() {
+        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
+        XCTAssertEqual(palette.count, 16)
+        XCTAssertEqual(palette.first?.name, "Red")
+        XCTAssertEqual(palette.first?.hex, "#C0392B")
+        XCTAssertEqual(palette.last?.name, "Charcoal")
+        XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
+    }
+
+    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {
+        let suiteName = "WorkspaceTabColorSettingsTests.DefaultOverride.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = WorkspaceTabColorSettings.defaultPalette[0]
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#00aa33", defaults: defaults)
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            "#00AA33"
+        )
+
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: first.hex, defaults: defaults)
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+    }
+
+    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() {
+        let suiteName = "WorkspaceTabColorSettingsTests.CustomColors.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor(" #00aa33 ", defaults: defaults),
+            "#00AA33"
+        )
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor("#112233", defaults: defaults),
+            "#112233"
+        )
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.addCustomColor("#00AA33", defaults: defaults),
+            "#00AA33"
+        )
+        XCTAssertNil(WorkspaceTabColorSettings.addCustomColor("nope", defaults: defaults))
+
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.customColors(defaults: defaults),
+            ["#00AA33", "#112233"]
+        )
+    }
+
+    func testPaletteIncludesCustomEntriesAndResetClearsAll() {
+        let suiteName = "WorkspaceTabColorSettingsTests.Reset.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = WorkspaceTabColorSettings.defaultPalette[0]
+        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#334455", defaults: defaults)
+        _ = WorkspaceTabColorSettings.addCustomColor("#778899", defaults: defaults)
+
+        let paletteBeforeReset = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(paletteBeforeReset.count, WorkspaceTabColorSettings.defaultPalette.count + 1)
+        XCTAssertEqual(paletteBeforeReset[0].hex, "#334455")
+        XCTAssertEqual(paletteBeforeReset.last?.name, "Custom 1")
+        XCTAssertEqual(paletteBeforeReset.last?.hex, "#778899")
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+
+        XCTAssertEqual(WorkspaceTabColorSettings.customColors(defaults: defaults), [])
+        XCTAssertEqual(
+            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            first.hex
+        )
+    }
+
+    func testDisplayColorLightModeKeepsOriginalHex() {
+        let originalHex = "#1A5276"
+        let rendered = WorkspaceTabColorSettings.displayNSColor(
+            hex: originalHex,
+            colorScheme: .light
+        )
+
+        XCTAssertEqual(rendered?.hexString(), originalHex)
+    }
+
+    func testDisplayColorDarkModeBrightensColor() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertNotEqual(rendered.hexString(), originalHex)
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
+
+    func testDisplayColorDarkModeKeepsGrayscaleNeutral() {
+        let originalHex = "#808080"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .dark
+              ),
+              let renderedSRGB = rendered.usingColorSpace(.sRGB) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+        XCTAssertLessThan(abs(renderedSRGB.redComponent - renderedSRGB.greenComponent), 0.003)
+        XCTAssertLessThan(abs(renderedSRGB.greenComponent - renderedSRGB.blueComponent), 0.003)
+    }
+
+    func testDisplayColorForceBrightensInLightMode() {
+        let originalHex = "#1A5276"
+        guard let base = NSColor(hex: originalHex),
+              let rendered = WorkspaceTabColorSettings.displayNSColor(
+                  hex: originalHex,
+                  colorScheme: .light,
+                  forceBright: true
+              ) else {
+            XCTFail("Expected valid color conversion")
+            return
+        }
+
+        XCTAssertNotEqual(rendered.hexString(), originalHex)
+        XCTAssertGreaterThan(rendered.luminance, base.luminance)
+    }
+}
+
 final class WorkspaceAutoReorderSettingsTests: XCTestCase {
     func testDefaultIsEnabled() {
         let suiteName = "WorkspaceAutoReorderSettingsTests.Default.\(UUID().uuidString)"
@@ -1128,6 +1294,44 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarBranchLayoutSettings.key)
         XCTAssertTrue(SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults))
+    }
+}
+
+final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
+    func testDefaultStyleWhenUnset() {
+        let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(
+            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
+            SidebarActiveTabIndicatorSettings.defaultStyle
+        )
+    }
+
+    func testStoredStyleParsesAndInvalidFallsBack() {
+        let suiteName = "SidebarActiveTabIndicatorSettingsTests.Stored.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(SidebarActiveTabIndicatorStyle.leftRail.rawValue, forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+
+        defaults.set("rail", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(SidebarActiveTabIndicatorSettings.current(defaults: defaults), .leftRail)
+
+        defaults.set("not-a-style", forKey: SidebarActiveTabIndicatorSettings.styleKey)
+        XCTAssertEqual(
+            SidebarActiveTabIndicatorSettings.current(defaults: defaults),
+            SidebarActiveTabIndicatorSettings.defaultStyle
+        )
     }
 }
 

@@ -298,6 +298,10 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                Button("Open Workspaces for All Tab Colors") {
+                    appDelegate.openDebugColorComparisonWorkspaces(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
@@ -1223,6 +1227,7 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
         sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         shortcutHintSidebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintXKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintX)))
         shortcutHintSidebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintYKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintY)))
         shortcutHintTitlebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.titlebarHintXKey, fallback: ShortcutHintDebugSettings.defaultTitlebarHintX)))
@@ -1319,6 +1324,8 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
@@ -1329,6 +1336,17 @@ private struct DebugWindowControlsView: View {
 
     private var selectedDevToolsColorOption: BrowserDevToolsIconColorOption {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
+
+    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
     }
 
     var body: some View {
@@ -1391,6 +1409,22 @@ private struct DebugWindowControlsView: View {
                             Button("Copy Hint Config") {
                                 copyShortcutHintConfig()
                             }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Active Workspace Indicator") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Style", selection: sidebarIndicatorStyleSelection) {
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Button("Reset Indicator Style") {
+                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -1797,6 +1831,19 @@ private struct SidebarDebugView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+
+    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -1898,6 +1945,17 @@ private struct SidebarDebugView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox("Active Workspace Indicator") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Style", selection: sidebarIndicatorStyleSelection) {
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
                 GroupBox("Workspace Metadata") {
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Render branch list vertically", isOn: $sidebarBranchVerticalLayout)
@@ -1924,6 +1982,9 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Hints") {
                         resetShortcutHintOffsets()
+                    }
+                    Button("Reset Active Indicator") {
+                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
                     }
                 }
 
@@ -1992,6 +2053,7 @@ private struct SidebarDebugView: View {
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
         sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
+        sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
         shortcutHintSidebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset)))
         shortcutHintSidebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)))
         shortcutHintTitlebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)))
@@ -2505,6 +2567,8 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2517,9 +2581,22 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+    @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
     }
 
     private var selectedSocketControlMode: SocketControlMode {
@@ -2682,6 +2759,97 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Active Workspace Indicator",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: sidebarIndicatorStyleSelection) {
+                                ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                    Text(style.displayName).tag(style.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Workspace Colors")
+                    SettingsCard {
+                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
+
+                        ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
+                            if index > 0 {
+                                SettingsCardDivider()
+                            }
+                            SettingsCardRow(
+                                entry.name,
+                                subtitle: "Base: \(baseTabColorHex(for: entry.name))"
+                            ) {
+                                HStack(spacing: 8) {
+                                    ColorPicker(
+                                        "",
+                                        selection: defaultTabColorBinding(for: entry.name),
+                                        supportsOpacity: false
+                                    )
+                                    .labelsHidden()
+                                    .frame(width: 38)
+
+                                    Text(entry.hex)
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 76, alignment: .trailing)
+                                }
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        if workspaceTabCustomColors.isEmpty {
+                            SettingsCardNote("Custom colors: none yet. Use \"Choose Custom Color...\" from a workspace context menu.")
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Custom Colors")
+                                    .font(.system(size: 13, weight: .semibold))
+
+                                ForEach(workspaceTabCustomColors, id: \.self) { hex in
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
+                                            .frame(width: 11, height: 11)
+
+                                        Text(hex)
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+
+                                        Spacer(minLength: 8)
+
+                                        Button("Remove") {
+                                            removeWorkspaceCustomColor(hex)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Reset Palette",
+                            subtitle: "Restore built-in defaults and clear all custom colors."
+                        ) {
+                            Button("Reset") {
+                                resetWorkspaceTabColors()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                     }
 
@@ -3081,6 +3249,7 @@ struct SettingsView: View {
             browserForcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(browserForcedDarkModeOpacity)
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            reloadWorkspaceTabColorSettings()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
@@ -3090,6 +3259,9 @@ struct SettingsView: View {
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            reloadWorkspaceTabColorSettings()
         }
         .confirmationDialog(
             "Clear browser history?",
@@ -3137,13 +3309,51 @@ struct SettingsView: View {
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
         KeyboardShortcutSettings.resetAll()
+        WorkspaceTabColorSettings.reset()
+        reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
+    }
+
+    private func defaultTabColorBinding(for name: String) -> Binding<Color> {
+        Binding(
+            get: {
+                let hex = WorkspaceTabColorSettings.defaultColorHex(named: name)
+                return Color(nsColor: NSColor(hex: hex) ?? .systemBlue)
+            },
+            set: { newValue in
+                let hex = NSColor(newValue).hexString()
+                WorkspaceTabColorSettings.setDefaultColor(named: name, hex: hex)
+                reloadWorkspaceTabColorSettings()
+            }
+        )
+    }
+
+    private func baseTabColorHex(for name: String) -> String {
+        WorkspaceTabColorSettings.defaultPalette
+            .first(where: { $0.name == name })?
+            .hex ?? "#1565C0"
+    }
+
+    private func removeWorkspaceCustomColor(_ hex: String) {
+        WorkspaceTabColorSettings.removeCustomColor(hex)
+        reloadWorkspaceTabColorSettings()
+    }
+
+    private func resetWorkspaceTabColors() {
+        WorkspaceTabColorSettings.reset()
+        reloadWorkspaceTabColorSettings()
+    }
+
+    private func reloadWorkspaceTabColorSettings() {
+        workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+        workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {
