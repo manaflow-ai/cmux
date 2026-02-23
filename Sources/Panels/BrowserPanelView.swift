@@ -193,6 +193,7 @@ struct BrowserPanelView: View {
     @State private var focusFlashFadeWorkItem: DispatchWorkItem?
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
+    @State private var isBrowserThemeMenuPresented = false
     private let omnibarPillCornerRadius: CGFloat = 12
     private let addressBarButtonSize: CGFloat = 22
     private let addressBarButtonHitSize: CGFloat = 26
@@ -510,19 +511,9 @@ struct BrowserPanelView: View {
     }
 
     private var browserThemeModeButton: some View {
-        Menu {
-            ForEach(BrowserThemeMode.allCases) { mode in
-                Button {
-                    applyBrowserThemeModeSelection(mode)
-                } label: {
-                    if mode == browserThemeMode {
-                        Label(mode.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(mode.displayName)
-                    }
-                }
-            }
-        } label: {
+        Button(action: {
+            isBrowserThemeMenuPresented.toggle()
+        }) {
             Image(systemName: browserThemeMode.iconName)
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
@@ -530,12 +521,45 @@ struct BrowserPanelView: View {
                 .foregroundStyle(browserThemeModeIconColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .menuIndicator(.hidden)
-        .menuStyle(.borderlessButton)
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
+            browserThemeModePopover
+        }
         .help("Browser Theme: \(browserThemeMode.displayName)")
         .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModePopover: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(BrowserThemeMode.allCases) { mode in
+                Button {
+                    applyBrowserThemeModeSelection(mode)
+                    isBrowserThemeMenuPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
+                            .font(.system(size: 10, weight: .semibold))
+                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
+                            .frame(width: 12, alignment: .center)
+                        Text(mode.displayName)
+                            .font(.system(size: 12))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 128)
     }
 
     private var browserThemeModeIconColor: Color {
