@@ -3112,6 +3112,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         let webView = panel.webView
         context.coordinator.panel = panel
         context.coordinator.webView = webView
+        Self.applyWebViewFirstResponderPolicy(
+            panel: panel,
+            webView: webView,
+            isPanelFocused: isPanelFocused
+        )
 
         let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
         if shouldUseWindowPortal {
@@ -3357,6 +3362,15 @@ struct WebViewRepresentable: NSViewRepresentable {
             // clearing first responder here can undo programmatic webview focus (socket tests).
             window.makeFirstResponder(nil)
         }
+    }
+
+    private static func applyWebViewFirstResponderPolicy(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        isPanelFocused: Bool
+    ) {
+        guard let cmuxWebView = webView as? CmuxWebView else { return }
+        cmuxWebView.allowsFirstResponderAcquisition = isPanelFocused && !panel.shouldSuppressWebViewFocus()
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {

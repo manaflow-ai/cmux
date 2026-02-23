@@ -99,6 +99,39 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    @MainActor
+    func testCanBlockFirstResponderAcquisitionWhenPaneIsUnfocused() {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(webView))
+
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(webView.becomeFirstResponder())
+
+        _ = window.makeFirstResponder(webView)
+        if let firstResponderView = window.firstResponder as? NSView {
+            XCTAssertFalse(firstResponderView === webView || firstResponderView.isDescendant(of: webView))
+        }
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
