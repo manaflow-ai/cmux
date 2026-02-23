@@ -2733,6 +2733,8 @@ class TabManager: ObservableObject {
         let triggerMode = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] ?? "shell_input")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let useEarlyCtrlShiftTrigger = triggerMode == "early_ctrl_shift_d"
+        let useEarlyCtrlDTrigger = triggerMode == "early_ctrl_d"
+        let useEarlyTrigger = useEarlyCtrlShiftTrigger || useEarlyCtrlDTrigger
         let triggerUsesShift = triggerMode == "ctrl_shift_d" || useEarlyCtrlShiftTrigger
         let layout = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] ?? "lr")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2872,7 +2874,7 @@ class TabManager: ObservableObject {
             }
 
             tab.focusPanel(exitPanelId)
-            if !useEarlyCtrlShiftTrigger {
+            if !useEarlyTrigger {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
 
@@ -2981,7 +2983,7 @@ class TabManager: ObservableObject {
                     let triggerModifiers: NSEvent.ModifierFlags = triggerUsesShift
                         ? [.control, .shift]
                         : [.control]
-                    let shouldWaitForSurface = !useEarlyCtrlShiftTrigger
+                    let shouldWaitForSurface = !useEarlyTrigger
 
                     var attachedBeforeTrigger = false
                     var hasSurfaceBeforeTrigger = false
@@ -3028,6 +3030,7 @@ class TabManager: ObservableObject {
                     if strictKeyOnly {
                         let strictModeLabel: String = {
                             if useEarlyCtrlShiftTrigger { return "strict_early_ctrl_shift_d" }
+                            if useEarlyCtrlDTrigger { return "strict_early_ctrl_d" }
                             if triggerUsesShift { return "strict_ctrl_shift_d" }
                             return "strict_ctrl_d"
                         }()

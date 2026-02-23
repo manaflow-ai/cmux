@@ -546,11 +546,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
-    func testCtrlShiftDEarlyDuringSplitStartupKeepsWindowOpen() {
+    func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
             let app = XCUIApplication()
-            let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-shift-\(UUID().uuidString).json"
+            let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-ctrl-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"] = dataPath
@@ -558,17 +558,17 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_EXPECTED_PANELS_AFTER"] = "1"
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_AUTO_TRIGGER"] = "1"
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] = "1"
-            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] = "early_ctrl_shift_d"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] = "early_ctrl_d"
             app.launch()
             app.activate()
             defer { app.terminate() }
 
             XCTAssertTrue(
                 waitForAnyJSON(atPath: dataPath, timeout: 12.0),
-                "Attempt \(attempt): expected early Ctrl+Shift+D setup data at \(dataPath)"
+                "Attempt \(attempt): expected early Ctrl+D setup data at \(dataPath)"
             )
             guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
-                XCTFail("Attempt \(attempt): timed out waiting for done=1 after early Ctrl+Shift+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                XCTFail("Attempt \(attempt): timed out waiting for done=1 after early Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
                 return
             }
 
@@ -583,14 +583,14 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             let timedOut = (done["timedOut"] ?? "") == "1"
             let triggerMode = done["autoTriggerMode"] ?? ""
 
-            XCTAssertFalse(timedOut, "Attempt \(attempt): early Ctrl+Shift+D timed out. data=\(done)")
-            XCTAssertEqual(triggerMode, "strict_early_ctrl_shift_d", "Attempt \(attempt): expected strict early Ctrl+Shift+D trigger mode. data=\(done)")
-            XCTAssertFalse(closedWorkspace, "Attempt \(attempt): workspace/window should stay open after early Ctrl+Shift+D. data=\(done)")
-            XCTAssertEqual(workspaceCountAfter, 1, "Attempt \(attempt): workspace should remain open after early Ctrl+Shift+D. data=\(done)")
-            XCTAssertEqual(panelCountAfter, 1, "Attempt \(attempt): only focused pane should close after early Ctrl+Shift+D. data=\(done)")
+            XCTAssertFalse(timedOut, "Attempt \(attempt): early Ctrl+D timed out. data=\(done)")
+            XCTAssertEqual(triggerMode, "strict_early_ctrl_d", "Attempt \(attempt): expected strict early Ctrl+D trigger mode. data=\(done)")
+            XCTAssertFalse(closedWorkspace, "Attempt \(attempt): workspace/window should stay open after early Ctrl+D. data=\(done)")
+            XCTAssertEqual(workspaceCountAfter, 1, "Attempt \(attempt): workspace should remain open after early Ctrl+D. data=\(done)")
+            XCTAssertEqual(panelCountAfter, 1, "Attempt \(attempt): only focused pane should close after early Ctrl+D. data=\(done)")
             XCTAssertTrue(
                 waitForWindowCount(app: app, atLeast: 1, timeout: 2.0),
-                "Attempt \(attempt): app window should remain open after early Ctrl+Shift+D. data=\(done)"
+                "Attempt \(attempt): app window should remain open after early Ctrl+D. data=\(done)"
             )
         }
     }
