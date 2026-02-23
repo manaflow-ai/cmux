@@ -717,7 +717,7 @@ struct BrowserPanelView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button("Import…") {
+                Button("Choose What to Import…") {
                     refreshEmptyStateImportBrowsers()
                     BrowserDataImportCoordinator.shared.presentImportDialog()
                 }
