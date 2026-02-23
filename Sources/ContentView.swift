@@ -2380,7 +2380,7 @@ struct ContentView: View {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .regular))
-                    .tint(.blue)
+                    .tint(.white)
                     .focused($isCommandPaletteSearchFocused)
                     .onSubmit {
                         runSelectedCommandPaletteResult(visibleResults: visibleResults)
@@ -2582,7 +2582,7 @@ struct ContentView: View {
             TextField(target.placeholder, text: $commandPaletteRenameDraft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .regular))
-                .tint(.blue)
+                .tint(.white)
                 .focused($isCommandPaletteRenameFocused)
                 .backport.onKeyPress(.delete) { modifiers in
                     handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
