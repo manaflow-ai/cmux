@@ -56,6 +56,8 @@ private final class WorkspaceRemoteSessionController {
     private var daemonRemotePath: String?
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var reverseRelayProcess: Process?
+    private var reverseRelayStderrPipe: Pipe?
 
     init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
         self.workspace = workspace
@@ -95,6 +97,15 @@ private final class WorkspaceRemoteSessionController {
         probeStdoutBuffer = ""
         probeStderrBuffer = ""
 
+        if let reverseRelayProcess {
+            reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
+            if reverseRelayProcess.isRunning {
+                reverseRelayProcess.terminate()
+            }
+        }
+        reverseRelayProcess = nil
+        reverseRelayStderrPipe = nil
+
         for (_, entry) in forwardEntries {
             entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
             if entry.process.isRunning {
@@ -124,6 +135,7 @@ private final class WorkspaceRemoteSessionController {
         }
         publishState(.connecting, detail: connectDetail)
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
+
         do {
             let hello = try bootstrapDaemonLocked()
             daemonReady = true
@@ -137,6 +149,7 @@ private final class WorkspaceRemoteSessionController {
                 capabilities: hello.capabilities,
                 remotePath: hello.remotePath
             )
+            startReverseRelayLocked()
             startProbeLocked()
         } catch {
             daemonReady = false
@@ -271,8 +284,14 @@ private final class WorkspaceRemoteSessionController {
     private func handleProbePortsLine(_ line: String) {
         guard !isStopping else { return }
 
-        let ports = Self.parseRemotePorts(line: line)
-        desiredRemotePorts = Set(ports)
+        var ports = Set(Self.parseRemotePorts(line: line))
+        if let relayPort = configuration.relayPort {
+            ports.remove(relayPort)
+        }
+        // Filter ephemeral ports (49152-65535) — these are SSH reverse relay ports
+        // from this or other workspaces, not user services worth forwarding.
+        ports = ports.filter { $0 < 49152 }
+        desiredRemotePorts = ports
         portConflicts = portConflicts.intersection(desiredRemotePorts)
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
@@ -294,7 +313,13 @@ private final class WorkspaceRemoteSessionController {
 
         for port in desiredRemotePorts.sorted() where forwardEntries[port] == nil {
             guard Self.isLoopbackPortAvailable(port: port) else {
-                portConflicts.insert(port)
+                // Port is already bound locally. If it's reachable (e.g. another
+                // workspace is forwarding it), don't flag it as a conflict.
+                if Self.isLoopbackPortReachable(port: port) {
+                    portConflicts.remove(port)
+                } else {
+                    portConflicts.insert(port)
+                }
                 continue
             }
             if startForwardLocked(port: port) {
@@ -386,6 +411,108 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
+    /// Spawns a background SSH process that reverse-forwards a remote TCP port to the local cmux Unix socket.
+    /// This process is a direct child of the cmux app, so it passes the `isDescendant()` ancestry check.
+    @discardableResult
+    private func startReverseRelayLocked() -> Bool {
+        guard !isStopping else { return false }
+        guard let relayPort = configuration.relayPort, relayPort > 0,
+              let localSocketPath = configuration.localSocketPath, !localSocketPath.isEmpty else {
+            return false
+        }
+
+        // Kill any existing relay process managed by this session
+        if let existing = reverseRelayProcess {
+            reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
+            if existing.isRunning { existing.terminate() }
+            reverseRelayProcess = nil
+            reverseRelayStderrPipe = nil
+        }
+
+        // Kill orphaned relay SSH processes from previous app sessions that reverse-forward
+        // to the same socket path (they survive pkill because they're reparented to launchd).
+        Self.killOrphanedRelayProcesses(socketPath: localSocketPath, destination: configuration.destination)
+
+        let process = Process()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+
+        // Build arguments: -N (no remote command), -o ControlPath=none (avoid ControlMaster delegation),
+        // then common SSH args, then -R reverse forward, then destination.
+        // ExitOnForwardFailure=no because user's ~/.ssh/config may have RemoteForward entries
+        // that conflict with already-bound ports — we don't want those to kill our relay.
+        var args: [String] = ["-N"]
+        args += sshCommonArguments(batchMode: true)
+        args += ["-R", "127.0.0.1:\(relayPort):\(localSocketPath)"]
+        args += [configuration.destination]
+        process.arguments = args
+
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrPipe
+
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async {
+                guard let self else { return }
+                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
+                    self.probeStderrBuffer.append(chunk)
+                    if self.probeStderrBuffer.count > 8192 {
+                        self.probeStderrBuffer.removeFirst(self.probeStderrBuffer.count - 8192)
+                    }
+                }
+            }
+        }
+
+        process.terminationHandler = { [weak self] terminated in
+            self?.queue.async {
+                self?.handleReverseRelayTermination(process: terminated)
+            }
+        }
+
+        do {
+            try process.run()
+            reverseRelayProcess = process
+            reverseRelayStderrPipe = stderrPipe
+            NSLog("[cmux] reverse relay started: -R 127.0.0.1:%d:%@ → %@", relayPort, localSocketPath, configuration.destination)
+
+            // Write socket_addr after a delay to give the SSH -R forward time to establish.
+            // The Go CLI retry loop re-reads this file, so it will pick up the port once ready.
+            queue.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                guard let self, !self.isStopping else { return }
+                guard self.reverseRelayProcess?.isRunning == true else { return }
+                self.writeRemoteSocketAddrLocked()
+            }
+
+            return true
+        } catch {
+            NSLog("[cmux] failed to start reverse relay: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    private func handleReverseRelayTermination(process: Process) {
+        if reverseRelayProcess === process {
+            reverseRelayStderrPipe?.fileHandleForReading.readabilityHandler = nil
+            reverseRelayProcess = nil
+            reverseRelayStderrPipe = nil
+        }
+
+        guard !isStopping else { return }
+        guard configuration.relayPort != nil else { return }
+
+        // Auto-restart after 2 seconds if we're still active
+        queue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            guard let self else { return }
+            guard !self.isStopping else { return }
+            guard self.reverseRelayProcess == nil else { return }
+            self.startReverseRelayLocked()
+        }
+    }
+
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
@@ -445,7 +572,7 @@ private final class WorkspaceRemoteSessionController {
 
     private func forwardArguments(port: Int) -> [String] {
         let localBind = "127.0.0.1:\(port):127.0.0.1:\(port)"
-        return ["-N", "-o", "ExitOnForwardFailure=yes"] + sshCommonArguments(batchMode: true) + ["-L", localBind, configuration.destination]
+        return ["-N"] + sshCommonArguments(batchMode: true) + ["-L", localBind, configuration.destination]
     }
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
@@ -454,6 +581,8 @@ private final class WorkspaceRemoteSessionController {
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
             "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ExitOnForwardFailure=no",
+            "-o", "ControlPath=none",
         ]
         if batchMode {
             args += ["-o", "BatchMode=yes"]
@@ -561,7 +690,52 @@ private final class WorkspaceRemoteSessionController {
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
         }
 
+        createRemoteCLISymlinkLocked(daemonRemotePath: remotePath)
+
         return try helloRemoteDaemonLocked(remotePath: remotePath)
+    }
+
+    /// Creates `cmux` symlinks pointing to the daemon binary.
+    /// Tries `/usr/local/bin` first (already in PATH, no rc changes needed), falls back to
+    /// `~/.cmux/bin`. Non-fatal: logs on failure but does not throw.
+    private func createRemoteCLISymlinkLocked(daemonRemotePath: String) {
+        let script = """
+        mkdir -p "$HOME/.cmux/bin"
+        ln -sf "$HOME/\(daemonRemotePath)" "$HOME/.cmux/bin/cmux"
+        ln -sf "$HOME/\(daemonRemotePath)" /usr/local/bin/cmux 2>/dev/null \
+          || sudo -n ln -sf "$HOME/\(daemonRemotePath)" /usr/local/bin/cmux 2>/dev/null \
+          || true
+        """
+        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        do {
+            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+            if result.status != 0 {
+                NSLog("[cmux] warning: failed to create remote CLI symlink (exit %d): %@",
+                      result.status,
+                      Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown error")
+            }
+        } catch {
+            NSLog("[cmux] warning: failed to create remote CLI symlink: %@", error.localizedDescription)
+        }
+    }
+
+    /// Writes `~/.cmux/socket_addr` on the remote with the relay TCP address.
+    /// The Go CLI relay reads this file as a fallback when CMUX_SOCKET_PATH is not set.
+    private func writeRemoteSocketAddrLocked() {
+        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+        let addr = "127.0.0.1:\(relayPort)"
+        let script = "mkdir -p \"$HOME/.cmux\" && printf '%s' '\(addr)' > \"$HOME/.cmux/socket_addr\""
+        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        do {
+            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+            if result.status != 0 {
+                NSLog("[cmux] warning: failed to write remote socket_addr (exit %d): %@",
+                      result.status,
+                      Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown error")
+            }
+        } catch {
+            NSLog("[cmux] warning: failed to write remote socket_addr: %@", error.localizedDescription)
+        }
     }
 
     private func resolveRemotePlatformLocked() throws -> RemotePlatform {
@@ -919,6 +1093,23 @@ private final class WorkspaceRemoteSessionController {
         return " (retry \(retry) in \(seconds)s)"
     }
 
+    /// Kills orphaned SSH relay processes from previous app sessions.
+    /// These processes survive app restarts because `pkill` doesn't trigger graceful cleanup.
+    private static func killOrphanedRelayProcesses(socketPath: String, destination: String) {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        process.arguments = ["-f", "ssh.*-R.*127\\.0\\.0\\.1:.*:\(socketPath).*\(destination)"]
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            // Best-effort cleanup; ignore failures
+        }
+    }
+
     private static func isLoopbackPortAvailable(port: Int) -> Bool {
         guard port > 0 && port <= 65535 else { return false }
 
@@ -941,6 +1132,28 @@ private final class WorkspaceRemoteSessionController {
             }
         }
         return bindResult == 0
+    }
+
+    /// Check if a port on 127.0.0.1 is already accepting connections (e.g. forwarded by another workspace).
+    private static func isLoopbackPortReachable(port: Int) -> Bool {
+        guard port > 0 && port <= 65535 else { return false }
+
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 }
 
@@ -1008,6 +1221,8 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let port: Int?
     let identityFile: String?
     let sshOptions: [String]
+    let relayPort: Int?
+    let localSocketPath: String?
 
     var displayTarget: String {
         guard let port else { return destination }

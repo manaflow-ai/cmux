@@ -1986,6 +1986,8 @@ class TerminalController {
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sshOptions = v2StringArray(params, "ssh_options") ?? []
         let autoConnect = v2Bool(params, "auto_connect") ?? true
+        let relayPort = v2Int(params, "relay_port")
+        let localSocketPath = v2RawString(params, "local_socket_path")
 
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
             "workspace_id": workspaceId.uuidString,
@@ -2002,7 +2004,9 @@ class TerminalController {
                 destination: destination,
                 port: sshPort,
                 identityFile: identityFile?.isEmpty == true ? nil : identityFile,
-                sshOptions: sshOptions
+                sshOptions: sshOptions,
+                relayPort: relayPort,
+                localSocketPath: localSocketPath
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 
