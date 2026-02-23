@@ -1773,14 +1773,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
-        if let terminalPanel = terminalPanel(for: panelId) {
-            terminalPanel.triggerFlash()
-            return
-        }
-        if let browserPanel = browserPanel(for: panelId) {
-            browserPanel.triggerFlash()
-            return
-        }
+        panels[panelId]?.triggerFlash()
     }
 
     func triggerNotificationFocusFlash(

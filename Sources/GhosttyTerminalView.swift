@@ -3884,15 +3884,17 @@ final class GhosttySurfaceScrollView: NSView {
             self.flashLayer.removeAllAnimations()
             self.flashLayer.opacity = 0
             let animation = CAKeyframeAnimation(keyPath: "opacity")
-            animation.values = [0, 1, 0, 1, 0]
-            animation.keyTimes = [0, 0.25, 0.5, 0.75, 1]
-            animation.duration = 0.9
-            animation.timingFunctions = [
-                CAMediaTimingFunction(name: .easeOut),
-                CAMediaTimingFunction(name: .easeIn),
-                CAMediaTimingFunction(name: .easeOut),
-                CAMediaTimingFunction(name: .easeIn)
-            ]
+            animation.values = FocusFlashPattern.values.map { NSNumber(value: $0) }
+            animation.keyTimes = FocusFlashPattern.keyTimes.map { NSNumber(value: $0) }
+            animation.duration = FocusFlashPattern.duration
+            animation.timingFunctions = FocusFlashPattern.curves.map { curve in
+                switch curve {
+                case .easeIn:
+                    return CAMediaTimingFunction(name: .easeIn)
+                case .easeOut:
+                    return CAMediaTimingFunction(name: .easeOut)
+                }
+            }
             self.flashLayer.add(animation, forKey: "cmux.flash")
         }
     }
