@@ -227,6 +227,14 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+private final class GhosttySurfaceCallbackContext {
+    weak var surfaceView: GhosttyNSView?
+
+    init(surfaceView: GhosttyNSView) {
+        self.surfaceView = surfaceView
+    }
+}
+
 // Minimal Ghostty wrapper for terminal rendering
 // This uses libghostty (GhosttyKit.xcframework) for actual terminal emulation
 
@@ -425,8 +433,7 @@ class GhosttyApp {
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             // Read clipboard
-            guard let userdata else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             guard let surface = surfaceView.terminalSurface?.surface else { return }
 
             let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
@@ -437,8 +444,8 @@ class GhosttyApp {
             }
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
-            guard let userdata, let content else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let content else { return }
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             guard let surface = surfaceView.terminalSurface?.surface else { return }
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
@@ -471,8 +478,7 @@ class GhosttyApp {
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
-            guard let userdata else { return }
-            let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+            guard let surfaceView = GhosttyApp.surfaceView(from: userdata) else { return }
             let callbackSurfaceId = surfaceView.terminalSurface?.id
             let callbackTabId = surfaceView.tabId
 
@@ -870,6 +876,12 @@ class GhosttyApp {
         }
     }
 
+    private static func surfaceView(from userdata: UnsafeMutableRawPointer?) -> GhosttyNSView? {
+        guard let userdata else { return nil }
+        let context = Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+        return context.surfaceView
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -947,8 +959,8 @@ class GhosttyApp {
 
             return false
         }
-        guard let userdata = ghostty_surface_userdata(target.target.surface) else { return false }
-        let surfaceView = Unmanaged<GhosttyNSView>.fromOpaque(userdata).takeUnretainedValue()
+        let surfaceView = Self.surfaceView(from: ghostty_surface_userdata(target.target.surface))
+        guard let surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
             action.tag == GHOSTTY_ACTION_COLOR_CHANGE {
@@ -1381,6 +1393,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
+    private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1578,7 +1591,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view).toOpaque()
         ))
-        surfaceConfig.userdata = Unmanaged.passUnretained(view).toOpaque()
+        let callbackContext = Unmanaged.passRetained(GhosttySurfaceCallbackContext(surfaceView: view))
+        surfaceConfig.userdata = callbackContext.toOpaque()
+        surfaceCallbackContext?.release()
+        surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
         var envVars: [ghostty_env_var_s] = []
@@ -1707,6 +1723,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if surface == nil {
+            surfaceCallbackContext?.release()
+            surfaceCallbackContext = nil
             print("Failed to create ghostty surface")
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
@@ -1947,11 +1965,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     deinit {
-        guard let surface else { return }
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
 
-        // Defer teardown to the next main-actor turn so close callbacks can unwind first.
-        Task.detached { @MainActor in
+        guard let surface else {
+            callbackContext?.release()
+            return
+        }
+
+        // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
+        // callback userdata until surface free completes so callbacks never dereference
+        // a deallocated view pointer.
+        Task { @MainActor in
             ghostty_surface_free(surface)
+            callbackContext?.release()
         }
     }
 }
