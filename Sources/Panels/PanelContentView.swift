@@ -41,6 +41,13 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .codeEditor:
+            if let codeEditorPanel = panel as? CodeEditorPanel {
+                CodeEditorPanelView(
+                    panel: codeEditorPanel,
+                    isFocused: isFocused
+                )
+            }
         }
     }
 }
