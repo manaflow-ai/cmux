@@ -1238,6 +1238,10 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
             browserZoomShortcutAction(flags: [.command, .shift], chars: "+", keyCode: 24),
             .zoomIn
         )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 30),
+            .zoomIn
+        )
     }
 
     func testZoomOutSupportsMinusAndUnderscoreVariants() {
@@ -1313,6 +1317,30 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 keyCode: 45
             )
         )
+    }
+}
+
+final class GhosttyResponderResolutionTests: XCTestCase {
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    func testResolvesGhosttyViewFromDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        ghosttyView.addSubview(descendant)
+
+        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+    }
+
+    func testResolvesGhosttyViewFromGhosttyResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+    }
+
+    func testReturnsNilForUnrelatedResponder() {
+        let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        XCTAssertNil(cmuxOwningGhosttyView(for: view))
     }
 }
 
