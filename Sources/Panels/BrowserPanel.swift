@@ -4433,7 +4433,7 @@ final class BrowserDataImportCoordinator {
             domainRow.alignment = .centerY
 
             let noteLabel = NSTextField(
-                wrappingLabelWithString: "Bookmarks and settings import is not available yet."
+                wrappingLabelWithString: "Bookmarks, settings, and extensions import are not available yet."
             )
             noteLabel.font = NSFont.systemFont(ofSize: 12)
             noteLabel.textColor = .secondaryLabelColor
