@@ -870,6 +870,22 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
+
+        // Hide before updating the frame when this entry should not be visible.
+        // This avoids a one-frame flash of unrendered terminal background when a portal
+        // briefly transitions through offscreen/tiny geometry during rapid split churn.
+        if shouldHide, !hostedView.isHidden {
+#if DEBUG
+            dlog(
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
+            )
+#endif
+            hostedView.isHidden = true
+        }
+
         if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -877,21 +893,22 @@ final class WindowTerminalPortal: NSObject {
             CATransaction.commit()
 
             if abs(oldFrame.size.width - frameInHost.size.width) > 0.5 ||
-                abs(oldFrame.size.height - frameInHost.size.height) > 0.5 {
+                abs(oldFrame.size.height - frameInHost.size.height) > 0.5,
+                !shouldHide {
                 hostedView.reconcileGeometryNow()
             }
         }
 
-        if hostedView.isHidden != shouldHide {
+        if !shouldHide, hostedView.isHidden {
 #if DEBUG
             dlog(
-                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=\(shouldHide ? 1 : 0) " +
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=0 " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
                 "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
                 "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(frameInHost))"
             )
 #endif
-            hostedView.isHidden = shouldHide
+            hostedView.isHidden = false
         }
 
         ensureDividerOverlayOnTop()
