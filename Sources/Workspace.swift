@@ -2761,17 +2761,19 @@ extension Workspace: BonsplitDelegate {
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
+            let cachedTitle = panelTitles[panelId]
+            let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,
                 panel: panel,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panel.displayTitle),
+                title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
-                cachedTitle: panelTitles[panelId],
+                cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId)
             )
@@ -2859,14 +2861,35 @@ extension Workspace: BonsplitDelegate {
         }
         debugLastDidMoveTabTimestamp = now
         debugDidMoveTabEventCount += 1
-        let movedPanel = panelIdFromSurfaceId(tab.id)?.uuidString.prefix(5) ?? "unknown"
+        let movedPanelId = panelIdFromSurfaceId(tab.id)
+        let movedPanel = movedPanelId?.uuidString.prefix(5) ?? "unknown"
+        let selectedBefore = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneBefore = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = focusedPanelId?.uuidString.prefix(5) ?? "nil"
         dlog(
             "split.moveTab idx=\(debugDidMoveTabEventCount) dtSincePrevMs=\(sincePrev) panel=\(movedPanel) " +
             "from=\(source.id.uuidString.prefix(5)) to=\(destination.id.uuidString.prefix(5)) " +
             "sourceTabs=\(controller.tabs(inPane: source).count) destTabs=\(controller.tabs(inPane: destination).count)"
         )
+        dlog(
+            "split.moveTab.state.before idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedBefore) focusedPane=\(focusedPaneBefore) focusedPanel=\(focusedPanelBefore)"
+        )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+#if DEBUG
+        let selectedAfter = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneAfter = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        let movedPanelFocused = (movedPanelId != nil && movedPanelId == focusedPanelId) ? 1 : 0
+        dlog(
+            "split.moveTab.state.after idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedAfter) focusedPane=\(focusedPaneAfter) focusedPanel=\(focusedPanelAfter) " +
+            "movedFocused=\(movedPanelFocused)"
+        )
+#endif
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
