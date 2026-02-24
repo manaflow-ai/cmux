@@ -62,8 +62,8 @@ export function DocsNav({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Content */}
-      <main className="flex-1 min-w-0">
-        <div className="max-w-3xl px-6 pb-10 ml-0" data-dev="docs-content" style={{ paddingTop: 16 }}>
+      <main className="flex-1 min-w-0 overflow-x-hidden">
+        <div className="max-w-full px-6 pb-10 ml-0" data-dev="docs-content" style={{ paddingTop: 16 }}>
           <div className="docs-content text-[15px]">{children}</div>
           <DocsPager />
         </div>
