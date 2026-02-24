@@ -701,6 +701,78 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
+    func testLightModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .light)
+    }
+
+    func testDarkModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .dark)
+    }
+
+    private func assertResolvedColorMatchesTheme(
+        for colorScheme: ColorScheme,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+
+        guard
+            let actual = resolvedBrowserChromeBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expected = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
+    func testLightModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
+    }
+
+    func testDarkModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+    }
+
+    private func assertResolvedColorMatchesExpectedBlend(
+        for colorScheme: ColorScheme,
+        darkenMix: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
+
+        guard
+            let actual = resolvedBrowserOmnibarPillBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expectedSRGB = expected.usingColorSpace(.sRGB),
+            let themeSRGB = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expectedSRGB.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expectedSRGB.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

@@ -166,6 +166,35 @@ private extension View {
     }
 }
 
+func resolvedBrowserChromeBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    switch colorScheme {
+    case .dark, .light:
+        return themeBackgroundColor
+    @unknown default:
+        return themeBackgroundColor
+    }
+}
+
+func resolvedBrowserOmnibarPillBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    let darkenMix: CGFloat
+    switch colorScheme {
+    case .light:
+        darkenMix = 0.04
+    case .dark:
+        darkenMix = 0.05
+    @unknown default:
+        darkenMix = 0.04
+    }
+
+    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -239,14 +268,17 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        switch colorScheme {
-        case .dark:
-            return GhosttyApp.shared.defaultBackgroundColor
-        case .light:
-            return .windowBackgroundColor
-        @unknown default:
-            return .windowBackgroundColor
-        }
+        resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
+    private var omnibarPillBackgroundColor: NSColor {
+        resolvedBrowserOmnibarPillBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: browserChromeBackgroundColor
+        )
     }
 
     var body: some View {
@@ -648,7 +680,7 @@ struct BrowserPanelView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
