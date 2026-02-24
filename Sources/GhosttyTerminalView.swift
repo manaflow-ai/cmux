@@ -1988,6 +1988,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         view.forceRefreshSurface()
+        guard let surface = surface else { return }
         ghostty_surface_refresh(surface)
     }
 
