@@ -1520,6 +1520,44 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     }
 }
 
+final class BrowserReturnKeyDownRoutingTests: XCTestCase {
+    func testRoutesForReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testRoutesForKeypadEnterWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 76,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testDoesNotRouteForNonEnterKey() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 13,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenFirstResponderIsNotBrowser() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: false
+            )
+        )
+    }
+}
+
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
         XCTAssertEqual(
