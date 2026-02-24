@@ -310,7 +310,7 @@ struct BrowserPanelView: View {
                     }
                 )
                 .frame(width: omnibarPillFrame.width)
-                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 4)
+                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
                 .zIndex(1000)
             }
         }
