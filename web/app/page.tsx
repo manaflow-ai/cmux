@@ -225,6 +225,9 @@ export default function Home() {
                     <span className="text-muted group-hover:text-foreground transition-colors">
                       &quot;{t.text}&quot;
                     </span>
+                    {"translation" in t && t.translation && (
+                      <span className="text-muted/60 text-xs italic"> — {t.translation}</span>
+                    )}
                   </a>
                   {" "}
                   <a
