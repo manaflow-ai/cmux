@@ -71,7 +71,7 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
             // Matches Bonsplit tab icon tint for active tabs.
             return Color(nsColor: .labelColor)
         case .accent:
-            return .accentColor
+            return cmuxAccentColor()
         case .tertiary:
             return Color(nsColor: .tertiaryLabelColor)
         }
@@ -288,8 +288,8 @@ struct BrowserPanelView: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
-                .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
+                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
@@ -676,7 +676,7 @@ struct BrowserPanelView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .stroke(addressBarFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .background {

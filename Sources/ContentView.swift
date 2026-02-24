@@ -38,23 +38,43 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
-func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     switch colorScheme {
     case .dark:
         return NSColor(
-            srgbRed: 63.0 / 255.0,
-            green: 142.0 / 255.0,
-            blue: 252.0 / 255.0,
+            srgbRed: 0,
+            green: 145.0 / 255.0,
+            blue: 1.0,
             alpha: 1.0
         )
     default:
         return NSColor(
-            srgbRed: 62.0 / 255.0,
-            green: 133.0 / 255.0,
-            blue: 252.0 / 255.0,
+            srgbRed: 0,
+            green: 136.0 / 255.0,
+            blue: 1.0,
             alpha: 1.0
         )
     }
+}
+
+func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
+    return cmuxAccentNSColor(for: scheme)
+}
+
+func cmuxAccentNSColor() -> NSColor {
+    NSColor(name: nil) { appearance in
+        cmuxAccentNSColor(for: appearance)
+    }
+}
+
+func cmuxAccentColor() -> Color {
+    Color(nsColor: cmuxAccentNSColor())
+}
+
+func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+    cmuxAccentNSColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
@@ -2583,7 +2603,7 @@ struct ContentView: View {
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
                             let rowBackground: Color = isSelected
-                                ? Color.accentColor.opacity(0.12)
+                                ? cmuxAccentColor().opacity(0.12)
                                 : (isHovered ? Color.primary.opacity(0.08) : .clear)
 
                             Button {
@@ -5903,7 +5923,7 @@ private struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(Color.accentColor)
+                        .fill(cmuxAccentColor())
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -6010,7 +6030,7 @@ private struct TabItemView: View {
     }
 
     private var activeUnreadBadgeFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.25) : Color.accentColor
+        usesInvertedActiveForeground ? Color.white.opacity(0.25) : cmuxAccentColor()
     }
 
     private var activeProgressTrackColor: Color {
@@ -6018,7 +6038,7 @@ private struct TabItemView: View {
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.8) : Color.accentColor
+        usesInvertedActiveForeground ? Color.white.opacity(0.8) : cmuxAccentColor()
     }
 
     private var shortcutHintEmphasis: Double {
@@ -6289,7 +6309,7 @@ private struct TabItemView: View {
         .overlay(alignment: .top) {
             if showsCenteredTopDropIndicator {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(cmuxAccentColor())
                     .frame(height: 2)
                     .padding(.horizontal, 8)
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
@@ -6492,7 +6512,7 @@ private struct TabItemView: View {
         switch activeTabIndicatorStyle {
         case .leftRail:
             if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
-            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         case .solidFill:
             if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
@@ -6500,7 +6520,7 @@ private struct TabItemView: View {
                 if isMultiSelected { return custom.opacity(0.35) }
                 return custom.opacity(0.7)
             }
-            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         }
     }
