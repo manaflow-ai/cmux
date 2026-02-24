@@ -753,6 +753,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var installedThemeFrame: NSView?
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
+    private var isPaletteVisible = false
+    private var windowDidBecomeKeyObserver: NSObjectProtocol?
+    private var windowDidResignKeyObserver: NSObjectProtocol?
 
     init(window: NSWindow) {
         self.window = window
@@ -775,6 +778,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
         _ = ensureInstalled()
+        installWindowKeyObservers()
     }
 
     @discardableResult
@@ -906,6 +910,52 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
+    private func installWindowKeyObservers() {
+        guard let window else { return }
+        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFocusLockForWindowState()
+            }
+        }
+        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFocusLockForWindowState()
+            }
+        }
+    }
+
+    private func updateFocusLockForWindowState() {
+        guard let window else {
+            stopFocusLockTimer()
+            return
+        }
+        guard isPaletteVisible else {
+            stopFocusLockTimer()
+            return
+        }
+
+        guard window.isKeyWindow else {
+            stopFocusLockTimer()
+            if isPaletteResponder(window.firstResponder) {
+                _ = window.makeFirstResponder(nil)
+            }
+            return
+        }
+
+        startFocusLockTimer()
+        if !isPaletteTextInputFirstResponder(window.firstResponder) {
+            scheduleFocusIntoPalette(retries: 8)
+        }
+    }
+
     private func startFocusLockTimer() {
         guard focusLockTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -952,6 +1002,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(rootView: AnyView, isVisible: Bool) {
         guard ensureInstalled() else { return }
+        isPaletteVisible = isVisible
         if isVisible {
             hostingView.rootView = rootView
             containerView.capturesMouseEvents = true
@@ -960,10 +1011,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             if let themeFrame = installedThemeFrame, themeFrame.subviews.last !== containerView {
                 themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
             }
-            startFocusLockTimer()
-            if let window, !isPaletteTextInputFirstResponder(window.firstResponder) {
-                scheduleFocusIntoPalette(retries: 8)
-            }
+            updateFocusLockForWindowState()
         } else {
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
@@ -5193,8 +5241,8 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    // Double-click the sidebar title-bar area to zoom the
-                    // window, matching the panel top-bar behaviour.
+                    // Double-click the sidebar title-bar area to trigger the
+                    // standard macOS titlebar action (zoom/minimize).
                     DoubleClickZoomView()
                         .frame(height: trafficLightPadding)
                 }
@@ -7444,11 +7492,10 @@ private struct DoubleClickZoomView: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { self }
         override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                window?.zoom(nil)
-            } else {
-                super.mouseDown(with: event)
+            if event.clickCount == 2, performStandardTitlebarDoubleClick(window: window) {
+                return
             }
+            super.mouseDown(with: event)
         }
     }
 }
@@ -7645,7 +7692,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point) else { return nil }
-        maybeDisableWindowDraggingEarly(trigger: "hitTest")
         let hit = super.hitTest(point)
         #if DEBUG
         let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
@@ -7685,9 +7731,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
-        if !hasActiveDragSession {
-            restoreWindowMovableStateIfNeeded()
-        }
+        // Always restore suppression on mouse-up; drag-session callbacks can be
+        // skipped for non-started drags, which would otherwise leave suppression stuck.
+        restoreWindowMovableStateIfNeeded()
     }
 
     override func rightMouseDown(with event: NSEvent) {

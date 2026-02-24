@@ -1535,6 +1535,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func commandPaletteWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let scopedWindow = mainWindowForShortcutEvent(event) {
+            return scopedWindow
+        }
+        return activeCommandPaletteWindow()
+    }
+
     private func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
         guard let window, isMainTerminalWindow(window) else { return nil }
         return mainWindowContexts[ObjectIdentifier(window)]
@@ -2950,13 +2957,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
+        let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteVisible(for: $0)
+        } ?? false
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
             chars: chars,
             keyCode: event.keyCode
         ),
-           let paletteWindow = activeCommandPaletteWindow() {
+           commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteTargetWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
                 object: paletteWindow,
@@ -2967,20 +2979,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
         if isCommandP {
-            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
             return true
         }
 
         let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
         if isCommandShiftP {
-            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
             return true
         }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: activeCommandPaletteWindow() != nil,
+            isCommandPaletteVisible: commandPaletteVisibleInTargetWindow,
             normalizedFlags: normalizedFlags,
             chars: chars,
             keyCode: event.keyCode
@@ -3184,7 +3196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if tabManager?.focusedBrowserPanel != nil {
                 return false
             }
-            let targetWindow = activeCommandPaletteWindow() ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
             return true
         }
