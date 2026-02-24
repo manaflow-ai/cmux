@@ -315,6 +315,42 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+func shouldConsumeShortcutWhileCommandPaletteVisible(
+    isCommandPaletteVisible: Bool,
+    normalizedFlags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    guard isCommandPaletteVisible else { return false }
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [.command] {
+        if normalizedChars == "a"
+            || normalizedChars == "c"
+            || normalizedChars == "v"
+            || normalizedChars == "x"
+            || normalizedChars == "z"
+            || normalizedChars == "y" {
+            return false
+        }
+
+        switch keyCode {
+        case 51, 117, 123, 124:
+            return false
+        default:
+            break
+        }
+    }
+
+    if normalizedFlags == [.command, .shift], normalizedChars == "z" {
+        return false
+    }
+
+    return true
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -2578,6 +2614,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if shouldConsumeShortcutWhileCommandPaletteVisible(
+            isCommandPaletteVisible: activeCommandPaletteWindow() != nil,
+            normalizedFlags: normalizedFlags,
+            chars: chars,
+            keyCode: event.keyCode
+        ) {
+            return true
+        }
+
         if normalizedFlags == [.command], chars == "q" {
             return handleQuitShortcutWarning()
         }
@@ -3098,6 +3143,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = panel.requestAddressBarFocus()
         browserAddressBarFocusedPanelId = panel.id
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+    }
+
+    func focusedBrowserAddressBarPanelId() -> UUID? {
+        browserAddressBarFocusedPanelId
+    }
+
+    @discardableResult
+    func requestBrowserAddressBarFocus(panelId: UUID) -> Bool {
+        focusBrowserAddressBar(panelId: panelId)
     }
 
     private func shouldBypassAppShortcutForFocusedBrowserAddressBar(

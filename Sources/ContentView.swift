@@ -28,6 +28,16 @@ private func coloredCircleImage(color: NSColor) -> NSImage {
     return image
 }
 
+func sidebarActiveForegroundNSColor(
+    opacity: CGFloat,
+    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
+    return baseColor.withAlphaComponent(clampedOpacity)
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -1169,9 +1179,15 @@ struct ContentView: View {
         }
     }
 
+    private enum CommandPaletteRestoreFocusIntent {
+        case panel
+        case browserAddressBar
+    }
+
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
+        let intent: CommandPaletteRestoreFocusIntent
     }
 
     private enum CommandPaletteInputFocusTarget {
@@ -2449,7 +2465,7 @@ struct ContentView: View {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .regular))
-                    .tint(.white)
+                    .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                     .focused($isCommandPaletteSearchFocused)
                     .onSubmit {
                         runSelectedCommandPaletteResult(visibleResults: visibleResults)
@@ -2602,7 +2618,7 @@ struct ContentView: View {
             TextField(target.placeholder, text: $commandPaletteRenameDraft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .regular))
-                .tint(.white)
+                .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                 .focused($isCommandPaletteRenameFocused)
                 .backport.onKeyPress(.delete) { modifiers in
                     handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
@@ -4137,6 +4153,14 @@ struct ContentView: View {
         return false
     }
 
+    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+        focusedPanelIsBrowser: Bool,
+        focusedBrowserAddressBarPanelId: UUID?,
+        focusedPanelId: UUID
+    ) -> Bool {
+        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+    }
+
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
@@ -4178,9 +4202,15 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         if let panelContext = focusedPanelContext {
+            let shouldRestoreBrowserAddressBar = Self.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: panelContext.panel.panelType == .browser,
+                focusedBrowserAddressBarPanelId: AppDelegate.shared?.focusedBrowserAddressBarPanelId(),
+                focusedPanelId: panelContext.panelId
+            )
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId
+                panelId: panelContext.panelId,
+                intent: shouldRestoreBrowserAddressBar ? .browserAddressBar : .panel
             )
         } else {
             commandPaletteRestoreFocusTarget = nil
@@ -4236,15 +4266,44 @@ struct ContentView: View {
         }
         tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
 
+        if let context = focusedPanelContext,
+           context.workspace.id == target.workspaceId,
+           context.panelId == target.panelId {
+            restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
+            return
+        }
+
         guard attemptsRemaining > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
             guard !isCommandPalettePresented else { return }
             if let context = focusedPanelContext,
                context.workspace.id == target.workspaceId,
                context.panelId == target.panelId {
+                restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
                 return
             }
             restoreCommandPaletteFocus(target: target, attemptsRemaining: attemptsRemaining - 1)
+        }
+    }
+
+    private func restoreCommandPaletteInputFocusIfNeeded(
+        target: CommandPaletteRestoreFocusTarget,
+        attemptsRemaining: Int
+    ) {
+        guard !isCommandPalettePresented else { return }
+        guard target.intent == .browserAddressBar else { return }
+        guard attemptsRemaining > 0 else { return }
+        guard let appDelegate = AppDelegate.shared else { return }
+
+        if appDelegate.requestBrowserAddressBarFocus(panelId: target.panelId) {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            restoreCommandPaletteInputFocusIfNeeded(
+                target: target,
+                attemptsRemaining: attemptsRemaining - 1
+            )
         }
     }
 
@@ -5867,11 +5926,13 @@ private struct TabItemView: View {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground ? .white : .primary
+        usesInvertedActiveForeground ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)) : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground ? .white.opacity(opacity) : .secondary
+        usesInvertedActiveForeground
+            ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: CGFloat(opacity)))
+            : .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -6614,11 +6675,16 @@ private struct TabItemView: View {
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
         if isActive {
             switch level {
-            case .info: return .white.opacity(0.5)
-            case .progress: return .white.opacity(0.8)
-            case .success: return .white.opacity(0.9)
-            case .warning: return .white.opacity(0.9)
-            case .error: return .white.opacity(0.9)
+            case .info:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.5))
+            case .progress:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+            case .success:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .warning:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .error:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
             }
         }
         switch level {
@@ -6724,7 +6790,7 @@ private struct SidebarStatusPillsRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(statusText)
                 .font(.system(size: 10))
-                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(isActive ? activePrimaryTextColor : .secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
@@ -6747,11 +6813,19 @@ private struct SidebarStatusPillsRow: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .help(statusText)
+    }
+
+    private var activePrimaryTextColor: Color {
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+    }
+
+    private var activeSecondaryTextColor: Color {
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.65))
     }
 
     private var statusText: String {

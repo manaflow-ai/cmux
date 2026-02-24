@@ -773,6 +773,40 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 }
 
+final class SidebarActiveForegroundColorTests: XCTestCase {
+    func testLightAppearanceUsesBlackWithRequestedOpacity() {
+        guard let lightAppearance = NSAppearance(named: .aqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.8,
+                  appAppearance: lightAppearance
+              ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+    }
+
+    func testDarkAppearanceUsesWhiteWithRequestedOpacity() {
+        guard let darkAppearance = NSAppearance(named: .darkAqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.65,
+                  appAppearance: darkAppearance
+              ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
@@ -1576,6 +1610,126 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
                 flags: [.control],
                 chars: "x",
                 keyCode: 7
+            )
+        )
+    }
+}
+
+final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
+    func testDoesNotConsumeWhenPaletteIsNotVisible() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: false,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+    }
+
+    func testConsumesAppCommandShortcutsWhenPaletteIsVisible() {
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "t",
+                keyCode: 17
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: ",",
+                keyCode: 43
+            )
+        )
+    }
+
+    func testAllowsClipboardAndUndoShortcutsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "v",
+                keyCode: 9
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+    }
+
+    func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 123
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 51
+            )
+        )
+    }
+}
+
+final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
+    func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
+        let panelId = UUID()
+        XCTAssertTrue(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
+        let panelId = UUID()
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: false,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: UUID(),
+                focusedPanelId: UUID()
             )
         )
     }
@@ -6009,6 +6163,35 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
                 .control("\n".unicodeScalars.first!),
                 .control("\t".unicodeScalars.first!)
             ]
+        )
+    }
+}
+
+final class BrowserOmnibarFocusPolicyTests: XCTestCase {
+    func testReacquiresFocusWhenWebViewSuppressionIsActiveAndNextResponderIsNotAnotherTextField() {
+        XCTAssertTrue(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: false
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: true
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenWebViewSuppressionIsInactive() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: false,
+                nextResponderIsOtherTextField: false
+            )
         )
     }
 }
