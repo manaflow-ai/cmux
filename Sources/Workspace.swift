@@ -577,6 +577,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
     private var geometryReconcileScheduled = false
+    private var geometryReconcileNeedsRerun = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
     private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
@@ -2241,18 +2242,67 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
+    private func reconcileTerminalGeometryPass() -> Bool {
+        var needsFollowUpPass = false
+
+        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
+        for window in NSApp.windows {
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        for panel in panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            let hostedView = terminalPanel.hostedView
+            let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
+            let hasSurface = terminalPanel.surface.surface != nil
+            let isAttached = hostedView.window != nil && hostedView.superview != nil
+
+            // Split close/reparent churn can transiently detach a surviving terminal view.
+            // Force one SwiftUI representable update so the portal binding reattaches it.
+            if !isAttached || !hasUsableBounds || !hasSurface {
+                terminalPanel.requestViewReattach()
+                needsFollowUpPass = true
+            }
+
+            hostedView.reconcileGeometryNow()
+            terminalPanel.surface.forceRefresh()
+        }
+
+        return needsFollowUpPass
+    }
+
+    private func runScheduledTerminalGeometryReconcile(remainingPasses: Int) {
+        guard remainingPasses > 0 else {
+            geometryReconcileScheduled = false
+            geometryReconcileNeedsRerun = false
+            return
+        }
+
+        let needsFollowUpPass = reconcileTerminalGeometryPass()
+        let shouldRunAgain = geometryReconcileNeedsRerun || needsFollowUpPass
+
+        if shouldRunAgain, remainingPasses > 1 {
+            geometryReconcileNeedsRerun = false
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.runScheduledTerminalGeometryReconcile(remainingPasses: remainingPasses - 1)
+            }
+            return
+        }
+
+        geometryReconcileScheduled = false
+        geometryReconcileNeedsRerun = false
+    }
+
     private func scheduleTerminalGeometryReconcile() {
-        guard !geometryReconcileScheduled else { return }
+        guard !geometryReconcileScheduled else {
+            geometryReconcileNeedsRerun = true
+            return
+        }
         geometryReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.geometryReconcileScheduled = false
-
-            for panel in self.panels.values {
-                guard let terminalPanel = panel as? TerminalPanel else { continue }
-                terminalPanel.hostedView.reconcileGeometryNow()
-                terminalPanel.surface.forceRefresh()
-            }
+            self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
         }
     }
 
