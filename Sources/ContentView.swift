@@ -6239,6 +6239,12 @@ private struct TabItemView: View {
             dragAutoScrollController: dragAutoScrollController,
             dropIndicator: $dropIndicator
         ))
+        .onDrop(of: [BonsplitTabDragPayload.typeIdentifier], delegate: SidebarBonsplitTabDropDelegate(
+            targetWorkspaceId: tab.id,
+            tabManager: tabManager,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        ))
         .onTapGesture {
             updateSelection()
         }
@@ -6339,6 +6345,28 @@ private struct TabItemView: View {
             Button("Move to Top") {
                 tabManager.moveTabsToTop(Set(targetIds))
                 syncSelectionAfterMutation()
+            }
+            .disabled(targetIds.isEmpty)
+
+            let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+            let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+            let moveMenuTitle = targetIds.count > 1 ? "Move Workspaces to Window" : "Move Workspace to Window"
+            Menu(moveMenuTitle) {
+                Button("New Window") {
+                    moveWorkspacesToNewWindow(targetIds)
+                }
+                .disabled(targetIds.isEmpty)
+
+                if !windowMoveTargets.isEmpty {
+                    Divider()
+                }
+
+                ForEach(windowMoveTargets) { target in
+                    Button(target.label) {
+                        moveWorkspaces(targetIds, toWindow: target.windowId)
+                    }
+                    .disabled(target.isCurrentWindow || targetIds.isEmpty)
+                }
             }
             .disabled(targetIds.isEmpty)
 
@@ -6568,6 +6596,43 @@ private struct TabItemView: View {
         if let selectedId = tabManager.selectedTabId {
             lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
         }
+    }
+
+    private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard !orderedWorkspaceIds.isEmpty else { return }
+
+        for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
+            let shouldFocus = index == orderedWorkspaceIds.count - 1
+            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
+        }
+
+        selectedTabIds.subtract(orderedWorkspaceIds)
+        syncSelectionAfterMutation()
+    }
+
+    private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
+
+        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
+        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
+            return
+        }
+
+        if orderedWorkspaceIds.count > 1 {
+            for workspaceId in orderedWorkspaceIds.dropFirst() {
+                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
+            }
+            if let finalWorkspaceId = orderedWorkspaceIds.last {
+                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
+            }
+        }
+
+        selectedTabIds.subtract(orderedWorkspaceIds)
+        syncSelectionAfterMutation()
     }
 
     private var latestNotificationText: String? {
@@ -7124,6 +7189,111 @@ private enum SidebarTabDragPayload {
             return nil
         }
         return provider
+    }
+}
+
+private enum BonsplitTabDragPayload {
+    static let typeIdentifier = "com.splittabbar.tabtransfer"
+    private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
+
+    struct Transfer: Decodable {
+        struct TabInfo: Decodable {
+            let id: UUID
+        }
+
+        let tab: TabInfo
+        let sourcePaneId: UUID
+        let sourceProcessId: Int32
+
+        private enum CodingKeys: String, CodingKey {
+            case tab
+            case sourcePaneId
+            case sourceProcessId
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.tab = try container.decode(TabInfo.self, forKey: .tab)
+            self.sourcePaneId = try container.decode(UUID.self, forKey: .sourcePaneId)
+            // Legacy payloads won't include this field. Treat as foreign process.
+            self.sourceProcessId = try container.decodeIfPresent(Int32.self, forKey: .sourceProcessId) ?? -1
+        }
+    }
+
+    private static func isCurrentProcessTransfer(_ transfer: Transfer) -> Bool {
+        transfer.sourceProcessId == currentProcessId
+    }
+
+    static func currentTransfer() -> Transfer? {
+        let pasteboard = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType(typeIdentifier)
+
+        if let data = pasteboard.data(forType: type),
+           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
+           isCurrentProcessTransfer(transfer) {
+            return transfer
+        }
+
+        if let raw = pasteboard.string(forType: type),
+           let data = raw.data(using: .utf8),
+           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
+           isCurrentProcessTransfer(transfer) {
+            return transfer
+        }
+
+        return nil
+    }
+}
+
+private struct SidebarBonsplitTabDropDelegate: DropDelegate {
+    let targetWorkspaceId: UUID
+    let tabManager: TabManager
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
+        return BonsplitTabDragPayload.currentTransfer() != nil
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else { return nil }
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info),
+              let transfer = BonsplitTabDragPayload.currentTransfer(),
+              let app = AppDelegate.shared else {
+            return false
+        }
+
+        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+           source.workspaceId == targetWorkspaceId {
+            syncSidebarSelection()
+            return true
+        }
+
+        guard app.moveBonsplitTab(
+            tabId: transfer.tab.id,
+            toWorkspace: targetWorkspaceId,
+            focus: true,
+            focusWindow: true
+        ) else {
+            return false
+        }
+
+        selectedTabIds = [targetWorkspaceId]
+        syncSidebarSelection()
+        return true
+    }
+
+    private func syncSidebarSelection() {
+        if let selectedId = tabManager.selectedTabId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            lastSidebarSelectionIndex = nil
+        }
     }
 }
 

@@ -2898,6 +2898,81 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testDetachLastSurfaceLeavesWorkspaceTemporarilyEmptyForMoveFlow() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            XCTFail("Expected initial panel and pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.panels.count, 1)
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
+
+        guard let detached = workspace.detachSurface(panelId: panelId) else {
+            XCTFail("Expected detach of last surface to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, panelId)
+        XCTAssertTrue(
+            workspace.panels.isEmpty,
+            "Detaching the last surface should not auto-create a replacement panel"
+        )
+        XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching during cross-workspace moves should not schedule delayed source focus reconciliation"
+        )
+#endif
+
+        let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
+        XCTAssertEqual(restoredPanelId, panelId)
+        XCTAssertEqual(workspace.panels.count, 1)
+    }
+
+    func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {
+        let workspace = Workspace()
+        guard let originalPanelId = workspace.focusedPanelId,
+              let movedPanel = workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) else {
+            XCTFail("Expected two panels before detach")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
+
+        guard let detached = workspace.detachSurface(panelId: movedPanel.id) else {
+            XCTFail("Expected detach to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, movedPanel.id)
+        XCTAssertEqual(workspace.panels.count, 1, "Expected source workspace to retain only the surviving panel")
+        XCTAssertNotNil(workspace.panels[originalPanelId], "Expected the original panel to remain after detach")
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching into another workspace should not enqueue delayed source focus reconciliation"
+        )
+#endif
+    }
+
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {
@@ -6191,6 +6266,48 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
             browserOmnibarShouldReacquireFocusAfterEndEditing(
                 suppressWebViewFocus: false,
                 nextResponderIsOtherTextField: false
+            )
+        )
+    }
+}
+
+final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+    func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: false,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: true
+            )
+        )
+    }
+
+    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
+        XCTAssertFalse(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: false,
+                isBoundToCurrentHost: false
             )
         )
     }
