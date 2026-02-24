@@ -54,6 +54,52 @@ private func installCmuxUnitTestInspectorOverride() {
     cmuxUnitTestInspectorOverrideInstalled = true
 }
 
+final class SplitShortcutTransientFocusGuardTests: XCTestCase {
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsDetached() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: false
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderFallsBackButGeometryIsHealthy() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderIsTerminalEvenIfViewIsTiny() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: false,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -652,6 +698,112 @@ final class BrowserThemeSettingsTests: XCTestCase {
         otherDefaults.set(false, forKey: BrowserThemeSettings.legacyForcedDarkModeEnabledKey)
         XCTAssertEqual(BrowserThemeSettings.mode(defaults: otherDefaults), .system)
         XCTAssertEqual(otherDefaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.system.rawValue)
+    }
+}
+
+final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
+    func testLightModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .light)
+    }
+
+    func testDarkModeUsesThemeBackgroundColor() {
+        assertResolvedColorMatchesTheme(for: .dark)
+    }
+
+    private func assertResolvedColorMatchesTheme(
+        for colorScheme: ColorScheme,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
+
+        guard
+            let actual = resolvedBrowserChromeBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expected = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
+    func testLightModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
+    }
+
+    func testDarkModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+    }
+
+    private func assertResolvedColorMatchesExpectedBlend(
+        for colorScheme: ColorScheme,
+        darkenMix: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
+        let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
+
+        guard
+            let actual = resolvedBrowserOmnibarPillBackgroundColor(
+                for: colorScheme,
+                themeBackgroundColor: themeBackground
+            ).usingColorSpace(.sRGB),
+            let expectedSRGB = expected.usingColorSpace(.sRGB),
+            let themeSRGB = themeBackground.usingColorSpace(.sRGB)
+        else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expectedSRGB.redComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.greenComponent, expectedSRGB.greenComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.blueComponent, expectedSRGB.blueComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.001, file: file, line: line)
+        XCTAssertNotEqual(actual.redComponent, themeSRGB.redComponent, file: file, line: line)
+    }
+}
+
+final class SidebarActiveForegroundColorTests: XCTestCase {
+    func testLightAppearanceUsesBlackWithRequestedOpacity() {
+        guard let lightAppearance = NSAppearance(named: .aqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.8,
+                  appAppearance: lightAppearance
+              ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+    }
+
+    func testDarkAppearanceUsesWhiteWithRequestedOpacity() {
+        guard let darkAppearance = NSAppearance(named: .darkAqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.65,
+                  appAppearance: darkAppearance
+              ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 }
 
@@ -1458,6 +1610,126 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
                 flags: [.control],
                 chars: "x",
                 keyCode: 7
+            )
+        )
+    }
+}
+
+final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
+    func testDoesNotConsumeWhenPaletteIsNotVisible() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: false,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+    }
+
+    func testConsumesAppCommandShortcutsWhenPaletteIsVisible() {
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "t",
+                keyCode: 17
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: ",",
+                keyCode: 43
+            )
+        )
+    }
+
+    func testAllowsClipboardAndUndoShortcutsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "v",
+                keyCode: 9
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+    }
+
+    func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 123
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 51
+            )
+        )
+    }
+}
+
+final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
+    func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
+        let panelId = UUID()
+        XCTAssertTrue(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
+        let panelId = UUID()
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: false,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: UUID(),
+                focusedPanelId: UUID()
             )
         )
     }
@@ -2624,6 +2896,81 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             originalFocusedPanelId,
             "Expected non-focus terminal split to preserve pre-split focus"
         )
+    }
+
+    func testDetachLastSurfaceLeavesWorkspaceTemporarilyEmptyForMoveFlow() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            XCTFail("Expected initial panel and pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.panels.count, 1)
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
+
+        guard let detached = workspace.detachSurface(panelId: panelId) else {
+            XCTFail("Expected detach of last surface to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, panelId)
+        XCTAssertTrue(
+            workspace.panels.isEmpty,
+            "Detaching the last surface should not auto-create a replacement panel"
+        )
+        XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching during cross-workspace moves should not schedule delayed source focus reconciliation"
+        )
+#endif
+
+        let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
+        XCTAssertEqual(restoredPanelId, panelId)
+        XCTAssertEqual(workspace.panels.count, 1)
+    }
+
+    func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {
+        let workspace = Workspace()
+        guard let originalPanelId = workspace.focusedPanelId,
+              let movedPanel = workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) else {
+            XCTFail("Expected two panels before detach")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
+
+        guard let detached = workspace.detachSurface(panelId: movedPanel.id) else {
+            XCTFail("Expected detach to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, movedPanel.id)
+        XCTAssertEqual(workspace.panels.count, 1, "Expected source workspace to retain only the surviving panel")
+        XCTAssertNotNil(workspace.panels[originalPanelId], "Expected the original panel to remain after detach")
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching into another workspace should not enqueue delayed source focus reconciliation"
+        )
+#endif
     }
 
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
@@ -4531,6 +4878,314 @@ final class WindowBrowserHostViewTests: XCTestCase {
 }
 
 @MainActor
+final class WindowDragHandleHitTests: XCTestCase {
+    private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class HostContainerView: NSView {}
+    private final class PassiveHostContainerView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            return super.hitTest(point) ?? self
+        }
+    }
+
+    func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            "Empty titlebar space should drag the window"
+        )
+    }
+
+    func testDragHandleYieldsWhenSiblingClaimsPoint() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let folderIconHost = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        container.addSubview(folderIconHost)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            "Interactive titlebar controls should receive the mouse event"
+        )
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle))
+    }
+
+    func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let hidden = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        hidden.isHidden = true
+        container.addSubview(hidden)
+
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle))
+    }
+
+    func testDragHandleDoesNotCaptureOutsideBounds() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+    }
+
+    func testPassiveHostingTopHitClassification() {
+        XCTAssertTrue(windowDragHandleShouldTreatTopHitAsPassiveHost(HostContainerView(frame: .zero)))
+        XCTAssertFalse(windowDragHandleShouldTreatTopHitAsPassiveHost(NSButton(frame: .zero)))
+    }
+
+    func testDragHandleIgnoresPassiveHostSiblingHit() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let passiveHost = PassiveHostContainerView(frame: container.bounds)
+        container.addSubview(passiveHost)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            "Passive host wrappers should not block titlebar drag capture"
+        )
+    }
+
+    func testDragHandleRespectsInteractiveChildInsidePassiveHost() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let passiveHost = PassiveHostContainerView(frame: container.bounds)
+        let folderControl = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        passiveHost.addSubview(folderControl)
+        container.addSubview(passiveHost)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            "Interactive controls inside passive host wrappers should still receive hits"
+        )
+    }
+}
+
+@MainActor
+final class DraggableFolderHitTests: XCTestCase {
+    func testFolderHitTestReturnsContainerWhenInsideBounds() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
+
+        guard let hit = folderView.hitTest(NSPoint(x: 8, y: 8)) else {
+            XCTFail("Expected folder icon to capture inside hit")
+            return
+        }
+        XCTAssertTrue(hit === folderView)
+    }
+
+    func testFolderHitTestReturnsNilOutsideBounds() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
+
+        XCTAssertNil(folderView.hitTest(NSPoint(x: 20, y: 8)))
+    }
+
+    func testFolderIconDisablesWindowMoveBehavior() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        XCTAssertFalse(folderView.mouseDownCanMoveWindow)
+    }
+}
+
+@MainActor
+final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
+    func testLeadingInsetViewDoesNotParticipateInHitTesting() {
+        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        XCTAssertNil(view.hitTest(NSPoint(x: 20, y: 10)))
+    }
+
+    func testLeadingInsetViewCannotMoveWindowViaMouseDown() {
+        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        XCTAssertFalse(view.mouseDownCanMoveWindow)
+    }
+}
+
+@MainActor
+final class FolderWindowMoveSuppressionTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    func testSuppressionDisablesMovableWindow() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        let previous = temporarilyDisableWindowDragging(window: window)
+
+        XCTAssertEqual(previous, true)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testSuppressionPreservesAlreadyImmovableWindow() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let previous = temporarilyDisableWindowDragging(window: window)
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testRestoreAppliesPreviousMovableState() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        restoreWindowDragging(window: window, previousMovableState: true)
+        XCTAssertTrue(window.isMovable)
+
+        restoreWindowDragging(window: window, previousMovableState: false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testWindowDragSuppressionDepthLifecycle() {
+        let window = makeWindow()
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+    }
+
+    func testWindowDragSuppressionIsReferenceCounted() {
+        let window = makeWindow()
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+    }
+
+    func testTemporaryWindowMovableEnableRestoresImmovableWindow() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testTemporaryWindowMovableEnablePreservesMovableWindow() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, true)
+        XCTAssertTrue(window.isMovable)
+    }
+}
+
+@MainActor
+final class WindowMoveSuppressionHitPathTests: XCTestCase {
+    private func makeWindowWithContentView() -> (NSWindow, NSView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        return (window, contentView)
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    func testSuppressionHitPathRecognizesFolderView() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: folderView))
+    }
+
+    func testSuppressionHitPathRecognizesDescendantOfFolderView() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let child = NSView(frame: .zero)
+        folderView.addSubview(child)
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: child))
+    }
+
+    func testSuppressionHitPathIgnoresUnrelatedViews() {
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(hitView: NSView(frame: .zero)))
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(hitView: nil))
+    }
+
+    func testSuppressionEventPathRecognizesFolderHitInsideWindow() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 10, y: 10, width: 16, height: 16)
+        contentView.addSubview(folderView)
+
+        let event = makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 14, y: 14), window: window)
+
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(window: window, event: event))
+    }
+
+    func testSuppressionEventPathRejectsNonFolderAndNonMouseDownEvents() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let plainView = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        contentView.addSubview(plainView)
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 20, y: 20), window: window)
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: down))
+
+        let dragged = makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 20, y: 20), window: window)
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
+    }
+}
+
+@MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
@@ -4714,6 +5369,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4902,6 +5565,50 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+
+    func testHiddenPortalDefersRevealUntilFrameHasUsableSize() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let portal = WindowTerminalPortal(window: window)
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 280, height: 220))
+        contentView.addSubview(anchor)
+
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        XCTAssertFalse(hosted.isHidden, "Healthy geometry should be visible")
+
+        // Collapse to a tiny frame first.
+        anchor.frame = NSRect(x: 160.5, y: 1037.0, width: 79.0, height: 0.0)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertTrue(hosted.isHidden, "Tiny geometry should hide the portal-hosted terminal")
+
+        // Then restore to a non-zero but still too-small frame. It should remain hidden.
+        anchor.frame = NSRect(x: 160.9, y: 1026.5, width: 93.6, height: 10.3)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertTrue(
+            hosted.isHidden,
+            "Portal should defer reveal until geometry reaches a usable size"
+        )
+
+        // Once the frame is large enough again, reveal should resume.
+        anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 40)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 }
 
@@ -5531,6 +6238,77 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
                 .control("\n".unicodeScalars.first!),
                 .control("\t".unicodeScalars.first!)
             ]
+        )
+    }
+}
+
+final class BrowserOmnibarFocusPolicyTests: XCTestCase {
+    func testReacquiresFocusWhenWebViewSuppressionIsActiveAndNextResponderIsNotAnotherTextField() {
+        XCTAssertTrue(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: false
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: true
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenWebViewSuppressionIsInactive() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: false,
+                nextResponderIsOtherTextField: false
+            )
+        )
+    }
+}
+
+final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+    func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: false,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: true
+            )
+        )
+    }
+
+    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
+        XCTAssertFalse(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: false,
+                isBoundToCurrentHost: false
+            )
         )
     }
 }

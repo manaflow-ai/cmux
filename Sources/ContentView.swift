@@ -28,6 +28,16 @@ private func coloredCircleImage(color: NSColor) -> NSImage {
     return image
 }
 
+func sidebarActiveForegroundNSColor(
+    opacity: CGFloat,
+    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
+    return baseColor.withAlphaComponent(clampedOpacity)
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -1169,9 +1179,15 @@ struct ContentView: View {
         }
     }
 
+    private enum CommandPaletteRestoreFocusIntent {
+        case panel
+        case browserAddressBar
+    }
+
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
+        let intent: CommandPaletteRestoreFocusIntent
     }
 
     private enum CommandPaletteInputFocusTarget {
@@ -1732,6 +1748,7 @@ struct ContentView: View {
             WindowDragHandleView()
 
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
+                .allowsHitTesting(false)
 
             HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
@@ -1747,6 +1764,7 @@ struct ContentView: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(fakeTitlebarTextColor)
                     .lineLimit(1)
+                    .allowsHitTesting(false)
 
                 Spacer()
 
@@ -1759,9 +1777,6 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            NSApp.keyWindow?.zoom(nil)
-        }
         .background(fakeTitlebarBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -2179,6 +2194,9 @@ struct ContentView: View {
             // Do not make the entire background draggable; it interferes with drag gestures
             // like sidebar tab reordering in multi-window mode.
             window.isMovableByWindowBackground = false
+            // Keep the window immovable by default so titlebar controls (like the folder icon)
+            // cannot accidentally initiate native window drags.
+            window.isMovable = false
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -2447,7 +2465,7 @@ struct ContentView: View {
                 TextField(commandPaletteSearchPlaceholder, text: $commandPaletteQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13, weight: .regular))
-                    .tint(.white)
+                    .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                     .focused($isCommandPaletteSearchFocused)
                     .onSubmit {
                         runSelectedCommandPaletteResult(visibleResults: visibleResults)
@@ -2600,7 +2618,7 @@ struct ContentView: View {
             TextField(target.placeholder, text: $commandPaletteRenameDraft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .regular))
-                .tint(.white)
+                .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                 .focused($isCommandPaletteRenameFocused)
                 .backport.onKeyPress(.delete) { modifiers in
                     handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
@@ -4135,6 +4153,14 @@ struct ContentView: View {
         return false
     }
 
+    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+        focusedPanelIsBrowser: Bool,
+        focusedBrowserAddressBarPanelId: UUID?,
+        focusedPanelId: UUID
+    ) -> Bool {
+        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+    }
+
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
@@ -4176,9 +4202,15 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         if let panelContext = focusedPanelContext {
+            let shouldRestoreBrowserAddressBar = Self.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: panelContext.panel.panelType == .browser,
+                focusedBrowserAddressBarPanelId: AppDelegate.shared?.focusedBrowserAddressBarPanelId(),
+                focusedPanelId: panelContext.panelId
+            )
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId
+                panelId: panelContext.panelId,
+                intent: shouldRestoreBrowserAddressBar ? .browserAddressBar : .panel
             )
         } else {
             commandPaletteRestoreFocusTarget = nil
@@ -4234,15 +4266,44 @@ struct ContentView: View {
         }
         tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
 
+        if let context = focusedPanelContext,
+           context.workspace.id == target.workspaceId,
+           context.panelId == target.panelId {
+            restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
+            return
+        }
+
         guard attemptsRemaining > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
             guard !isCommandPalettePresented else { return }
             if let context = focusedPanelContext,
                context.workspace.id == target.workspaceId,
                context.panelId == target.panelId {
+                restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
                 return
             }
             restoreCommandPaletteFocus(target: target, attemptsRemaining: attemptsRemaining - 1)
+        }
+    }
+
+    private func restoreCommandPaletteInputFocusIfNeeded(
+        target: CommandPaletteRestoreFocusTarget,
+        attemptsRemaining: Int
+    ) {
+        guard !isCommandPalettePresented else { return }
+        guard target.intent == .browserAddressBar else { return }
+        guard attemptsRemaining > 0 else { return }
+        guard let appDelegate = AppDelegate.shared else { return }
+
+        if appDelegate.requestBrowserAddressBarFocus(panelId: target.panelId) {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            restoreCommandPaletteInputFocusIfNeeded(
+                target: target,
+                attemptsRemaining: attemptsRemaining - 1
+            )
         }
     }
 
@@ -5894,11 +5955,13 @@ private struct TabItemView: View {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground ? .white : .primary
+        usesInvertedActiveForeground ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)) : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground ? .white.opacity(opacity) : .secondary
+        usesInvertedActiveForeground
+            ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: CGFloat(opacity)))
+            : .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -6205,6 +6268,12 @@ private struct TabItemView: View {
             dragAutoScrollController: dragAutoScrollController,
             dropIndicator: $dropIndicator
         ))
+        .onDrop(of: [BonsplitTabDragPayload.typeIdentifier], delegate: SidebarBonsplitTabDropDelegate(
+            targetWorkspaceId: tab.id,
+            tabManager: tabManager,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+        ))
         .onTapGesture {
             updateSelection()
         }
@@ -6305,6 +6374,28 @@ private struct TabItemView: View {
             Button("Move to Top") {
                 tabManager.moveTabsToTop(Set(targetIds))
                 syncSelectionAfterMutation()
+            }
+            .disabled(targetIds.isEmpty)
+
+            let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+            let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+            let moveMenuTitle = targetIds.count > 1 ? "Move Workspaces to Window" : "Move Workspace to Window"
+            Menu(moveMenuTitle) {
+                Button("New Window") {
+                    moveWorkspacesToNewWindow(targetIds)
+                }
+                .disabled(targetIds.isEmpty)
+
+                if !windowMoveTargets.isEmpty {
+                    Divider()
+                }
+
+                ForEach(windowMoveTargets) { target in
+                    Button(target.label) {
+                        moveWorkspaces(targetIds, toWindow: target.windowId)
+                    }
+                    .disabled(target.isCurrentWindow || targetIds.isEmpty)
+                }
             }
             .disabled(targetIds.isEmpty)
 
@@ -6536,6 +6627,43 @@ private struct TabItemView: View {
         }
     }
 
+    private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard !orderedWorkspaceIds.isEmpty else { return }
+
+        for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
+            let shouldFocus = index == orderedWorkspaceIds.count - 1
+            _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: shouldFocus)
+        }
+
+        selectedTabIds.subtract(orderedWorkspaceIds)
+        syncSelectionAfterMutation()
+    }
+
+    private func moveWorkspacesToNewWindow(_ workspaceIds: [UUID]) {
+        guard let app = AppDelegate.shared else { return }
+        let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
+
+        let shouldFocusImmediately = orderedWorkspaceIds.count == 1
+        guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
+            return
+        }
+
+        if orderedWorkspaceIds.count > 1 {
+            for workspaceId in orderedWorkspaceIds.dropFirst() {
+                _ = app.moveWorkspaceToWindow(workspaceId: workspaceId, windowId: newWindowId, focus: false)
+            }
+            if let finalWorkspaceId = orderedWorkspaceIds.last {
+                _ = app.moveWorkspaceToWindow(workspaceId: finalWorkspaceId, windowId: newWindowId, focus: true)
+            }
+        }
+
+        selectedTabIds.subtract(orderedWorkspaceIds)
+        syncSelectionAfterMutation()
+    }
+
     private var latestNotificationText: String? {
         guard let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
         let text = notification.body.isEmpty ? notification.title : notification.body
@@ -6641,11 +6769,16 @@ private struct TabItemView: View {
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
         if isActive {
             switch level {
-            case .info: return .white.opacity(0.5)
-            case .progress: return .white.opacity(0.8)
-            case .success: return .white.opacity(0.9)
-            case .warning: return .white.opacity(0.9)
-            case .error: return .white.opacity(0.9)
+            case .info:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.5))
+            case .progress:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+            case .success:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .warning:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .error:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
             }
         }
         switch level {
@@ -6751,7 +6884,7 @@ private struct SidebarStatusPillsRow: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(statusText)
                 .font(.system(size: 10))
-                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(isActive ? activePrimaryTextColor : .secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
@@ -6774,11 +6907,19 @@ private struct SidebarStatusPillsRow: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .help(statusText)
+    }
+
+    private var activePrimaryTextColor: Color {
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+    }
+
+    private var activeSecondaryTextColor: Color {
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.65))
     }
 
     private var statusText: String {
@@ -7103,6 +7244,111 @@ private enum SidebarTabDragPayload {
     }
 }
 
+private enum BonsplitTabDragPayload {
+    static let typeIdentifier = "com.splittabbar.tabtransfer"
+    private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
+
+    struct Transfer: Decodable {
+        struct TabInfo: Decodable {
+            let id: UUID
+        }
+
+        let tab: TabInfo
+        let sourcePaneId: UUID
+        let sourceProcessId: Int32
+
+        private enum CodingKeys: String, CodingKey {
+            case tab
+            case sourcePaneId
+            case sourceProcessId
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.tab = try container.decode(TabInfo.self, forKey: .tab)
+            self.sourcePaneId = try container.decode(UUID.self, forKey: .sourcePaneId)
+            // Legacy payloads won't include this field. Treat as foreign process.
+            self.sourceProcessId = try container.decodeIfPresent(Int32.self, forKey: .sourceProcessId) ?? -1
+        }
+    }
+
+    private static func isCurrentProcessTransfer(_ transfer: Transfer) -> Bool {
+        transfer.sourceProcessId == currentProcessId
+    }
+
+    static func currentTransfer() -> Transfer? {
+        let pasteboard = NSPasteboard(name: .drag)
+        let type = NSPasteboard.PasteboardType(typeIdentifier)
+
+        if let data = pasteboard.data(forType: type),
+           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
+           isCurrentProcessTransfer(transfer) {
+            return transfer
+        }
+
+        if let raw = pasteboard.string(forType: type),
+           let data = raw.data(using: .utf8),
+           let transfer = try? JSONDecoder().decode(Transfer.self, from: data),
+           isCurrentProcessTransfer(transfer) {
+            return transfer
+        }
+
+        return nil
+    }
+}
+
+private struct SidebarBonsplitTabDropDelegate: DropDelegate {
+    let targetWorkspaceId: UUID
+    let tabManager: TabManager
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [BonsplitTabDragPayload.typeIdentifier]) else { return false }
+        return BonsplitTabDragPayload.currentTransfer() != nil
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else { return nil }
+        return DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info),
+              let transfer = BonsplitTabDragPayload.currentTransfer(),
+              let app = AppDelegate.shared else {
+            return false
+        }
+
+        if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
+           source.workspaceId == targetWorkspaceId {
+            syncSidebarSelection()
+            return true
+        }
+
+        guard app.moveBonsplitTab(
+            tabId: transfer.tab.id,
+            toWorkspace: targetWorkspaceId,
+            focus: true,
+            focusWindow: true
+        ) else {
+            return false
+        }
+
+        selectedTabIds = [targetWorkspaceId]
+        syncSidebarSelection()
+        return true
+    }
+
+    private func syncSidebarSelection() {
+        if let selectedId = tabManager.selectedTabId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            lastSidebarSelectionIndex = nil
+        }
+    }
+}
+
 private struct SidebarTabDropDelegate: DropDelegate {
     let targetTabId: UUID?
     let tabManager: TabManager
@@ -7410,9 +7656,21 @@ private struct DraggableFolderIconRepresentable: NSViewRepresentable {
     }
 }
 
-private final class DraggableFolderNSView: NSView, NSDraggingSource {
+final class DraggableFolderNSView: NSView, NSDraggingSource {
+    private final class FolderIconImageView: NSImageView {
+        override var mouseDownCanMoveWindow: Bool { false }
+    }
+
     var directory: String
-    private var imageView: NSImageView!
+    private var imageView: FolderIconImageView!
+    private var previousWindowMovableState: Bool?
+    private weak var suppressedWindow: NSWindow?
+    private var hasActiveDragSession = false
+    private var didArmWindowDragSuppression = false
+
+    private func formatPoint(_ point: NSPoint) -> String {
+        String(format: "(%.1f,%.1f)", point.x, point.y)
+    }
 
     init(directory: String) {
         self.directory = directory
@@ -7428,8 +7686,10 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         NSSize(width: 16, height: 16)
     }
 
+    override var mouseDownCanMoveWindow: Bool { false }
+
     private func setupImageView() {
-        imageView = NSImageView()
+        imageView = FolderIconImageView()
         imageView.imageScaling = .scaleProportionallyDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
@@ -7454,9 +7714,39 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         return context == .outsideApplication ? [.copy, .link] : .copy
     }
 
-    override func mouseDown(with event: NSEvent) {
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        hasActiveDragSession = false
+        restoreWindowMovableStateIfNeeded()
         #if DEBUG
-        dlog("folder.dragStart dir=\(directory)")
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
+        dlog("folder.dragEnd dir=\(directory) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        #endif
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        let hit = super.hitTest(point)
+        #if DEBUG
+        let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
+        let imageHit = (hit === imageView)
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        dlog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView wasMovable=\(wasMovable) nowMovable=\(nowMovable)")
+        #endif
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        maybeDisableWindowDraggingEarly(trigger: "mouseDown")
+        hasActiveDragSession = false
+        #if DEBUG
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
+        dlog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) wasMovable=\(wasMovable) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
@@ -7465,7 +7755,19 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         iconImage.size = NSSize(width: 32, height: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
-        beginDraggingSession(with: [draggingItem], event: event, source: self)
+        let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
+        hasActiveDragSession = true
+        #if DEBUG
+        let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
+        dlog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
+        #endif
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        // Always restore suppression on mouse-up; drag-session callbacks can be
+        // skipped for non-started drags, which would otherwise leave suppression stuck.
+        restoreWindowMovableStateIfNeeded()
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -7534,6 +7836,59 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Open "Computer" view in Finder (shows all volumes)
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
+
+    private func restoreWindowMovableStateIfNeeded() {
+        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
+        let targetWindow = suppressedWindow ?? window
+        let depthAfter = endWindowDragSuppression(window: targetWindow)
+        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
+        self.previousWindowMovableState = nil
+        self.suppressedWindow = nil
+        self.didArmWindowDragSuppression = false
+        #if DEBUG
+        let nowMovable = targetWindow.map { String($0.isMovable) } ?? "nil"
+        dlog("folder.dragSuppression restore depth=\(depthAfter) nowMovable=\(nowMovable)")
+        #endif
+    }
+
+    private func maybeDisableWindowDraggingEarly(trigger: String) {
+        guard !didArmWindowDragSuppression else { return }
+        guard let eventType = NSApp.currentEvent?.type,
+              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
+            return
+        }
+        guard let currentWindow = window else { return }
+
+        didArmWindowDragSuppression = true
+        suppressedWindow = currentWindow
+        let suppressionDepth = beginWindowDragSuppression(window: currentWindow) ?? 0
+        if currentWindow.isMovable {
+            previousWindowMovableState = temporarilyDisableWindowDragging(window: currentWindow)
+        } else {
+            previousWindowMovableState = nil
+        }
+        #if DEBUG
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = String(currentWindow.isMovable)
+        dlog(
+            "folder.dragSuppression trigger=\(trigger) event=\(eventType) depth=\(suppressionDepth) wasMovable=\(wasMovable) nowMovable=\(nowMovable)"
+        )
+        #endif
+    }
+}
+
+func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
+    guard let window else { return nil }
+    let wasMovable = window.isMovable
+    if wasMovable {
+        window.isMovable = false
+    }
+    return wasMovable
+}
+
+func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
+    guard let window, let previousMovableState else { return }
+    window.isMovable = previousMovableState
 }
 
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
@@ -7615,11 +7970,16 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 
 
 /// Reads the leading inset required to clear traffic lights + left titlebar accessories.
+final class TitlebarLeadingInsetPassthroughView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     @Binding var inset: CGFloat
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = TitlebarLeadingInsetPassthroughView()
         view.setFrameSize(.zero)
         return view
     }

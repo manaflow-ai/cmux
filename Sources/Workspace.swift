@@ -506,6 +506,10 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.closeTab(welcomeTabId)
         }
 
+        bonsplitController.onExternalTabDrop = { [weak self] request in
+            self?.handleExternalTabDrop(request) ?? false
+        }
+
         // Set ourselves as delegate
         bonsplitController.delegate = self
 
@@ -562,6 +566,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+#if DEBUG
+    private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+#endif
     private var geometryReconcileScheduled = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -590,6 +597,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var detachingTabIds: Set<TabID> = []
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
+    private var activeDetachCloseTransactions: Int = 0
+    private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
@@ -1680,6 +1689,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         detachingTabIds.insert(tabId)
         forceCloseTabIds.insert(tabId)
+        activeDetachCloseTransactions += 1
+        defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
         guard bonsplitController.closeTab(tabId) else {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
@@ -2125,6 +2136,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     private func scheduleFocusReconcile() {
+#if DEBUG
+        if isDetachingCloseTransaction {
+            debugFocusReconcileScheduledDuringDetachCount += 1
+        }
+#endif
         guard !focusReconcileScheduled else { return }
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -2222,6 +2238,122 @@ final class Workspace: Identifiable, ObservableObject {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
+    }
+
+    private enum PanelMoveDestination {
+        case newWorkspaceInCurrentWindow
+        case selectedWorkspaceInNewWindow
+        case existingWorkspace(UUID)
+    }
+
+    private func promptMovePanel(tabId: TabID) {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let app = AppDelegate.shared else { return }
+
+        let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
+        let workspaceTargets = app.workspaceMoveTargets(
+            excludingWorkspaceId: id,
+            referenceWindowId: currentWindowId
+        )
+
+        var options: [(title: String, destination: PanelMoveDestination)] = [
+            ("New Workspace in Current Window", .newWorkspaceInCurrentWindow),
+            ("Selected Workspace in New Window", .selectedWorkspaceInNewWindow),
+        ]
+        options.append(contentsOf: workspaceTargets.map { target in
+            (target.label, .existingWorkspace(target.workspaceId))
+        })
+
+        let alert = NSAlert()
+        alert.messageText = "Move Tab"
+        alert.informativeText = "Choose a destination for this tab."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
+        for option in options {
+            popup.addItem(withTitle: option.title)
+        }
+        popup.selectItem(at: 0)
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let selectedIndex = max(0, min(popup.indexOfSelectedItem, options.count - 1))
+        let destination = options[selectedIndex].destination
+
+        let moved: Bool
+        switch destination {
+        case .newWorkspaceInCurrentWindow:
+            guard let manager = app.tabManagerFor(tabId: id) else { return }
+            let workspace = manager.addWorkspace(select: true)
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspace.id,
+                focus: true,
+                focusWindow: false
+            )
+
+        case .selectedWorkspaceInNewWindow:
+            let newWindowId = app.createMainWindow()
+            guard let destinationManager = app.tabManagerFor(windowId: newWindowId),
+                  let destinationWorkspaceId = destinationManager.selectedTabId else {
+                return
+            }
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: destinationWorkspaceId,
+                focus: true,
+                focusWindow: true
+            )
+            if !moved {
+                _ = app.closeMainWindow(windowId: newWindowId)
+            }
+
+        case .existingWorkspace(let workspaceId):
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspaceId,
+                focus: true,
+                focusWindow: true
+            )
+        }
+
+        if !moved {
+            let failure = NSAlert()
+            failure.alertStyle = .warning
+            failure.messageText = "Move Failed"
+            failure.informativeText = "cmux could not move this tab to the selected destination."
+            failure.addButton(withTitle: "OK")
+            _ = failure.runModal()
+        }
+    }
+
+    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+        }
+
+        return app.moveBonsplitTab(
+            tabId: request.tabId.uuid,
+            toWorkspace: id,
+            targetPane: targetPane,
+            targetIndex: targetIndex,
+            splitTarget: splitTarget,
+            focus: true,
+            focusWindow: true
+        )
     }
 
 }
@@ -2493,6 +2625,7 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -2500,7 +2633,9 @@ extension Workspace: BonsplitDelegate {
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
             scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
+            if !isDetaching {
+                scheduleFocusReconcile()
+            }
             return
         }
 
@@ -2508,7 +2643,6 @@ extension Workspace: BonsplitDelegate {
         NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
         #endif
 
-        let isDetaching = detachingTabIds.remove(tabId) != nil
         let panel = panels[panelId]
 
         if isDetaching, let panel {
@@ -2551,9 +2685,15 @@ extension Workspace: BonsplitDelegate {
             lastTerminalConfigInheritancePanelId = nil
         }
 
-        // Keep the workspace invariant: always retain at least one real panel.
-        // This prevents runtime close callbacks from ever collapsing into a tabless workspace.
+        // Keep the workspace invariant for normal close paths.
+        // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
+        // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
+            if isDetaching {
+                scheduleTerminalGeometryReconcile()
+                return
+            }
+
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
@@ -2585,7 +2725,9 @@ extension Workspace: BonsplitDelegate {
             normalizePinnedTabs(in: pane)
         }
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetaching {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -2605,7 +2747,9 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
@@ -2627,6 +2771,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
@@ -2651,13 +2796,15 @@ extension Workspace: BonsplitDelegate {
             if let focusedPane = bonsplitController.focusedPaneId,
                let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
                 applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
-            } else {
+            } else if shouldScheduleFocusReconcile {
                 scheduleFocusReconcile()
             }
         }
 
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if shouldScheduleFocusReconcile {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
@@ -2878,6 +3025,8 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+        case .move:
+            promptMovePanel(tabId: tab.id)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -2892,6 +3041,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            clearManualUnread(panelId: panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
@@ -2903,7 +3055,9 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.

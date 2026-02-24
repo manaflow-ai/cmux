@@ -315,6 +315,42 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+func shouldConsumeShortcutWhileCommandPaletteVisible(
+    isCommandPaletteVisible: Bool,
+    normalizedFlags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16
+) -> Bool {
+    guard isCommandPaletteVisible else { return false }
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+
+    if normalizedFlags == [.command] {
+        if normalizedChars == "a"
+            || normalizedChars == "c"
+            || normalizedChars == "v"
+            || normalizedChars == "x"
+            || normalizedChars == "z"
+            || normalizedChars == "y" {
+            return false
+        }
+
+        switch keyCode {
+        case 51, 117, 123, 124:
+            return false
+        default:
+            break
+        }
+    }
+
+    if normalizedFlags == [.command, .shift], normalizedChars == "z" {
+        return false
+    }
+
+    return true
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -364,6 +400,17 @@ func browserZoomShortcutAction(
     }
 
     return nil
+}
+
+func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+    firstResponderIsWindow: Bool,
+    hostedSize: CGSize,
+    hostedHiddenInHierarchy: Bool,
+    hostedAttachedToWindow: Bool
+) -> Bool {
+    guard firstResponderIsWindow else { return false }
+    let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
+    return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
 }
 
 func shouldRouteTerminalFontZoomShortcutToGhostty(
@@ -469,6 +516,29 @@ func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) 
 }
 #endif
 
+func shouldSuppressWindowMoveForFolderDrag(hitView: NSView?) -> Bool {
+    var candidate = hitView
+    while let view = candidate {
+        if view is DraggableFolderNSView {
+            return true
+        }
+        candidate = view.superview
+    }
+    return false
+}
+
+func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown,
+          window.isMovable,
+          let contentView = window.contentView else {
+        return false
+    }
+
+    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+    let hitView = contentView.hitTest(contentPoint)
+    return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -558,6 +628,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.makeFirstResponder(_:))
         let swizzledSelector = #selector(NSWindow.cmux_makeFirstResponder(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
+    private static let didInstallWindowSendEventSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.sendEvent(_:))
+        let swizzledSelector = #selector(NSWindow.cmux_sendEvent(_:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
             return
@@ -655,6 +735,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options.debug = false
             #endif
             options.sendDefaultPii = true
+
+            // Performance tracing (10% of transactions)
+            options.tracesSampleRate = 0.1
+            // App hang timeout (default is 2s, be explicit)
+            options.appHangTimeoutInterval = 2.0
+            // Attach stack traces to all events
+            options.attachStacktrace = true
+            // Capture failed HTTP requests
+            options.enableCaptureFailedRequests = true
         }
 
         if !isRunningUnderXCTest {
@@ -760,6 +849,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
+            "tabCount": tabManager?.tabs.count ?? 0
+        ])
         let env = ProcessInfo.processInfo.environment
         if !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
@@ -867,6 +959,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let selectedWorkspaceId: UUID?
     }
 
+    struct WindowMoveTarget: Identifiable {
+        let windowId: UUID
+        let label: String
+        let tabManager: TabManager
+        let isCurrentWindow: Bool
+
+        var id: UUID { windowId }
+    }
+
+    struct WorkspaceMoveTarget: Identifiable {
+        let windowId: UUID
+        let workspaceId: UUID
+        let windowLabel: String
+        let workspaceTitle: String
+        let tabManager: TabManager
+        let isCurrentWindow: Bool
+
+        var id: String { "\(windowId.uuidString):\(workspaceId.uuidString)" }
+        var label: String {
+            isCurrentWindow ? workspaceTitle : "\(workspaceTitle) (\(windowLabel))"
+        }
+    }
+
     func listMainWindowSummaries() -> [MainWindowSummary] {
         let contexts = Array(mainWindowContexts.values)
         return contexts.map { ctx in
@@ -879,6 +994,251 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 selectedWorkspaceId: ctx.tabManager.selectedTabId
             )
         }
+    }
+
+    func windowMoveTargets(referenceWindowId: UUID?) -> [WindowMoveTarget] {
+        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
+        return orderedSummaries.compactMap { summary in
+            guard let manager = tabManagerFor(windowId: summary.windowId) else { return nil }
+            let label = labels[summary.windowId] ?? "Window"
+            return WindowMoveTarget(
+                windowId: summary.windowId,
+                label: label,
+                tabManager: manager,
+                isCurrentWindow: summary.windowId == referenceWindowId
+            )
+        }
+    }
+
+    func workspaceMoveTargets(excludingWorkspaceId: UUID? = nil, referenceWindowId: UUID?) -> [WorkspaceMoveTarget] {
+        let orderedSummaries = orderedMainWindowSummaries(referenceWindowId: referenceWindowId)
+        let labels = windowLabelsById(orderedSummaries: orderedSummaries, referenceWindowId: referenceWindowId)
+
+        var targets: [WorkspaceMoveTarget] = []
+        targets.reserveCapacity(orderedSummaries.reduce(0) { partial, summary in
+            partial + summary.workspaceCount
+        })
+
+        for summary in orderedSummaries {
+            guard let manager = tabManagerFor(windowId: summary.windowId) else { continue }
+            let windowLabel = labels[summary.windowId] ?? "Window"
+            let isCurrentWindow = summary.windowId == referenceWindowId
+            for workspace in manager.tabs {
+                if workspace.id == excludingWorkspaceId {
+                    continue
+                }
+                targets.append(
+                    WorkspaceMoveTarget(
+                        windowId: summary.windowId,
+                        workspaceId: workspace.id,
+                        windowLabel: windowLabel,
+                        workspaceTitle: workspaceDisplayName(workspace),
+                        tabManager: manager,
+                        isCurrentWindow: isCurrentWindow
+                    )
+                )
+            }
+        }
+
+        return targets
+    }
+
+    @discardableResult
+    func moveWorkspaceToWindow(workspaceId: UUID, windowId: UUID, focus: Bool = true) -> Bool {
+        guard let sourceManager = tabManagerFor(tabId: workspaceId),
+              let destinationManager = tabManagerFor(windowId: windowId) else {
+            return false
+        }
+
+        if sourceManager === destinationManager {
+            if focus {
+                destinationManager.focusTab(workspaceId, suppressFlash: true)
+                _ = focusMainWindow(windowId: windowId)
+                TerminalController.shared.setActiveTabManager(destinationManager)
+            }
+            return true
+        }
+
+        guard let workspace = sourceManager.detachWorkspace(tabId: workspaceId) else { return false }
+        destinationManager.attachWorkspace(workspace, select: focus)
+
+        if focus {
+            _ = focusMainWindow(windowId: windowId)
+            TerminalController.shared.setActiveTabManager(destinationManager)
+        }
+        return true
+    }
+
+    @discardableResult
+    func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
+        let windowId = createMainWindow()
+        guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
+        let bootstrapWorkspaceId = destinationManager.tabs.first?.id
+
+        guard moveWorkspaceToWindow(workspaceId: workspaceId, windowId: windowId, focus: focus) else {
+            _ = closeMainWindow(windowId: windowId)
+            return nil
+        }
+
+        // Remove the bootstrap workspace from the new window once the moved workspace arrives.
+        if let bootstrapWorkspaceId,
+           bootstrapWorkspaceId != workspaceId,
+           let bootstrapWorkspace = destinationManager.tabs.first(where: { $0.id == bootstrapWorkspaceId }),
+           destinationManager.tabs.count > 1 {
+            destinationManager.closeWorkspace(bootstrapWorkspace)
+        }
+        return windowId
+    }
+
+    func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
+        let bonsplitTabId = TabID(uuid: tabId)
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
+                    return (context.windowId, workspace.id, panelId, context.tabManager)
+                }
+            }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func moveSurface(
+        panelId: UUID,
+        toWorkspace targetWorkspaceId: UUID,
+        targetPane: PaneID? = nil,
+        targetIndex: Int? = nil,
+        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        focus: Bool = true,
+        focusWindow: Bool = true
+    ) -> Bool {
+        guard let source = locateSurface(surfaceId: panelId),
+              let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
+              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
+              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+
+        let resolvedTargetPane = targetPane.flatMap { pane in
+            destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
+        } ?? destinationWorkspace.bonsplitController.focusedPaneId
+            ?? destinationWorkspace.bonsplitController.allPaneIds.first
+
+        guard let resolvedTargetPane else { return false }
+
+        if destinationWorkspace.id == sourceWorkspace.id {
+            if let splitTarget {
+                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
+                      sourceWorkspace.bonsplitController.splitPane(
+                        resolvedTargetPane,
+                        orientation: splitTarget.orientation,
+                        movingTab: sourceTabId,
+                        insertFirst: splitTarget.insertFirst
+                      ) != nil else {
+                    return false
+                }
+                if focus {
+                    source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
+                }
+                return true
+            }
+
+            return sourceWorkspace.moveSurface(
+                panelId: panelId,
+                toPane: resolvedTargetPane,
+                atIndex: targetIndex,
+                focus: focus
+            )
+        }
+
+        let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
+        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
+
+        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return false }
+        guard destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: resolvedTargetPane,
+            atIndex: targetIndex,
+            focus: focus
+        ) != nil else {
+            rollbackDetachedSurface(
+                detached,
+                to: sourceWorkspace,
+                sourcePane: sourcePane,
+                sourceIndex: sourceIndex,
+                focus: focus
+            )
+            return false
+        }
+
+        if let splitTarget {
+            guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
+                  destinationWorkspace.bonsplitController.splitPane(
+                    resolvedTargetPane,
+                    orientation: splitTarget.orientation,
+                    movingTab: movedTabId,
+                    insertFirst: splitTarget.insertFirst
+                  ) != nil else {
+                if let detachedFromDestination = destinationWorkspace.detachSurface(panelId: panelId) {
+                    rollbackDetachedSurface(
+                        detachedFromDestination,
+                        to: sourceWorkspace,
+                        sourcePane: sourcePane,
+                        sourceIndex: sourceIndex,
+                        focus: focus
+                    )
+                }
+                return false
+            }
+        }
+
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
+        )
+
+        if focus {
+            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
+            if let destinationWindowId {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
+            if let destinationWindowId {
+                reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                    destinationWindowId: destinationWindowId,
+                    sourceWindowId: source.windowId,
+                    destinationWorkspaceId: targetWorkspaceId,
+                    destinationPanelId: panelId,
+                    destinationManager: destinationManager
+                )
+            }
+        }
+
+        return true
+    }
+
+    @discardableResult
+    func moveBonsplitTab(
+        tabId: UUID,
+        toWorkspace targetWorkspaceId: UUID,
+        targetPane: PaneID? = nil,
+        targetIndex: Int? = nil,
+        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        focus: Bool = true,
+        focusWindow: Bool = true
+    ) -> Bool {
+        guard let located = locateBonsplitSurface(tabId: tabId) else { return false }
+        return moveSurface(
+            panelId: located.panelId,
+            toWorkspace: targetWorkspaceId,
+            targetPane: targetPane,
+            targetIndex: targetIndex,
+            splitTarget: splitTarget,
+            focus: focus,
+            focusWindow: focusWindow
+        )
     }
 
     func tabManagerFor(windowId: UUID) -> TabManager? {
@@ -1040,6 +1400,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let window = windowForMainWindowId(windowId) else { return false }
         window.performClose(nil)
         return true
+    }
+
+    private func orderedMainWindowSummaries(referenceWindowId: UUID?) -> [MainWindowSummary] {
+        let summaries = listMainWindowSummaries()
+        return summaries.sorted { lhs, rhs in
+            let lhsIsReference = lhs.windowId == referenceWindowId
+            let rhsIsReference = rhs.windowId == referenceWindowId
+            if lhsIsReference != rhsIsReference { return lhsIsReference }
+            if lhs.isKeyWindow != rhs.isKeyWindow { return lhs.isKeyWindow }
+            if lhs.isVisible != rhs.isVisible { return lhs.isVisible }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+    }
+
+    private func windowLabelsById(orderedSummaries: [MainWindowSummary], referenceWindowId: UUID?) -> [UUID: String] {
+        var labels: [UUID: String] = [:]
+        for (index, summary) in orderedSummaries.enumerated() {
+            if summary.windowId == referenceWindowId {
+                labels[summary.windowId] = "Current Window"
+            } else {
+                labels[summary.windowId] = "Window \(index + 1)"
+            }
+        }
+        return labels
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+        let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Workspace" : trimmed
+    }
+
+    private func rollbackDetachedSurface(
+        _ detached: Workspace.DetachedSurfaceTransfer,
+        to workspace: Workspace,
+        sourcePane: PaneID?,
+        sourceIndex: Int?,
+        focus: Bool
+    ) {
+        let rollbackPane = sourcePane.flatMap { pane in
+            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
+        } ?? workspace.bonsplitController.focusedPaneId
+            ?? workspace.bonsplitController.allPaneIds.first
+        guard let rollbackPane else { return }
+        _ = workspace.attachDetachedSurface(
+            detached,
+            inPane: rollbackPane,
+            atIndex: sourceIndex,
+            focus: focus
+        )
+    }
+
+    private func cleanupEmptySourceWorkspaceAfterSurfaceMove(
+        sourceWorkspace: Workspace,
+        sourceManager: TabManager,
+        sourceWindowId: UUID
+    ) {
+        guard sourceWorkspace.panels.isEmpty else { return }
+        guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
+
+        if sourceManager.tabs.count > 1 {
+            sourceManager.closeWorkspace(sourceWorkspace)
+        } else {
+            _ = closeMainWindow(windowId: sourceWindowId)
+        }
+    }
+
+    private func reassertCrossWindowSurfaceMoveFocusIfNeeded(
+        destinationWindowId: UUID,
+        sourceWindowId: UUID,
+        destinationWorkspaceId: UUID,
+        destinationPanelId: UUID,
+        destinationManager: TabManager
+    ) {
+        let reassert: () -> Void = { [weak self, weak destinationManager] in
+            guard let self, let destinationManager else { return }
+            guard let workspace = destinationManager.tabs.first(where: { $0.id == destinationWorkspaceId }),
+                  workspace.panels[destinationPanelId] != nil else {
+                return
+            }
+            guard let destinationWindow = self.mainWindow(for: destinationWindowId) else { return }
+            guard let keyWindow = NSApp.keyWindow,
+                  let keyWindowId = self.mainWindowId(for: keyWindow),
+                  keyWindowId == sourceWindowId,
+                  keyWindow !== destinationWindow else {
+                return
+            }
+
+            self.bringToFront(destinationWindow)
+            destinationManager.focusTab(
+                destinationWorkspaceId,
+                surfaceId: destinationPanelId,
+                suppressFlash: true
+            )
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
     }
 
     private func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
@@ -1399,6 +1856,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
+        window.isMovable = false
         window.center()
         window.contentView = NSHostingView(rootView: root)
 
@@ -2168,6 +2626,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
+        _ = didInstallWindowSendEventSwizzle
     }
 
 #if DEBUG
@@ -2185,6 +2644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
+        _ = Self.didInstallWindowSendEventSwizzle
     }
 
     private func installShortcutMonitor() {
@@ -2519,6 +2979,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if shouldConsumeShortcutWhileCommandPaletteVisible(
+            isCommandPaletteVisible: activeCommandPaletteWindow() != nil,
+            normalizedFlags: normalizedFlags,
+            chars: chars,
+            keyCode: event.keyCode
+        ) {
+            return true
+        }
+
         if normalizedFlags == [.command], chars == "q" {
             return handleQuitShortcutWarning()
         }
@@ -2801,6 +3270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                return true
+            }
             _ = performSplitShortcut(direction: .right)
             return true
         }
@@ -2809,6 +3281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
+                return true
+            }
             _ = performSplitShortcut(direction: .down)
             return true
         }
@@ -2943,6 +3418,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            return false
+        }
+
+        let hostedView = terminalPanel.hostedView
+        let hostedSize = hostedView.bounds.size
+        let hostedHiddenInHierarchy = hostedView.isHiddenOrHasHiddenAncestor
+        let hostedAttachedToWindow = hostedView.window != nil
+        let firstResponderIsWindow = NSApp.keyWindow?.firstResponder is NSWindow
+
+        let shouldSuppress = shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+            firstResponderIsWindow: firstResponderIsWindow,
+            hostedSize: hostedSize,
+            hostedHiddenInHierarchy: hostedHiddenInHierarchy,
+            hostedAttachedToWindow: hostedAttachedToWindow
+        )
+        guard shouldSuppress else { return false }
+
+        tabManager.reconcileFocusedPanelFromFirstResponderForKeyboard()
+
+#if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "split.shortcut suppressed dir=\(directionLabel) reason=transient_focus_state " +
+            "fr=\(firstResponderType) hidden=\(hostedHiddenInHierarchy ? 1 : 0) " +
+            "attached=\(hostedAttachedToWindow ? 1 : 0) " +
+            "frame=\(String(format: "%.1fx%.1f", hostedSize.width, hostedSize.height))"
+        )
+#endif
+        return true
+    }
+
 #if DEBUG
     private func logBrowserZoomShortcutTrace(
         stage: String,
@@ -2990,6 +3508,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = panel.requestAddressBarFocus()
         browserAddressBarFocusedPanelId = panel.id
         NotificationCenter.default.post(name: .browserFocusAddressBar, object: panel.id)
+    }
+
+    func focusedBrowserAddressBarPanelId() -> UUID? {
+        browserAddressBarFocusedPanelId
+    }
+
+    @discardableResult
+    func requestBrowserAddressBarFocus(panelId: UUID) -> Bool {
+        focusBrowserAddressBar(panelId: panelId)
     }
 
     private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
@@ -4648,6 +5175,36 @@ private extension NSWindow {
         }
 #endif
         return cmux_makeFirstResponder(responder)
+    }
+
+    @objc func cmux_sendEvent(_ event: NSEvent) {
+        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
+              let contentView = self.contentView else {
+            cmux_sendEvent(event)
+            return
+        }
+
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        let hitView = contentView.hitTest(contentPoint)
+        let previousMovableState = isMovable
+        if previousMovableState {
+            isMovable = false
+        }
+
+        #if DEBUG
+        let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        #endif
+
+        cmux_sendEvent(event)
+
+        if previousMovableState {
+            isMovable = previousMovableState
+        }
+
+        #if DEBUG
+        dlog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+        #endif
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {

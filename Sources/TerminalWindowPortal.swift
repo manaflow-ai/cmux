@@ -17,6 +17,12 @@ private func portalDebugToken(_ view: NSView?) -> String {
 private func portalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
+
+private func portalDebugFrameInWindow(_ view: NSView?) -> String {
+    guard let view else { return "nil" }
+    guard view.window != nil else { return "no-window" }
+    return portalDebugFrame(view.convert(view.bounds, to: nil))
+}
 #endif
 
 final class WindowTerminalHostView: NSView {
@@ -529,6 +535,10 @@ private final class SplitDividerOverlayView: NSView {
 
 @MainActor
 final class WindowTerminalPortal: NSObject {
+    private static let tinyHideThreshold: CGFloat = 1
+    private static let minimumRevealWidth: CGFloat = 24
+    private static let minimumRevealHeight: CGFloat = 18
+
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
@@ -538,6 +548,9 @@ final class WindowTerminalPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
+#if DEBUG
+    private var lastLoggedBonsplitContainerSignature: String?
+#endif
 
     private struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
@@ -800,6 +813,35 @@ final class WindowTerminalPortal: NSObject {
         return viewIndex > referenceIndex
     }
 
+#if DEBUG
+    private func nearestBonsplitContainer(from anchorView: NSView) -> NSView? {
+        var current: NSView? = anchorView
+        while let view = current {
+            let className = NSStringFromClass(type(of: view))
+            if className.contains("PaneDragContainerView") || className.contains("Bonsplit") {
+                return view
+            }
+            current = view.superview
+        }
+        return installedReferenceView
+    }
+
+    private func logBonsplitContainerFrameIfNeeded(anchorView: NSView, hostedView: GhosttySurfaceScrollView) {
+        guard let container = nearestBonsplitContainer(from: anchorView) else { return }
+        let containerFrame = container.convert(container.bounds, to: nil)
+        let signature = "\(ObjectIdentifier(container)):\(portalDebugFrame(containerFrame))"
+        guard signature != lastLoggedBonsplitContainerSignature else { return }
+        lastLoggedBonsplitContainerSignature = signature
+
+        let containerClass = NSStringFromClass(type(of: container))
+        dlog(
+            "portal.bonsplit.container hosted=\(portalDebugToken(hostedView)) " +
+            "class=\(containerClass) frame=\(portalDebugFrame(containerFrame)) " +
+            "host=\(portalDebugFrameInWindow(hostView)) anchor=\(portalDebugFrameInWindow(anchorView))"
+        )
+    }
+#endif
+
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
     /// SwiftUI/AppKit hosting layers can report an anchor bounds wider than its split pane when
     /// intrinsic-size content overflows; intersecting through ancestor bounds gives the effective
@@ -890,6 +932,12 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = visibleInUI
         entriesByHostedId[hostedId] = entry
+    }
+
+    func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
+        guard let entry = entriesByHostedId[hostedId],
+              let boundAnchor = entry.anchorView else { return false }
+        return boundAnchor === anchorView
     }
 
     func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
@@ -1074,6 +1122,9 @@ final class WindowTerminalPortal: NSObject {
         let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
+#if DEBUG
+        logBonsplitContainerFrameIfNeeded(anchorView: anchorView, hostedView: hostedView)
+#endif
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -1093,7 +1144,6 @@ final class WindowTerminalPortal: NSObject {
             scheduleDeferredFullSynchronizeAll()
             return
         }
-
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
             frameInHost.origin.y.isFinite &&
@@ -1106,7 +1156,12 @@ final class WindowTerminalPortal: NSObject {
             clampedFrame.height > 1
         let targetFrame = (hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost
         let anchorHidden = Self.isHiddenOrAncestorHidden(anchorView)
-        let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
+        let tinyFrame =
+            targetFrame.width <= Self.tinyHideThreshold ||
+            targetFrame.height <= Self.tinyHideThreshold
+        let revealReadyForDisplay =
+            targetFrame.width >= Self.minimumRevealWidth &&
+            targetFrame.height >= Self.minimumRevealHeight
         let outsideHostBounds = !hasVisibleIntersection
         let shouldHide =
             !entry.visibleInUI ||
@@ -1114,6 +1169,7 @@ final class WindowTerminalPortal: NSObject {
             tinyFrame ||
             !hasFiniteFrame ||
             outsideHostBounds
+        let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
 
         let oldFrame = hostedView.frame
 #if DEBUG
@@ -1140,6 +1196,23 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
+
+        // Hide before updating the frame when this entry should not be visible.
+        // This avoids a one-frame flash of unrendered terminal background when a portal
+        // briefly transitions through offscreen/tiny geometry during rapid split churn.
+        if shouldHide, !hostedView.isHidden {
+#if DEBUG
+            dlog(
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
+                "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) revealReady=\(revealReadyForDisplay ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(targetFrame)) " +
+                "host=\(portalDebugFrame(hostBounds))"
+            )
+#endif
+            hostedView.isHidden = true
+        }
+
         if hasFiniteFrame && !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1159,17 +1232,28 @@ final class WindowTerminalPortal: NSObject {
             }
         }
 
-        if hostedView.isHidden != shouldHide {
+        if shouldDeferReveal {
+#if DEBUG
+            if !Self.rectApproximatelyEqual(oldFrame, frameInHost) {
+                dlog(
+                    "portal.hidden.deferReveal hosted=\(portalDebugToken(hostedView)) " +
+                    "frame=\(portalDebugFrame(frameInHost)) min=\(Int(Self.minimumRevealWidth))x\(Int(Self.minimumRevealHeight))"
+                )
+            }
+#endif
+        }
+
+        if !shouldHide, hostedView.isHidden, revealReadyForDisplay {
 #if DEBUG
             dlog(
-                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=\(shouldHide ? 1 : 0) " +
+                "portal.hidden hosted=\(portalDebugToken(hostedView)) value=0 " +
                 "visibleInUI=\(entry.visibleInUI ? 1 : 0) anchorHidden=\(anchorHidden ? 1 : 0) " +
-                "tiny=\(tinyFrame ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
+                "tiny=\(tinyFrame ? 1 : 0) revealReady=\(revealReadyForDisplay ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
                 "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(targetFrame)) " +
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
-            hostedView.isHidden = shouldHide
+            hostedView.isHidden = false
         }
 
 #if DEBUG
@@ -1382,6 +1466,15 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+    }
+
+    static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let window = anchorView.window else { return false }
+        let windowId = ObjectIdentifier(window)
+        guard hostedToWindowId[hostedId] == windowId,
+              let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
 
     static func viewAtWindowPoint(_ windowPoint: NSPoint, in window: NSWindow) -> NSView? {
