@@ -37,6 +37,10 @@
 			A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
 			A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 			A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
+			A5003000 /* Neon in Frameworks */ = {isa = PBXBuildFile; productRef = A5003001 /* Neon */; };
+			A5003010 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = A5003011 /* CodeEditLanguages */; };
+			A5003021 /* SyntaxHighlightTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003020 /* SyntaxHighlightTheme.swift */; };
+			A5003031 /* LanguageDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003030 /* LanguageDetection.swift */; };
 			A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 			A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 			A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
@@ -163,7 +167,9 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* CodeEditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeEditorPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* CodeEditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeEditorPanelView.swift; sourceTree = "<group>"; };
-		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		A5003020 /* SyntaxHighlightTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SyntaxHighlightTheme.swift; sourceTree = "<group>"; };
+		A5003030 /* LanguageDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LanguageDetection.swift; sourceTree = "<group>"; };
+	A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
@@ -222,6 +228,8 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
+					A5003000 /* Neon in Frameworks */,
+					A5003010 /* CodeEditLanguages in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -344,6 +352,8 @@
 				A5001414 /* BrowserPanelView.swift */,
 				A5001418 /* CodeEditorPanel.swift */,
 				A5001419 /* CodeEditorPanelView.swift */,
+				A5003020 /* SyntaxHighlightTheme.swift */,
+				A5003030 /* LanguageDetection.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -459,6 +469,8 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
+					A5003001 /* Neon */,
+					A5003011 /* CodeEditLanguages */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -541,6 +553,8 @@
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+					A5003002 /* XCRemoteSwiftPackageReference "Neon" */,
+					A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -588,6 +602,8 @@
 				A5001404 /* BrowserPanelView.swift in Sources */,
 				A5001408 /* CodeEditorPanel.swift in Sources */,
 				A5001409 /* CodeEditorPanelView.swift in Sources */,
+				A5003021 /* SyntaxHighlightTheme.swift in Sources */,
+				A5003031 /* LanguageDetection.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -937,6 +953,22 @@
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
 			};
+			A5003002 /* XCRemoteSwiftPackageReference "Neon" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/ChimeHQ/Neon.git";
+				requirement = {
+					kind = branch;
+					branch = main;
+				};
+			};
+			A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages.git";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 0.1.0;
+				};
+			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -959,6 +991,16 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
+			};
+			A5003001 /* Neon */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003002 /* XCRemoteSwiftPackageReference "Neon" */;
+				productName = Neon;
+			};
+			A5003011 /* CodeEditLanguages */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
+				productName = CodeEditLanguages;
 			};
 /* End XCSwiftPackageProductDependency section */
 

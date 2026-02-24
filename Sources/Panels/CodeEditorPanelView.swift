@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import Neon
+import SwiftTreeSitter
 
 struct CodeEditorPanelView: View {
     @ObservedObject var panel: CodeEditorPanel
@@ -20,6 +22,15 @@ struct CodeEditorPanelView: View {
                         .fill(Color.primary.opacity(0.5))
                         .frame(width: 6, height: 6)
                 }
+                if let lang = panel.detectedLanguageName {
+                    Text(lang)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.12))
+                        .cornerRadius(4)
+                }
                 Spacer()
                 Text(panel.filePath)
                     .font(.system(size: 10))
@@ -36,6 +47,7 @@ struct CodeEditorPanelView: View {
             // Editor
             CodeEditorTextView(
                 initialText: panel.initialContent,
+                filePath: panel.filePath,
                 onFirstAppear: { textView in
                     panel.currentTextProvider = { [weak textView] in
                         textView?.string ?? ""
@@ -54,6 +66,7 @@ struct CodeEditorPanelView: View {
 
 struct CodeEditorTextView: NSViewRepresentable {
     let initialText: String
+    let filePath: String
     var onFirstAppear: (NSTextView) -> Void
     var onTextChange: () -> Void
     var onSave: () -> Void
@@ -73,16 +86,18 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
-        textView.isRichText = false
+        textView.isRichText = true
         textView.usesFontPanel = false
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        textView.textColor = NSColor.textColor
-        textView.backgroundColor = NSColor.textBackgroundColor
+        let config = GhosttyConfig.load()
+        let baseFont = NSFont.monospacedSystemFont(ofSize: config.fontSize, weight: .regular)
+        textView.font = baseFont
+        textView.textColor = config.foregroundColor
+        textView.backgroundColor = config.backgroundColor
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.insertionPointColor = NSColor.textColor
+        textView.insertionPointColor = config.cursorColor
 
         // Line wrapping
         textView.isHorizontallyResizable = false
@@ -95,6 +110,10 @@ struct CodeEditorTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 8, height: 8)
 
         textView.string = initialText
+        textView.typingAttributes = [
+            .font: baseFont,
+            .foregroundColor: config.foregroundColor,
+        ]
         textView.delegate = context.coordinator
         textView.onSave = onSave
 
@@ -102,6 +121,24 @@ struct CodeEditorTextView: NSViewRepresentable {
 
         // Give the panel access to the text view's current content
         onFirstAppear(textView)
+
+        // Set up syntax highlighting — parse config off-main, apply on main
+        let coordinator = context.coordinator
+        let path = filePath
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let langConfig = LanguageDetection.languageConfiguration(forFilePath: path) else { return }
+            let provider = SyntaxHighlightTheme.attributeProvider(baseFont: baseFont)
+            DispatchQueue.main.async {
+                let config = TextViewHighlighter.Configuration(
+                    languageConfiguration: langConfig,
+                    attributeProvider: provider,
+                    locationTransformer: { _ in nil }
+                )
+                guard let highlighter = try? TextViewHighlighter(textView: textView, configuration: config) else { return }
+                highlighter.observeEnclosingScrollView()
+                coordinator.highlighter = highlighter
+            }
+        }
 
         return scrollView
     }
@@ -112,6 +149,7 @@ struct CodeEditorTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         let onTextChange: () -> Void
+        var highlighter: TextViewHighlighter?
 
         init(onTextChange: @escaping () -> Void) {
             self.onTextChange = onTextChange
@@ -123,7 +161,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     }
 }
 
-// MARK: - NSTextView subclass for Cmd+S
+// MARK: - NSTextView subclass for Cmd+S and plain-text paste
 
 private class SaveAwareTextView: NSTextView {
     var onSave: (() -> Void)?
@@ -135,5 +173,9 @@ private class SaveAwareTextView: NSTextView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func paste(_ sender: Any?) {
+        pasteAsPlainText(sender)
     }
 }

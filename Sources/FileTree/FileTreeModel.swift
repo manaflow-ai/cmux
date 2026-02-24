@@ -5,7 +5,7 @@ import SwiftUI
 final class FileTreeModel: ObservableObject {
     @Published var rootPath: String = ""
     @Published var rootNodes: [FileTreeNode] = []
-    @Published var showHiddenFiles: Bool = false
+    @Published var showHiddenFiles: Bool = true
 
     func loadDirectory(_ path: String) {
         rootPath = path

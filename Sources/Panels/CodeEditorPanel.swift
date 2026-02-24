@@ -22,6 +22,10 @@ final class CodeEditorPanel: Panel, ObservableObject {
         return name.isEmpty ? "Untitled" : name
     }
 
+    var detectedLanguageName: String? {
+        LanguageDetection.languageName(forFilePath: filePath)
+    }
+
     var displayIcon: String? { "doc.text" }
 
     init(workspaceId: UUID, filePath: String) {
