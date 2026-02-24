@@ -1854,59 +1854,15 @@ extension BrowserPanel {
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-#if DEBUG
-        dlog(
-            "browser.newTab.openLink.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "url=\(url.absoluteString) " +
-            "bypassHost=\(bypassInsecureHTTPHostOnce ?? "nil")"
-        )
-#endif
-
-        guard let tabManager = AppDelegate.shared?.tabManager else {
-#if DEBUG
-            dlog(
-                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
-                "reason=missingTabManager url=\(url.absoluteString)"
-            )
-#endif
-            return
-        }
-        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
-#if DEBUG
-            dlog(
-                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
-                "reason=workspaceNotFound workspace=\(workspaceId.uuidString.prefix(5)) " +
-                "url=\(url.absoluteString)"
-            )
-#endif
-            return
-        }
-        guard let paneId = workspace.paneId(forPanelId: id) else {
-#if DEBUG
-            dlog(
-                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
-                "reason=paneNotFound workspace=\(workspace.id.uuidString.prefix(5)) " +
-                "url=\(url.absoluteString)"
-            )
-#endif
-            return
-        }
-
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let paneId = workspace.paneId(forPanelId: id) else { return }
         workspace.newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
-#if DEBUG
-        dlog(
-            "browser.newTab.openLink.dispatched panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspace.id.uuidString.prefix(5)) " +
-            "pane=\(paneId.id.uuidString.prefix(5)) " +
-            "url=\(url.absoluteString)"
-        )
-#endif
     }
 
     /// Reload the current page
@@ -2548,6 +2504,15 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - Navigation Delegate
 
+func browserNavigationShouldOpenInNewTab(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int
+) -> Bool {
+    guard navigationType == .linkActivated else { return false }
+    return modifierFlags.contains(.command) || buttonNumber == 2
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -2682,12 +2647,17 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber
+        )
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if navigationAction.navigationType == .linkActivated,
-               navigationAction.modifierFlags.contains(.command) {
+            if shouldOpenInNewTab {
                 intent = .newTab
             } else {
                 intent = .currentTab
@@ -2713,19 +2683,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — navigate in the current webview
-        if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
-            webView.load(navigationAction.request)
+        // Cmd+click and middle-click on regular links should always open in a new tab.
+        if shouldOpenInNewTab,
+           let url = navigationAction.request.url {
+            openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
 
-        // Cmd+click on a regular link — open in a new tab
-        if navigationAction.navigationType == .linkActivated,
-           navigationAction.modifierFlags.contains(.command),
-           let url = navigationAction.request.url {
-            openInNewTab?(url)
+        // target=_blank or window.open() without explicit new-tab intent — navigate in-place.
+        if navigationAction.targetFrame == nil,
+           navigationAction.request.url != nil {
+            webView.load(navigationAction.request)
             decisionHandler(.cancel)
             return
         }
@@ -2828,13 +2797,18 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
+    /// Cmd+click and middle-click open in a new tab; regular target=_blank navigates in-place.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber
+        )
         if let url = navigationAction.request.url {
             if browserShouldOpenURLExternally(url) {
                 let opened = NSWorkspace.shared.open(url)
@@ -2848,9 +2822,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             }
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent =
-                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                    shouldOpenInNewTab ? .newTab : .currentTab
                 requestNavigation(navigationAction.request, intent)
-            } else if navigationAction.modifierFlags.contains(.command) {
+            } else if shouldOpenInNewTab {
                 openInNewTab?(url)
             } else {
                 webView.load(navigationAction.request)

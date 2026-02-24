@@ -332,30 +332,6 @@ struct BrowserPanelView: View {
 #endif
             onRequestPanelFocus()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
-            guard let webView = note.object as? CmuxWebView else { return false }
-            return webView === panel?.webView
-        }) { note in
-            if let url = note.userInfo?["url"] as? URL {
-#if DEBUG
-                dlog(
-                    "browser.middleClick.notification.receive panel=\(panel.id.uuidString.prefix(5)) " +
-                    "isFocused=\(isFocused ? 1 : 0) " +
-                    "addressFocused=\(addressBarFocused ? 1 : 0) " +
-                    "url=\(url.absoluteString)"
-                )
-#endif
-                panel.openLinkInNewTab(url: url)
-            } else {
-#if DEBUG
-                let keys = note.userInfo?.keys.map { String(describing: $0) }.joined(separator: ",") ?? "none"
-                dlog(
-                    "browser.middleClick.notification.missingURL panel=\(panel.id.uuidString.prefix(5)) " +
-                    "keys=\(keys)"
-                )
-#endif
-            }
-        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,

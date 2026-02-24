@@ -1016,6 +1016,48 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 }
 
+final class BrowserNavigationNewTabDecisionTests: XCTestCase {
+    func testLinkActivatedCmdClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testLinkActivatedMiddleClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testLinkActivatedPlainLeftClickStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testNonLinkNavigationNeverForcesNewTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .reload,
+                modifierFlags: [.command],
+                buttonNumber: 2
+            )
+        )
+    }
+}
+
 @MainActor
 final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
     func testBrowserPanelUIDelegateImplementsJavaScriptDialogSelectors() {
