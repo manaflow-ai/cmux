@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7591,5 +7592,32 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 isBoundToCurrentHost: false
             )
         )
+    }
+}
+
+final class BonsplitTabIDExtractionTests: XCTestCase {
+    func testExtractUUIDFromTabIDIsStableAndNonNil() {
+        let tabId = TabID()
+        let first = cmuxExtractUUID(from: tabId)
+        let second = cmuxExtractUUID(from: tabId)
+
+        XCTAssertNotNil(first)
+        XCTAssertEqual(first, second)
+    }
+
+    func testTabIdMatchUsesUnderlyingUUID() {
+        let a = TabID()
+        let b = TabID()
+
+        guard let aUUID = cmuxExtractUUID(from: a),
+              let bUUID = cmuxExtractUUID(from: b) else {
+            XCTFail("Failed to extract UUID from Bonsplit TabID")
+            return
+        }
+
+        XCTAssertNotEqual(aUUID, bUUID)
+        XCTAssertTrue(cmuxTabIdMatchesUUID(a, uuid: aUUID))
+        XCTAssertFalse(cmuxTabIdMatchesUUID(a, uuid: bUUID))
+        XCTAssertFalse(cmuxTabIdMatchesUUID(b, uuid: aUUID))
     }
 }

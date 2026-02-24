@@ -1114,10 +1114,6 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.closeTab(welcomeTabId)
         }
 
-        bonsplitController.onExternalTabDrop = { [weak self] request in
-            self?.handleExternalTabDrop(request) ?? false
-        }
-
         // Set ourselves as delegate
         bonsplitController.delegate = self
 
@@ -3362,7 +3358,6 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
         return moved
     }
-
 }
 
 // MARK: - BonsplitDelegate
@@ -4082,8 +4077,6 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
-        case .move:
-            promptMovePanel(tabId: tab.id)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -4105,7 +4098,11 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
         @unknown default:
-            break
+            // Compatibility path for Bonsplit versions that expose a "move"
+            // action in raw-value form but not as a typed enum case.
+            if action.rawValue == "move" {
+                promptMovePanel(tabId: tab.id)
+            }
         }
     }
 

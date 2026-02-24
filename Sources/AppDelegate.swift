@@ -254,6 +254,32 @@ private extension NSScreen {
     }
 }
 
+private struct CmuxTabIDCodableEnvelope: Decodable {
+    let id: UUID
+}
+
+func cmuxExtractUUID(from tabId: TabID) -> UUID? {
+    // Prefer Codable extraction because TabID is intentionally opaque in Bonsplit.
+    if let data = try? JSONEncoder().encode(tabId),
+       let envelope = try? JSONDecoder().decode(CmuxTabIDCodableEnvelope.self, from: data) {
+        return envelope.id
+    }
+
+    // Fallback for unexpected encoding changes in upstream Bonsplit.
+    let description = String(describing: tabId)
+    for token in description.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" }) {
+        if let uuid = UUID(uuidString: String(token)) {
+            return uuid
+        }
+    }
+
+    return nil
+}
+
+func cmuxTabIdMatchesUUID(_ tabId: TabID, uuid: UUID) -> Bool {
+    guard let tabUUID = cmuxExtractUUID(from: tabId) else { return false }
+    return tabUUID == uuid
+}
 func browserOmnibarSelectionDeltaForCommandNavigation(
     hasFocusedAddressBar: Bool,
     flags: NSEvent.ModifierFlags,
@@ -2082,11 +2108,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
-        let bonsplitTabId = TabID(uuid: tabId)
         for context in mainWindowContexts.values {
             for workspace in context.tabManager.tabs {
-                if let panelId = workspace.panelIdFromSurfaceId(bonsplitTabId) {
-                    return (context.windowId, workspace.id, panelId, context.tabManager)
+                for candidate in workspace.bonsplitController.allTabIds {
+                    guard cmuxTabIdMatchesUUID(candidate, uuid: tabId) else { continue }
+                    if let panelId = workspace.panelIdFromSurfaceId(candidate) {
+                        return (context.windowId, workspace.id, panelId, context.tabManager)
+                    }
                 }
             }
         }
