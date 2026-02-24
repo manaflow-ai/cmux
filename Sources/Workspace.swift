@@ -347,6 +347,11 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    enum FocusPanelTrigger {
+        case standard
+        case terminalFirstResponder
+    }
+
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
@@ -568,6 +573,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var focusReconcileScheduled = false
 #if DEBUG
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    private var debugLastDidMoveTabTimestamp: TimeInterval = 0
+    private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
     private var geometryReconcileScheduled = false
     private var isNormalizingPinnedTabOrder = false
@@ -599,6 +606,13 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+
+#if DEBUG
+    private func debugElapsedMs(since start: TimeInterval) -> String {
+        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+        return String(format: "%.2f", ms)
+    }
+#endif
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
@@ -1686,6 +1700,14 @@ final class Workspace: Identifiable, ObservableObject {
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard panels[panelId] != nil else { return nil }
+#if DEBUG
+        let detachStart = ProcessInfo.processInfo.systemUptime
+        dlog(
+            "split.detach.begin ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) activeDetachTxn=\(activeDetachCloseTransactions) " +
+            "pendingDetached=\(pendingDetachedSurfaces.count)"
+        )
+#endif
 
         detachingTabIds.insert(tabId)
         forceCloseTabIds.insert(tabId)
@@ -1695,10 +1717,24 @@ final class Workspace: Identifiable, ObservableObject {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
             forceCloseTabIds.remove(tabId)
+#if DEBUG
+            dlog(
+                "split.detach.fail ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+                "tab=\(tabId.uuid.uuidString.prefix(5)) reason=closeTabRejected elapsedMs=\(debugElapsedMs(since: detachStart))"
+            )
+#endif
             return nil
         }
 
-        return pendingDetachedSurfaces.removeValue(forKey: tabId)
+        let detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+#if DEBUG
+        dlog(
+            "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) transfer=\(detached != nil ? 1 : 0) " +
+            "elapsedMs=\(debugElapsedMs(since: detachStart))"
+        )
+#endif
+        return detached
     }
 
     @discardableResult
@@ -1708,8 +1744,31 @@ final class Workspace: Identifiable, ObservableObject {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard bonsplitController.allPaneIds.contains(paneId) else { return nil }
-        guard panels[detached.panelId] == nil else { return nil }
+#if DEBUG
+        let attachStart = ProcessInfo.processInfo.systemUptime
+        dlog(
+            "split.attach.begin ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+            "pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0)"
+        )
+#endif
+        guard bonsplitController.allPaneIds.contains(paneId) else {
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=invalidPane elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
+        guard panels[detached.panelId] == nil else {
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=panelExists elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
 
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
@@ -1760,6 +1819,12 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
             return nil
         }
 
@@ -1781,6 +1846,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
         scheduleTerminalGeometryReconcile()
 
+#if DEBUG
+        dlog(
+            "split.attach.end ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0) " +
+            "elapsedMs=\(debugElapsedMs(since: attachStart))"
+        )
+#endif
         return detached.panelId
     }
     // MARK: - Focus Management
@@ -1872,12 +1945,19 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
     }
 
-    func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
+    func focusPanel(
+        _ panelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView? = nil,
+        trigger: FocusPanelTrigger = .standard
+    ) {
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
-        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
-        FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
+        let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
+        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
+        FocusLogStore.shared.append(
+            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
+        )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let currentlyFocusedPanelId = focusedPanelId
@@ -1900,6 +1980,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
+        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+#if DEBUG
+        if shouldSuppressReentrantRefocus {
+            dlog(
+                "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
+                "reason=firstResponderAlreadyConverged"
+            )
+        }
+#endif
 
         if let targetPaneId, !selectionAlreadyConverged {
             bonsplitController.focusPane(targetPaneId)
@@ -1911,11 +2000,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Also focus the underlying panel
         if let panel = panels[panelId] {
-            if currentlyFocusedPanelId != panelId || !selectionAlreadyConverged {
+            if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
                 panel.focus()
             }
 
-            if let terminalPanel = panel as? TerminalPanel {
+            if !shouldSuppressReentrantRefocus, let terminalPanel = panel as? TerminalPanel {
                 // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
                 // (becomeFirstResponder -> onFocus -> focusPanel).
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
@@ -1923,7 +2012,7 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
-        if let targetPaneId {
+        if let targetPaneId, !shouldSuppressReentrantRefocus {
             applyTabSelection(tabId: tabId, inPane: targetPaneId)
         }
     }
@@ -2329,23 +2418,41 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         guard let app = AppDelegate.shared else { return false }
+#if DEBUG
+        let dropStart = ProcessInfo.processInfo.systemUptime
+#endif
 
         let targetPane: PaneID
         let targetIndex: Int?
         let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+#if DEBUG
+        let destinationLabel: String
+#endif
 
         switch request.destination {
         case .insert(let paneId, let index):
             targetPane = paneId
             targetIndex = index
             splitTarget = nil
+#if DEBUG
+            destinationLabel = "insert pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil")"
+#endif
         case .split(let paneId, let orientation, let insertFirst):
             targetPane = paneId
             targetIndex = nil
             splitTarget = (orientation, insertFirst)
+#if DEBUG
+            destinationLabel = "split pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) insertFirst=\(insertFirst ? 1 : 0)"
+#endif
         }
 
-        return app.moveBonsplitTab(
+        #if DEBUG
+        dlog(
+            "split.externalDrop.begin ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
+            "sourcePane=\(request.sourcePaneId.id.uuidString.prefix(5)) destination=\(destinationLabel)"
+        )
+        #endif
+        let moved = app.moveBonsplitTab(
             tabId: request.tabId.uuid,
             toWorkspace: id,
             targetPane: targetPane,
@@ -2354,6 +2461,13 @@ final class Workspace: Identifiable, ObservableObject {
             focus: true,
             focusWindow: true
         )
+#if DEBUG
+        dlog(
+            "split.externalDrop.end ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
+            "moved=\(moved ? 1 : 0) elapsedMs=\(debugElapsedMs(since: dropStart))"
+        )
+#endif
+        return moved
     }
 
 }
@@ -2647,17 +2761,19 @@ extension Workspace: BonsplitDelegate {
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
+            let cachedTitle = panelTitles[panelId]
+            let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,
                 panel: panel,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panel.displayTitle),
+                title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
-                cachedTitle: panelTitles[panelId],
+                cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId)
             )
@@ -2736,14 +2852,44 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
 #if DEBUG
-        let movedPanel = panelIdFromSurfaceId(tab.id)?.uuidString.prefix(5) ?? "unknown"
+        let now = ProcessInfo.processInfo.systemUptime
+        let sincePrev: String
+        if debugLastDidMoveTabTimestamp > 0 {
+            sincePrev = String(format: "%.2f", (now - debugLastDidMoveTabTimestamp) * 1000)
+        } else {
+            sincePrev = "first"
+        }
+        debugLastDidMoveTabTimestamp = now
+        debugDidMoveTabEventCount += 1
+        let movedPanelId = panelIdFromSurfaceId(tab.id)
+        let movedPanel = movedPanelId?.uuidString.prefix(5) ?? "unknown"
+        let selectedBefore = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneBefore = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = focusedPanelId?.uuidString.prefix(5) ?? "nil"
         dlog(
-            "split.moveTab panel=\(movedPanel) " +
+            "split.moveTab idx=\(debugDidMoveTabEventCount) dtSincePrevMs=\(sincePrev) panel=\(movedPanel) " +
             "from=\(source.id.uuidString.prefix(5)) to=\(destination.id.uuidString.prefix(5)) " +
             "sourceTabs=\(controller.tabs(inPane: source).count) destTabs=\(controller.tabs(inPane: destination).count)"
         )
+        dlog(
+            "split.moveTab.state.before idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedBefore) focusedPane=\(focusedPaneBefore) focusedPanel=\(focusedPanelBefore)"
+        )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+#if DEBUG
+        let selectedAfter = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneAfter = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        let movedPanelFocused = (movedPanelId != nil && movedPanelId == focusedPanelId) ? 1 : 0
+        dlog(
+            "split.moveTab.state.after idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedAfter) focusedPane=\(focusedPaneAfter) focusedPanel=\(focusedPanelAfter) " +
+            "movedFocused=\(movedPanelFocused)"
+        )
+#endif
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()

@@ -3081,6 +3081,51 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 #endif
     }
 
+    func testDetachAttachAcrossWorkspacesPreservesNonCustomPanelTitle() {
+        let source = Workspace()
+        guard let panelId = source.focusedPanelId else {
+            XCTFail("Expected source focused panel")
+            return
+        }
+
+        XCTAssertTrue(source.updatePanelTitle(panelId: panelId, title: "detached-runtime-title"))
+
+        guard let detached = source.detachSurface(panelId: panelId) else {
+            XCTFail("Expected detach to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.cachedTitle, "detached-runtime-title")
+        XCTAssertNil(detached.customTitle)
+        XCTAssertEqual(
+            detached.title,
+            "detached-runtime-title",
+            "Detached transfer should carry the cached non-custom title"
+        )
+
+        let destination = Workspace()
+        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
+            XCTFail("Expected destination pane")
+            return
+        }
+
+        let attachedPanelId = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        )
+        XCTAssertEqual(attachedPanelId, panelId)
+        XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
+
+        guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
+              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
+            XCTFail("Expected attached tab mapping")
+            return
+        }
+        XCTAssertEqual(attachedTab.title, "detached-runtime-title")
+        XCTAssertFalse(attachedTab.hasCustomTitle)
+    }
+
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {

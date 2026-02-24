@@ -19,6 +19,17 @@ struct WorkspaceContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
+    static func panelVisibleInUI(
+        isWorkspaceVisible: Bool,
+        isSelectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        guard isWorkspaceVisible else { return false }
+        // During pane/tab reparenting, Bonsplit can transiently report selected=false
+        // for the currently focused panel. Keep focused content visible to avoid blank frames.
+        return isSelectedInPane || isFocused
+    }
+
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
@@ -47,7 +58,11 @@ struct WorkspaceContentView: View {
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                let isVisibleInUI = isWorkspaceVisible && isSelectedInPane
+                let isVisibleInUI = Self.panelVisibleInUI(
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isSelectedInPane: isSelectedInPane,
+                    isFocused: isFocused
+                )
                 let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
                     isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
@@ -67,7 +82,7 @@ struct WorkspaceContentView: View {
                         // indicator and where keyboard input/flash-focus actually lands.
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id)
+                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
                     },
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
