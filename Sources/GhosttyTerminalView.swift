@@ -2916,7 +2916,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "ign=\(cmuxScalarHex(event.charactersIgnoringModifiers)) mods=\(event.modifierFlags.rawValue)"
             )
 #endif
-            return
+            // If Ghostty handled the key (action/encoding), we're done.
+            // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
+            // so the IME gets a chance to process this event.
+            if handled { return }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -2971,8 +2974,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so we can detect when composition ends.
         let markedTextBefore = markedText.length > 0
 
+        // Capture the keyboard layout ID before interpretation so we can
+        // detect if an IME changed it (e.g. toggling input methods).
+        // We only check when not already in a preedit state.
+        let keyboardIdBefore: String? = if (!markedTextBefore) {
+            KeyboardLayout.id
+        } else {
+            nil
+        }
+
         // Let the input system handle the event (for IME, dead keys, etc.)
         interpretKeyEvents([translationEvent])
+
+        // If the keyboard layout changed, an input method grabbed the event.
+        // Sync preedit and return without sending the key to Ghostty.
+        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            syncPreedit(clearIfNeeded: markedTextBefore)
+            return
+        }
 
         // Sync the preedit state with Ghostty so it can render the IME
         // composition overlay (e.g. for Korean, Japanese, Chinese input).
