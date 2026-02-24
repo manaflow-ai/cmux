@@ -64,6 +64,498 @@ struct SidebarStatusEntry {
     let timestamp: Date
 }
 
+private struct SessionPaneRestoreEntry {
+    let paneId: PaneID
+    let snapshot: SessionPaneLayoutSnapshot
+}
+
+extension Workspace {
+    func sessionSnapshot(includeScrollback: Bool) -> SessionWorkspaceSnapshot {
+        let tree = bonsplitController.treeSnapshot()
+        let layout = sessionLayoutSnapshot(from: tree)
+
+        let orderedPanelIds = sidebarOrderedPanelIds()
+        var seen: Set<UUID> = []
+        var allPanelIds: [UUID] = []
+        for panelId in orderedPanelIds where seen.insert(panelId).inserted {
+            allPanelIds.append(panelId)
+        }
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) where seen.insert(panelId).inserted {
+            allPanelIds.append(panelId)
+        }
+
+        let panelSnapshots = allPanelIds
+            .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+            .compactMap { sessionPanelSnapshot(panelId: $0, includeScrollback: includeScrollback) }
+
+        let statusSnapshots = statusEntries.values
+            .sorted { lhs, rhs in lhs.key < rhs.key }
+            .map { entry in
+                SessionStatusEntrySnapshot(
+                    key: entry.key,
+                    value: entry.value,
+                    icon: entry.icon,
+                    color: entry.color,
+                    timestamp: entry.timestamp.timeIntervalSince1970
+                )
+            }
+        let logSnapshots = logEntries.map { entry in
+            SessionLogEntrySnapshot(
+                message: entry.message,
+                level: entry.level.rawValue,
+                source: entry.source,
+                timestamp: entry.timestamp.timeIntervalSince1970
+            )
+        }
+
+        let progressSnapshot = progress.map { progress in
+            SessionProgressSnapshot(value: progress.value, label: progress.label)
+        }
+        let gitBranchSnapshot = gitBranch.map { branch in
+            SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
+        }
+
+        return SessionWorkspaceSnapshot(
+            processTitle: processTitle,
+            customTitle: customTitle,
+            customColor: customColor,
+            isPinned: isPinned,
+            currentDirectory: currentDirectory,
+            focusedPanelId: focusedPanelId,
+            layout: layout,
+            panels: panelSnapshots,
+            statusEntries: statusSnapshots,
+            logEntries: logSnapshots,
+            progress: progressSnapshot,
+            gitBranch: gitBranchSnapshot
+        )
+    }
+
+    func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
+        restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+
+        let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !normalizedCurrentDirectory.isEmpty {
+            currentDirectory = normalizedCurrentDirectory
+        }
+
+        let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let leafEntries = restoreSessionLayout(snapshot.layout)
+        var oldToNewPanelIds: [UUID: UUID] = [:]
+
+        for entry in leafEntries {
+            restorePane(
+                entry.paneId,
+                snapshot: entry.snapshot,
+                panelSnapshotsById: panelSnapshotsById,
+                oldToNewPanelIds: &oldToNewPanelIds
+            )
+        }
+
+        pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
+        applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
+
+        applyProcessTitle(snapshot.processTitle)
+        setCustomTitle(snapshot.customTitle)
+        setCustomColor(snapshot.customColor)
+        isPinned = snapshot.isPinned
+
+        statusEntries = Dictionary(
+            uniqueKeysWithValues: snapshot.statusEntries.map { entry in
+                (
+                    entry.key,
+                    SidebarStatusEntry(
+                        key: entry.key,
+                        value: entry.value,
+                        icon: entry.icon,
+                        color: entry.color,
+                        timestamp: Date(timeIntervalSince1970: entry.timestamp)
+                    )
+                )
+            }
+        )
+        logEntries = snapshot.logEntries.map { entry in
+            SidebarLogEntry(
+                message: entry.message,
+                level: SidebarLogLevel(rawValue: entry.level) ?? .info,
+                source: entry.source,
+                timestamp: Date(timeIntervalSince1970: entry.timestamp)
+            )
+        }
+        progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
+        gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
+
+        recomputeListeningPorts()
+
+        if let focusedOldPanelId = snapshot.focusedPanelId,
+           let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],
+           panels[focusedNewPanelId] != nil {
+            focusPanel(focusedNewPanelId)
+        } else if let fallbackFocusedPanelId = focusedPanelId, panels[fallbackFocusedPanelId] != nil {
+            focusPanel(fallbackFocusedPanelId)
+        } else {
+            scheduleFocusReconcile()
+        }
+    }
+
+    private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
+        switch node {
+        case .pane(let pane):
+            let panelIds = sessionPanelIDs(for: pane)
+            let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+            return .pane(
+                SessionPaneLayoutSnapshot(
+                    panelIds: panelIds,
+                    selectedPanelId: selectedPanelId
+                )
+            )
+        case .split(let split):
+            return .split(
+                SessionSplitLayoutSnapshot(
+                    orientation: split.orientation.lowercased() == "vertical" ? .vertical : .horizontal,
+                    dividerPosition: split.dividerPosition,
+                    first: sessionLayoutSnapshot(from: split.first),
+                    second: sessionLayoutSnapshot(from: split.second)
+                )
+            )
+        }
+    }
+
+    private func sessionPanelIDs(for pane: ExternalPaneNode) -> [UUID] {
+        var panelIds: [UUID] = []
+        var seen = Set<UUID>()
+        for tab in pane.tabs {
+            guard let panelId = sessionPanelID(forExternalTabIDString: tab.id) else { continue }
+            if seen.insert(panelId).inserted {
+                panelIds.append(panelId)
+            }
+        }
+        return panelIds
+    }
+
+    private func sessionPanelID(forExternalTabIDString tabIDString: String) -> UUID? {
+        guard let tabUUID = UUID(uuidString: tabIDString) else { return nil }
+        for (surfaceId, panelId) in surfaceIdToPanelId {
+            guard let surfaceUUID = sessionSurfaceUUID(for: surfaceId) else { continue }
+            if surfaceUUID == tabUUID {
+                return panelId
+            }
+        }
+        return nil
+    }
+
+    private func sessionSurfaceUUID(for surfaceId: TabID) -> UUID? {
+        struct EncodedSurfaceID: Decodable {
+            let id: UUID
+        }
+
+        guard let data = try? JSONEncoder().encode(surfaceId),
+              let decoded = try? JSONDecoder().decode(EncodedSurfaceID.self, from: data) else {
+            return nil
+        }
+        return decoded.id
+    }
+
+    private func sessionPanelSnapshot(panelId: UUID, includeScrollback: Bool) -> SessionPanelSnapshot? {
+        guard let panel = panels[panelId] else { return nil }
+
+        let panelTitle = panelTitle(panelId: panelId)
+        let customTitle = panelCustomTitles[panelId]
+        let directory = panelDirectories[panelId]
+        let isPinned = pinnedPanelIds.contains(panelId)
+        let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
+        let branchSnapshot = panelGitBranches[panelId].map {
+            SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
+        }
+        let listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
+        let ttyName = surfaceTTYNames[panelId]
+
+        let terminalSnapshot: SessionTerminalPanelSnapshot?
+        let browserSnapshot: SessionBrowserPanelSnapshot?
+        switch panel.panelType {
+        case .terminal:
+            guard let terminalPanel = panel as? TerminalPanel else { return nil }
+            let capturedScrollback = includeScrollback
+                ? TerminalController.shared.readTerminalTextForSnapshot(
+                    terminalPanel: terminalPanel,
+                    includeScrollback: true,
+                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                )
+                : nil
+            let resolvedScrollback = terminalSnapshotScrollback(
+                panelId: panelId,
+                capturedScrollback: capturedScrollback,
+                includeScrollback: includeScrollback
+            )
+            terminalSnapshot = SessionTerminalPanelSnapshot(
+                workingDirectory: panelDirectories[panelId],
+                scrollback: resolvedScrollback
+            )
+            browserSnapshot = nil
+        case .browser:
+            guard let browserPanel = panel as? BrowserPanel else { return nil }
+            terminalSnapshot = nil
+            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
+            browserSnapshot = SessionBrowserPanelSnapshot(
+                urlString: browserPanel.preferredURLStringForOmnibar(),
+                shouldRenderWebView: browserPanel.shouldRenderWebView,
+                pageZoom: Double(browserPanel.webView.pageZoom),
+                developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
+                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
+            )
+        }
+
+        return SessionPanelSnapshot(
+            id: panelId,
+            type: panel.panelType,
+            title: panelTitle,
+            customTitle: customTitle,
+            directory: directory,
+            isPinned: isPinned,
+            isManuallyUnread: isManuallyUnread,
+            gitBranch: branchSnapshot,
+            listeningPorts: listeningPorts,
+            ttyName: ttyName,
+            terminal: terminalSnapshot,
+            browser: browserSnapshot
+        )
+    }
+
+    nonisolated static func resolvedSnapshotTerminalScrollback(
+        capturedScrollback: String?,
+        fallbackScrollback: String?
+    ) -> String? {
+        if let captured = SessionPersistencePolicy.truncatedScrollback(capturedScrollback) {
+            return captured
+        }
+        return SessionPersistencePolicy.truncatedScrollback(fallbackScrollback)
+    }
+
+    private func terminalSnapshotScrollback(
+        panelId: UUID,
+        capturedScrollback: String?,
+        includeScrollback: Bool
+    ) -> String? {
+        guard includeScrollback else { return nil }
+        let fallback = restoredTerminalScrollbackByPanelId[panelId]
+        let resolved = Self.resolvedSnapshotTerminalScrollback(
+            capturedScrollback: capturedScrollback,
+            fallbackScrollback: fallback
+        )
+        if let resolved {
+            restoredTerminalScrollbackByPanelId[panelId] = resolved
+        } else {
+            restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        }
+        return resolved
+    }
+
+    private func restoreSessionLayout(_ layout: SessionWorkspaceLayoutSnapshot) -> [SessionPaneRestoreEntry] {
+        guard let rootPaneId = bonsplitController.allPaneIds.first else {
+            return []
+        }
+
+        var leaves: [SessionPaneRestoreEntry] = []
+        restoreSessionLayoutNode(layout, inPane: rootPaneId, leaves: &leaves)
+        return leaves
+    }
+
+    private func restoreSessionLayoutNode(
+        _ node: SessionWorkspaceLayoutSnapshot,
+        inPane paneId: PaneID,
+        leaves: inout [SessionPaneRestoreEntry]
+    ) {
+        switch node {
+        case .pane(let pane):
+            leaves.append(SessionPaneRestoreEntry(paneId: paneId, snapshot: pane))
+        case .split(let split):
+            var anchorPanelId = bonsplitController
+                .tabs(inPane: paneId)
+                .compactMap { panelIdFromSurfaceId($0.id) }
+                .first
+
+            if anchorPanelId == nil {
+                anchorPanelId = newTerminalSurface(inPane: paneId, focus: false)?.id
+            }
+
+            guard let anchorPanelId,
+                  let newSplitPanel = newTerminalSplit(
+                    from: anchorPanelId,
+                    orientation: split.orientation.splitOrientation,
+                    insertFirst: false,
+                    focus: false
+                  ),
+                  let secondPaneId = self.paneId(forPanelId: newSplitPanel.id) else {
+                leaves.append(
+                    SessionPaneRestoreEntry(
+                        paneId: paneId,
+                        snapshot: SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)
+                    )
+                )
+                return
+            }
+
+            restoreSessionLayoutNode(split.first, inPane: paneId, leaves: &leaves)
+            restoreSessionLayoutNode(split.second, inPane: secondPaneId, leaves: &leaves)
+        }
+    }
+
+    private func restorePane(
+        _ paneId: PaneID,
+        snapshot: SessionPaneLayoutSnapshot,
+        panelSnapshotsById: [UUID: SessionPanelSnapshot],
+        oldToNewPanelIds: inout [UUID: UUID]
+    ) {
+        let existingPanelIds = bonsplitController
+            .tabs(inPane: paneId)
+            .compactMap { panelIdFromSurfaceId($0.id) }
+        let desiredOldPanelIds = snapshot.panelIds.filter { panelSnapshotsById[$0] != nil }
+
+        var createdPanelIds: [UUID] = []
+        for oldPanelId in desiredOldPanelIds {
+            guard let panelSnapshot = panelSnapshotsById[oldPanelId] else { continue }
+            guard let createdPanelId = createPanel(from: panelSnapshot, inPane: paneId) else { continue }
+            createdPanelIds.append(createdPanelId)
+            oldToNewPanelIds[oldPanelId] = createdPanelId
+        }
+
+        guard !createdPanelIds.isEmpty else { return }
+
+        for oldPanelId in existingPanelIds where !createdPanelIds.contains(oldPanelId) {
+            _ = closePanel(oldPanelId, force: true)
+        }
+
+        for (index, panelId) in createdPanelIds.enumerated() {
+            _ = reorderSurface(panelId: panelId, toIndex: index)
+        }
+
+        let selectedPanelId: UUID? = {
+            if let selectedOldId = snapshot.selectedPanelId {
+                return oldToNewPanelIds[selectedOldId]
+            }
+            return createdPanelIds.first
+        }()
+
+        if let selectedPanelId,
+           let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(selectedTabId)
+        }
+    }
+
+    private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
+        switch snapshot.type {
+        case .terminal:
+            let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+                for: snapshot.terminal?.scrollback
+            )
+            guard let terminalPanel = newTerminalSurface(
+                inPane: paneId,
+                focus: false,
+                workingDirectory: workingDirectory,
+                startupEnvironment: replayEnvironment
+            ) else {
+                return nil
+            }
+            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
+            if let fallbackScrollback {
+                restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
+            } else {
+                restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
+            return terminalPanel.id
+        case .browser:
+            let initialURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
+            guard let browserPanel = newBrowserSurface(
+                inPane: paneId,
+                url: initialURL,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
+            return browserPanel.id
+        }
+    }
+
+    private func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
+        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+            panelTitles[panelId] = title
+        }
+
+        setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle)
+        setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
+
+        if snapshot.isManuallyUnread {
+            markPanelUnread(panelId)
+        } else {
+            clearManualUnread(panelId: panelId)
+        }
+
+        if let directory = snapshot.directory?.trimmingCharacters(in: .whitespacesAndNewlines), !directory.isEmpty {
+            updatePanelDirectory(panelId: panelId, directory: directory)
+        }
+
+        if let branch = snapshot.gitBranch {
+            panelGitBranches[panelId] = SidebarGitBranchState(branch: branch.branch, isDirty: branch.isDirty)
+        } else {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+
+        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+
+        if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
+            surfaceTTYNames[panelId] = ttyName
+        } else {
+            surfaceTTYNames.removeValue(forKey: panelId)
+        }
+
+        if let browserSnapshot = snapshot.browser,
+           let browserPanel = browserPanel(for: panelId) {
+            browserPanel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: browserSnapshot.backHistoryURLStrings ?? [],
+                forwardHistoryURLStrings: browserSnapshot.forwardHistoryURLStrings ?? [],
+                currentURLString: browserSnapshot.urlString
+            )
+
+            let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
+            if pageZoom.isFinite {
+                browserPanel.webView.pageZoom = pageZoom
+            }
+
+            if browserSnapshot.developerToolsVisible {
+                _ = browserPanel.showDeveloperTools()
+                browserPanel.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
+            } else {
+                _ = browserPanel.hideDeveloperTools()
+            }
+        }
+    }
+
+    private func applySessionDividerPositions(
+        snapshotNode: SessionWorkspaceLayoutSnapshot,
+        liveNode: ExternalTreeNode
+    ) {
+        switch (snapshotNode, liveNode) {
+        case (.split(let snapshotSplit), .split(let liveSplit)):
+            if let splitID = UUID(uuidString: liveSplit.id) {
+                _ = bonsplitController.setDividerPosition(
+                    CGFloat(snapshotSplit.dividerPosition),
+                    forSplit: splitID,
+                    fromExternal: true
+                )
+            }
+            applySessionDividerPositions(snapshotNode: snapshotSplit.first, liveNode: liveSplit.first)
+            applySessionDividerPositions(snapshotNode: snapshotSplit.second, liveNode: liveSplit.second)
+        default:
+            return
+        }
+    }
+}
+
 enum SidebarLogLevel: String {
     case info
     case progress
@@ -369,6 +861,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
+    private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -865,7 +1358,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomColor(_ hex: String?) {
-        customColor = hex
+        if let hex {
+            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
+        } else {
+            customColor = nil
+        }
     }
 
     func setCustomTitle(_ title: String?) {
@@ -1263,7 +1760,12 @@ final class Workspace: Identifiable, ObservableObject {
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
     @discardableResult
-    func newTerminalSurface(inPane paneId: PaneID, focus: Bool? = nil) -> TerminalPanel? {
+    func newTerminalSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        startupEnvironment: [String: String] = [:]
+    ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
@@ -1273,6 +1775,8 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
+            workingDirectory: workingDirectory,
+            additionalEnvironment: startupEnvironment,
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
@@ -2845,6 +3349,7 @@ extension Workspace: BonsplitDelegate {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
+        restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -2982,6 +3487,7 @@ extension Workspace: BonsplitDelegate {
                 panelSubscriptions.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
+                restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 

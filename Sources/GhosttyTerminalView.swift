@@ -307,6 +307,7 @@ class GhosttyApp {
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
+    private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -565,6 +566,7 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
+        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -613,6 +615,13 @@ class GhosttyApp {
         incomingScope: GhosttyDefaultBackgroundUpdateScope
     ) -> Bool {
         incomingScope.rawValue >= currentScope.rawValue
+    }
+
+    static func shouldReloadConfigurationForAppearanceChange(
+        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
+        currentColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> Bool {
+        previousColorScheme != currentColorScheme
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
@@ -671,6 +680,7 @@ class GhosttyApp {
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             ghostty_app_update_config(app, config)
+            lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
@@ -694,8 +704,37 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
+        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
+        let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: appearance ?? NSApp?.effectiveAppearance
+        )
+        let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
+            previousColorScheme: lastAppearanceColorScheme,
+            currentColorScheme: currentColorScheme
+        )
+        if backgroundLogEnabled {
+            let previousLabel: String
+            switch lastAppearanceColorScheme {
+            case .light:
+                previousLabel = "light"
+            case .dark:
+                previousLabel = "dark"
+            case nil:
+                previousLabel = "nil"
+            }
+            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
+            logBackground(
+                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(shouldReload)"
+            )
+        }
+        guard shouldReload else { return }
+        lastAppearanceColorScheme = currentColorScheme
+        reloadConfiguration(source: "appearanceSync:\(source)")
     }
 
     func openConfigurationInTextEdit() {
@@ -1191,6 +1230,11 @@ class GhosttyApp {
                     blue: CGFloat(change.b) / 255,
                     alpha: 1.0
                 )
+                if backgroundLogEnabled {
+                    logBackground(
+                        "surface override set tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(surfaceView.backgroundColor?.hexString() ?? "nil") default=\(defaultBackgroundColor.hexString()) source=action.color_change.surface"
+                    )
+                }
                 surfaceView.applySurfaceBackground()
                 if backgroundLogEnabled {
                     logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
@@ -1201,6 +1245,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            if let staleOverride = surfaceView.backgroundColor {
+                surfaceView.backgroundColor = nil
+                if backgroundLogEnabled {
+                    logBackground(
+                        "surface override cleared tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") cleared=\(staleOverride.hexString()) source=action.config_change.surface"
+                    )
+                }
+                surfaceView.applySurfaceBackground()
+                DispatchQueue.main.async {
+                    surfaceView.applyWindowBackgroundIfActive()
+                }
+            }
             updateDefaultBackground(
                 from: action.action.config_change.config,
                 source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
@@ -1208,7 +1264,7 @@ class GhosttyApp {
             )
             if backgroundLogEnabled {
                 logBackground(
-                    "surface config change deferred terminal bg apply tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
+                    "surface config change deferred terminal bg apply tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(surfaceView.backgroundColor?.hexString() ?? "nil") default=\(defaultBackgroundColor.hexString())"
                 )
             }
             return true
@@ -1402,6 +1458,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
+    private let additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
     private var lastPixelWidth: UInt32 = 0
@@ -1447,13 +1504,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        additionalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
         self.tabId = tabId
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.additionalEnvironment = additionalEnvironment
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -1724,6 +1783,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 }
 
                 env["ZDOTDIR"] = integrationDir
+            }
+        }
+
+        if !additionalEnvironment.isEmpty {
+            for (key, value) in additionalEnvironment where !key.isEmpty && !value.isEmpty {
+                env[key] = value
             }
         }
 
@@ -2170,8 +2235,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let signature = "\(color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
+                let hasOverride = backgroundColor != nil
+                let overrideHex = backgroundColor?.hexString() ?? "nil"
+                let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
+                let source = hasOverride ? "surfaceOverride" : "defaultBackground"
                 GhosttyApp.shared.logBackground(
-                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
@@ -2195,8 +2264,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let signature = "\(cmuxShouldUseTransparentBackgroundWindow() ? "transparent" : color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
             if signature != lastLoggedWindowBackgroundSignature {
                 lastLoggedWindowBackgroundSignature = signature
+                let hasOverride = backgroundColor != nil
+                let overrideHex = backgroundColor?.hexString() ?? "nil"
+                let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
+                let source = hasOverride ? "surfaceOverride" : "defaultBackground"
                 GhosttyApp.shared.logBackground(
-                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") transparent=\(cmuxShouldUseTransparentBackgroundWindow()) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
+                    "window background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) transparent=\(cmuxShouldUseTransparentBackgroundWindow()) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
             }
         }
@@ -2279,6 +2352,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
+        GhosttyApp.shared.synchronizeThemeWithAppearance(
+            effectiveAppearance,
+            source: "surface.viewDidMoveToWindow"
+        )
         applyWindowBackgroundIfActive()
     }
 
@@ -2291,6 +2368,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         applySurfaceColorScheme()
+        GhosttyApp.shared.synchronizeThemeWithAppearance(
+            effectiveAppearance,
+            source: "surface.viewDidChangeEffectiveAppearance"
+        )
     }
 
     fileprivate func updateOcclusionState() {

@@ -3130,6 +3130,75 @@ class TabManager: ObservableObject {
 #endif
 }
 
+extension TabManager {
+    func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
+        let workspaceSnapshots = tabs
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            tabs.firstIndex(where: { $0.id == selectedTabId })
+        }
+        return SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            workspaces: workspaceSnapshots
+        )
+    }
+
+    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+        for tab in tabs {
+            unwireClosedBrowserTracking(for: tab)
+        }
+
+        tabs.removeAll(keepingCapacity: false)
+        lastFocusedPanelByTab.removeAll()
+        pendingPanelTitleUpdates.removeAll()
+        tabHistory.removeAll()
+        historyIndex = -1
+        isNavigatingHistory = false
+        pendingWorkspaceUnfocusTarget = nil
+        workspaceCycleCooldownTask?.cancel()
+        workspaceCycleCooldownTask = nil
+        isWorkspaceCycleHot = false
+        selectionSideEffectsGeneration &+= 1
+        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+
+        let workspaceSnapshots = snapshot.workspaces
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        for workspaceSnapshot in workspaceSnapshots {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let workspace = Workspace(
+                title: workspaceSnapshot.processTitle,
+                workingDirectory: workspaceSnapshot.currentDirectory,
+                portOrdinal: ordinal
+            )
+            workspace.restoreSessionSnapshot(workspaceSnapshot)
+            wireClosedBrowserTracking(for: workspace)
+            tabs.append(workspace)
+        }
+
+        if tabs.isEmpty {
+            _ = addWorkspace(select: false)
+        }
+
+        selectedTabId = nil
+        if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
+           tabs.indices.contains(selectedWorkspaceIndex) {
+            selectedTabId = tabs[selectedWorkspaceIndex].id
+        } else {
+            selectedTabId = tabs.first?.id
+        }
+
+        if let selectedTabId {
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
+            )
+        }
+    }
+}
+
 // MARK: - Direction Types for Backwards Compatibility
 
 /// Split direction for backwards compatibility with old API

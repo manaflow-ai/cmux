@@ -880,7 +880,6 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 }
-
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
@@ -1237,6 +1236,72 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
             ),
             "Browser UI delegate must implement JavaScript prompt handling"
         )
+    }
+}
+
+@MainActor
+final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/c"
+        )
+
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            snapshot.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertEqual(
+            snapshot.forwardHistoryURLStrings,
+            ["https://example.com/d"]
+        )
+    }
+
+    func testSessionNavigationHistoryBackAndForwardUpdateStacks() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/c"
+        )
+
+        panel.goBack()
+        let afterBack = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(afterBack.backHistoryURLStrings, ["https://example.com/a"])
+        XCTAssertEqual(
+            afterBack.forwardHistoryURLStrings,
+            ["https://example.com/c", "https://example.com/d"]
+        )
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
+
+        panel.goForward()
+        let afterForward = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            afterForward.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertEqual(afterForward.forwardHistoryURLStrings, ["https://example.com/d"])
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
     }
 }
 
