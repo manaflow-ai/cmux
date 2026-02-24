@@ -2627,10 +2627,10 @@ private struct OmnibarSuggestionsView: View {
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
 
-    // Keep radii below the smallest rendered heights so corners don't get
-    // auto-clamped and visually change as popup height changes.
-    private let popupCornerRadius: CGFloat = 16
-    private let rowHighlightCornerRadius: CGFloat = 12
+    // Keep radii below half of the smallest rendered heights so this keeps a
+    // squircle silhouette instead of auto-clamping into a capsule.
+    private let popupCornerRadius: CGFloat = 12
+    private let rowHighlightCornerRadius: CGFloat = 9
     private let singleLineRowHeight: CGFloat = 24
     private let rowSpacing: CGFloat = 1
     private let topInset: CGFloat = 3
@@ -2802,8 +2802,9 @@ private struct OmnibarSuggestionsView: View {
                     lineWidth: 1
                 )
         )
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
-        .contentShape(Rectangle())
+        .contentShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
