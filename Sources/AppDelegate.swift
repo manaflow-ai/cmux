@@ -1000,6 +1000,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+
+        // Save workspace state before stopping terminals
+        if let tabManager {
+            WorkspaceStatePersistence.save(tabManager: tabManager)
+        }
         TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         PostHogAnalytics.shared.flush()
