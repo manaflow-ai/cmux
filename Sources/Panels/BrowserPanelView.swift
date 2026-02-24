@@ -3070,6 +3070,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator: Coordinator,
         generation: Int
     ) {
+        let retryInterval: TimeInterval = 1.0 / 60.0
         // Don't schedule multiple overlapping retries.
         guard coordinator.attachRetryWorkItem == nil else { return }
 
@@ -3102,7 +3103,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // Be generous here: bonsplit structural updates can keep a representable
                 // container off-window longer than a few seconds under load.
                 if coordinator.attachRetryCount < 400 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
                         scheduleAttachRetry(
                             webView,
                             panel: panel,
@@ -3139,7 +3140,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         coordinator.attachRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: work)
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {

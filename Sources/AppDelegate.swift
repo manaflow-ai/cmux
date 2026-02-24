@@ -36,6 +36,188 @@ enum FinderServicePathResolver {
     }
 }
 
+enum TerminalDirectoryOpenTarget: String, CaseIterable {
+    case vscode
+    case cursor
+    case windsurf
+    case antigravity
+    case finder
+    case terminal
+    case iterm2
+    case ghostty
+    case warp
+    case xcode
+    case androidStudio
+    case zed
+
+    struct DetectionEnvironment {
+        let homeDirectoryPath: String
+        let fileExistsAtPath: (String) -> Bool
+
+        static let live = DetectionEnvironment(
+            homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+        )
+    }
+
+    static var commandPaletteShortcutTargets: [Self] {
+        Array(allCases)
+    }
+
+    static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
+        Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
+    }
+
+    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
+
+    var commandPaletteCommandId: String {
+        "palette.terminalOpenDirectory.\(rawValue)"
+    }
+
+    var commandPaletteTitle: String {
+        switch self {
+        case .vscode:
+            return "Open Current Directory in VS Code"
+        case .cursor:
+            return "Open Current Directory in Cursor"
+        case .windsurf:
+            return "Open Current Directory in Windsurf"
+        case .antigravity:
+            return "Open Current Directory in Antigravity"
+        case .finder:
+            return "Open Current Directory in Finder"
+        case .terminal:
+            return "Open Current Directory in Terminal"
+        case .iterm2:
+            return "Open Current Directory in iTerm2"
+        case .ghostty:
+            return "Open Current Directory in Ghostty"
+        case .warp:
+            return "Open Current Directory in Warp"
+        case .xcode:
+            return "Open Current Directory in Xcode"
+        case .androidStudio:
+            return "Open Current Directory in Android Studio"
+        case .zed:
+            return "Open Current Directory in Zed"
+        }
+    }
+
+    var commandPaletteKeywords: [String] {
+        let common = ["terminal", "directory", "open", "ide"]
+        switch self {
+        case .vscode:
+            return common + ["vs", "code", "visual", "studio"]
+        case .cursor:
+            return common + ["cursor"]
+        case .windsurf:
+            return common + ["windsurf"]
+        case .antigravity:
+            return common + ["antigravity"]
+        case .finder:
+            return common + ["finder", "file", "manager", "reveal"]
+        case .terminal:
+            return common + ["terminal", "shell"]
+        case .iterm2:
+            return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .ghostty:
+            return common + ["ghostty", "terminal", "shell"]
+        case .warp:
+            return common + ["warp", "terminal", "shell"]
+        case .xcode:
+            return common + ["xcode", "apple"]
+        case .androidStudio:
+            return common + ["android", "studio"]
+        case .zed:
+            return common + ["zed"]
+        }
+    }
+
+    func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
+        applicationPath(in: environment) != nil
+    }
+
+    func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
+        guard let path = applicationPath(in: environment) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private func applicationPath(in environment: DetectionEnvironment) -> String? {
+        for path in expandedCandidatePaths(in: environment) where environment.fileExistsAtPath(path) {
+            return path
+        }
+        return nil
+    }
+
+    private func expandedCandidatePaths(in environment: DetectionEnvironment) -> [String] {
+        let globalPrefix = "/Applications/"
+        let userPrefix = "\(environment.homeDirectoryPath)/Applications/"
+        var expanded: [String] = []
+
+        for candidate in applicationBundlePathCandidates {
+            expanded.append(candidate)
+            if candidate.hasPrefix(globalPrefix) {
+                let suffix = String(candidate.dropFirst(globalPrefix.count))
+                expanded.append(userPrefix + suffix)
+            }
+        }
+
+        return uniquePreservingOrder(expanded)
+    }
+
+    private var applicationBundlePathCandidates: [String] {
+        switch self {
+        case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
+        case .cursor:
+            return [
+                "/Applications/Cursor.app",
+                "/Applications/Cursor Preview.app",
+                "/Applications/Cursor Nightly.app",
+            ]
+        case .windsurf:
+            return ["/Applications/Windsurf.app"]
+        case .antigravity:
+            return ["/Applications/Antigravity.app"]
+        case .finder:
+            return ["/System/Library/CoreServices/Finder.app"]
+        case .terminal:
+            return ["/System/Applications/Utilities/Terminal.app"]
+        case .iterm2:
+            return [
+                "/Applications/iTerm.app",
+                "/Applications/iTerm2.app",
+            ]
+        case .ghostty:
+            return ["/Applications/Ghostty.app"]
+        case .warp:
+            return ["/Applications/Warp.app"]
+        case .xcode:
+            return ["/Applications/Xcode.app"]
+        case .androidStudio:
+            return ["/Applications/Android Studio.app"]
+        case .zed:
+            return [
+                "/Applications/Zed.app",
+                "/Applications/Zed Preview.app",
+                "/Applications/Zed Nightly.app",
+            ]
+        }
+    }
+
+    private func uniquePreservingOrder(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var deduped: [String] = []
+        for path in paths where seen.insert(path).inserted {
+            deduped.append(path)
+        }
+        return deduped
+    }
+}
+
 enum WorkspaceShortcutMapper {
     /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
     /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
@@ -70,10 +252,9 @@ func browserOmnibarSelectionDeltaForCommandNavigation(
     chars: String
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
-    guard normalizedFlags == [.control] else { return nil }
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+    guard isCommandOrControlOnly else { return nil }
     if chars == "n" { return 1 }
     if chars == "p" { return -1 }
     return nil
@@ -85,9 +266,7 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     keyCode: UInt16
 ) -> Int? {
     guard hasFocusedAddressBar else { return nil }
-    let normalizedFlags = flags
-        .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     guard normalizedFlags == [] else { return nil }
     switch keyCode {
     case 125: return 1
@@ -96,10 +275,14 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
-func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
-    let normalizedFlags = flags
+func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+    flags
         .intersection(.deviceIndependentFlagsMask)
-        .subtracting([.numericPad, .function])
+        .subtracting([.numericPad, .function, .capsLock])
+}
+
+func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
@@ -202,6 +385,54 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
 ) -> Bool {
     guard firstResponderIsGhostty else { return false }
     return browserZoomShortcutAction(flags: flags, chars: chars, keyCode: keyCode) != nil
+}
+
+func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
+    guard let responder else { return nil }
+    if let ghosttyView = responder as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    if let view = responder as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: view) {
+        return ghosttyView
+    }
+
+    if let textView = responder as? NSTextView,
+       let delegateView = textView.delegate as? NSView,
+       let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
+        return ghosttyView
+    }
+
+    var current = responder.nextResponder
+    while let next = current {
+        if let ghosttyView = next as? GhosttyNSView {
+            return ghosttyView
+        }
+        if let view = next as? NSView,
+           let ghosttyView = cmuxOwningGhosttyView(for: view) {
+            return ghosttyView
+        }
+        current = next.nextResponder
+    }
+
+    return nil
+}
+
+private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
+    if let ghosttyView = view as? GhosttyNSView {
+        return ghosttyView
+    }
+
+    var current: NSView? = view.superview
+    while let candidate = current {
+        if let ghosttyView = candidate as? GhosttyNSView {
+            return ghosttyView
+        }
+        current = candidate.superview
+    }
+
+    return nil
 }
 
 #if DEBUG
@@ -603,6 +834,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState: SidebarSelectionState
     ) {
         let key = ObjectIdentifier(window)
+        #if DEBUG
+        let priorManagerToken = debugManagerToken(self.tabManager)
+        #endif
         if let existing = mainWindowContexts[key] {
             existing.window = window
         } else {
@@ -626,6 +860,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSelectionByWindowId[windowId] = 0
         commandPaletteSnapshotByWindowId[windowId] = .empty
 
+#if DEBUG
+        dlog(
+            "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
+        )
+#endif
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
@@ -855,6 +1094,117 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts[ObjectIdentifier(window)]
     }
 
+#if DEBUG
+    private func debugManagerToken(_ manager: TabManager?) -> String {
+        guard let manager else { return "nil" }
+        return String(describing: Unmanaged.passUnretained(manager).toOpaque())
+    }
+
+    private func debugWindowToken(_ window: NSWindow?) -> String {
+        guard let window else { return "nil" }
+        let id = mainWindowId(for: window).map { String($0.uuidString.prefix(8)) } ?? "none"
+        let ident = window.identifier?.rawValue ?? "nil"
+        let shortIdent: String
+        if ident.count > 120 {
+            shortIdent = String(ident.prefix(120)) + "..."
+        } else {
+            shortIdent = ident
+        }
+        return "num=\(window.windowNumber) id=\(id) ident=\(shortIdent) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+    }
+
+    private func debugContextToken(_ context: MainWindowContext?) -> String {
+        guard let context else { return "nil" }
+        let selected = context.tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let hasWindow = (context.window != nil || windowForMainWindowId(context.windowId) != nil) ? 1 : 0
+        return "id=\(String(context.windowId.uuidString.prefix(8))) mgr=\(debugManagerToken(context.tabManager)) tabs=\(context.tabManager.tabs.count) selected=\(selected) hasWindow=\(hasWindow)"
+    }
+
+    private func debugShortcutRouteSnapshot(event: NSEvent? = nil) -> String {
+        let activeManager = tabManager
+        let activeWindowId = activeManager.flatMap { windowId(for: $0) }.map { String($0.uuidString.prefix(8)) } ?? "nil"
+        let selectedWorkspace = activeManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+
+        let contexts = mainWindowContexts.values
+            .map { context in
+                let marker = (activeManager != nil && context.tabManager === activeManager) ? "*" : "-"
+                let window = context.window ?? windowForMainWindowId(context.windowId)
+                let selected = context.tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+                return "\(marker)\(String(context.windowId.uuidString.prefix(8))){mgr=\(debugManagerToken(context.tabManager)),win=\(window?.windowNumber ?? -1),key=\((window?.isKeyWindow ?? false) ? 1 : 0),main=\((window?.isMainWindow ?? false) ? 1 : 0),tabs=\(context.tabManager.tabs.count),selected=\(selected)}"
+            }
+            .sorted()
+            .joined(separator: ",")
+
+        let eventWindowNumber = event.map { String($0.windowNumber) } ?? "nil"
+        let eventWindow = event?.window
+        return "eventWinNum=\(eventWindowNumber) eventWin={\(debugWindowToken(eventWindow))} keyWin={\(debugWindowToken(NSApp.keyWindow))} mainWin={\(debugWindowToken(NSApp.mainWindow))} activeMgr=\(debugManagerToken(activeManager)) activeWinId=\(activeWindowId) activeSelected=\(selectedWorkspace) contexts=[\(contexts)]"
+    }
+#endif
+
+    private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let window = event.window, isMainTerminalWindow(window) {
+            return window
+        }
+        let eventWindowNumber = event.windowNumber
+        if eventWindowNumber > 0,
+           let numberedWindow = NSApp.window(withWindowNumber: eventWindowNumber),
+           isMainTerminalWindow(numberedWindow) {
+            return numberedWindow
+        }
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+        return nil
+    }
+
+    /// Re-sync app-level active window pointers from the currently focused main terminal window.
+    /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
+    @discardableResult
+    func synchronizeActiveMainWindowContext(preferredWindow: NSWindow? = nil) -> TabManager? {
+        let (context, source): (MainWindowContext?, String) = {
+            if let preferredWindow,
+               let context = contextForMainWindow(preferredWindow) {
+                return (context, "preferredWindow")
+            }
+            if let context = contextForMainWindow(NSApp.keyWindow) {
+                return (context, "keyWindow")
+            }
+            if let context = contextForMainWindow(NSApp.mainWindow) {
+                return (context, "mainWindow")
+            }
+            if let activeManager = tabManager,
+               let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+                return (activeContext, "activeManager")
+            }
+            return (mainWindowContexts.values.first, "firstContextFallback")
+        }()
+
+#if DEBUG
+        let beforeManagerToken = debugManagerToken(tabManager)
+        dlog(
+            "shortcut.sync.pre source=\(source) preferred={\(debugWindowToken(preferredWindow))} chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+        guard let context else { return tabManager }
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        } else {
+            tabManager = context.tabManager
+            sidebarState = context.sidebarState
+            sidebarSelectionState = context.sidebarSelectionState
+            TerminalController.shared.setActiveTabManager(context.tabManager)
+        }
+#if DEBUG
+        dlog(
+            "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} \(debugShortcutRouteSnapshot())"
+        )
+#endif
+        return context.tabManager
+    }
+
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
         if let context = contextForMainWindow(event.window) {
             return context
@@ -865,13 +1215,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if let context = contextForMainWindow(NSApp.mainWindow) {
             return context
         }
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return activeContext
+        }
         return mainWindowContexts.values.first
     }
 
     private func activateMainWindowContextForShortcutEvent(_ event: NSEvent) {
-        guard let context = preferredMainWindowContextForShortcuts(event: event),
-              let window = context.window ?? windowForMainWindowId(context.windowId) else { return }
-        setActiveMainWindow(window)
+        let preferredWindow = mainWindowForShortcutEvent(event)
+#if DEBUG
+        dlog(
+            "shortcut.activate.pre event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+        )
+#endif
+        _ = synchronizeActiveMainWindowContext(preferredWindow: preferredWindow)
+#if DEBUG
+        dlog(
+            "shortcut.activate.post event=\(NSWindow.keyDescription(event)) preferred={\(debugWindowToken(preferredWindow))} \(debugShortcutRouteSnapshot(event: event))"
+        )
+#endif
     }
 
     @discardableResult
@@ -1849,7 +2212,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
                 let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog("monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")")
+                dlog(
+                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                )
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
@@ -2176,7 +2541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
         // input), don't intercept key events — let them flow through to the input method.
-        if let ghosttyView = NSApp.keyWindow?.firstResponder as? GhosttyNSView,
+        if let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
             return false
         }
@@ -2221,7 +2586,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (e.g., split that doesn't properly blur the address bar). If the first responder
         // is a terminal surface, the address bar can't be focused.
         if browserAddressBarFocusedPanelId != nil,
-           NSApp.keyWindow?.firstResponder is GhosttyNSView {
+           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
 #if DEBUG
             dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
 #endif
@@ -2258,6 +2623,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
+#if DEBUG
+            dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
+#endif
             // Cmd+N semantics:
             // - If there are no main windows, create a new window.
             // - Otherwise, create a new workspace in the active window.
@@ -2368,6 +2736,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let manager = tabManager,
            let num = Int(chars),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+#if DEBUG
+            dlog(
+                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
             manager.selectTab(at: targetIndex)
             return true
         }
@@ -2436,6 +2809,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
                 return true
             }
@@ -2444,6 +2820,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
                 return true
             }
@@ -2678,10 +3057,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         chars: String
     ) -> Bool {
         guard browserAddressBarFocusedPanelId != nil else { return false }
-        let normalizedFlags = flags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        guard normalizedFlags == [.control] else { return false }
+        let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
+        guard isCommandOrControlOnly else { return false }
         return chars == "n" || chars == "p"
     }
 
@@ -2867,6 +3245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         let directionLabel: String
         switch direction {
         case .left: directionLabel = "left"
@@ -2932,6 +3312,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
         guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
@@ -3296,10 +3678,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func setActiveMainWindow(_ window: NSWindow) {
         guard isMainTerminalWindow(window) else { return }
         guard let context = mainWindowContexts[ObjectIdentifier(window)] else { return }
+#if DEBUG
+        let beforeManagerToken = debugManagerToken(tabManager)
+#endif
         tabManager = context.tabManager
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState
         TerminalController.shared.setActiveTabManager(context.tabManager)
+#if DEBUG
+        dlog(
+            "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
+        )
+#endif
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
@@ -3342,6 +3732,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMainTerminalWindow(_ window: NSWindow) -> Bool {
+        if mainWindowContexts[ObjectIdentifier(window)] != nil {
+            return true
+        }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
     }
@@ -4338,7 +4731,8 @@ private extension NSWindow {
         // Command shortcuts when the terminal is focused — the local event monitor
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
-        if let ghosttyView = self.firstResponder as? GhosttyNSView {
+        let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
+        if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing, don't intercept key events — let them flow
             // through normal AppKit event dispatch so the input method can process them.
             if ghosttyView.hasMarkedText() {
@@ -4381,7 +4775,7 @@ private extension NSWindow {
         // When the terminal is focused, skip the full NSWindow.performKeyEquivalent
         // (which walks the SwiftUI content view hierarchy) and dispatch Command-key
         // events directly to the main menu. This avoids the broken SwiftUI focus path.
-        if self.firstResponder is GhosttyNSView,
+        if firstResponderGhosttyView != nil,
            event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
            let mainMenu = NSApp.mainMenu {
             let consumedByMenu = mainMenu.performKeyEquivalent(with: event)

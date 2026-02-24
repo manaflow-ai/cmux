@@ -1501,6 +1501,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
     #endif
 
+    /// Match upstream Ghostty AppKit sizing: framebuffer dimensions are derived
+    /// from backing-space points and truncated (never rounded up).
+    private func pixelDimension(from value: CGFloat) -> UInt32 {
+        guard value.isFinite else { return 0 }
+        let floored = floor(max(0, value))
+        if floored >= CGFloat(UInt32.max) {
+            return UInt32.max
+        }
+        return UInt32(floored)
+    }
+
     private func scaleFactors(for view: GhosttyNSView) -> (x: CGFloat, y: CGFloat, layer: CGFloat) {
         let scale = max(
             1.0,
@@ -1616,6 +1627,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+#if DEBUG
+        let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
+        dlog(
+            "zoom.create surface=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(surfaceContext)) " +
+            "templateFont=\(templateFontText)"
+        )
+#endif
         var envVars: [ghostty_env_var_s] = []
         var envStorage: [(UnsafeMutablePointer<CChar>, UnsafeMutablePointer<CChar>)] = []
         defer {
@@ -1761,6 +1779,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             #endif
             return
         }
+        guard let createdSurface = surface else { return }
 
         // For vsync-driven rendering, Ghostty needs to know which display we're on so it can
         // start a CVDisplayLink with the right refresh rate. If we don't set this early, the
@@ -1772,29 +1791,66 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let screen = view.window?.screen ?? NSScreen.main,
            let displayID = screen.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            ghostty_surface_set_display_id(createdSurface, displayID)
         }
 
-        ghostty_surface_set_content_scale(surface, scaleFactors.x, scaleFactors.y)
-        let wpx = UInt32((view.bounds.width * scaleFactors.x).rounded(.toNearestOrAwayFromZero))
-        let hpx = UInt32((view.bounds.height * scaleFactors.y).rounded(.toNearestOrAwayFromZero))
+        ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
+        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let wpx = pixelDimension(from: backingSize.width)
+        let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(surface, wpx, hpx)
+            ghostty_surface_set_size(createdSurface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
 
+        // Some GhosttyKit builds can drop inherited font_size during post-create
+        // config/scale reconciliation. If runtime points don't match the inherited
+        // template points, re-apply via binding action so all creation paths
+        // (new surface, split, new workspace) preserve zoom from the source terminal.
+        if let inheritedFontPoints = configTemplate?.font_size,
+           inheritedFontPoints > 0 {
+            let currentFontPoints = cmuxCurrentSurfaceFontSizePoints(createdSurface)
+            let shouldReapply = {
+                guard let currentFontPoints else { return true }
+                return abs(currentFontPoints - inheritedFontPoints) > 0.05
+            }()
+            if shouldReapply {
+                let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
+                _ = performBindingAction(action)
+            }
+        }
+
         flushPendingTextIfNeeded()
+
+#if DEBUG
+        let runtimeFontText = cmuxCurrentSurfaceFontSizePoints(createdSurface).map {
+            String(format: "%.2f", $0)
+        } ?? "nil"
+        dlog(
+            "zoom.create.done surface=\(id.uuidString.prefix(5)) context=\(cmuxSurfaceContextName(surfaceContext)) " +
+            "runtimeFont=\(runtimeFontText)"
+        )
+#endif
     }
 
-    func updateSize(width: CGFloat, height: CGFloat, xScale: CGFloat, yScale: CGFloat, layerScale: CGFloat) {
+    func updateSize(
+        width: CGFloat,
+        height: CGFloat,
+        xScale: CGFloat,
+        yScale: CGFloat,
+        layerScale: CGFloat,
+        backingSize: CGSize? = nil
+    ) {
         guard let surface = surface else { return }
         _ = layerScale
 
-        let wpx = UInt32((width * xScale).rounded(.toNearestOrAwayFromZero))
-        let hpx = UInt32((height * yScale).rounded(.toNearestOrAwayFromZero))
+        let resolvedBackingWidth = backingSize?.width ?? (width * xScale)
+        let resolvedBackingHeight = backingSize?.height ?? (height * yScale)
+        let wpx = pixelDimension(from: resolvedBackingWidth)
+        let hpx = pixelDimension(from: resolvedBackingHeight)
         guard wpx > 0, hpx > 0 else { return }
 
         let scaleChanged = !scaleApproximatelyEqual(xScale, lastXScale) || !scaleApproximatelyEqual(yScale, lastYScale)
@@ -2079,6 +2135,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setup() {
         // Only enable our instrumented CAMetalLayer in targeted debug/test scenarios.
         // The lock in GhosttyMetalLayer.nextDrawable() adds overhead we don't want in normal runs.
+        wantsLayer = true
+        layer?.masksToBounds = true
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
@@ -2206,17 +2264,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // Recompute from current bounds after layout, not stale pending sizes.
+        // Recompute from current bounds after layout. Pending size is only a fallback
+        // when we don't have usable bounds (e.g. detached/off-window transitions).
         superview?.layoutSubtreeIfNeeded()
         layoutSubtreeIfNeeded()
-        let targetSize: CGSize = {
-            let current = bounds.size
-            if current.width > 0, current.height > 0 {
-                return current
-            }
-            return pendingSurfaceSize ?? current
-        }()
-        updateSurfaceSize(size: targetSize)
+        updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
         applyWindowBackgroundIfActive()
@@ -2256,9 +2308,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var isOpaque: Bool { false }
 
+    private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
+        if let size,
+           size.width > 0,
+           size.height > 0 {
+            return size
+        }
+
+        let currentBounds = bounds.size
+        if currentBounds.width > 0, currentBounds.height > 0 {
+            return currentBounds
+        }
+
+        if let pending = pendingSurfaceSize,
+           pending.width > 0,
+           pending.height > 0 {
+            return pending
+        }
+
+        return currentBounds
+    }
+
     private func updateSurfaceSize(size: CGSize? = nil) {
         guard let terminalSurface = terminalSurface else { return }
-        let size = size ?? bounds.size
+        let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
 #if DEBUG
             let signature = "nonPositive-\(Int(size.width))x\(Int(size.height))"
@@ -2318,12 +2391,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let xScale = backingSize.width / size.width
         let yScale = backingSize.height / size.height
         let layerScale = max(1.0, window.backingScaleFactor)
+        let drawablePixelSize = CGSize(
+            width: floor(max(0, backingSize.width)),
+            height: floor(max(0, backingSize.height))
+        )
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.contentsScale = layerScale
+        layer?.masksToBounds = true
         if let metalLayer = layer as? CAMetalLayer {
-            metalLayer.drawableSize = backingSize
+            metalLayer.drawableSize = drawablePixelSize
         }
         CATransaction.commit()
 
@@ -2332,9 +2410,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             height: size.height,
             xScale: xScale,
             yScale: yScale,
-            layerScale: layerScale
+            layerScale: layerScale,
+            backingSize: backingSize
         )
-        pendingSurfaceSize = nil
     }
 
     fileprivate func pushTargetSurfaceSize(_ size: CGSize) {
@@ -3524,6 +3602,8 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
 
         backgroundView.wantsLayer = true
         backgroundView.layer?.backgroundColor =
@@ -3661,6 +3741,12 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeGeometryAndContent()
     }
 
+    /// Request an immediate terminal redraw after geometry updates so stale IOSurface
+    /// contents do not remain stretched during live resize churn.
+    func refreshSurfaceNow() {
+        surfaceView.terminalSurface?.forceRefresh()
+    }
+
     private func synchronizeGeometryAndContent() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -3670,7 +3756,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.frame = bounds
         let targetSize = scrollView.bounds.size
         surfaceView.frame.size = targetSize
-        surfaceView.pushTargetSurfaceSize(targetSize)
         documentView.frame.size.width = scrollView.bounds.width
         inactiveOverlayView.frame = bounds
         if let zone = activeDropZone {
@@ -3694,6 +3779,7 @@ final class GhosttySurfaceScrollView: NSView {
         updateFlashPath()
         synchronizeScrollView()
         synchronizeSurfaceView()
+        synchronizeCoreSurface()
     }
 
     override func viewDidMoveToWindow() {
@@ -3713,8 +3799,13 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            // No-op: focus is driven by first-responder changes.
-            _ = self
+            guard let self, let window = self.window else { return }
+            // Losing key window does not always trigger first-responder resignation, so force
+            // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
+            if let fr = window.firstResponder as? NSView,
+               fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+                window.makeFirstResponder(nil)
+            }
         })
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
     }
@@ -4564,6 +4655,15 @@ final class GhosttySurfaceScrollView: NSView {
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
         surfaceView.frame.origin = visibleRect.origin
+    }
+
+    /// Match upstream Ghostty behavior: use content area width (excluding non-content
+    /// regions such as scrollbar space) when telling libghostty the terminal size.
+    private func synchronizeCoreSurface() {
+        let width = scrollView.contentSize.width
+        let height = surfaceView.frame.height
+        guard width > 0, height > 0 else { return }
+        surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
     }
 
     private func updateNotificationRingPath() {

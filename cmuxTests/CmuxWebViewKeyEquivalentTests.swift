@@ -376,6 +376,127 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 }
 
+@MainActor
+final class AppDelegateWindowContextRoutingTests: XCTestCase {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    func testSynchronizeActiveMainWindowContextPrefersProvidedWindowOverStaleActiveManager() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowB.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowB)
+        XCTAssertTrue(app.tabManager === managerB)
+
+        windowA.makeKeyAndOrderFront(nil)
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(resolved === managerA, "Expected provided active window to win over stale active manager")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextFallsBackToActiveManagerWithoutFocusedWindow() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // Seed active manager and clear focus windows to force fallback routing.
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        XCTAssertTrue(app.tabManager === managerA)
+        windowA.orderOut(nil)
+        windowB.orderOut(nil)
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: nil)
+        XCTAssertTrue(resolved === managerA, "Expected fallback to preserve current active manager instead of arbitrary window")
+        XCTAssertTrue(app.tabManager === managerA)
+    }
+
+    func testSynchronizeActiveMainWindowContextUsesRegisteredWindowEvenIfIdentifierMutates() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        // SwiftUI can replace the NSWindow identifier string at runtime.
+        window.identifier = NSUserInterfaceItemIdentifier("SwiftUI.AppWindow.IdentifierChanged")
+
+        let resolved = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+        XCTAssertTrue(resolved === manager, "Expected registered window object identity to win even if identifier string changed")
+        XCTAssertTrue(app.tabManager === manager)
+    }
+}
+
 final class FocusFlashPatternTests: XCTestCase {
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
         XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
@@ -1048,6 +1169,25 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         )
     }
 
+    func testArrowNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 126
+            ),
+            -1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForArrowNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.capsLock],
+                keyCode: 125
+            ),
+            1
+        )
+    }
+
     func testCommandNavigationDeltaRequiresFocusedAddressBarAndCommandOrControlOnly() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForCommandNavigation(
@@ -1101,6 +1241,33 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
             1
         )
     }
+
+    func testCommandNavigationDeltaIgnoresCapsLockModifier() {
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.control, .capsLock],
+                chars: "n"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .capsLock],
+                chars: "p"
+            ),
+            -1
+        )
+    }
+
+    func testSubmitOnReturnIgnoresCapsLockModifier() {
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: []))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.capsLock]))
+        XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift, .capsLock]))
+        XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command, .capsLock]))
+    }
 }
 
 final class BrowserZoomShortcutActionTests: XCTestCase {
@@ -1115,6 +1282,10 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
         )
         XCTAssertEqual(
             browserZoomShortcutAction(flags: [.command, .shift], chars: "+", keyCode: 24),
+            .zoomIn
+        )
+        XCTAssertEqual(
+            browserZoomShortcutAction(flags: [.command], chars: "+", keyCode: 30),
             .zoomIn
         )
     }
@@ -1192,6 +1363,30 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 keyCode: 45
             )
         )
+    }
+}
+
+final class GhosttyResponderResolutionTests: XCTestCase {
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    func testResolvesGhosttyViewFromDescendantResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        let descendant = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        ghosttyView.addSubview(descendant)
+
+        XCTAssertTrue(cmuxOwningGhosttyView(for: descendant) === ghosttyView)
+    }
+
+    func testResolvesGhosttyViewFromGhosttyResponder() {
+        let ghosttyView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
+        XCTAssertTrue(cmuxOwningGhosttyView(for: ghosttyView) === ghosttyView)
+    }
+
+    func testReturnsNilForUnrelatedResponder() {
+        let view = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        XCTAssertNil(cmuxOwningGhosttyView(for: view))
     }
 }
 
@@ -1342,115 +1537,34 @@ final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
 }
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
-    func testFirstEntryAlwaysPinsToTopWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testFirstEntryPinsToTopAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 0,
-            previousIndex: 1,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 8, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .top)
+        XCTAssertEqual(anchor, UnitPoint.top)
     }
 
-    func testLastEntryAlwaysPinsToBottomWhenScrollable() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testLastEntryPinsToBottomAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 19,
-            previousIndex: 18,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 188, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
-        XCTAssertEqual(anchor, .bottom)
+        XCTAssertEqual(anchor, UnitPoint.bottom)
     }
 
-    func testFullyVisibleMiddleEntryDoesNotScroll() {
-        let anchor = ContentView.commandPaletteScrollAnchor(
+    func testMiddleEntryUsesNilAnchorForMinimalScroll() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 6,
-            previousIndex: 5,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 120, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 20
         )
         XCTAssertNil(anchor)
     }
 
-    func testOutOfViewMiddleEntryUsesDirectionForAnchor() {
-        let downAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 9,
-            previousIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 210, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(downAnchor, .bottom)
-
-        let upAnchor = ContentView.commandPaletteScrollAnchor(
-            selectedIndex: 8,
-            previousIndex: 9,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: -6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(upAnchor, .top)
-    }
-}
-
-final class CommandPaletteEdgeVisibilityCorrectionTests: XCTestCase {
-    func testTopEdgeReturnsTopWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
+    func testEmptyResultsProduceNoAnchor() {
+        let anchor = ContentView.commandPaletteScrollPositionAnchor(
             selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 6, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(anchor, .top)
-    }
-
-    func testBottomEdgeReturnsBottomWhenNotPinned() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 170, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertEqual(anchor, .bottom)
-    }
-
-    func testPinnedTopAndBottomReturnNil() {
-        let topAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 0,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 0, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(topAnchor)
-
-        let bottomAnchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 19,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 192, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
-        )
-        XCTAssertNil(bottomAnchor)
-    }
-
-    func testMiddleSelectionNeverForcesCorrection() {
-        let anchor = ContentView.commandPaletteEdgeVisibilityCorrectionAnchor(
-            selectedIndex: 8,
-            resultCount: 20,
-            selectedFrame: CGRect(x: 0, y: 96, width: 200, height: 24),
-            viewportHeight: 216,
-            contentHeight: 480
+            resultCount: 0
         )
         XCTAssertNil(anchor)
     }
@@ -2189,6 +2303,141 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected Cmd+Shift+B/Cmd+L open path to append browser surface at end"
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
+    }
+}
+
+@MainActor
+final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
+    func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPaneId = workspace.paneId(forPanelId: leftPanelId) else {
+            XCTFail("Expected workspace split setup to succeed")
+            return
+        }
+
+        // Programmatic split focuses the new right panel by default.
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: leftPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftPanelId,
+            "Expected inheritance to use the selected terminal in the target pane"
+        )
+    }
+
+    func testFallsBackToAnotherTerminalInPaneWhenSelectedTabIsBrowser() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected workspace browser setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: paneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected inheritance to fall back to a terminal in the pane when browser is selected"
+        )
+    }
+
+    func testPreferredTerminalPanelWinsWhenProvided() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a terminal panel")
+            return
+        }
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(preferredPanelId: terminalPanelId)
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testPrefersLastFocusedTerminalWhenBrowserFocusedInDifferentPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = workspace.terminalPanelForConfigInheritance(inPane: rightPaneId)
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected inheritance to prefer last focused terminal when browser is focused in another pane"
+        )
+    }
+}
+
+@MainActor
+final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
+    func testUsesFocusedTerminalWhenTerminalIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(sourcePanel?.id, terminalPanelId)
+    }
+
+    func testFallsBackToTerminalWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId),
+              let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected selected workspace setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            terminalPanelId,
+            "Expected new workspace inheritance source to resolve to the pane terminal when browser is focused"
+        )
+    }
+
+    func testPrefersLastFocusedTerminalAcrossPanesWhenBrowserIsFocused() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftTerminalPanelId = workspace.focusedPanelId,
+              let rightTerminalPanel = workspace.newTerminalSplit(from: leftTerminalPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightTerminalPanel.id) else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        workspace.focusPanel(leftTerminalPanelId)
+        _ = workspace.newBrowserSurface(inPane: rightPaneId, focus: true)
+        XCTAssertNotEqual(workspace.focusedPanelId, leftTerminalPanelId)
+
+        let sourcePanel = manager.terminalPanelForWorkspaceConfigInheritanceSource()
+        XCTAssertEqual(
+            sourcePanel?.id,
+            leftTerminalPanelId,
+            "Expected workspace inheritance source to use last focused terminal across panes"
+        )
     }
 }
 
@@ -3005,6 +3254,63 @@ final class FinderServicePathResolverTests: XCTestCase {
                 "/tmp/cmux-services/a",
             ]
         )
+    }
+}
+
+final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
+    private func environment(
+        existingPaths: Set<String>,
+        homeDirectoryPath: String = "/Users/tester"
+    ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
+        TerminalDirectoryOpenTarget.DetectionEnvironment(
+            homeDirectoryPath: homeDirectoryPath,
+            fileExistsAtPath: { existingPaths.contains($0) }
+        )
+    }
+
+    func testAvailableTargetsDetectSystemApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Applications/Visual Studio Code.app",
+                "/System/Library/CoreServices/Finder.app",
+                "/System/Applications/Utilities/Terminal.app",
+                "/Applications/Zed Preview.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.vscode))
+        XCTAssertTrue(availableTargets.contains(.finder))
+        XCTAssertTrue(availableTargets.contains(.terminal))
+        XCTAssertTrue(availableTargets.contains(.zed))
+        XCTAssertFalse(availableTargets.contains(.cursor))
+    }
+
+    func testAvailableTargetsFallbackToUserApplications() {
+        let env = environment(
+            existingPaths: [
+                "/Users/tester/Applications/Cursor.app",
+                "/Users/tester/Applications/Warp.app",
+                "/Users/tester/Applications/Android Studio.app",
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.cursor))
+        XCTAssertTrue(availableTargets.contains(.warp))
+        XCTAssertTrue(availableTargets.contains(.androidStudio))
+        XCTAssertFalse(availableTargets.contains(.vscode))
+    }
+
+    func testITerm2DetectsLegacyBundleName() {
+        let env = environment(existingPaths: ["/Applications/iTerm.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
+    }
+
+    func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
+        let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
+        XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
     }
 }
 
@@ -4287,6 +4593,50 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    func testWindowResignKeyClearsFocusedTerminalFirstResponder() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        )
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        hostedView.moveFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to be first responder before window blur"
+        )
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.isSurfaceViewFirstResponder(),
+            "Window blur should force terminal surface to resign first responder"
+        )
+    }
+
     func testSearchOverlayMountsAndUnmountsWithSearchState() {
         let surface = TerminalSurface(
             tabId: UUID(),
@@ -4995,6 +5345,38 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         default:
             XCTFail("Expected hostless HTTPS URL to open externally")
         }
+    }
+}
+
+final class BrowserExternalNavigationSchemeTests: XCTestCase {
+    func testCustomAppSchemesOpenExternally() throws {
+        let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
+        let slack = try XCTUnwrap(URL(string: "slack://open"))
+        let zoom = try XCTUnwrap(URL(string: "zoommtg://zoom.us/join"))
+        let mailto = try XCTUnwrap(URL(string: "mailto:test@example.com"))
+
+        XCTAssertTrue(browserShouldOpenURLExternally(discord))
+        XCTAssertTrue(browserShouldOpenURLExternally(slack))
+        XCTAssertTrue(browserShouldOpenURLExternally(zoom))
+        XCTAssertTrue(browserShouldOpenURLExternally(mailto))
+    }
+
+    func testEmbeddedBrowserSchemesStayInWebView() throws {
+        let https = try XCTUnwrap(URL(string: "https://example.com"))
+        let http = try XCTUnwrap(URL(string: "http://example.com"))
+        let about = try XCTUnwrap(URL(string: "about:blank"))
+        let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
+        let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
+        let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
+
+        XCTAssertFalse(browserShouldOpenURLExternally(https))
+        XCTAssertFalse(browserShouldOpenURLExternally(http))
+        XCTAssertFalse(browserShouldOpenURLExternally(about))
+        XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(blob))
+        XCTAssertFalse(browserShouldOpenURLExternally(javascript))
+        XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
     }
 }
 

@@ -977,14 +977,6 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     return controller
 }
 
-private struct CommandPaletteRowFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [Int: CGRect] = [:]
-
-    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, rhs in rhs })
-    }
-}
-
 enum WorkspaceMountPolicy {
     // Keep only the selected workspace mounted to minimize layer-tree traversal.
     static let maxMountedWorkspaces = 1
@@ -1120,8 +1112,8 @@ struct ContentView: View {
     @State private var commandPaletteRenameDraft: String = ""
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteHoveredResultIndex: Int?
-    @State private var commandPaletteLastSelectionIndex: Int = 0
-    @State private var commandPaletteRowFrames: [Int: CGRect] = [:]
+    @State private var commandPaletteScrollTargetIndex: Int?
+    @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -1195,11 +1187,6 @@ struct ContentView: View {
     private enum CommandPaletteTrailingLabelStyle {
         case shortcut
         case kind
-    }
-
-    enum CommandPaletteScrollAnchor: Equatable {
-        case top
-        case bottom
     }
 
     private struct CommandPaletteTrailingLabel {
@@ -1277,6 +1264,10 @@ struct ContentView: View {
         static let panelHasUnread = "panel.hasUnread"
 
         static let updateHasAvailable = "update.hasAvailable"
+
+        static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
+            "terminal.openTarget.\(target.rawValue).available"
+        }
     }
 
     private struct CommandPaletteCommandContribution {
@@ -1343,6 +1334,8 @@ struct ContentView: View {
     )
     private static let commandPaletteUsageDefaultsKey = "commandPalette.commandUsage.v1"
     private static let commandPaletteCommandsPrefix = ">"
+    private static let minimumSidebarWidth: CGFloat = 186
+    private static let maximumSidebarWidthRatio: CGFloat = 1.0 / 3.0
 
     private enum SidebarResizerHandle: Hashable {
         case divider
@@ -1352,8 +1345,31 @@ struct ContentView: View {
         SidebarResizeInteraction.hitWidthPerSide
     }
 
-    private var maxSidebarWidth: CGFloat {
-        (NSApp.keyWindow?.screen?.frame.width ?? NSScreen.main?.frame.width ?? 1920) * 2 / 3
+    private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
+        let resolvedAvailableWidth = availableWidth
+            ?? observedWindow?.contentView?.bounds.width
+            ?? observedWindow?.contentLayoutRect.width
+            ?? NSApp.keyWindow?.contentView?.bounds.width
+            ?? NSApp.keyWindow?.contentLayoutRect.width
+        if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
+            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+        }
+
+        let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
+            ?? NSScreen.main?.frame.width
+            ?? 1920
+        return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
+    }
+
+    private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        let nextWidth = max(
+            Self.minimumSidebarWidth,
+            min(maxSidebarWidth(availableWidth: availableWidth), sidebarWidth)
+        )
+        guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
+        withTransaction(Transaction(animation: nil)) {
+            sidebarWidth = nextWidth
+        }
     }
 
     private func activateSidebarResizerCursor() {
@@ -1498,6 +1514,7 @@ struct ContentView: View {
     private func sidebarResizerHandleOverlay(
         _ handle: SidebarResizerHandle,
         width: CGFloat,
+        availableWidth: CGFloat,
         accessibilityIdentifier: String? = nil
     ) -> some View {
         Color.clear
@@ -1543,7 +1560,10 @@ struct ContentView: View {
 
                         activateSidebarResizerCursor()
                         let startWidth = sidebarDragStartWidth ?? sidebarWidth
-                        let nextWidth = max(186, min(maxSidebarWidth, startWidth + value.translation.width))
+                        let nextWidth = max(
+                            Self.minimumSidebarWidth,
+                            min(maxSidebarWidth(availableWidth: availableWidth), startWidth + value.translation.width)
+                        )
                         withTransaction(Transaction(animation: nil)) {
                             sidebarWidth = nextWidth
                         }
@@ -1574,6 +1594,7 @@ struct ContentView: View {
                 sidebarResizerHandleOverlay(
                     .divider,
                     width: sidebarResizerHitWidthPerSide * 2,
+                    availableWidth: totalWidth,
                     accessibilityIdentifier: "SidebarResizer"
                 )
 
@@ -1582,6 +1603,12 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
             .frame(width: totalWidth, height: proxy.size.height, alignment: .leading)
+            .onAppear {
+                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
+            }
+            .onChange(of: totalWidth) {
+                clampSidebarWidthIfNeeded(availableWidth: totalWidth)
+            }
         }
     }
 
@@ -1610,7 +1637,11 @@ struct ContentView: View {
                 ForEach(mountedWorkspaces) { tab in
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
-                    let isInputActive = isSelectedWorkspace || isRetiringWorkspace
+                    // Keep the retiring workspace visible during handoff, but never input-active.
+                    // Allowing both selected+retiring workspaces to be input-active lets the
+                    // old workspace steal first responder (notably with WKWebView), which can
+                    // delay handoff completion and make browser returns feel laggy.
+                    let isInputActive = isSelectedWorkspace
                     let isVisible = isSelectedWorkspace || isRetiringWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
@@ -1952,6 +1983,25 @@ struct ContentView: View {
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "first_responder")
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidBecomeFirstResponderWebView)) { notification in
+            guard let webView = notification.object as? WKWebView,
+                  let selectedTabId = tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  let focusedPanelId = selectedWorkspace.focusedPanelId,
+                  let focusedBrowser = selectedWorkspace.browserPanel(for: focusedPanelId),
+                  focusedBrowser.webView === webView else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_first_responder")
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .browserDidFocusAddressBar)) { notification in
+            guard let panelId = notification.object as? UUID,
+                  let selectedTabId = tabManager.selectedTabId,
+                  let selectedWorkspace = tabManager.selectedWorkspace,
+                  selectedWorkspace.focusedPanelId == panelId,
+                  selectedWorkspace.browserPanel(for: panelId) != nil else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
+        })
+
         view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
@@ -2102,6 +2152,13 @@ struct ContentView: View {
             AppDelegate.shared?.fullscreenControlsViewModel = nil
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
+            guard let window = notification.object as? NSWindow,
+                  window === observedWindow else { return }
+            clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
+            updateSidebarResizerBandState()
+        })
+
         view = AnyView(view.onChange(of: sidebarWidth) { _ in
             updateSidebarResizerBandState()
         })
@@ -2129,6 +2186,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     observedWindow = window
                     isFullScreen = window.styleMask.contains(.fullScreen)
+                    clampSidebarWidthIfNeeded(availableWidth: window.contentView?.bounds.width ?? window.contentLayoutRect.width)
                     syncCommandPaletteDebugStateForObservedWindow()
                     installSidebarResizerPointerMonitorIfNeeded()
                     updateSidebarResizerBandState()
@@ -2377,7 +2435,7 @@ struct ContentView: View {
     private var commandPaletteCommandListView: some View {
         let visibleResults = Array(commandPaletteResults)
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-        let commandPaletteListMaxHeight: CGFloat = 216
+        let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
         let commandPaletteListContentHeight = visibleResults.isEmpty
@@ -2421,133 +2479,85 @@ struct ContentView: View {
 
             Divider()
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if visibleResults.isEmpty {
-                            Text(commandPaletteEmptyStateText)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
-                        } else {
-                            ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
-                                let isSelected = index == selectedIndex
-                                let isHovered = commandPaletteHoveredResultIndex == index
-                                let rowBackground: Color = isSelected
-                                    ? Color.accentColor.opacity(0.12)
-                                    : (isHovered ? Color.primary.opacity(0.08) : .clear)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if visibleResults.isEmpty {
+                        Text(commandPaletteEmptyStateText)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
+                            let isSelected = index == selectedIndex
+                            let isHovered = commandPaletteHoveredResultIndex == index
+                            let rowBackground: Color = isSelected
+                                ? Color.accentColor.opacity(0.12)
+                                : (isHovered ? Color.primary.opacity(0.08) : .clear)
 
-                                Button {
-                                    runCommandPaletteCommand(result.command)
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        commandPaletteHighlightedTitleText(
-                                            result.command.title,
-                                            matchedIndices: result.titleMatchIndices
-                                        )
-                                            .font(.system(size: 13, weight: .regular))
-                                            .lineLimit(1)
-                                        Spacer()
-
-                                        if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
-                                            switch trailingLabel.style {
-                                            case .shortcut:
-                                                Text(trailingLabel.text)
-                                                    .font(.system(size: 11, weight: .medium))
-                                                    .foregroundStyle(.secondary)
-                                                    .padding(.horizontal, 4)
-                                                    .padding(.vertical, 1)
-                                                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                            case .kind:
-                                                Text(trailingLabel.text)
-                                                    .font(.system(size: 11, weight: .regular))
-                                                    .foregroundStyle(.secondary)
-                                                    .lineLimit(1)
-                                            }
-                                        }
-                                    }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(rowBackground)
-                                    .background(
-                                        GeometryReader { geometry in
-                                            Color.clear.preference(
-                                                key: CommandPaletteRowFramePreferenceKey.self,
-                                                value: [index: geometry.frame(in: .named("commandPaletteListScroll"))]
-                                            )
-                                        }
+                            Button {
+                                runCommandPaletteCommand(result.command)
+                            } label: {
+                                HStack(spacing: 8) {
+                                    commandPaletteHighlightedTitleText(
+                                        result.command.title,
+                                        matchedIndices: result.titleMatchIndices
                                     )
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .id(index)
-                                .onHover { hovering in
-                                    if hovering {
-                                        commandPaletteHoveredResultIndex = index
-                                    } else if commandPaletteHoveredResultIndex == index {
-                                        commandPaletteHoveredResultIndex = nil
+                                        .font(.system(size: 13, weight: .regular))
+                                        .lineLimit(1)
+                                    Spacer()
+
+                                    if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
+                                        switch trailingLabel.style {
+                                        case .shortcut:
+                                            Text(trailingLabel.text)
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(.secondary)
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                        case .kind:
+                                            Text(trailingLabel.text)
+                                                .font(.system(size: 11, weight: .regular))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(rowBackground)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
+                            .onHover { hovering in
+                                if hovering {
+                                    commandPaletteHoveredResultIndex = index
+                                } else if commandPaletteHoveredResultIndex == index {
+                                    commandPaletteHoveredResultIndex = nil
                                 }
                             }
                         }
                     }
-                    // Force a fresh row tree per query so rendered labels/actions stay in lockstep.
-                    .id(commandPaletteQuery)
                 }
-                .coordinateSpace(name: "commandPaletteListScroll")
-                .frame(height: commandPaletteListHeight)
-                .onChange(of: commandPaletteSelectedResultIndex) { _ in
-                    guard !visibleResults.isEmpty else { return }
-                    let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-                    let previousIndex = commandPaletteLastSelectionIndex
-                    defer { commandPaletteLastSelectionIndex = index }
-
-                    guard let anchorDecision = Self.commandPaletteScrollAnchor(
-                        selectedIndex: index,
-                        previousIndex: previousIndex,
-                        resultCount: visibleResults.count,
-                        selectedFrame: commandPaletteRowFrames[index],
-                        viewportHeight: commandPaletteListHeight,
-                        contentHeight: commandPaletteListContentHeight
-                    ) else { return }
-
-                    let anchor: UnitPoint
-                    switch anchorDecision {
-                    case .top:
-                        anchor = .top
-                    case .bottom:
-                        anchor = .bottom
-                    }
-                    DispatchQueue.main.async {
-                        withAnimation(.easeOut(duration: 0.1)) {
-                            proxy.scrollTo(index, anchor: anchor)
-                        }
-                    }
-                }
-                .onChange(of: visibleResults.count) { _ in
-                    commandPaletteLastSelectionIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-                }
-                .onPreferenceChange(CommandPaletteRowFramePreferenceKey.self) { frames in
-                    commandPaletteRowFrames = frames
-                    guard !visibleResults.isEmpty else { return }
-                    let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-                    guard let anchorDecision = Self.commandPaletteEdgeVisibilityCorrectionAnchor(
-                        selectedIndex: index,
-                        resultCount: visibleResults.count,
-                        selectedFrame: frames[index],
-                        viewportHeight: commandPaletteListHeight,
-                        contentHeight: commandPaletteListContentHeight
-                    ) else { return }
-                    let anchor: UnitPoint = anchorDecision == .top ? .top : .bottom
-                    DispatchQueue.main.async {
-                        withAnimation(.easeOut(duration: 0.08)) {
-                            proxy.scrollTo(index, anchor: anchor)
-                        }
-                    }
-                }
+                .scrollTargetLayout()
+                // Force a fresh row tree per query so rendered labels/actions stay in lockstep.
+                .id(commandPaletteQuery)
+            }
+            .frame(height: commandPaletteListHeight)
+            .scrollPosition(
+                id: Binding(
+                    get: { commandPaletteScrollTargetIndex },
+                    // Ignore passive readback so manual scrolling doesn't mutate selection-follow state.
+                    set: { _ in }
+                ),
+                anchor: commandPaletteScrollTargetAnchor
+            )
+            .onChange(of: commandPaletteSelectedResultIndex) { _ in
+                updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: true)
             }
 
             // Keep Esc-to-close behavior without showing footer controls.
@@ -2562,20 +2572,19 @@ struct ContentView: View {
         }
         .onAppear {
             commandPaletteHoveredResultIndex = nil
-            commandPaletteLastSelectionIndex = commandPaletteSelectedResultIndex
-            commandPaletteRowFrames = [:]
+            updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
             resetCommandPaletteSearchFocus()
         }
         .onChange(of: commandPaletteQuery) { _ in
             commandPaletteSelectedResultIndex = 0
             commandPaletteHoveredResultIndex = nil
-            commandPaletteLastSelectionIndex = 0
-            commandPaletteRowFrames = [:]
+            commandPaletteScrollTargetIndex = nil
+            commandPaletteScrollTargetAnchor = nil
             syncCommandPaletteDebugStateForObservedWindow()
         }
         .onChange(of: visibleResults.count) { _ in
             commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-            commandPaletteLastSelectionIndex = commandPaletteSelectedResultIndex
+            updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
             if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResults.count {
                 commandPaletteHoveredResultIndex = nil
             }
@@ -3178,18 +3187,29 @@ struct ContentView: View {
         if let panelContext = focusedPanelContext {
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
+            let panelIsTerminal = panelContext.panel.panelType == .terminal
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(
                 CommandPaletteContextKeys.panelName,
                 panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle)
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
-            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelContext.panel.panelType == .terminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
                 || notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId)
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
+
+            if panelIsTerminal {
+                let availableTargets = TerminalDirectoryOpenTarget.cachedLiveAvailableTargets
+                for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+                    snapshot.setBool(
+                        CommandPaletteContextKeys.terminalOpenTargetAvailable(target),
+                        availableTargets.contains(target)
+                    )
+                }
+            }
         }
 
         if case .updateAvailable = updateViewModel.effectiveState {
@@ -3600,15 +3620,20 @@ struct ContentView: View {
             )
         )
 
-        contributions.append(
-            CommandPaletteCommandContribution(
-                commandId: "palette.terminalOpenDirectory",
-                title: constant("Open Current Directory in IDE"),
-                subtitle: terminalPanelSubtitle,
-                keywords: ["terminal", "directory", "open", "ide", "code", "default app"],
-                when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: target.commandPaletteCommandId,
+                    title: constant(target.commandPaletteTitle),
+                    subtitle: terminalPanelSubtitle,
+                    keywords: target.commandPaletteKeywords,
+                    when: { context in
+                        context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                            && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(target))
+                    }
+                )
             )
-        )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
@@ -3871,9 +3896,11 @@ struct ContentView: View {
             _ = tabManager.createBrowserSplit(direction: .right, url: url)
         }
 
-        registry.register(commandId: "palette.terminalOpenDirectory") {
-            if !openFocusedDirectoryInDefaultApp() {
-                NSSound.beep()
+        for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
+            registry.register(commandId: target.commandPaletteCommandId) {
+                if !openFocusedDirectory(in: target) {
+                    NSSound.beep()
+                }
             }
         }
         registry.register(commandId: "palette.terminalFind") {
@@ -3937,61 +3964,43 @@ struct ContentView: View {
         return min(max(commandPaletteSelectedResultIndex, 0), resultCount - 1)
     }
 
-    static func commandPaletteScrollAnchor(
+    static func commandPaletteScrollPositionAnchor(
         selectedIndex: Int,
-        previousIndex: Int,
-        resultCount: Int,
-        selectedFrame: CGRect?,
-        viewportHeight: CGFloat,
-        contentHeight: CGFloat,
-        epsilon: CGFloat = 0.5
-    ) -> CommandPaletteScrollAnchor? {
+        resultCount: Int
+    ) -> UnitPoint? {
         guard resultCount > 0 else { return nil }
-        guard contentHeight > viewportHeight else { return nil }
-
-        // Always pin edges exactly into view when selection reaches first/last.
         if selectedIndex <= 0 {
-            return .top
+            return UnitPoint.top
         }
         if selectedIndex >= resultCount - 1 {
-            return .bottom
+            return UnitPoint.bottom
         }
-
-        if let frame = selectedFrame,
-           frame.minY >= (0 - epsilon),
-           frame.maxY <= (viewportHeight + epsilon) {
-            return nil
-        }
-
-        return selectedIndex >= previousIndex ? .bottom : .top
+        return nil
     }
 
-    static func commandPaletteEdgeVisibilityCorrectionAnchor(
-        selectedIndex: Int,
-        resultCount: Int,
-        selectedFrame: CGRect?,
-        viewportHeight: CGFloat,
-        contentHeight: CGFloat,
-        epsilon: CGFloat = 0.5
-    ) -> CommandPaletteScrollAnchor? {
-        guard resultCount > 0 else { return nil }
-        guard contentHeight > viewportHeight else { return nil }
-
-        let isTop = selectedIndex <= 0
-        let isBottom = selectedIndex >= (resultCount - 1)
-        guard isTop || isBottom else { return nil }
-
-        guard let frame = selectedFrame else {
-            return isTop ? .top : .bottom
+    private func updateCommandPaletteScrollTarget(resultCount: Int, animated: Bool) {
+        guard resultCount > 0 else {
+            commandPaletteScrollTargetIndex = nil
+            commandPaletteScrollTargetAnchor = nil
+            return
         }
 
-        if isTop {
-            let topDelta = abs(frame.minY)
-            return topDelta > epsilon ? .top : nil
-        }
+        let selectedIndex = commandPaletteSelectedIndex(resultCount: resultCount)
+        commandPaletteScrollTargetAnchor = Self.commandPaletteScrollPositionAnchor(
+            selectedIndex: selectedIndex,
+            resultCount: resultCount
+        )
 
-        let bottomDelta = abs(frame.maxY - viewportHeight)
-        return bottomDelta > epsilon ? .bottom : nil
+        let assignTarget = {
+            commandPaletteScrollTargetIndex = selectedIndex
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.1)) {
+                assignTarget()
+            }
+        } else {
+            assignTarget()
+        }
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
@@ -4185,8 +4194,8 @@ struct ContentView: View {
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
-        commandPaletteLastSelectionIndex = 0
-        commandPaletteRowFrames = [:]
+        commandPaletteScrollTargetIndex = nil
+        commandPaletteScrollTargetAnchor = nil
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -4199,8 +4208,8 @@ struct ContentView: View {
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
-        commandPaletteLastSelectionIndex = 0
-        commandPaletteRowFrames = [:]
+        commandPaletteScrollTargetIndex = nil
+        commandPaletteScrollTargetAnchor = nil
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
@@ -4427,9 +4436,22 @@ struct ContentView: View {
         return NSWorkspace.shared.open(url)
     }
 
-    private func openFocusedDirectoryInDefaultApp() -> Bool {
+    private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
         guard let directoryURL = focusedTerminalDirectoryURL() else { return false }
-        return NSWorkspace.shared.open(directoryURL)
+        return openFocusedDirectory(directoryURL, in: target)
+    }
+
+    private func openFocusedDirectory(_ directoryURL: URL, in target: TerminalDirectoryOpenTarget) -> Bool {
+        switch target {
+        case .finder:
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
+            return true
+        default:
+            guard let applicationURL = target.applicationURL() else { return false }
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
+            return true
+        }
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {
