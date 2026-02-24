@@ -32,6 +32,10 @@ def _palette_visible(client: cmux, window_id: str) -> bool:
     return bool(res.get("visible"))
 
 
+def _palette_results(client: cmux, window_id: str, limit: int = 20) -> dict:
+    return client.command_palette_results(window_id=window_id, limit=limit)
+
+
 def _set_palette_visible(client: cmux, window_id: str, visible: bool) -> None:
     if _palette_visible(client, window_id) == visible:
         return
@@ -101,6 +105,58 @@ def _assert_shortcut_window_scoped(client: cmux, shortcut: str, w1: str, w2: str
     )
 
 
+def _assert_cross_window_typing_after_mixed_shortcuts(client: cmux, w1: str, w2: str) -> None:
+    _set_palette_visible(client, w1, False)
+    _set_palette_visible(client, w2, False)
+
+    _focus_window(client, w1)
+    client.simulate_shortcut("cmd+shift+p")
+    _wait_until(
+        lambda: _palette_visible(client, w1),
+        timeout_s=3.0,
+        message="cmd+shift+p did not open palette in window1",
+    )
+    _wait_until(
+        lambda: str(_palette_results(client, w1).get("mode") or "") == "commands",
+        timeout_s=3.0,
+        message="window1 palette did not enter commands mode",
+    )
+    window1_query_before = str(_palette_results(client, w1).get("query") or "")
+
+    _focus_window(client, w2)
+    client.simulate_shortcut("cmd+p")
+    _wait_until(
+        lambda: _palette_visible(client, w2),
+        timeout_s=3.0,
+        message="cmd+p did not open palette in window2",
+    )
+    _wait_until(
+        lambda: str(_palette_results(client, w2).get("mode") or "") == "switcher",
+        timeout_s=3.0,
+        message="window2 palette did not enter switcher mode",
+    )
+
+    typed = ""
+    for ch in "crosswindow":
+        typed += ch
+        client.simulate_type(ch)
+        _wait_until(
+            lambda expected=typed: str(_palette_results(client, w2).get("query") or "").lower() == expected,
+            timeout_s=1.8,
+            message=(
+                "typing into window2 palette did not accumulate query text "
+                f"(expected {typed!r})"
+            ),
+        )
+
+        window1_query_now = str(_palette_results(client, w1).get("query") or "")
+        if window1_query_now != window1_query_before:
+            raise cmuxError(
+                "typing in window2 changed window1 command-palette query "
+                f"(before={window1_query_before!r}, now={window1_query_now!r})"
+            )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as client:
         client.activate_app()
@@ -153,6 +209,7 @@ def main() -> int:
         # opening from window2 must not jump back and toggle window1.
         _assert_shortcut_window_scoped(client, "cmd+shift+p", w1, w2)
         _assert_shortcut_window_scoped(client, "cmd+p", w1, w2)
+        _assert_cross_window_typing_after_mixed_shortcuts(client, w1, w2)
 
     print("PASS: command palette is scoped to active window")
     return 0
