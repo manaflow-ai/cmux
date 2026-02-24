@@ -256,7 +256,7 @@ export default function Home() {
           <DownloadButton location="bottom" />
           <GitHubButton />
         </div>
-        <div className="flex justify-center mt-3">
+        <div className="flex justify-center mt-6">
           <a
             href="/docs"
             className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
