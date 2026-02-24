@@ -7,7 +7,7 @@ import XCTest
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
-    func testSaveAndLoadRoundTripWithCustomSnapshotPath() {
+    func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -23,6 +23,14 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded?.version, SessionSnapshotSchema.currentVersion)
         XCTAssertEqual(loaded?.windows.count, 1)
         XCTAssertEqual(loaded?.windows.first?.sidebar.selection, .tabs)
+        let frame = try XCTUnwrap(loaded?.windows.first?.frame)
+        XCTAssertEqual(frame.x, 10, accuracy: 0.001)
+        XCTAssertEqual(frame.y, 20, accuracy: 0.001)
+        XCTAssertEqual(frame.width, 900, accuracy: 0.001)
+        XCTAssertEqual(frame.height, 700, accuracy: 0.001)
+        XCTAssertEqual(loaded?.windows.first?.display?.displayID, 42)
+        let visibleFrame = try XCTUnwrap(loaded?.windows.first?.display?.visibleFrame)
+        XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
     func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
@@ -127,6 +135,56 @@ final class SessionPersistenceTests: XCTestCase {
             SessionPersistencePolicy.defaultSidebarWidth,
             accuracy: 0.001
         )
+    }
+
+    func testSessionRectSnapshotEncodesXYWidthHeightKeys() throws {
+        let snapshot = SessionRectSnapshot(x: 101.25, y: 202.5, width: 903.75, height: 704.5)
+        let data = try JSONEncoder().encode(snapshot)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: data) as? [String: Double])
+
+        XCTAssertEqual(Set(object.keys), Set(["x", "y", "width", "height"]))
+        XCTAssertEqual(try XCTUnwrap(object["x"]), 101.25, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(object["y"]), 202.5, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(object["width"]), 903.75, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(object["height"]), 704.5, accuracy: 0.001)
+    }
+
+    func testSessionBrowserPanelSnapshotHistoryRoundTrip() throws {
+        let source = SessionBrowserPanelSnapshot(
+            urlString: "https://example.com/current",
+            shouldRenderWebView: true,
+            pageZoom: 1.2,
+            developerToolsVisible: true,
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ]
+        )
+
+        let data = try JSONEncoder().encode(source)
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: data)
+        XCTAssertEqual(decoded.urlString, source.urlString)
+        XCTAssertEqual(decoded.backHistoryURLStrings, source.backHistoryURLStrings)
+        XCTAssertEqual(decoded.forwardHistoryURLStrings, source.forwardHistoryURLStrings)
+    }
+
+    func testSessionBrowserPanelSnapshotHistoryDecodesWhenKeysAreMissing() throws {
+        let json = """
+        {
+          "urlString": "https://example.com/current",
+          "shouldRenderWebView": true,
+          "pageZoom": 1.0,
+          "developerToolsVisible": false
+        }
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(SessionBrowserPanelSnapshot.self, from: json)
+        XCTAssertEqual(decoded.urlString, "https://example.com/current")
+        XCTAssertNil(decoded.backHistoryURLStrings)
+        XCTAssertNil(decoded.forwardHistoryURLStrings)
     }
 
     func testScrollbackReplayEnvironmentWritesReplayFile() {
@@ -284,6 +342,27 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testShouldSkipSessionSaveDuringStartupRestorePolicy() {
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
+                isApplyingStartupSessionRestore: true,
+                includeScrollback: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
+                isApplyingStartupSessionRestore: true,
+                includeScrollback: true
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionSaveDuringStartupRestore(
+                isApplyingStartupSessionRestore: false,
+                includeScrollback: false
+            )
+        )
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(
@@ -434,6 +513,61 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.minY, 50, accuracy: 0.001)
         XCTAssertEqual(restored.width, 900, accuracy: 0.001)
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFramePreservesExactGeometryWhenDisplayIsUnchanged() {
+        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: savedDisplay,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 1_303, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, -90, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
+        let savedFrame = SessionRectSnapshot(x: 1_303, y: -90, width: 1_280, height: 1_410)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let resizedDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 1_920, height: 1_080),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_920, height: 1_050)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: savedDisplay,
+            availableDisplays: [resizedDisplay],
+            fallbackDisplay: resizedDisplay
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertTrue(resizedDisplay.visibleFrame.contains(restored))
+        XCTAssertNotEqual(restored.minX, 1_303, "Changed display geometry should clamp/remap frame")
+        XCTAssertNotEqual(restored.minY, -90, "Changed display geometry should clamp/remap frame")
     }
 
     func testResolvedSnapshotTerminalScrollbackPrefersCaptured() {

@@ -684,6 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     private var didAttemptStartupSessionRestore = false
+    private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
@@ -1037,6 +1038,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
         if let primaryWindowSnapshot {
+            isApplyingStartupSessionRestore = true
+#if DEBUG
+            dlog(
+                "session.restore.start windows=\(startupSnapshot?.windows.count ?? 0) " +
+                    "primaryFrame={\(debugSessionRectDescription(primaryWindowSnapshot.frame))} " +
+                    "primaryDisplay={\(debugSessionDisplayDescription(primaryWindowSnapshot.display))}"
+            )
+#endif
             applySessionWindowSnapshot(
                 primaryWindowSnapshot,
                 to: primaryContext,
@@ -1057,21 +1066,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if let startupSnapshot {
-            let additionalWindows = startupSnapshot
+            let additionalWindows = Array(startupSnapshot
                 .windows
                 .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1))
+                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+#if DEBUG
+            for (index, windowSnapshot) in additionalWindows.enumerated() {
+                dlog(
+                    "session.restore.enqueueAdditional idx=\(index + 1) " +
+                        "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                        "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
+                )
+            }
+#endif
             if !additionalWindows.isEmpty {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     for windowSnapshot in additionalWindows {
                         _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
                     }
+                    self.completeStartupSessionRestore()
                 }
+            } else {
+                completeStartupSessionRestore()
             }
         }
+    }
 
-        self.startupSessionSnapshot = nil
+    private func completeStartupSessionRestore() {
+        startupSessionSnapshot = nil
+        isApplyingStartupSessionRestore = false
+        _ = saveSessionSnapshot(includeScrollback: false)
     }
 
     private func applySessionWindowSnapshot(
@@ -1079,6 +1104,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         to context: MainWindowContext,
         window: NSWindow?
     ) {
+#if DEBUG
+        dlog(
+            "session.restore.apply window=\(context.windowId.uuidString.prefix(8)) " +
+                "liveWin=\(window?.windowNumber ?? -1) " +
+                "snapshotFrame={\(debugSessionRectDescription(snapshot.frame))} " +
+                "snapshotDisplay={\(debugSessionDisplayDescription(snapshot.display))}"
+        )
+#endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
@@ -1088,6 +1121,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
+#if DEBUG
+            dlog(
+                "session.restore.frameApplied window=\(context.windowId.uuidString.prefix(8)) " +
+                    "applied={\(debugNSRectDescription(window.frame))}"
+            )
+#endif
         }
     }
 
@@ -1150,6 +1189,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !availableDisplays.isEmpty else { return frame }
 
         if let targetDisplay = display(for: displaySnapshot, in: availableDisplays) {
+            if shouldPreserveExactFrame(
+                frame: frame,
+                displaySnapshot: displaySnapshot,
+                targetDisplay: targetDisplay
+            ) {
+                return frame
+            }
             return resolvedWindowFrame(
                 frame: frame,
                 displaySnapshot: displaySnapshot,
@@ -1339,6 +1385,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (dx * dx) + (dy * dy)
     }
 
+    private nonisolated static func shouldPreserveExactFrame(
+        frame: CGRect,
+        displaySnapshot: SessionDisplaySnapshot?,
+        targetDisplay: SessionDisplayGeometry
+    ) -> Bool {
+        guard let displaySnapshot else { return false }
+        guard let snapshotDisplayID = displaySnapshot.displayID,
+              let targetDisplayID = targetDisplay.displayID,
+              snapshotDisplayID == targetDisplayID else {
+            return false
+        }
+
+        let visibleMatches = displaySnapshot.visibleFrame.map {
+            rectApproximatelyEqual($0.cgRect, targetDisplay.visibleFrame)
+        } ?? false
+        let frameMatches = displaySnapshot.frame.map {
+            rectApproximatelyEqual($0.cgRect, targetDisplay.frame)
+        } ?? false
+        guard visibleMatches || frameMatches else { return false }
+
+        return frame.width.isFinite
+            && frame.height.isFinite
+            && frame.origin.x.isFinite
+            && frame.origin.y.isFinite
+    }
+
+    private nonisolated static func rectApproximatelyEqual(
+        _ lhs: CGRect,
+        _ rhs: CGRect,
+        tolerance: CGFloat = 1
+    ) -> Bool {
+        let lhsStd = lhs.standardized
+        let rhsStd = rhs.standardized
+        return abs(lhsStd.origin.x - rhsStd.origin.x) <= tolerance
+            && abs(lhsStd.origin.y - rhsStd.origin.y) <= tolerance
+            && abs(lhsStd.size.width - rhsStd.size.width) <= tolerance
+            && abs(lhsStd.size.height - rhsStd.size.height) <= tolerance
+    }
+
     private func displaySnapshot(for window: NSWindow?) -> SessionDisplaySnapshot? {
         guard let window else { return nil }
         let screen = window.screen
@@ -1421,6 +1506,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func saveSessionSnapshot(includeScrollback: Bool, removeWhenEmpty: Bool = false) -> Bool {
+        if Self.shouldSkipSessionSaveDuringStartupRestore(
+            isApplyingStartupSessionRestore: isApplyingStartupSessionRestore,
+            includeScrollback: includeScrollback
+        ) {
+#if DEBUG
+            dlog("session.save.skipped reason=startup_restore_in_progress includeScrollback=0")
+#endif
+            return false
+        }
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
             if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
@@ -1433,6 +1527,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 display: primaryWindow.display
             )
         }
+#if DEBUG
+        debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
+#endif
         return SessionPersistenceStore.save(snapshot)
     }
 
@@ -1444,6 +1541,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp: Bool
     ) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldSkipSessionSaveDuringStartupRestore(
+        isApplyingStartupSessionRestore: Bool,
+        includeScrollback: Bool
+    ) -> Bool {
+        isApplyingStartupSessionRestore && !includeScrollback
     }
 
     private func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {
@@ -1483,6 +1587,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windows: windows
         )
     }
+
+#if DEBUG
+    private func debugLogSessionSaveSnapshot(
+        _ snapshot: AppSessionSnapshot,
+        includeScrollback: Bool
+    ) {
+        dlog(
+            "session.save includeScrollback=\(includeScrollback ? 1 : 0) " +
+                "windows=\(snapshot.windows.count)"
+        )
+        for (index, windowSnapshot) in snapshot.windows.enumerated() {
+            let workspaceCount = windowSnapshot.tabManager.workspaces.count
+            let selectedWorkspace = windowSnapshot.tabManager.selectedWorkspaceIndex.map(String.init) ?? "nil"
+            dlog(
+                "session.save.window idx=\(index) " +
+                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                    "display={\(debugSessionDisplayDescription(windowSnapshot.display))} " +
+                    "workspaces=\(workspaceCount) selected=\(selectedWorkspace)"
+            )
+        }
+    }
+
+    private func debugSessionRectDescription(_ rect: SessionRectSnapshot?) -> String {
+        guard let rect else { return "nil" }
+        return "x=\(debugSessionNumber(rect.x)) y=\(debugSessionNumber(rect.y)) " +
+            "w=\(debugSessionNumber(rect.width)) h=\(debugSessionNumber(rect.height))"
+    }
+
+    private func debugNSRectDescription(_ rect: NSRect?) -> String {
+        guard let rect else { return "nil" }
+        return "x=\(debugSessionNumber(Double(rect.origin.x))) " +
+            "y=\(debugSessionNumber(Double(rect.origin.y))) " +
+            "w=\(debugSessionNumber(Double(rect.size.width))) " +
+            "h=\(debugSessionNumber(Double(rect.size.height)))"
+    }
+
+    private func debugSessionDisplayDescription(_ display: SessionDisplaySnapshot?) -> String {
+        guard let display else { return "nil" }
+        let displayIdText = display.displayID.map(String.init) ?? "nil"
+        return "id=\(displayIdText) " +
+            "frame={\(debugSessionRectDescription(display.frame))} " +
+            "visible={\(debugSessionRectDescription(display.visibleFrame))}"
+    }
+
+    private func debugSessionNumber(_ value: Double) -> String {
+        String(format: "%.1f", value)
+    }
+#endif
 
     /// Register a terminal window with the AppDelegate so menu commands and socket control
     /// can target whichever window is currently active.
@@ -2186,9 +2338,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context
         }
 
+        // If a keyboard event identifies a specific window but that context
+        // can't be resolved, do not fall back to another window.
+        if shortcutEventHasAddressableWindow(event) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: debugSource,
+                reason: "event_context_required_no_fallback",
+                event: event,
+                chosenContext: nil
+            )
+#endif
+            return nil
+        }
+
         if let keyWindow = NSApp.keyWindow,
            let context = contextForMainTerminalWindow(keyWindow) {
-            #if DEBUG
+#if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",
                 source: debugSource,
@@ -2238,8 +2405,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             chosenContext: fallback
         )
-        #endif
+#endif
         return fallback
+    }
+
+    private func shortcutEventHasAddressableWindow(_ event: NSEvent?) -> Bool {
+        guard let event else { return false }
+        return event.window != nil || event.windowNumber >= 0
     }
 
     private func mainWindowContext(
@@ -2306,6 +2478,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func preferredMainWindowContextForShortcutRouting(event: NSEvent) -> MainWindowContext? {
+        if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.routing") {
+            return context
+        }
+
+        if shortcutEventHasAddressableWindow(event) {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "choose",
+                source: "shortcut.routing",
+                reason: "event_context_required_no_fallback",
+                event: event,
+                chosenContext: nil
+            )
+#endif
+            return nil
+        }
+
+        if let keyWindow = NSApp.keyWindow,
+           let context = contextForMainTerminalWindow(keyWindow) {
+            return context
+        }
+
+        if let mainWindow = NSApp.mainWindow,
+           let context = contextForMainTerminalWindow(mainWindow) {
+            return context
+        }
+
+        if let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            return context
+        }
+
+        return mainWindowContexts.values.first
+    }
+
+    @discardableResult
+    private func synchronizeShortcutRoutingContext(event: NSEvent) -> Bool {
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
+#if DEBUG
+            FocusLogStore.shared.append(
+                "shortcut.route reason=no_context_no_fallback eventWin=\(event.windowNumber) keyCode=\(event.keyCode)"
+            )
+#endif
+            return false
+        }
+
+        let alreadyActive =
+            tabManager === context.tabManager
+            && sidebarState === context.sidebarState
+            && sidebarSelectionState === context.sidebarSelectionState
+        if alreadyActive { return true }
+
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        } else {
+            tabManager = context.tabManager
+            sidebarState = context.sidebarState
+            sidebarSelectionState = context.sidebarSelectionState
+            TerminalController.shared.setActiveTabManager(context.tabManager)
+        }
+
+#if DEBUG
+        FocusLogStore.shared.append(
+            "shortcut.route reason=sync activeTM=\(pointerString(tabManager)) chosen={\(summarizeContextForWorkspaceRouting(context))}"
+        )
+#endif
+        return true
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
@@ -2346,7 +2588,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
         window.isMovable = false
-        if let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot) {
+        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
         } else {
             window.center()
@@ -2383,6 +2626,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.makeKeyAndOrderFront(nil)
             setActiveMainWindow(window)
             NSApp.activate(ignoringOtherApps: true)
+        }
+        if let restoredFrame {
+            window.setFrame(restoredFrame, display: true)
+#if DEBUG
+            dlog(
+                "session.restore.frameApplied window=\(windowId.uuidString.prefix(8)) " +
+                    "applied={\(debugNSRectDescription(window.frame))}"
+            )
+#endif
         }
         return windowId
     }
@@ -3500,9 +3752,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Route all shortcut handling through the window that actually produced
-        // the event to avoid cross-window actions when app-global pointers are stale.
-        activateMainWindowContextForShortcutEvent(event)
+        let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
+        let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
+        if hasEventWindowContext && !didSynchronizeShortcutContext {
+#if DEBUG
+            dlog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+#endif
+            return false
+        }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
         // before processing shortcuts, converge first responder with the focused terminal panel.

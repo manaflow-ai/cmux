@@ -295,11 +295,14 @@ extension Workspace {
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
+            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
             browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.currentURL?.absoluteString,
+                urlString: browserPanel.preferredURLStringForOmnibar(),
                 shouldRenderWebView: browserPanel.shouldRenderWebView,
                 pageZoom: Double(browserPanel.webView.pageZoom),
-                developerToolsVisible: browserPanel.isDeveloperToolsVisible()
+                developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
+                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
         }
 
@@ -512,6 +515,12 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
+            browserPanel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: browserSnapshot.backHistoryURLStrings ?? [],
+                forwardHistoryURLStrings: browserSnapshot.forwardHistoryURLStrings ?? [],
+                currentURLString: browserSnapshot.urlString
+            )
+
             let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
             if pageZoom.isFinite {
                 browserPanel.webView.pageZoom = pageZoom

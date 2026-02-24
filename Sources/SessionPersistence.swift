@@ -231,6 +231,8 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
+    var backHistoryURLStrings: [String]?
+    var forwardHistoryURLStrings: [String]?
 }
 
 struct SessionPanelSnapshot: Codable, Sendable {
