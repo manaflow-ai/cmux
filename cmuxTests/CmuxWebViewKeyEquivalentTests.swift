@@ -54,6 +54,52 @@ private func installCmuxUnitTestInspectorOverride() {
     cmuxUnitTestInspectorOverrideInstalled = true
 }
 
+final class SplitShortcutTransientFocusGuardTests: XCTestCase {
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsDetached() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: false
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderFallsBackButGeometryIsHealthy() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderIsTerminalEvenIfViewIsTiny() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: false,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
