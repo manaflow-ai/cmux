@@ -478,6 +478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState
     ) {
+        tabManager.window = window
+
         let key = ObjectIdentifier(window)
         if let existing = mainWindowContexts[key] {
             existing.window = window

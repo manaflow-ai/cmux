@@ -309,6 +309,10 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
+    /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
+    weak var window: NSWindow?
+
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
 
@@ -1161,8 +1165,8 @@ class TabManager: ObservableObject {
 
     private func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
-        let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
-        targetWindow?.title = title
+        guard let targetWindow = window else { return }
+        targetWindow.title = title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
