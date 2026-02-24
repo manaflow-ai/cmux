@@ -2973,6 +2973,9 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         XCTAssertEqual(workspace.panels.count, 1)
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
 
         guard let detached = workspace.detachSurface(panelId: panelId) else {
             XCTFail("Expected detach of last surface to succeed")
@@ -2987,9 +2990,53 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
 
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching during cross-workspace moves should not schedule delayed source focus reconciliation"
+        )
+#endif
+
         let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
         XCTAssertEqual(restoredPanelId, panelId)
         XCTAssertEqual(workspace.panels.count, 1)
+    }
+
+    func testDetachSurfaceWithRemainingPanelsSkipsDelayedFocusReconcile() {
+        let workspace = Workspace()
+        guard let originalPanelId = workspace.focusedPanelId,
+              let movedPanel = workspace.newTerminalSplit(from: originalPanelId, orientation: .horizontal) else {
+            XCTFail("Expected two panels before detach")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        let baselineFocusReconcileDuringDetach = workspace.debugFocusReconcileScheduledDuringDetachCount
+#endif
+
+        guard let detached = workspace.detachSurface(panelId: movedPanel.id) else {
+            XCTFail("Expected detach to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, movedPanel.id)
+        XCTAssertEqual(workspace.panels.count, 1, "Expected source workspace to retain only the surviving panel")
+        XCTAssertNotNil(workspace.panels[originalPanelId], "Expected the original panel to remain after detach")
+
+        drainMainQueue()
+        drainMainQueue()
+#if DEBUG
+        XCTAssertEqual(
+            workspace.debugFocusReconcileScheduledDuringDetachCount,
+            baselineFocusReconcileDuringDetach,
+            "Detaching into another workspace should not enqueue delayed source focus reconciliation"
+        )
+#endif
     }
 
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
