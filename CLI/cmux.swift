@@ -2007,6 +2007,27 @@ struct CMUXCLI {
             }
         }
 
+        func displayBrowserValue(_ value: Any) -> String {
+            if value is NSNull {
+                return "null"
+            }
+            if let string = value as? String {
+                return string
+            }
+            if let bool = value as? Bool {
+                return bool ? "true" : "false"
+            }
+            if let number = value as? NSNumber {
+                return number.stringValue
+            }
+            if JSONSerialization.isValidJSONObject(value),
+               let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+               let text = String(data: data, encoding: .utf8) {
+                return text
+            }
+            return String(describing: value)
+        }
+
         func nonFlagArgs(_ values: [String]) -> [String] {
             values.filter { !$0.hasPrefix("-") }
         }
@@ -2174,7 +2195,13 @@ struct CMUXCLI {
                 throw CLIError(message: "browser eval requires a script")
             }
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
-            output(payload, fallback: "OK")
+            let fallback: String
+            if let value = payload["value"] {
+                fallback = displayBrowserValue(value)
+            } else {
+                fallback = "OK"
+            }
+            output(payload, fallback: fallback)
             return
         }
 
