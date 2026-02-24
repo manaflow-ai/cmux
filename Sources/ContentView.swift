@@ -1211,6 +1211,7 @@ struct ContentView: View {
             WindowDragHandleView()
 
             TitlebarLeadingInsetReader(inset: $titlebarLeadingInset)
+                .allowsHitTesting(false)
 
             HStack(spacing: 8) {
                 if isFullScreen && !sidebarState.isVisible {
@@ -1226,6 +1227,7 @@ struct ContentView: View {
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(fakeTitlebarTextColor)
                     .lineLimit(1)
+                    .allowsHitTesting(false)
 
                 Spacer()
 
@@ -1238,9 +1240,6 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            NSApp.keyWindow?.zoom(nil)
-        }
         .background(fakeTitlebarBackground)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -1540,6 +1539,9 @@ struct ContentView: View {
             // Do not make the entire background draggable; it interferes with drag gestures
             // like sidebar tab reordering in multi-window mode.
             window.isMovableByWindowBackground = false
+            // Keep the window immovable by default so titlebar controls (like the folder icon)
+            // cannot accidentally initiate native window drags.
+            window.isMovable = false
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
@@ -4042,9 +4044,21 @@ private struct DraggableFolderIconRepresentable: NSViewRepresentable {
     }
 }
 
-private final class DraggableFolderNSView: NSView, NSDraggingSource {
+final class DraggableFolderNSView: NSView, NSDraggingSource {
+    private final class FolderIconImageView: NSImageView {
+        override var mouseDownCanMoveWindow: Bool { false }
+    }
+
     var directory: String
-    private var imageView: NSImageView!
+    private var imageView: FolderIconImageView!
+    private var previousWindowMovableState: Bool?
+    private weak var suppressedWindow: NSWindow?
+    private var hasActiveDragSession = false
+    private var didArmWindowDragSuppression = false
+
+    private func formatPoint(_ point: NSPoint) -> String {
+        String(format: "(%.1f,%.1f)", point.x, point.y)
+    }
 
     init(directory: String) {
         self.directory = directory
@@ -4060,8 +4074,10 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         NSSize(width: 16, height: 16)
     }
 
+    override var mouseDownCanMoveWindow: Bool { false }
+
     private func setupImageView() {
-        imageView = NSImageView()
+        imageView = FolderIconImageView()
         imageView.imageScaling = .scaleProportionallyDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(imageView)
@@ -4086,9 +4102,40 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         return context == .outsideApplication ? [.copy, .link] : .copy
     }
 
-    override func mouseDown(with event: NSEvent) {
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        hasActiveDragSession = false
+        restoreWindowMovableStateIfNeeded()
         #if DEBUG
-        dlog("folder.dragStart dir=\(directory)")
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
+        dlog("folder.dragEnd dir=\(directory) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
+        #endif
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        maybeDisableWindowDraggingEarly(trigger: "hitTest")
+        let hit = super.hitTest(point)
+        #if DEBUG
+        let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
+        let imageHit = (hit === imageView)
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        dlog("folder.hitTest point=\(formatPoint(point)) hit=\(hitDesc) imageViewHit=\(imageHit) returning=DraggableFolderNSView wasMovable=\(wasMovable) nowMovable=\(nowMovable)")
+        #endif
+        return self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        maybeDisableWindowDraggingEarly(trigger: "mouseDown")
+        hasActiveDragSession = false
+        #if DEBUG
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let responderDesc = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = window.map { String($0.isMovable) } ?? "nil"
+        let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
+        dlog("folder.mouseDown dir=\(directory) point=\(formatPoint(localPoint)) firstResponder=\(responderDesc) wasMovable=\(wasMovable) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
         let fileURL = URL(fileURLWithPath: directory)
         let draggingItem = NSDraggingItem(pasteboardWriter: fileURL as NSURL)
@@ -4097,7 +4144,19 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         iconImage.size = NSSize(width: 32, height: 32)
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
-        beginDraggingSession(with: [draggingItem], event: event, source: self)
+        let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
+        hasActiveDragSession = true
+        #if DEBUG
+        let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
+        dlog("folder.dragStart dir=\(directory) pasteboardItems=\(itemCount)")
+        #endif
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        if !hasActiveDragSession {
+            restoreWindowMovableStateIfNeeded()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -4166,6 +4225,59 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
         // Open "Computer" view in Finder (shows all volumes)
         NSWorkspace.shared.open(URL(fileURLWithPath: "/", isDirectory: true))
     }
+
+    private func restoreWindowMovableStateIfNeeded() {
+        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
+        let targetWindow = suppressedWindow ?? window
+        let depthAfter = endWindowDragSuppression(window: targetWindow)
+        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
+        self.previousWindowMovableState = nil
+        self.suppressedWindow = nil
+        self.didArmWindowDragSuppression = false
+        #if DEBUG
+        let nowMovable = targetWindow.map { String($0.isMovable) } ?? "nil"
+        dlog("folder.dragSuppression restore depth=\(depthAfter) nowMovable=\(nowMovable)")
+        #endif
+    }
+
+    private func maybeDisableWindowDraggingEarly(trigger: String) {
+        guard !didArmWindowDragSuppression else { return }
+        guard let eventType = NSApp.currentEvent?.type,
+              eventType == .leftMouseDown || eventType == .leftMouseDragged else {
+            return
+        }
+        guard let currentWindow = window else { return }
+
+        didArmWindowDragSuppression = true
+        suppressedWindow = currentWindow
+        let suppressionDepth = beginWindowDragSuppression(window: currentWindow) ?? 0
+        if currentWindow.isMovable {
+            previousWindowMovableState = temporarilyDisableWindowDragging(window: currentWindow)
+        } else {
+            previousWindowMovableState = nil
+        }
+        #if DEBUG
+        let wasMovable = previousWindowMovableState.map(String.init) ?? "nil"
+        let nowMovable = String(currentWindow.isMovable)
+        dlog(
+            "folder.dragSuppression trigger=\(trigger) event=\(eventType) depth=\(suppressionDepth) wasMovable=\(wasMovable) nowMovable=\(nowMovable)"
+        )
+        #endif
+    }
+}
+
+func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
+    guard let window else { return nil }
+    let wasMovable = window.isMovable
+    if wasMovable {
+        window.isMovable = false
+    }
+    return wasMovable
+}
+
+func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
+    guard let window, let previousMovableState else { return }
+    window.isMovable = previousMovableState
 }
 
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
@@ -4247,11 +4359,16 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 
 
 /// Reads the leading inset required to clear traffic lights + left titlebar accessories.
+final class TitlebarLeadingInsetPassthroughView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     @Binding var inset: CGFloat
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = TitlebarLeadingInsetPassthroughView()
         view.setFrameSize(.zero)
         return view
     }

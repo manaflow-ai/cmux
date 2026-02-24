@@ -3824,6 +3824,14 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class HostContainerView: NSView {}
+    private final class PassiveHostContainerView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            return super.hitTest(point) ?? self
+        }
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -3868,6 +3876,251 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+    }
+
+    func testPassiveHostingTopHitClassification() {
+        XCTAssertTrue(windowDragHandleShouldTreatTopHitAsPassiveHost(HostContainerView(frame: .zero)))
+        XCTAssertFalse(windowDragHandleShouldTreatTopHitAsPassiveHost(NSButton(frame: .zero)))
+    }
+
+    func testDragHandleIgnoresPassiveHostSiblingHit() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let passiveHost = PassiveHostContainerView(frame: container.bounds)
+        container.addSubview(passiveHost)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            "Passive host wrappers should not block titlebar drag capture"
+        )
+    }
+
+    func testDragHandleRespectsInteractiveChildInsidePassiveHost() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let passiveHost = PassiveHostContainerView(frame: container.bounds)
+        let folderControl = CapturingView(frame: NSRect(x: 10, y: 10, width: 16, height: 16))
+        passiveHost.addSubview(folderControl)
+        container.addSubview(passiveHost)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            "Interactive controls inside passive host wrappers should still receive hits"
+        )
+    }
+}
+
+@MainActor
+final class DraggableFolderHitTests: XCTestCase {
+    func testFolderHitTestReturnsContainerWhenInsideBounds() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
+
+        guard let hit = folderView.hitTest(NSPoint(x: 8, y: 8)) else {
+            XCTFail("Expected folder icon to capture inside hit")
+            return
+        }
+        XCTAssertTrue(hit === folderView)
+    }
+
+    func testFolderHitTestReturnsNilOutsideBounds() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 0, y: 0, width: 16, height: 16)
+
+        XCTAssertNil(folderView.hitTest(NSPoint(x: 20, y: 8)))
+    }
+
+    func testFolderIconDisablesWindowMoveBehavior() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        XCTAssertFalse(folderView.mouseDownCanMoveWindow)
+    }
+}
+
+@MainActor
+final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
+    func testLeadingInsetViewDoesNotParticipateInHitTesting() {
+        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        XCTAssertNil(view.hitTest(NSPoint(x: 20, y: 10)))
+    }
+
+    func testLeadingInsetViewCannotMoveWindowViaMouseDown() {
+        let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        XCTAssertFalse(view.mouseDownCanMoveWindow)
+    }
+}
+
+@MainActor
+final class FolderWindowMoveSuppressionTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    func testSuppressionDisablesMovableWindow() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        let previous = temporarilyDisableWindowDragging(window: window)
+
+        XCTAssertEqual(previous, true)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testSuppressionPreservesAlreadyImmovableWindow() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let previous = temporarilyDisableWindowDragging(window: window)
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testRestoreAppliesPreviousMovableState() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        restoreWindowDragging(window: window, previousMovableState: true)
+        XCTAssertTrue(window.isMovable)
+
+        restoreWindowDragging(window: window, previousMovableState: false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testWindowDragSuppressionDepthLifecycle() {
+        let window = makeWindow()
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+    }
+
+    func testWindowDragSuppressionIsReferenceCounted() {
+        let window = makeWindow()
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(beginWindowDragSuppression(window: window), 2)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 2)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 1)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 1)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+
+        XCTAssertEqual(endWindowDragSuppression(window: window), 0)
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+    }
+
+    func testTemporaryWindowMovableEnableRestoresImmovableWindow() {
+        let window = makeWindow()
+        window.isMovable = false
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(window.isMovable)
+    }
+
+    func testTemporaryWindowMovableEnablePreservesMovableWindow() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, true)
+        XCTAssertTrue(window.isMovable)
+    }
+}
+
+@MainActor
+final class WindowMoveSuppressionHitPathTests: XCTestCase {
+    private func makeWindowWithContentView() -> (NSWindow, NSView) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        return (window, contentView)
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    func testSuppressionHitPathRecognizesFolderView() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: folderView))
+    }
+
+    func testSuppressionHitPathRecognizesDescendantOfFolderView() {
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        let child = NSView(frame: .zero)
+        folderView.addSubview(child)
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(hitView: child))
+    }
+
+    func testSuppressionHitPathIgnoresUnrelatedViews() {
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(hitView: NSView(frame: .zero)))
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(hitView: nil))
+    }
+
+    func testSuppressionEventPathRecognizesFolderHitInsideWindow() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let folderView = DraggableFolderNSView(directory: "/tmp")
+        folderView.frame = NSRect(x: 10, y: 10, width: 16, height: 16)
+        contentView.addSubview(folderView)
+
+        let event = makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 14, y: 14), window: window)
+
+        XCTAssertTrue(shouldSuppressWindowMoveForFolderDrag(window: window, event: event))
+    }
+
+    func testSuppressionEventPathRejectsNonFolderAndNonMouseDownEvents() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let plainView = NSView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        contentView.addSubview(plainView)
+
+        let down = makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 20, y: 20), window: window)
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: down))
+
+        let dragged = makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 20, y: 20), window: window)
+        XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
     }
 }
 
