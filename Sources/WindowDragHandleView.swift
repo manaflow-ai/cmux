@@ -51,6 +51,16 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
 }
 
+@discardableResult
+func clearWindowDragSuppression(window: NSWindow?) -> Int {
+    guard let window else { return 0 }
+    var depth = windowDragSuppressionDepth(window: window)
+    while depth > 0 {
+        depth = endWindowDragSuppression(window: window)
+    }
+    return depth
+}
+
 /// Temporarily enables window movability for explicit drag-handle drags, then
 /// restores the previous movability state after `body` finishes.
 @discardableResult
@@ -98,13 +108,24 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
 func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSView) -> Bool {
     if isWindowDragSuppressed(window: dragHandleView.window) {
+        // Recover from stale suppression if a prior interaction missed cleanup.
+        // We only keep suppression active while the left mouse button is down.
+        if (NSEvent.pressedMouseButtons & 0x1) == 0 {
+            let clearedDepth = clearWindowDragSuppression(window: dragHandleView.window)
+            #if DEBUG
+            dlog(
+                "titlebar.dragHandle.hitTest suppressionRecovered clearedDepth=\(clearedDepth) point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+        } else {
         #if DEBUG
-        let depth = windowDragSuppressionDepth(window: dragHandleView.window)
-        dlog(
-            "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(windowDragHandleFormatPoint(point))"
-        )
+            let depth = windowDragSuppressionDepth(window: dragHandleView.window)
+            dlog(
+                "titlebar.dragHandle.hitTest capture=false reason=suppressed depth=\(depth) point=\(windowDragHandleFormatPoint(point))"
+            )
         #endif
-        return false
+            return false
+        }
     }
 
     guard dragHandleView.bounds.contains(point) else {
