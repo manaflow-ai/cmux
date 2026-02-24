@@ -699,6 +699,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options.debug = false
             #endif
             options.sendDefaultPii = true
+
+            // Performance tracing (10% of transactions)
+            options.tracesSampleRate = 0.1
+            // App hang timeout (default is 2s, be explicit)
+            options.appHangTimeoutInterval = 2.0
+            // Attach stack traces to all events
+            options.attachStacktrace = true
+            // Capture failed HTTP requests
+            options.enableCaptureFailedRequests = true
         }
 
         if !isRunningUnderXCTest {
@@ -804,6 +813,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
+            "tabCount": tabManager?.tabs.count ?? 0
+        ])
         let env = ProcessInfo.processInfo.environment
         if !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")

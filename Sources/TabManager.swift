@@ -567,6 +567,9 @@ class TabManager: ObservableObject {
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
+            sentryBreadcrumb("workspace.switch", data: [
+                "tabCount": tabs.count
+            ])
             let previousTabId = oldValue
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
@@ -752,6 +755,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil, select: Bool = true) -> Workspace {
+        sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
         let ordinal = Self.nextPortOrdinal
@@ -963,6 +967,7 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
+        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -1725,6 +1730,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
 
