@@ -307,6 +307,7 @@ class GhosttyApp {
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
+    private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -565,6 +566,7 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
+        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -613,6 +615,13 @@ class GhosttyApp {
         incomingScope: GhosttyDefaultBackgroundUpdateScope
     ) -> Bool {
         incomingScope.rawValue >= currentScope.rawValue
+    }
+
+    static func shouldReloadConfigurationForAppearanceChange(
+        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
+        currentColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> Bool {
+        previousColorScheme != currentColorScheme
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
@@ -671,6 +680,7 @@ class GhosttyApp {
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             ghostty_app_update_config(app, config)
+            lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
@@ -694,8 +704,37 @@ class GhosttyApp {
             ghostty_config_free(oldConfig)
         }
         config = newConfig
+        lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
+        let currentColorScheme = GhosttyConfig.currentColorSchemePreference(
+            appAppearance: appearance ?? NSApp?.effectiveAppearance
+        )
+        let shouldReload = Self.shouldReloadConfigurationForAppearanceChange(
+            previousColorScheme: lastAppearanceColorScheme,
+            currentColorScheme: currentColorScheme
+        )
+        if backgroundLogEnabled {
+            let previousLabel: String
+            switch lastAppearanceColorScheme {
+            case .light:
+                previousLabel = "light"
+            case .dark:
+                previousLabel = "dark"
+            case nil:
+                previousLabel = "nil"
+            }
+            let currentLabel: String = currentColorScheme == .dark ? "dark" : "light"
+            logBackground(
+                "appearance sync source=\(source) previous=\(previousLabel) current=\(currentLabel) reload=\(shouldReload)"
+            )
+        }
+        guard shouldReload else { return }
+        lastAppearanceColorScheme = currentColorScheme
+        reloadConfiguration(source: "appearanceSync:\(source)")
     }
 
     func openConfigurationInTextEdit() {
@@ -2280,6 +2319,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
+        GhosttyApp.shared.synchronizeThemeWithAppearance(
+            effectiveAppearance,
+            source: "surface.viewDidMoveToWindow"
+        )
         applyWindowBackgroundIfActive()
     }
 
@@ -2292,6 +2335,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         applySurfaceColorScheme()
+        GhosttyApp.shared.synchronizeThemeWithAppearance(
+            effectiveAppearance,
+            source: "surface.viewDidChangeEffectiveAppearance"
+        )
     }
 
     fileprivate func updateOcclusionState() {
