@@ -2214,6 +2214,59 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceCreationPlacementTests: XCTestCase {
+    func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() {
+        let currentPlacement = WorkspacePlacementSettings.current()
+
+        let defaultManager = makeManagerWithThreeWorkspaces()
+        let defaultBaselineOrder = defaultManager.tabs.map(\.id)
+        let defaultInserted = defaultManager.addWorkspace()
+        guard let defaultInsertedIndex = defaultManager.tabs.firstIndex(where: { $0.id == defaultInserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+        XCTAssertEqual(defaultManager.tabs.map(\.id).filter { $0 != defaultInserted.id }, defaultBaselineOrder)
+
+        let explicitManager = makeManagerWithThreeWorkspaces()
+        let explicitBaselineOrder = explicitManager.tabs.map(\.id)
+        let explicitInserted = explicitManager.addWorkspace(placementOverride: currentPlacement)
+        guard let explicitInsertedIndex = explicitManager.tabs.firstIndex(where: { $0.id == explicitInserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+        XCTAssertEqual(explicitManager.tabs.map(\.id).filter { $0 != explicitInserted.id }, explicitBaselineOrder)
+        XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
+    }
+
+    func testAddWorkspaceEndOverrideAlwaysAppends() {
+        let manager = makeManagerWithThreeWorkspaces()
+        let baselineCount = manager.tabs.count
+        guard baselineCount >= 3 else {
+            XCTFail("Expected at least three workspaces for placement regression test")
+            return
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .end)
+        guard let insertedIndex = manager.tabs.firstIndex(where: { $0.id == inserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+
+        XCTAssertEqual(insertedIndex, baselineCount)
+    }
+
+    private func makeManagerWithThreeWorkspaces() -> TabManager {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        if let first = manager.tabs.first {
+            manager.selectWorkspace(first)
+        }
+        return manager
+    }
+}
+
 final class WorkspaceTabColorSettingsTests: XCTestCase {
     func testNormalizedHexAcceptsAndNormalizesValidInput() {
         XCTAssertEqual(WorkspaceTabColorSettings.normalizedHex("#abc123"), "#ABC123")
