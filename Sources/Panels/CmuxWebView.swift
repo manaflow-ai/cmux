@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import ObjectiveC
 import WebKit
 
@@ -7,6 +8,37 @@ import WebKit
 /// key equivalents first so app-level shortcuts continue to work when WebKit is
 /// the first responder.
 final class CmuxWebView: WKWebView {
+    // Some sites/WebKit paths report middle-click link activations as
+    // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
+    // middle-click so navigation delegates can recover intent reliably.
+    private struct MiddleClickIntent {
+        let webViewID: ObjectIdentifier
+        let uptime: TimeInterval
+    }
+
+    private static var lastMiddleClickIntent: MiddleClickIntent?
+    private static let middleClickIntentMaxAge: TimeInterval = 0.8
+
+    static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
+        guard let webView = webView as? CmuxWebView else { return false }
+        guard let intent = lastMiddleClickIntent else { return false }
+
+        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
+        if age > middleClickIntentMaxAge {
+            lastMiddleClickIntent = nil
+            return false
+        }
+
+        return intent.webViewID == ObjectIdentifier(webView)
+    }
+
+    private static func recordMiddleClickIntent(for webView: CmuxWebView) {
+        lastMiddleClickIntent = MiddleClickIntent(
+            webViewID: ObjectIdentifier(webView),
+            uptime: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
     private final class ContextMenuFallbackBox: NSObject {
         weak var target: AnyObject?
         let action: Selector?
@@ -20,13 +52,78 @@ final class CmuxWebView: WKWebView {
     private static var contextMenuFallbackKey: UInt8 = 0
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
+    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    /// Guard against background panes stealing first responder (e.g. page autofocus).
+    /// BrowserPanelView updates this as pane focus state changes.
+    var allowsFirstResponderAcquisition: Bool = true
+    private var pointerFocusAllowanceDepth: Int = 0
+    var allowsFirstResponderAcquisitionEffective: Bool {
+        allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
+    }
+    var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+
+    override func becomeFirstResponder() -> Bool {
+        guard allowsFirstResponderAcquisitionEffective else {
+#if DEBUG
+            let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+            dlog(
+                "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
+                "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+                "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+            )
+#endif
+            return false
+        }
+        let result = super.becomeFirstResponder()
+        if result {
+            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+        }
+#if DEBUG
+        let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        dlog(
+            "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
+        )
+#endif
+        return result
+    }
+
+    /// Temporarily permits focus acquisition for explicit pointer-driven interactions
+    /// (mouse click into this webview) while keeping background autofocus blocked.
+    func withPointerFocusAllowance(_ body: () -> Void) {
+        pointerFocusAllowanceDepth += 1
+#if DEBUG
+        dlog(
+            "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
+            "depth=\(pointerFocusAllowanceDepth)"
+        )
+#endif
+        defer {
+            pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
+#if DEBUG
+            dlog(
+                "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
+                "depth=\(pointerFocusAllowanceDepth)"
+            )
+#endif
+        }
+        body()
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Preserve Cmd+Return/Enter for web content (e.g. editors/forms). Do not
-        // route it through app/menu key equivalents, which can trigger unintended actions.
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command), event.keyCode == 36 || event.keyCode == 76 {
+        if event.keyCode == 36 || event.keyCode == 76 {
+            // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
+            // receives the keyDown path used by form submission handlers.
             return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Menu/app shortcut routing is only needed for Command equivalents
+        // (New Tab, Close Tab, tab switching, split commands, etc).
+        guard flags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
         }
 
         // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
@@ -61,20 +158,48 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
+#if DEBUG
+        let windowNumber = window?.windowNumber ?? -1
+        let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
+            "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
+            "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
+        )
+#endif
         NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        super.mouseDown(with: event)
+        withPointerFocusAllowance {
+            super.mouseDown(with: event)
+        }
     }
 
-    // MARK: - Mouse back/forward buttons & middle-click
+    // MARK: - Mouse back/forward buttons
 
     override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            Self.recordMiddleClickIntent(for: self)
+        }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        dlog(
+            "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
         // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
         // Consume the event so WebKit doesn't handle it.
         switch event.buttonNumber {
         case 3:
+#if DEBUG
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+#endif
             goBack()
             return
         case 4:
+#if DEBUG
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+#endif
             goForward()
             return
         default:
@@ -84,25 +209,23 @@ final class CmuxWebView: WKWebView {
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        // Middle-click (button 2) on a link opens it in a new tab.
         if event.buttonNumber == 2 {
-            let point = convert(event.locationInWindow, from: nil)
-            findLinkAtPoint(point) { [weak self] url in
-                guard let self, let url else { return }
-                NotificationCenter.default.post(
-                    name: .webViewMiddleClickedLink,
-                    object: self,
-                    userInfo: ["url": url]
-                )
-            }
-            return
+            Self.recordMiddleClickIntent(for: self)
         }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        dlog(
+            "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
         super.otherMouseUp(with: event)
     }
 
-    /// Use JavaScript to find the nearest anchor element at the given view-local point.
+    /// Finds the nearest anchor element at a given view-local point.
+    /// Used as a context-menu download fallback.
     private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        // WKWebView's coordinate system is flipped (origin top-left for web content).
         let flippedY = bounds.height - point.y
         let js = """
         (() => {
@@ -302,6 +425,27 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    private func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {
+        if let contextMenuLinkURLProvider {
+            contextMenuLinkURLProvider(self, point, completion)
+            return
+        }
+        findLinkURLAtPoint(point, completion: completion)
+    }
+
+    private func canOpenInDefaultBrowser(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased() ?? ""
+        return scheme == "http" || scheme == "https"
+    }
+
+    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
+        if let contextMenuDefaultBrowserOpener {
+            _ = contextMenuDefaultBrowserOpener(url)
+            return
+        }
+        _ = NSWorkspace.shared.open(url)
+    }
+
     private func runContextMenuFallback(action: Selector?, target: AnyObject?, sender: Any?) {
         guard let action else { return }
         // Guard against accidental self-recursion if fallback gets overwritten.
@@ -452,8 +596,22 @@ final class CmuxWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        var openLinkInsertionIndex: Int?
+        var hasDefaultBrowserOpenLinkItem = false
 
-        for item in menu.items {
+        for (index, item) in menu.items.enumerated() {
+            if !hasDefaultBrowserOpenLinkItem,
+               (item.action == #selector(contextMenuOpenLinkInDefaultBrowser(_:))
+                || item.title == "Open Link in Default Browser") {
+                hasDefaultBrowserOpenLinkItem = true
+            }
+
+            if openLinkInsertionIndex == nil,
+               (item.identifier?.rawValue == "WKMenuItemIdentifierOpenLink"
+                || item.title == "Open Link") {
+                openLinkInsertionIndex = index + 1
+            }
+
             // Rename "Open Link in New Window" to "Open Link in New Tab".
             // The UIDelegate's createWebViewWith already handles the action
             // by opening the link as a new surface in the same pane.
@@ -493,6 +651,25 @@ final class CmuxWebView: WKWebView {
                 item.target = self
                 item.action = #selector(contextMenuDownloadLinkedFile(_:))
             }
+        }
+
+        if let openLinkInsertionIndex, !hasDefaultBrowserOpenLinkItem {
+            let item = NSMenuItem(
+                title: "Open Link in Default Browser",
+                action: #selector(contextMenuOpenLinkInDefaultBrowser(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
+        }
+    }
+
+    @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
+        _ = sender
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self, let url, self.canOpenInDefaultBrowser(url) else { return }
+            self.openContextMenuLinkInDefaultBrowser(url)
         }
     }
 

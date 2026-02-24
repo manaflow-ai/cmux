@@ -9,9 +9,26 @@ struct WorkspaceContentView: View {
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
-    @State private var config = GhosttyConfig.load()
+    let onThemeRefreshRequest: ((
+        _ reason: String,
+        _ backgroundEventId: UInt64?,
+        _ backgroundSource: String?,
+        _ notificationPayloadHex: String?
+    ) -> Void)?
+    @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    static func panelVisibleInUI(
+        isWorkspaceVisible: Bool,
+        isSelectedInPane: Bool,
+        isFocused: Bool
+    ) -> Bool {
+        guard isWorkspaceVisible else { return false }
+        // During pane/tab reparenting, Bonsplit can transiently report selected=false
+        // for the currently focused panel. Keep focused content visible to avoid blank frames.
+        return isSelectedInPane || isFocused
+    }
 
     var body: some View {
         let appearance = PanelAppearance.fromConfig(config)
@@ -41,7 +58,11 @@ struct WorkspaceContentView: View {
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
                 let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                let isVisibleInUI = isWorkspaceVisible && isSelectedInPane
+                let isVisibleInUI = Self.panelVisibleInUI(
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isSelectedInPane: isSelectedInPane,
+                    isFocused: isFocused
+                )
                 let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
                     hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
                     isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
@@ -61,7 +82,7 @@ struct WorkspaceContentView: View {
                         // indicator and where keyboard input/flash-focus actually lands.
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id)
+                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
                     },
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
@@ -87,7 +108,7 @@ struct WorkspaceContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
-            workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
+            refreshGhosttyAppearanceConfig(reason: "onAppear")
         }
         .onChange(of: notificationStore.notifications) { _, _ in
             syncBonsplitNotificationBadges()
@@ -96,18 +117,28 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig()
+            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
-        .onChange(of: colorScheme) { _, _ in
+        .onChange(of: colorScheme) { oldValue, newValue in
             // Keep split overlay color/opacity in sync with light/dark theme transitions.
-            refreshGhosttyAppearanceConfig()
+            refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
-            if let backgroundColor = notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor {
-                workspace.applyGhosttyChrome(backgroundColor: backgroundColor)
-            } else {
-                workspace.applyGhosttyChrome(backgroundColor: GhosttyApp.shared.defaultBackgroundColor)
-            }
+            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
+            let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
+            logTheme(
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+            )
+            // Payload ordering can lag across rapid config/theme updates.
+            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
+            // with Ghostty's current runtime theme.
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyDefaultBackgroundDidChange",
+                backgroundEventId: eventId,
+                backgroundSource: source,
+                notificationPayloadHex: payloadHex
+            )
         }
     }
 
@@ -141,10 +172,95 @@ struct WorkspaceContentView: View {
         }
     }
 
-    private func refreshGhosttyAppearanceConfig() {
-        let next = GhosttyConfig.load()
-        config = next
-        workspace.applyGhosttyChrome(from: next)
+    static func resolveGhosttyAppearanceConfig(
+        reason: String = "unspecified",
+        backgroundOverride: NSColor? = nil,
+        loadConfig: () -> GhosttyConfig = GhosttyConfig.load,
+        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
+    ) -> GhosttyConfig {
+        var next = loadConfig()
+        let loadedBackgroundHex = next.backgroundColor.hexString()
+        let defaultBackgroundHex: String
+        let resolvedBackground: NSColor
+
+        if let backgroundOverride {
+            resolvedBackground = backgroundOverride
+            defaultBackgroundHex = "skipped"
+        } else {
+            let fallback = defaultBackground()
+            resolvedBackground = fallback
+            defaultBackgroundHex = fallback.hexString()
+        }
+
+        next.backgroundColor = resolvedBackground
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) theme=\(next.theme ?? "nil")"
+            )
+        }
+        return next
+    }
+
+    private func refreshGhosttyAppearanceConfig(
+        reason: String,
+        backgroundOverride: NSColor? = nil,
+        backgroundEventId: UInt64? = nil,
+        backgroundSource: String? = nil,
+        notificationPayloadHex: String? = nil
+    ) {
+        let previousBackgroundHex = config.backgroundColor.hexString()
+        let next = Self.resolveGhosttyAppearanceConfig(
+            reason: reason,
+            backgroundOverride: backgroundOverride
+        )
+        let eventLabel = backgroundEventId.map(String.init) ?? "nil"
+        let sourceLabel = backgroundSource ?? "nil"
+        let payloadLabel = notificationPayloadHex ?? "nil"
+        let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
+        let shouldRequestTitlebarRefresh = backgroundChanged || reason == "onAppear"
+        logTheme(
+            "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
+        )
+        withTransaction(Transaction(animation: nil)) {
+            config = next
+            if shouldRequestTitlebarRefresh {
+                onThemeRefreshRequest?(
+                    reason,
+                    backgroundEventId,
+                    backgroundSource,
+                    notificationPayloadHex
+                )
+            }
+        }
+        if !shouldRequestTitlebarRefresh {
+            logTheme(
+                "theme refresh titlebar-skip workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString())"
+            )
+        }
+        logTheme(
+            "theme refresh config-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) configBg=\(config.backgroundColor.hexString())"
+        )
+        let chromeReason =
+            "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
+        workspace.applyGhosttyChrome(from: next, reason: chromeReason)
+        if let terminalPanel = workspace.focusedTerminalPanel {
+            terminalPanel.applyWindowBackgroundIfActive()
+            logTheme(
+                "theme refresh terminal-applied workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) panel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+            )
+        } else {
+            logTheme(
+                "theme refresh terminal-skipped workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) focusedPanel=\(workspace.focusedPanelId?.uuidString ?? "nil")"
+            )
+        }
+        logTheme(
+            "theme refresh end workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) chromeBg=\(workspace.bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil")"
+        )
+    }
+
+    private func logTheme(_ message: String) {
+        guard GhosttyApp.shared.backgroundLogEnabled else { return }
+        GhosttyApp.shared.logBackground(message)
     }
 }
 
@@ -177,6 +293,8 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
+    @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()
 
     private struct ShortcutHint: View {
         let text: String
@@ -211,6 +329,49 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private var newSurfaceShortcut: StoredShortcut {
+        decodeShortcut(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
+    }
+
+    private var openBrowserShortcut: StoredShortcut {
+        decodeShortcut(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
+    }
+
+    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
+        guard !data.isEmpty,
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return fallback
+        }
+        return shortcut
+    }
+
+    @ViewBuilder
+    private func emptyPaneActionButton(
+        title: String,
+        systemImage: String,
+        shortcut: StoredShortcut,
+        action: @escaping () -> Void
+    ) -> some View {
+        if let key = shortcut.keyEquivalent {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Label(title, systemImage: systemImage)
+                    ShortcutHint(text: shortcut.displayString)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
+        } else {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Label(title, systemImage: systemImage)
+                    ShortcutHint(text: shortcut.displayString)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
@@ -222,27 +383,19 @@ struct EmptyPanelView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
-                Button {
-                    createTerminal()
-                } label: {
-                    HStack(spacing: 10) {
-                        Label("Terminal", systemImage: "terminal.fill")
-                        ShortcutHint(text: "⌘T")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("t", modifiers: [.command])
+                emptyPaneActionButton(
+                    title: "Terminal",
+                    systemImage: "terminal.fill",
+                    shortcut: newSurfaceShortcut,
+                    action: createTerminal
+                )
 
-                Button {
-                    createBrowser()
-                } label: {
-                    HStack(spacing: 10) {
-                        Label("Browser", systemImage: "globe")
-                        ShortcutHint(text: "⌘⇧L")
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+                emptyPaneActionButton(
+                    title: "Browser",
+                    systemImage: "globe",
+                    shortcut: openBrowserShortcut,
+                    action: createBrowser
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

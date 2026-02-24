@@ -122,6 +122,79 @@ struct OmnibarInlineCompletion: Equatable {
     }
 }
 
+private struct OmnibarAddressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        OmnibarAddressButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct OmnibarAddressButtonStyleBody: View {
+    let configuration: OmnibarAddressButtonStyle.Configuration
+
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    private var backgroundOpacity: Double {
+        guard isEnabled else { return 0.0 }
+        if configuration.isPressed { return 0.16 }
+        if isHovered { return 0.08 }
+        return 0.0
+    }
+
+    var body: some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(backgroundOpacity))
+            )
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func cmuxFlatSymbolColorRendering() -> some View {
+        if #available(macOS 26.0, *) {
+            self.symbolColorRenderingMode(.flat)
+        } else {
+            self
+        }
+    }
+}
+
+func resolvedBrowserChromeBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    switch colorScheme {
+    case .dark, .light:
+        return themeBackgroundColor
+    @unknown default:
+        return themeBackgroundColor
+    }
+}
+
+func resolvedBrowserOmnibarPillBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    let darkenMix: CGFloat
+    switch colorScheme {
+    case .light:
+        darkenMix = 0.04
+    case .dark:
+        darkenMix = 0.05
+    @unknown default:
+        darkenMix = 0.04
+    }
+
+    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -129,12 +202,14 @@ struct BrowserPanelView: View {
     let isVisibleInUI: Bool
     let portalPriority: Int
     let onRequestPanelFocus: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
     @State private var omnibarState = OmnibarState()
     @State private var addressBarFocused: Bool = false
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var searchEngineRaw = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
+    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -144,12 +219,16 @@ struct BrowserPanelView: View {
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
     @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashFadeWorkItem: DispatchWorkItem?
+    @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
-    private let omnibarPillCornerRadius: CGFloat = 12
+    @State private var isBrowserThemeMenuPresented = false
+    // Keep this below half of the compact omnibar height so it reads as a squircle,
+    // not a capsule.
+    private let omnibarPillCornerRadius: CGFloat = 10
     private let addressBarButtonSize: CGFloat = 22
-    private let addressBarButtonHitSize: CGFloat = 32
+    private let addressBarButtonHitSize: CGFloat = 26
+    private let addressBarVerticalPadding: CGFloat = 4
     private let devToolsButtonIconSize: CGFloat = 11
 
     private var searchEngine: BrowserSearchEngine {
@@ -184,16 +263,34 @@ struct BrowserPanelView: View {
         BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
     }
 
+    private var browserThemeMode: BrowserThemeMode {
+        BrowserThemeSettings.mode(for: browserThemeModeRaw)
+    }
+
+    private var browserChromeBackgroundColor: NSColor {
+        resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
+    private var omnibarPillBackgroundColor: NSColor {
+        resolvedBrowserOmnibarPillBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: browserChromeBackgroundColor
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             addressBar
             webView
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
                 .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
                 .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
-                .padding(6)
+                .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
         .overlay(alignment: .topLeading) {
@@ -213,7 +310,7 @@ struct BrowserPanelView: View {
                     }
                 )
                 .frame(width: omnibarPillFrame.width)
-                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 6)
+                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
                 .zIndex(1000)
             }
         }
@@ -226,25 +323,32 @@ struct BrowserPanelView: View {
             guard let webView = note.object as? CmuxWebView else { return false }
             return webView === panel?.webView
         }) { _ in
+#if DEBUG
+            dlog(
+                "browser.focus.clickIntent panel=\(panel.id.uuidString.prefix(5)) " +
+                "isFocused=\(isFocused ? 1 : 0) " +
+                "addressFocused=\(addressBarFocused ? 1 : 0)"
+            )
+#endif
             onRequestPanelFocus()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
-            guard let webView = note.object as? CmuxWebView else { return false }
-            return webView === panel?.webView
-        }) { note in
-            if let url = note.userInfo?["url"] as? URL {
-                panel.openLinkInNewTab(url: url)
-            }
         }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
                 BrowserSearchSettings.searchSuggestionsEnabledKey: BrowserSearchSettings.defaultSearchSuggestionsEnabled,
+                BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
             ])
+            let resolvedThemeMode = BrowserThemeSettings.mode(defaults: .standard)
+            if browserThemeModeRaw != resolvedThemeMode.rawValue {
+                browserThemeModeRaw = resolvedThemeMode.rawValue
+            }
+            panel.refreshAppearanceDrivenColors()
+            panel.setBrowserThemeMode(browserThemeMode)
             applyPendingAddressBarFocusRequestIfNeeded()
             syncURLFromPanel()
             // If the browser surface is focused but has no URL loaded yet, auto-focus the omnibar.
             autoFocusOmnibarIfBlank()
+            syncWebViewResponderPolicyWithViewState(reason: "onAppear")
             BrowserHistoryStore.shared.loadIfNeeded()
         }
         .onChange(of: panel.focusFlashToken) { _ in
@@ -262,6 +366,16 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
+        .onChange(of: browserThemeModeRaw) { _ in
+            let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
+            if browserThemeModeRaw != normalizedMode.rawValue {
+                browserThemeModeRaw = normalizedMode.rawValue
+            }
+            panel.setBrowserThemeMode(normalizedMode)
+        }
+        .onChange(of: colorScheme) { _ in
+            panel.refreshAppearanceDrivenColors()
+        }
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
@@ -274,6 +388,7 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 addressBarFocused = false
             }
+            syncWebViewResponderPolicyWithViewState(reason: "panelFocusChanged")
         }
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
@@ -301,6 +416,7 @@ struct BrowserPanelView: View {
                 }
                 inlineCompletion = nil
             }
+            syncWebViewResponderPolicyWithViewState(reason: "addressBarFocusChanged")
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             guard let panelId = notification.object as? UUID, panelId == panel.id else { return }
@@ -332,11 +448,14 @@ struct BrowserPanelView: View {
                 .accessibilityIdentifier("BrowserOmnibarPill")
                 .accessibilityLabel("Browser omnibar")
 
-            developerToolsButton
+            if !panel.isShowingNewTabPage {
+                browserThemeModeButton
+                developerToolsButton
+            }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(.vertical, addressBarVerticalPadding)
+        .background(Color(nsColor: browserChromeBackgroundColor))
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
     }
@@ -354,7 +473,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
             .help("Go Back")
@@ -370,7 +489,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
             .help("Go Forward")
@@ -393,7 +512,7 @@ struct BrowserPanelView: View {
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(OmnibarAddressButtonStyle())
             .help(panel.isLoading ? "Stop" : "Reload")
 
             if panel.isDownloading {
@@ -415,14 +534,72 @@ struct BrowserPanelView: View {
             openDevTools()
         }) {
             Image(systemName: devToolsIconOption.rawValue)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help("Toggle Developer Tools")
+        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip("Toggle Developer Tools"))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    private var browserThemeModeButton: some View {
+        Button(action: {
+            isBrowserThemeMenuPresented.toggle()
+        }) {
+            Image(systemName: browserThemeMode.iconName)
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(browserThemeModeIconColor)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .popover(isPresented: $isBrowserThemeMenuPresented, arrowEdge: .bottom) {
+            browserThemeModePopover
+        }
+        .help("Browser Theme: \(browserThemeMode.displayName)")
+        .accessibilityIdentifier("BrowserThemeModeButton")
+    }
+
+    private var browserThemeModePopover: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(BrowserThemeMode.allCases) { mode in
+                Button {
+                    applyBrowserThemeModeSelection(mode)
+                    isBrowserThemeMenuPresented = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: mode == browserThemeMode ? "checkmark" : "circle")
+                            .font(.system(size: 10, weight: .semibold))
+                            .opacity(mode == browserThemeMode ? 1.0 : 0.0)
+                            .frame(width: 12, alignment: .center)
+                        Text(mode.displayName)
+                            .font(.system(size: 12))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(mode == browserThemeMode ? Color.primary.opacity(0.12) : Color.clear)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("BrowserThemeModeOption\(mode.rawValue.capitalized)")
+            }
+        }
+        .padding(8)
+        .frame(minWidth: 128)
+    }
+
+    private var browserThemeModeIconColor: Color {
+        devToolsColorOption.color
     }
 
     private var omnibarField: some View {
@@ -495,7 +672,7 @@ struct BrowserPanelView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
@@ -514,42 +691,77 @@ struct BrowserPanelView: View {
     }
 
     private var webView: some View {
-        WebViewRepresentable(
-            panel: panel,
-            shouldAttachWebView: isVisibleInUI,
-            shouldFocusWebView: isFocused && !addressBarFocused,
-            isPanelFocused: isFocused,
-            portalZPriority: portalPriority
-        )
-            // Keep the representable identity stable across bonsplit structural updates.
-            // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
-            .id(panel.id)
-            .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture().onEnded {
-                // Chrome-like behavior: clicking web content while editing the
-                // omnibar should commit blur and revert transient edits.
-                if addressBarFocused {
-                    addressBarFocused = false
-                }
-            })
-            .zIndex(0)
+        Group {
+            if panel.shouldRenderWebView {
+                WebViewRepresentable(
+                    panel: panel,
+                    shouldAttachWebView: isVisibleInUI,
+                    shouldFocusWebView: isFocused && !addressBarFocused,
+                    isPanelFocused: isFocused,
+                    portalZPriority: portalPriority
+                )
+                // Keep the representable identity stable across bonsplit structural updates.
+                // This reduces WKWebView reparenting churn (and the associated WebKit crashes).
+                .id(panel.id)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded {
+                    // Chrome-like behavior: clicking web content while editing the
+                    // omnibar should commit blur and revert transient edits.
+                    if addressBarFocused {
+                        addressBarFocused = false
+                    }
+                })
+            } else {
+                Color(nsColor: browserChromeBackgroundColor)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        onRequestPanelFocus()
+                        if addressBarFocused {
+                            addressBarFocused = false
+                        }
+                    }
+            }
+        }
+        .zIndex(0)
     }
 
     private func triggerFocusFlashAnimation() {
-        focusFlashFadeWorkItem?.cancel()
-        focusFlashFadeWorkItem = nil
+        focusFlashAnimationGeneration &+= 1
+        let generation = focusFlashAnimationGeneration
+        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
 
-        withAnimation(.easeOut(duration: 0.08)) {
-            focusFlashOpacity = 1.0
-        }
-
-        let item = DispatchWorkItem {
-            withAnimation(.easeOut(duration: 0.35)) {
-                focusFlashOpacity = 0.0
+        for segment in FocusFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                guard focusFlashAnimationGeneration == generation else { return }
+                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                    focusFlashOpacity = segment.targetOpacity
+                }
             }
         }
-        focusFlashFadeWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: item)
+    }
+
+    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
+        switch curve {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
+
+    private func syncWebViewResponderPolicyWithViewState(reason: String) {
+        guard let cmuxWebView = panel.webView as? CmuxWebView else { return }
+        let next = isFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy.resync panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) reason=\(reason)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     private func syncURLFromPanel() {
@@ -602,6 +814,13 @@ struct BrowserPanelView: View {
         if !panel.toggleDeveloperTools() {
             NSSound.beep()
         }
+    }
+
+    private func applyBrowserThemeModeSelection(_ mode: BrowserThemeMode) {
+        if browserThemeModeRaw != mode.rawValue {
+            browserThemeModeRaw = mode.rawValue
+        }
+        panel.setBrowserThemeMode(mode)
     }
 
     private func handleOmnibarTap() {
@@ -1954,6 +2173,13 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     }
 }
 
+func browserOmnibarShouldReacquireFocusAfterEndEditing(
+    suppressWebViewFocus: Bool,
+    nextResponderIsOtherTextField: Bool
+) -> Bool {
+    suppressWebViewFocus && !nextResponderIsOtherTextField
+}
+
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
@@ -2066,6 +2292,29 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        private func nextResponderIsOtherTextField(window: NSWindow?) -> Bool {
+            guard let window, let field = parentField else { return false }
+            let responder = window.firstResponder
+
+            if let editor = responder as? NSTextView,
+               let delegateField = editor.delegate as? NSTextField {
+                return delegateField !== field
+            }
+
+            if let textField = responder as? NSTextField {
+                return textField !== field
+            }
+
+            return false
+        }
+
+        private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
+            return browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: parent.shouldSuppressWebViewFocus(),
+                nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
+            )
+        }
+
         func controlTextDidBeginEditing(_ obj: Notification) {
             if !parent.isFocused {
                 DispatchQueue.main.async {
@@ -2078,15 +2327,18 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ obj: Notification) {
             if parent.isFocused {
-                if parent.shouldSuppressWebViewFocus() {
+                if shouldReacquireFocusAfterEndEditing(window: parentField?.window) {
                     guard pendingFocusRequest != true else { return }
                     pendingFocusRequest = true
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.pendingFocusRequest = nil
                         guard self.parent.isFocused else { return }
-                        guard self.parent.shouldSuppressWebViewFocus() else { return }
                         guard let field = self.parentField, let window = field.window else { return }
+                        guard self.shouldReacquireFocusAfterEndEditing(window: window) else {
+                            self.parent.onFieldLostFocus()
+                            return
+                        }
                         // Check both the field itself AND its field editor (which becomes
                         // the actual first responder when the text field is being edited).
                         let fr = window.firstResponder
@@ -2399,11 +2651,12 @@ private struct OmnibarSuggestionsView: View {
     let searchSuggestionsEnabled: Bool
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
-    // Keep radii below the smallest rendered heights so corners don't get
-    // auto-clamped and visually change as popup height changes.
-    private let popupCornerRadius: CGFloat = 16
-    private let rowHighlightCornerRadius: CGFloat = 12
+    // Keep radii below half of the smallest rendered heights so this keeps a
+    // squircle silhouette instead of auto-clamping into a capsule.
+    private let popupCornerRadius: CGFloat = 12
+    private let rowHighlightCornerRadius: CGFloat = 9
     private let singleLineRowHeight: CGFloat = 24
     private let rowSpacing: CGFloat = 1
     private let topInset: CGFloat = 3
@@ -2456,6 +2709,101 @@ private struct OmnibarSuggestionsView: View {
         contentHeight > maxPopupHeight
     }
 
+    private var listTextColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color(nsColor: .labelColor)
+        case .dark:
+            return Color.white.opacity(0.9)
+        @unknown default:
+            return Color(nsColor: .labelColor)
+        }
+    }
+
+    private var badgeTextColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color(nsColor: .secondaryLabelColor)
+        case .dark:
+            return Color.white.opacity(0.72)
+        @unknown default:
+            return Color(nsColor: .secondaryLabelColor)
+        }
+    }
+
+    private var badgeBackgroundColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.06)
+        case .dark:
+            return Color.white.opacity(0.08)
+        @unknown default:
+            return Color.black.opacity(0.06)
+        }
+    }
+
+    private var rowHighlightColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.07)
+        case .dark:
+            return Color.white.opacity(0.12)
+        @unknown default:
+            return Color.black.opacity(0.07)
+        }
+    }
+
+    private var popupOverlayGradientColors: [Color] {
+        switch colorScheme {
+        case .light:
+            return [
+                Color.white.opacity(0.55),
+                Color.white.opacity(0.2),
+            ]
+        case .dark:
+            return [
+                Color.black.opacity(0.26),
+                Color.black.opacity(0.14),
+            ]
+        @unknown default:
+            return [
+                Color.white.opacity(0.55),
+                Color.white.opacity(0.2),
+            ]
+        }
+    }
+
+    private var popupBorderGradientColors: [Color] {
+        switch colorScheme {
+        case .light:
+            return [
+                Color.white.opacity(0.65),
+                Color.black.opacity(0.12),
+            ]
+        case .dark:
+            return [
+                Color.white.opacity(0.22),
+                Color.white.opacity(0.06),
+            ]
+        @unknown default:
+            return [
+                Color.white.opacity(0.65),
+                Color.black.opacity(0.12),
+            ]
+        }
+    }
+
+    private var popupShadowColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.18)
+        case .dark:
+            return Color.black.opacity(0.45)
+        @unknown default:
+            return Color.black.opacity(0.18)
+        }
+    }
+
     @ViewBuilder
     private var rowsView: some View {
         VStack(spacing: rowSpacing) {
@@ -2469,18 +2817,18 @@ private struct OmnibarSuggestionsView: View {
                 HStack(spacing: 6) {
                         Text(item.listText)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color.white.opacity(0.9))
+                            .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
                                 .font(.system(size: 9.5, weight: .medium))
-                                .foregroundStyle(Color.white.opacity(0.72))
+                                .foregroundStyle(badgeTextColor)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(badgeBackgroundColor)
                                 )
                         }
                         Spacer(minLength: 0)
@@ -2496,7 +2844,7 @@ private struct OmnibarSuggestionsView: View {
                         RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
                             .fill(
                                 idx == selectedIndex
-                                    ? Color.white.opacity(0.12)
+                                    ? rowHighlightColor
                                     : Color.clear
                             )
                     )
@@ -2551,10 +2899,7 @@ private struct OmnibarSuggestionsView: View {
                     RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.26),
-                                    Color.black.opacity(0.14),
-                                ],
+                                colors: popupOverlayGradientColors,
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -2565,18 +2910,16 @@ private struct OmnibarSuggestionsView: View {
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                 .stroke(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.22),
-                            Color.white.opacity(0.06),
-                        ],
+                        colors: popupBorderGradientColors,
                         startPoint: .top,
                         endPoint: .bottom
                     ),
                     lineWidth: 1
                 )
         )
-        .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
-        .contentShape(Rectangle())
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .shadow(color: popupShadowColor, radius: 20, y: 10)
+        .contentShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
@@ -2875,6 +3218,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator: Coordinator,
         generation: Int
     ) {
+        let retryInterval: TimeInterval = 1.0 / 60.0
         // Don't schedule multiple overlapping retries.
         guard coordinator.attachRetryWorkItem == nil else { return }
 
@@ -2907,7 +3251,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // Be generous here: bonsplit structural updates can keep a representable
                 // container off-window longer than a few seconds under load.
                 if coordinator.attachRetryCount < 400 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval) {
                         scheduleAttachRetry(
                             webView,
                             panel: panel,
@@ -2944,13 +3288,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         coordinator.attachRetryWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: work)
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
         context.coordinator.panel = panel
         context.coordinator.webView = webView
+        Self.applyWebViewFirstResponderPolicy(
+            panel: panel,
+            webView: webView,
+            isPanelFocused: isPanelFocused
+        )
 
         let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
         if shouldUseWindowPortal {
@@ -3196,6 +3545,26 @@ struct WebViewRepresentable: NSViewRepresentable {
             // clearing first responder here can undo programmatic webview focus (socket tests).
             window.makeFirstResponder(nil)
         }
+    }
+
+    private static func applyWebViewFirstResponderPolicy(
+        panel: BrowserPanel,
+        webView: WKWebView,
+        isPanelFocused: Bool
+    ) {
+        guard let cmuxWebView = webView as? CmuxWebView else { return }
+        let next = isPanelFocused && !panel.shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy panel=\(panel.id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) isPanelFocused=\(isPanelFocused ? 1 : 0) " +
+                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {

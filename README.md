@@ -114,6 +114,7 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌃ ⌘ ] | Next workspace |
 | ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
+| ⌘ ⇧ R | Rename workspace |
 | ⌘ B | Toggle sidebar |
 
 ### Surfaces
@@ -192,6 +193,16 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 [Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+
+## Star History
+
+<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+ </picture>
+</a>
 
 ## Community
 

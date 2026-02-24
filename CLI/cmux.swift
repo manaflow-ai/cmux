@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Security
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
@@ -235,6 +236,46 @@ enum CLIIDFormat: String {
     }
 }
 
+private enum SocketPasswordResolver {
+    private static let service = "com.cmuxterm.app.socket-control"
+    private static let account = "local-socket-password"
+
+    static func resolve(explicit: String?) -> String? {
+        if let explicit = normalized(explicit), !explicit.isEmpty {
+            return explicit
+        }
+        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]), !env.isEmpty {
+            return env
+        }
+        return loadFromKeychain()
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func loadFromKeychain() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            return nil
+        }
+        guard let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
 final class SocketClient {
     private let path: String
     private var socketFD: Int32 = -1
@@ -402,6 +443,7 @@ struct CMUXCLI {
         var jsonOutput = false
         var idFormatArg: String? = nil
         var windowId: String? = nil
+        var socketPasswordArg: String? = nil
 
         var index = 1
         while index < args.count {
@@ -435,6 +477,18 @@ struct CMUXCLI {
                 index += 2
                 continue
             }
+            if arg == "--password" {
+                guard index + 1 < args.count else {
+                    throw CLIError(message: "--password requires a value")
+                }
+                socketPasswordArg = args[index + 1]
+                index += 2
+                continue
+            }
+            if arg == "-v" || arg == "--version" {
+                print(versionSummary())
+                return
+            }
             if arg == "-h" || arg == "--help" {
                 print(usage())
                 return
@@ -450,6 +504,11 @@ struct CMUXCLI {
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
 
+        if command == "version" {
+            print(versionSummary())
+            return
+        }
+
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
         if commandArgs.contains("--help") || commandArgs.contains("-h") {
@@ -462,6 +521,14 @@ struct CMUXCLI {
         try client.connect()
         defer { client.close() }
 
+        if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
+            let authResponse = try client.send(command: "auth \(socketPassword)")
+            if authResponse.hasPrefix("ERROR:"),
+               !authResponse.contains("Unknown command 'auth'") {
+                throw CLIError(message: authResponse)
+            }
+        }
+
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
         // If the user explicitly targets a window, focus it first so commands route correctly.
@@ -472,7 +539,7 @@ struct CMUXCLI {
 
         switch command {
         case "ping":
-            let response = try client.send(command: "ping")
+            let response = try sendV1Command("ping", client: client)
             print(response)
 
         case "capabilities":
@@ -515,7 +582,7 @@ struct CMUXCLI {
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
-            let response = try client.send(command: "list_windows")
+            let response = try sendV1Command("list_windows", client: client)
             if jsonOutput {
                 let windows = parseWindows(response)
                 let payload = windows.map { item -> [String: Any] in
@@ -534,7 +601,7 @@ struct CMUXCLI {
             }
 
         case "current-window":
-            let response = try client.send(command: "current_window")
+            let response = try sendV1Command("current_window", client: client)
             if jsonOutput {
                 print(jsonString(["window_id": response]))
             } else {
@@ -542,21 +609,21 @@ struct CMUXCLI {
             }
 
         case "new-window":
-            let response = try client.send(command: "new_window")
+            let response = try sendV1Command("new_window", client: client)
             print(response)
 
         case "focus-window":
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "focus-window requires --window")
             }
-            let response = try client.send(command: "focus_window \(target)")
+            let response = try sendV1Command("focus_window \(target)", client: client)
             print(response)
 
         case "close-window":
             guard let target = optionValue(commandArgs, name: "--window") else {
                 throw CLIError(message: "close-window requires --window")
             }
-            let response = try client.send(command: "close_window \(target)")
+            let response = try sendV1Command("close_window \(target)", client: client)
             print(response)
 
         case "move-workspace-to-window":
@@ -618,7 +685,7 @@ struct CMUXCLI {
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
             }
-            let response = try client.send(command: "new_workspace")
+            let response = try sendV1Command("new_workspace", client: client)
             print(response)
             if let commandText = commandOpt {
                 guard response.hasPrefix("OK ") else {
@@ -763,11 +830,11 @@ struct CMUXCLI {
             guard let direction = rem1.first else {
                 throw CLIError(message: "drag-surface-to-split requires a direction")
             }
-            let response = try client.send(command: "drag_surface_to_split \(surface) \(direction)")
+            let response = try sendV1Command("drag_surface_to_split \(surface) \(direction)", client: client)
             print(response)
 
         case "refresh-surfaces":
-            let response = try client.send(command: "refresh_surfaces")
+            let response = try sendV1Command("refresh_surfaces", client: client)
             print(response)
 
         case "surface-health":
@@ -883,7 +950,7 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try client.send(command: "current_workspace")
+            let response = try sendV1Command("current_workspace", client: client)
             if jsonOutput {
                 print(jsonString(["workspace_id": response]))
             } else {
@@ -1007,11 +1074,11 @@ struct CMUXCLI {
             let targetSurface = try resolveSurfaceId(surfaceArg, workspaceId: targetWorkspace, client: client)
 
             let payload = "\(title)|\(subtitle)|\(body)"
-            let response = try client.send(command: "notify_target \(targetWorkspace) \(targetSurface) \(payload)")
+            let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
             print(response)
 
         case "list-notifications":
-            let response = try client.send(command: "list_notifications")
+            let response = try sendV1Command("list_notifications", client: client)
             if jsonOutput {
                 let notifications = parseNotifications(response)
                 let payload = notifications.map { item in
@@ -1032,19 +1099,122 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let response = try client.send(command: "clear_notifications")
+            let response = try sendV1Command("clear_notifications", client: client)
             print(response)
 
         case "claude-hook":
             try runClaudeHook(commandArgs: commandArgs, client: client)
 
+        case "set-status":
+            let (icon, r1) = parseOption(commandArgs, name: "--icon")
+            let (color, r2) = parseOption(r1, name: "--color")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            guard r3.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = r3[0]
+            let value = r3.dropFirst().joined(separator: " ")
+            guard !value.isEmpty else {
+                throw CLIError(message: "set-status requires a non-empty value")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_status \(key) \(socketQuote(value))"
+            if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
+            if let color { socketCmd += " --color=\(socketQuote(color))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-status":
+            let (wsFlag, csRemaining) = parseOption(commandArgs, name: "--workspace")
+            guard let key = csRemaining.first else {
+                throw CLIError(message: "clear-status requires a <key>")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-status":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("list_status --tab=\(wsId)", client: client)
+            print(response)
+
+        case "set-progress":
+            let (label, spR1) = parseOption(commandArgs, name: "--label")
+            let (wsFlag, spR2) = parseOption(spR1, name: "--workspace")
+            guard let valueStr = spR2.first else {
+                throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_progress \(valueStr)"
+            if let label { socketCmd += " --label=\(socketQuote(label))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-progress":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_progress --tab=\(wsId)", client: client)
+            print(response)
+
+        case "log":
+            let (level, r1) = parseOption(commandArgs, name: "--level")
+            let (source, r2) = parseOption(r1, name: "--source")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            // Strip leading "--" separator if present
+            let positional = r3.first == "--" ? Array(r3.dropFirst()) : r3
+            let message = positional.joined(separator: " ")
+            guard !message.isEmpty else {
+                throw CLIError(message: "log requires a message")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "log"
+            if let level { socketCmd += " --level=\(level)" }
+            if let source { socketCmd += " --source=\(socketQuote(source))" }
+            socketCmd += " --tab=\(wsId) -- \(socketQuote(message))"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-log":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_log --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-log":
+            let (limitStr, r1) = parseOption(commandArgs, name: "--limit")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "list_log"
+            if let limitStr { socketCmd += " --limit=\(limitStr)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "sidebar-state":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
+            print(response)
+
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
-            let response = try client.send(command: "set_app_focus \(value)")
+            let response = try sendV1Command("set_app_focus \(value)", client: client)
             print(response)
 
         case "simulate-app-active":
-            let response = try client.send(command: "simulate_app_active")
+            let response = try sendV1Command("simulate_app_active", client: client)
             print(response)
 
         case "capture-pane",
@@ -1122,6 +1292,14 @@ struct CMUXCLI {
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
+    }
+
+    private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
+        let response = try client.send(command: command)
+        if response.hasPrefix("ERROR:") {
+            throw CLIError(message: response)
+        }
+        return response
     }
 
     private func resolvedIDFormat(jsonOutput: Bool, raw: String?) throws -> CLIIDFormat {
@@ -3378,6 +3556,130 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
+        case "set-status":
+            return """
+            Usage: cmux set-status <key> <value> [flags]
+
+            Set a sidebar status entry for a workspace. Status entries appear as
+            pills in the sidebar tab row. Use a unique key so different tools
+            (e.g. "claude_code", "build") can manage their own entries.
+
+            Flags:
+              --icon <name>          Icon name (e.g. "sparkle", "hammer")
+              --color <#hex>         Pill color (e.g. "#ff9500")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-status build "compiling" --icon hammer --color "#ff9500"
+              cmux set-status deploy "v1.2.3" --workspace workspace:2
+            """
+        case "clear-status":
+            return """
+            Usage: cmux clear-status <key> [flags]
+
+            Remove a sidebar status entry by key.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-status build
+            """
+        case "list-status":
+            return """
+            Usage: cmux list-status [flags]
+
+            List all sidebar status entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-status
+              cmux list-status --workspace workspace:2
+            """
+        case "set-progress":
+            return """
+            Usage: cmux set-progress <0.0-1.0> [flags]
+
+            Set a progress bar in the sidebar for a workspace.
+
+            Flags:
+              --label <text>         Label shown next to the progress bar
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-progress 0.5 --label "Building..."
+              cmux set-progress 1.0 --label "Done"
+            """
+        case "clear-progress":
+            return """
+            Usage: cmux clear-progress [flags]
+
+            Clear the sidebar progress bar for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-progress
+            """
+        case "log":
+            return """
+            Usage: cmux log [flags] [--] <message>
+
+            Append a log entry to the sidebar for a workspace.
+
+            Flags:
+              --level <level>        Log level: info, progress, success, warning, error (default: info)
+              --source <name>        Source label (e.g. "build", "test")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux log "Build started"
+              cmux log --level error --source build "Compilation failed"
+              cmux log --level success -- "All 42 tests passed"
+            """
+        case "clear-log":
+            return """
+            Usage: cmux clear-log [flags]
+
+            Clear all sidebar log entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-log
+            """
+        case "list-log":
+            return """
+            Usage: cmux list-log [flags]
+
+            List sidebar log entries for a workspace.
+
+            Flags:
+              --limit <n>            Show only the last N entries
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-log
+              cmux list-log --limit 5
+            """
+        case "sidebar-state":
+            return """
+            Usage: cmux sidebar-state [flags]
+
+            Dump all sidebar metadata for a workspace (cwd, git branch, ports,
+            status entries, progress, log entries).
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux sidebar-state
+              cmux sidebar-state --workspace workspace:2
+            """
         case "claude-hook":
             return """
             Usage: cmux claude-hook <session-start|stop|notification> [flags]
@@ -3438,6 +3740,20 @@ struct CMUXCLI {
         print("")
         print(text)
         return true
+    }
+
+    /// Escape and quote a string for safe embedding in a v1 socket command.
+    /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
+    /// so both must be escaped before wrapping in double quotes. Newlines and
+    /// carriage returns must also be escaped since the socket protocol uses
+    /// newline as the message terminator.
+    private func socketQuote(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return "\"\(escaped)\""
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
@@ -4019,7 +4335,7 @@ struct CMUXCLI {
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
-                let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+                let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 print(response)
             } else {
                 print("OK")
@@ -4059,7 +4375,7 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -4293,7 +4609,8 @@ struct CMUXCLI {
         ]
         let session = firstString(in: object, keys: ["session_id", "sessionId"])
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
-        let normalizedMessage = normalizedSingleLine(message)
+        let dedupedMessage = dedupeBranchContextLines(message)
+        let normalizedMessage = normalizedSingleLine(dedupedMessage)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
@@ -4326,6 +4643,42 @@ struct CMUXCLI {
         return ("Attention", body)
     }
 
+    private func dedupeBranchContextLines(_ value: String) -> String {
+        let lines = value.components(separatedBy: .newlines)
+        guard lines.count > 1 else { return value }
+
+        var lastIndexByPath: [String: Int] = [:]
+        for (index, line) in lines.enumerated() {
+            guard let path = branchContextPath(from: line) else { continue }
+            lastIndexByPath[path] = index
+        }
+        guard !lastIndexByPath.isEmpty else { return value }
+
+        let deduped = lines.enumerated().compactMap { index, line -> String? in
+            guard let path = branchContextPath(from: line) else { return line }
+            return lastIndexByPath[path] == index ? line : nil
+        }
+        return deduped.joined(separator: "\n")
+    }
+
+    private func branchContextPath(from line: String) -> String? {
+        let parts = line.split(separator: "•", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+
+        let branch = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let path = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !branch.isEmpty, !path.isEmpty else { return nil }
+
+        let looksLikePath = path.hasPrefix("/") || path.hasPrefix("~") || path.hasPrefix(".") || path.contains("/")
+        guard looksLikePath else { return nil }
+
+        let trimmedQuotes = path.trimmingCharacters(in: CharacterSet(charactersIn: "`'\""))
+        let expanded = NSString(string: trimmedQuotes).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
         for key in keys {
             guard let value = object[key] else { continue }
@@ -4356,19 +4709,215 @@ struct CMUXCLI {
         return truncate(normalized, maxLength: 180)
     }
 
+    private func versionSummary() -> String {
+        let info = resolvedVersionInfo()
+        if let version = info["CFBundleShortVersionString"], let build = info["CFBundleVersion"] {
+            return "cmux \(version) (\(build))"
+        }
+        if let version = info["CFBundleShortVersionString"] {
+            return "cmux \(version)"
+        }
+        if let build = info["CFBundleVersion"] {
+            return "cmux build \(build)"
+        }
+        return "cmux version unknown"
+    }
+
+    private func resolvedVersionInfo() -> [String: String] {
+        if let main = versionInfo(from: Bundle.main.infoDictionary) {
+            return main
+        }
+
+        for plistURL in candidateInfoPlistURLs() {
+            guard let data = try? Data(contentsOf: plistURL),
+                  let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                  let dictionary = raw as? [String: Any],
+                  let parsed = versionInfo(from: dictionary)
+            else {
+                continue
+            }
+            return parsed
+        }
+
+        if let fromProject = versionInfoFromProjectFile() {
+            return fromProject
+        }
+
+        return [:]
+    }
+
+    private func versionInfo(from dictionary: [String: Any]?) -> [String: String]? {
+        guard let dictionary else { return nil }
+
+        var info: [String: String] = [:]
+        if let version = dictionary["CFBundleShortVersionString"] as? String {
+            let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !trimmed.contains("$(") {
+                info["CFBundleShortVersionString"] = trimmed
+            }
+        }
+        if let build = dictionary["CFBundleVersion"] as? String {
+            let trimmed = build.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty && !trimmed.contains("$(") {
+                info["CFBundleVersion"] = trimmed
+            }
+        }
+        return info.isEmpty ? nil : info
+    }
+
+    private func versionInfoFromProjectFile() -> [String: String]? {
+        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+            return nil
+        }
+
+        let fileManager = FileManager.default
+        var current = URL(fileURLWithPath: executable)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .deletingLastPathComponent()
+
+        while true {
+            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            if fileManager.fileExists(atPath: projectFile.path),
+               let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
+                var info: [String: String] = [:]
+                if let version = firstProjectSetting("MARKETING_VERSION", in: contents) {
+                    info["CFBundleShortVersionString"] = version
+                }
+                if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
+                    info["CFBundleVersion"] = build
+                }
+                if !info.isEmpty {
+                    return info
+                }
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+
+        return nil
+    }
+
+    private func firstProjectSetting(_ key: String, in source: String) -> String? {
+        let pattern = NSRegularExpression.escapedPattern(for: key) + "\\s*=\\s*([^;]+);"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let searchRange = NSRange(source.startIndex..<source.endIndex, in: source)
+        guard let match = regex.firstMatch(in: source, options: [], range: searchRange),
+              match.numberOfRanges > 1,
+              let valueRange = Range(match.range(at: 1), in: source)
+        else {
+            return nil
+        }
+        let value = source[valueRange]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard !value.isEmpty, !value.contains("$(") else {
+            return nil
+        }
+        return value
+    }
+
+    private func candidateInfoPlistURLs() -> [URL] {
+        guard let executable = currentExecutablePath(), !executable.isEmpty else {
+            return []
+        }
+
+        let fileManager = FileManager.default
+        let executableURL = URL(fileURLWithPath: executable)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+
+        var candidates: [URL] = []
+        var current = executableURL.deletingLastPathComponent()
+        while true {
+            if current.pathExtension == "app" {
+                candidates.append(current.appendingPathComponent("Contents/Info.plist"))
+            }
+            if current.lastPathComponent == "Contents" {
+                candidates.append(current.appendingPathComponent("Info.plist"))
+            }
+
+            // Local dev fallback: resolve version from the repo's app Info.plist
+            // when running a standalone cmux-cli binary from build/Debug.
+            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
+            let repoInfo = current.appendingPathComponent("Resources/Info.plist")
+            if fileManager.fileExists(atPath: projectMarker.path),
+               fileManager.fileExists(atPath: repoInfo.path) {
+                candidates.append(repoInfo)
+                break
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                break
+            }
+            current = parent
+        }
+
+        let searchRoots = [
+            executableURL.deletingLastPathComponent(),
+            executableURL.deletingLastPathComponent().deletingLastPathComponent()
+        ]
+        for root in searchRoots {
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                continue
+            }
+            for entry in entries where entry.pathExtension == "app" {
+                candidates.append(entry.appendingPathComponent("Contents/Info.plist"))
+            }
+        }
+
+        var seen: Set<String> = []
+        return candidates.filter { url in
+            let path = url.path
+            guard !path.isEmpty else { return false }
+            guard seen.insert(path).inserted else { return false }
+            return fileManager.fileExists(atPath: path)
+        }
+    }
+
+    private func currentExecutablePath() -> String? {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        if size > 0 {
+            var buffer = Array<CChar>(repeating: 0, count: Int(size))
+            if _NSGetExecutablePath(&buffer, &size) == 0 {
+                let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !path.isEmpty {
+                    return path
+                }
+            }
+        }
+        return Bundle.main.executableURL?.path ?? args.first
+    }
+
     private func usage() -> String {
         return """
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--json] [--id-format refs|uuids|both] <command> [options]
+          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] [--version] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
           `tab-action` also accepts `tab:<n>` in addition to `surface:<n>`.
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
+        Socket Auth:
+          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then keychain password saved in Settings.
+
         Commands:
+          version
           ping
           capabilities
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -4413,6 +4962,18 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+
+          # sidebar metadata commands
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
+
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

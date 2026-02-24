@@ -5,7 +5,7 @@ import { Callout } from "../../components/callout";
 export const metadata: Metadata = {
   title: "API Reference",
   description:
-    "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, environment variables, and detection methods.",
+    "cmux CLI and Unix socket API reference. Workspace management, split panes, input control, notifications, sidebar metadata (status, progress, logs), environment variables, and detection methods.",
 };
 
 function Cmd({
@@ -279,6 +279,74 @@ cmux list-notifications --json`}
         desc="Clear all notifications."
         cli={`cmux clear-notifications`}
         socket={`{"id":"notif-clear","method":"notification.clear","params":{}}`}
+      />
+
+      <h2>Sidebar metadata commands</h2>
+      <p>
+        Set status pills, progress bars, and log entries in the sidebar for any
+        workspace. Useful for build scripts, CI integrations, and AI coding
+        agents that want to surface state at a glance.
+      </p>
+
+      <Cmd
+        name="set-status"
+        desc="Set a sidebar status pill. Use a unique key so different tools can manage their own entries."
+        cli={`cmux set-status build "compiling" --icon hammer --color "#ff9500"
+cmux set-status deploy "v1.2.3" --workspace workspace:2`}
+        socket={`set_status build compiling --icon=hammer --color=#ff9500 --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="clear-status"
+        desc="Remove a sidebar status entry by key."
+        cli={`cmux clear-status build`}
+        socket={`clear_status build --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="list-status"
+        desc="List all sidebar status entries for a workspace."
+        cli={`cmux list-status`}
+        socket={`list_status --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="set-progress"
+        desc="Set a progress bar in the sidebar (0.0 to 1.0)."
+        cli={`cmux set-progress 0.5 --label "Building..."
+cmux set-progress 1.0 --label "Done"`}
+        socket={`set_progress 0.5 --label=Building... --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="clear-progress"
+        desc="Clear the sidebar progress bar."
+        cli={`cmux clear-progress`}
+        socket={`clear_progress --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="log"
+        desc="Append a log entry to the sidebar. Levels: info, progress, success, warning, error."
+        cli={`cmux log "Build started"
+cmux log --level error --source build "Compilation failed"
+cmux log --level success -- "All 42 tests passed"`}
+        socket={`log --level=error --source=build --tab=<workspace-uuid> -- Compilation failed`}
+      />
+      <Cmd
+        name="clear-log"
+        desc="Clear all sidebar log entries."
+        cli={`cmux clear-log`}
+        socket={`clear_log --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="list-log"
+        desc="List sidebar log entries."
+        cli={`cmux list-log
+cmux list-log --limit 5`}
+        socket={`list_log --limit=5 --tab=<workspace-uuid>`}
+      />
+      <Cmd
+        name="sidebar-state"
+        desc="Dump all sidebar metadata (cwd, git branch, ports, status, progress, logs)."
+        cli={`cmux sidebar-state
+cmux sidebar-state --workspace workspace:2`}
+        socket={`sidebar_state --tab=<workspace-uuid>`}
       />
 
       <h2>Utility commands</h2>

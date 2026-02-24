@@ -1,6 +1,6 @@
 ---
 name: release
-description: Prepare and ship a cmux release end-to-end: choose the next version, curate user-facing changelog entries, bump versions, open and monitor a release PR, merge, tag, and verify published artifacts. Use when asked to cut, prepare, publish, or tag a new release.
+description: "Prepare and ship a cmux release end-to-end: choose the next version, curate user-facing changelog entries, bump versions, open and monitor a release PR, merge, tag, and verify published artifacts. Use when asked to cut, prepare, publish, or tag a new release."
 ---
 
 # Release
@@ -16,15 +16,18 @@ Run this workflow to prepare and publish a cmux release.
 2. Create a release branch:
 - `git checkout -b release/vX.Y.Z`
 
-3. Gather user-facing changes since the last tag:
+3. Gather user-facing changes and contributors since the last tag:
 - `git describe --tags --abbrev=0`
 - `git log --oneline <last-tag>..HEAD --no-merges`
 - Keep only end-user visible changes (features, bug fixes, UX/perf behavior).
+- **Collect contributors:** For each PR, get the author with `gh pr view <N> --repo manaflow-ai/cmux --json author --jq '.author.login'`. Also check linked issue reporters with `gh issue view <N> --json author --jq '.author.login'`.
+- Build a deduplicated list of all contributor `@handle`s.
 
 4. Update changelogs:
 - Update `CHANGELOG.md`.
 - Update `docs-site/content/docs/changelog.mdx`.
 - Use categories `Added`, `Changed`, `Fixed`, `Removed`.
+- **Credit contributors inline** (see Contributor Credits below).
 - If no user-facing changes exist, confirm with the user before continuing.
 
 5. Bump app version metadata:
@@ -64,3 +67,10 @@ Run this workflow to prepare and publish a cmux release.
 - Exclude internal-only changes (CI, tests, docs-only edits, refactors without behavior changes).
 - Write concise user-facing bullets in present tense.
 
+## Contributor Credits
+
+Credit the people who made each release happen:
+
+- **Per-entry:** Append `— thanks @user!` for community code contributions. Use `— thanks @user for the report!` for bug reporters (when different from PR author). No callout for core team (`lawrencecchen`, `austinywang`) — core work is the baseline.
+- **Summary:** Add a `### Thanks to N contributors!` section at the bottom of each release with an alphabetical list of all `[@handle](https://github.com/handle)` links (including core team).
+- **GitHub Release body:** Include the same "Thanks to N contributors!" section with linked handles.

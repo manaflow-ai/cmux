@@ -63,6 +63,48 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
+    case leftRail
+    case solidFill
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .leftRail:
+            return "Left Rail"
+        case .solidFill:
+            return "Solid Fill"
+        }
+    }
+}
+
+enum SidebarActiveTabIndicatorSettings {
+    static let styleKey = "sidebarActiveTabIndicatorStyle"
+    static let defaultStyle: SidebarActiveTabIndicatorStyle = .leftRail
+
+    static func resolvedStyle(rawValue: String?) -> SidebarActiveTabIndicatorStyle {
+        guard let rawValue else { return defaultStyle }
+        if let style = SidebarActiveTabIndicatorStyle(rawValue: rawValue) {
+            return style
+        }
+
+        // Legacy values from earlier iterations map to the closest modern option.
+        switch rawValue {
+        case "rail":
+            return .leftRail
+        case "border", "wash", "lift", "typography", "washRail", "blueWashColorRail":
+            return .solidFill
+        default:
+            return defaultStyle
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarActiveTabIndicatorStyle {
+        resolvedStyle(rawValue: defaults.string(forKey: styleKey))
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
@@ -101,6 +143,213 @@ enum WorkspacePlacementSettings {
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
         }
+    }
+}
+
+struct WorkspaceTabColorEntry: Equatable, Identifiable {
+    let name: String
+    let hex: String
+
+    var id: String { "\(name)-\(hex)" }
+}
+
+enum WorkspaceTabColorSettings {
+    static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    static let customColorsKey = "workspaceTabColor.customColors"
+    static let maxCustomColors = 24
+
+    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
+        WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
+        WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
+        WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
+        WorkspaceTabColorEntry(name: "Amber", hex: "#7D6608"),
+        WorkspaceTabColorEntry(name: "Olive", hex: "#4A5C18"),
+        WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
+        WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B"),
+        WorkspaceTabColorEntry(name: "Aqua", hex: "#0E6B8C"),
+        WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
+        WorkspaceTabColorEntry(name: "Navy", hex: "#1A5276"),
+        WorkspaceTabColorEntry(name: "Indigo", hex: "#283593"),
+        WorkspaceTabColorEntry(name: "Purple", hex: "#6A1B9A"),
+        WorkspaceTabColorEntry(name: "Magenta", hex: "#AD1457"),
+        WorkspaceTabColorEntry(name: "Rose", hex: "#880E4F"),
+        WorkspaceTabColorEntry(name: "Brown", hex: "#7B3F00"),
+        WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
+    ]
+
+    static var defaultPalette: [WorkspaceTabColorEntry] {
+        originalPRPalette
+    }
+
+    static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        defaultPaletteWithOverrides(defaults: defaults) + customColorEntries(defaults: defaults)
+    }
+
+    static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        let palette = defaultPalette
+        let overrides = defaultOverrideMap(defaults: defaults)
+        return palette.map { entry in
+            WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
+        }
+    }
+
+    static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }) else {
+            return palette.first?.hex ?? "#1565C0"
+        }
+        return defaultOverrideMap(defaults: defaults)[name] ?? entry.hex
+    }
+
+    static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }),
+              let normalized = normalizedHex(hex) else { return }
+
+        var overrides = defaultOverrideMap(defaults: defaults)
+        if normalized == entry.hex {
+            overrides.removeValue(forKey: name)
+        } else {
+            overrides[name] = normalized
+        }
+        saveDefaultOverrideMap(overrides, defaults: defaults)
+    }
+
+    static func customColors(defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.array(forKey: customColorsKey) as? [String] else { return [] }
+        var result: [String] = []
+        var seen: Set<String> = []
+        for value in raw {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
+            if result.count >= maxCustomColors { break }
+        }
+        return result
+    }
+
+    static func customColorEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        customColors(defaults: defaults).enumerated().map { index, hex in
+            WorkspaceTabColorEntry(name: "Custom \(index + 1)", hex: hex)
+        }
+    }
+
+    @discardableResult
+    static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
+        guard let normalized = normalizedHex(hex) else { return nil }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        colors.insert(normalized, at: 0)
+        setCustomColors(colors, defaults: defaults)
+        return normalized
+    }
+
+    static func removeCustomColor(_ hex: String, defaults: UserDefaults = .standard) {
+        guard let normalized = normalizedHex(hex) else { return }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        setCustomColors(colors, defaults: defaults)
+    }
+
+    static func setCustomColors(_ hexes: [String], defaults: UserDefaults = .standard) {
+        var normalizedColors: [String] = []
+        var seen: Set<String> = []
+        for value in hexes {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            normalizedColors.append(normalized)
+            if normalizedColors.count >= maxCustomColors { break }
+        }
+
+        if normalizedColors.isEmpty {
+            defaults.removeObject(forKey: customColorsKey)
+        } else {
+            defaults.set(normalizedColors, forKey: customColorsKey)
+        }
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultOverridesKey)
+        defaults.removeObject(forKey: customColorsKey)
+    }
+
+    static func normalizedHex(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard body.count == 6 else { return nil }
+        guard UInt64(body, radix: 16) != nil else { return nil }
+        return "#" + body.uppercased()
+    }
+
+    static func displayColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> Color? {
+        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
+            return nil
+        }
+        return Color(nsColor: color)
+    }
+
+    static func displayNSColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> NSColor? {
+        guard let normalized = normalizedHex(hex),
+              let baseColor = NSColor(hex: normalized) else {
+            return nil
+        }
+
+        if forceBright || colorScheme == .dark {
+            return brightenedForDarkAppearance(baseColor)
+        }
+        return baseColor
+    }
+
+    private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
+        guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
+        let validNames = Set(defaultPalette.map(\.name))
+        var normalized: [String: String] = [:]
+        for (name, hex) in raw {
+            guard validNames.contains(name),
+                  let normalizedHex = normalizedHex(hex) else { continue }
+            normalized[name] = normalizedHex
+        }
+        return normalized
+    }
+
+    private static func saveDefaultOverrideMap(_ map: [String: String], defaults: UserDefaults) {
+        if map.isEmpty {
+            defaults.removeObject(forKey: defaultOverridesKey)
+        } else {
+            defaults.set(map, forKey: defaultOverridesKey)
+        }
+    }
+
+    private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
+        let rgbColor = color.usingColorSpace(.sRGB) ?? color
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
+        // Preserve neutral grays when brightening to avoid introducing hue shifts.
+        let boostedSaturation: CGFloat
+        if saturation <= 0.08 {
+            boostedSaturation = saturation
+        } else {
+            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+        }
+
+        return NSColor(
+            hue: hue,
+            saturation: boostedSaturation,
+            brightness: boostedBrightness,
+            alpha: alpha
+        )
     }
 }
 
@@ -322,6 +571,9 @@ class TabManager: ObservableObject {
     @Published var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
+            sentryBreadcrumb("workspace.switch", data: [
+                "tabCount": tabs.count
+            ])
             let previousTabId = oldValue
             if let previousTabId,
                let previousPanelId = focusedPanelId(for: previousTabId) {
@@ -507,10 +759,17 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil, select: Bool = true) -> Workspace {
+        sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
+        let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
-        let newWorkspace = Workspace(title: "Terminal \(tabs.count + 1)", workingDirectory: workingDirectory, portOrdinal: ordinal)
+        let newWorkspace = Workspace(
+            title: "Terminal \(tabs.count + 1)",
+            workingDirectory: workingDirectory,
+            portOrdinal: ordinal,
+            configTemplate: inheritedConfig
+        )
         wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex()
         if insertIndex >= 0 && insertIndex <= tabs.count {
@@ -539,6 +798,36 @@ class TabManager: ObservableObject {
     // Keep addTab as convenience alias
     @discardableResult
     func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
+
+    func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
+        guard let workspace = selectedWorkspace else { return nil }
+        if let focusedTerminal = workspace.focusedTerminalPanel {
+            return focusedTerminal
+        }
+        if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance() {
+            return rememberedTerminal
+        }
+        if let focusedPaneId = workspace.bonsplitController.focusedPaneId,
+           let paneTerminal = workspace.terminalPanelForConfigInheritance(inPane: focusedPaneId) {
+            return paneTerminal
+        }
+        return workspace.terminalPanelForConfigInheritance()
+    }
+
+    private func inheritedTerminalConfigForNewWorkspace() -> ghostty_surface_config_s? {
+        if let sourceSurface = terminalPanelForWorkspaceConfigInheritanceSource()?.surface.surface {
+            return cmuxInheritedSurfaceConfig(
+                sourceSurface: sourceSurface,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB
+            )
+        }
+        if let fallbackFontPoints = selectedWorkspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
+            var config = ghostty_surface_config_new()
+            config.font_size = fallbackFontPoints
+            return config
+        }
+        return nil
+    }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
@@ -636,6 +925,11 @@ class TabManager: ObservableObject {
         setCustomTitle(tabId: tabId, title: nil)
     }
 
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomColor(color)
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]
@@ -677,6 +971,7 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
+        sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
@@ -887,11 +1182,24 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
 
+#if DEBUG
+        dlog(
+            "surface.close.runtime tab=\(tabId.uuidString.prefix(5)) " +
+            "surface=\(surfaceId.uuidString.prefix(5)) panelsBefore=\(tab.panels.count)"
+        )
+#endif
+
         // Keep AppKit first responder in sync with workspace focus before routing the close.
         // If split reparenting caused a temporary model/view mismatch, fallback close logic in
         // Workspace.closePanel uses focused selection to resolve the correct tab deterministically.
         reconcileFocusedPanelFromFirstResponderForKeyboard()
-        _ = tab.closePanel(surfaceId, force: true)
+        let closed = tab.closePanel(surfaceId, force: true)
+#if DEBUG
+        dlog(
+            "surface.close.runtime.done tab=\(tabId.uuidString.prefix(5)) " +
+            "surface=\(surfaceId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) panelsAfter=\(tab.panels.count)"
+        )
+#endif
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
 
@@ -900,6 +1208,33 @@ class TabManager: ObservableObject {
     /// This should never prompt: the process is already gone, and Ghostty emits the
     /// `SHOW_CHILD_EXITED` action specifically so the host app can decide what to do.
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        guard tab.panels[surfaceId] != nil else { return }
+
+#if DEBUG
+        dlog(
+            "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
+            "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count)"
+        )
+#endif
+
+        // Child-exit on the last panel should collapse the workspace, matching explicit close
+        // semantics (and close the window when it was the last workspace).
+        if tab.panels.count <= 1 {
+            if tabs.count <= 1 {
+                if let app = AppDelegate.shared {
+                    app.notificationStore?.clearNotifications(forTabId: tabId)
+                    app.closeMainWindowContainingTabId(tabId)
+                } else {
+                    // Headless/test fallback when no AppDelegate window context exists.
+                    closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+                }
+            } else {
+                closeWorkspace(tab)
+            }
+            return
+        }
+
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
@@ -1180,7 +1515,11 @@ class TabManager: ObservableObject {
     }
 
     func focusTab(_ tabId: UUID, surfaceId: UUID? = nil, suppressFlash: Bool = false) {
-        guard tabs.contains(where: { $0.id == tabId }) else { return }
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        if let surfaceId, tab.panels[surfaceId] != nil {
+            // Keep selected-surface intent stable across selectedTabId didSet async restore.
+            lastFocusedPanelByTab[tabId] = surfaceId
+        }
         selectedTabId = tabId
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
@@ -1188,10 +1527,15 @@ class TabManager: ObservableObject {
             userInfo: [GhosttyNotificationKey.tabId: tabId]
         )
 
-        DispatchQueue.main.async {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
             NSApp.activate(ignoringOtherApps: true)
             NSApp.unhide(nil)
-            if let window = NSApp.keyWindow ?? NSApp.windows.first {
+            if let app = AppDelegate.shared,
+               let windowId = app.windowId(for: self),
+               let window = app.mainWindow(for: windowId) {
+                window.makeKeyAndOrderFront(nil)
+            } else if let window = NSApp.keyWindow ?? NSApp.windows.first {
                 window.makeKeyAndOrderFront(nil)
             }
         }
@@ -1199,7 +1543,7 @@ class TabManager: ObservableObject {
         if let surfaceId {
             if !suppressFlash {
                 focusSurface(tabId: tabId, surfaceId: surfaceId)
-            } else if let tab = tabs.first(where: { $0.id == tabId }) {
+            } else {
                 tab.focusPanel(surfaceId)
             }
         }
@@ -1395,6 +1739,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
 
@@ -1617,21 +1962,79 @@ class TabManager: ObservableObject {
                 ?? tabs.first else {
                 return false
             }
+            let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
             if selectedTabId != targetWorkspace.id {
                 selectedTabId = targetWorkspace.id
             }
 
             if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
-                // Workspace switches defer focus restoration to the next main-queue turn.
-                // Record the reopened browser immediately so deferred restore doesn't snap
-                // back to the previously focused terminal in that workspace.
-                rememberFocusedSurface(tabId: targetWorkspace.id, surfaceId: reopenedPanelId)
+                enforceReopenedBrowserFocus(
+                    tabId: targetWorkspace.id,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
                 return true
             }
         }
 
         return false
+    }
+
+    private func enforceReopenedBrowserFocus(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        // Keep workspace-switch restoration pinned to the reopened browser panel.
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+        enforceReopenedBrowserFocusIfNeeded(
+            tabId: tabId,
+            reopenedPanelId: reopenedPanelId,
+            preReopenFocusedPanelId: preReopenFocusedPanelId
+        )
+
+        // Some stale focus callbacks can land one runloop turn later. Re-assert focus in two
+        // consecutive turns, but only when focus drifted back to the pre-reopen panel.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.enforceReopenedBrowserFocusIfNeeded(
+                tabId: tabId,
+                reopenedPanelId: reopenedPanelId,
+                preReopenFocusedPanelId: preReopenFocusedPanelId
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceReopenedBrowserFocusIfNeeded(
+                    tabId: tabId,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+            }
+        }
+    }
+
+    private func enforceReopenedBrowserFocusIfNeeded(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        guard selectedTabId == tabId,
+              let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[reopenedPanelId] != nil else {
+            return
+        }
+
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+
+        guard tab.focusedPanelId != reopenedPanelId else { return }
+
+        if let focusedPanelId = tab.focusedPanelId,
+           let preReopenFocusedPanelId,
+           focusedPanelId != preReopenFocusedPanelId {
+            return
+        }
+
+        tab.focusPanel(reopenedPanelId)
     }
 
     private func reopenClosedBrowserPanel(
@@ -2404,6 +2807,10 @@ class TabManager: ObservableObject {
         let strictKeyOnly = env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] == "1"
         let triggerMode = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] ?? "shell_input")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let useEarlyCtrlShiftTrigger = triggerMode == "early_ctrl_shift_d"
+        let useEarlyCtrlDTrigger = triggerMode == "early_ctrl_d"
+        let useEarlyTrigger = useEarlyCtrlShiftTrigger || useEarlyCtrlDTrigger
+        let triggerUsesShift = triggerMode == "ctrl_shift_d" || useEarlyCtrlShiftTrigger
         let layout = (env["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] ?? "lr")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let expectedPanelsAfter = max(
@@ -2542,7 +2949,9 @@ class TabManager: ObservableObject {
             }
 
             tab.focusPanel(exitPanelId)
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            if !useEarlyTrigger {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
 
             let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
             let firstResponderPanelBefore = tab.panels.compactMap { (panelId, panel) -> UUID? in
@@ -2646,21 +3055,31 @@ class TabManager: ObservableObject {
                         return
                     }
 
-                    // Wait for the target panel to be fully attached after split churn.
-                    let readyDeadline = Date().addingTimeInterval(2.0)
+                    let triggerModifiers: NSEvent.ModifierFlags = triggerUsesShift
+                        ? [.control, .shift]
+                        : [.control]
+                    let shouldWaitForSurface = !useEarlyTrigger
+
                     var attachedBeforeTrigger = false
                     var hasSurfaceBeforeTrigger = false
-                    while Date() < readyDeadline {
-                        guard let panel = tab.terminalPanel(for: exitPanelId) else {
-                            write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
-                            return
+                    if shouldWaitForSurface {
+                        // Wait for the target panel to be fully attached after split churn.
+                        let readyDeadline = Date().addingTimeInterval(2.0)
+                        while Date() < readyDeadline {
+                            guard let panel = tab.terminalPanel(for: exitPanelId) else {
+                                write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
+                                return
+                            }
+                            attachedBeforeTrigger = panel.hostedView.window != nil
+                            hasSurfaceBeforeTrigger = panel.surface.surface != nil
+                            if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
+                                break
+                            }
+                            try? await Task.sleep(nanoseconds: 50_000_000)
                         }
+                    } else if let panel = tab.terminalPanel(for: exitPanelId) {
                         attachedBeforeTrigger = panel.hostedView.window != nil
                         hasSurfaceBeforeTrigger = panel.surface.surface != nil
-                        if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
-                            break
-                        }
-                        try? await Task.sleep(nanoseconds: 50_000_000)
                     }
                     write([
                         "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
@@ -2672,7 +3091,7 @@ class TabManager: ObservableObject {
                         return
                     }
                     // Exercise the real key path (ghostty_surface_key for Ctrl+D).
-                    if panel.hostedView.sendSyntheticCtrlDForUITest() {
+                    if panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
                         write(["autoTriggerSentCtrlDKey1": "1"])
                     } else {
                         write([
@@ -2684,13 +3103,20 @@ class TabManager: ObservableObject {
 
                     // In strict mode, never mask routing bugs with fallback writes.
                     if strictKeyOnly {
-                        write(["autoTriggerMode": "strict_ctrl_d"])
+                        let strictModeLabel: String = {
+                            if useEarlyCtrlShiftTrigger { return "strict_early_ctrl_shift_d" }
+                            if useEarlyCtrlDTrigger { return "strict_early_ctrl_d" }
+                            if triggerUsesShift { return "strict_ctrl_shift_d" }
+                            return "strict_ctrl_d"
+                        }()
+                        write(["autoTriggerMode": strictModeLabel])
                         return
                     }
 
                     // Non-strict mode keeps one additional Ctrl+D retry for startup timing variance.
                     try? await Task.sleep(nanoseconds: 450_000_000)
-                    if tab.panels[exitPanelId] != nil, panel.hostedView.sendSyntheticCtrlDForUITest() {
+                    if tab.panels[exitPanelId] != nil,
+                       panel.hostedView.sendSyntheticCtrlDForUITest(modifierFlags: triggerModifiers) {
                         write(["autoTriggerSentCtrlDKey2": "1"])
                     }
                 }
@@ -2727,15 +3153,22 @@ enum ResizeDirection {
 }
 
 extension Notification.Name {
+    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
+    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
+    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
+    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
+    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
     static let ghosttyDidBecomeFirstResponderSurface = Notification.Name("ghosttyDidBecomeFirstResponderSurface")
+    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
     static let browserFocusAddressBar = Notification.Name("browserFocusAddressBar")
     static let browserMoveOmnibarSelection = Notification.Name("browserMoveOmnibarSelection")
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
-    static let webViewMiddleClickedLink = Notification.Name("webViewMiddleClickedLink")
 }

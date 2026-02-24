@@ -2,8 +2,11 @@ import Bonsplit
 import SwiftUI
 
 struct SurfaceSearchOverlay: View {
-    let surface: TerminalSurface
+    let tabId: UUID
+    let surfaceId: UUID
     @ObservedObject var searchState: TerminalSurface.SearchState
+    let onMoveFocusToTerminal: () -> Void
+    let onNavigateSearch: (_ action: String) -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
@@ -44,22 +47,22 @@ struct SurfaceSearchOverlay: View {
                     if searchState.needle.isEmpty {
                         onClose()
                     } else {
-                        surface.hostedView.moveFocus()
+                        onMoveFocusToTerminal()
                     }
                 }
                 .backport.onKeyPress(.return) { modifiers in
                     let action = modifiers.contains(.shift)
                     ? "navigate_search:previous"
                     : "navigate_search:next"
-                    _ = surface.performBindingAction(action)
+                    onNavigateSearch(action)
                     return .handled
                 }
 
                 Button(action: {
                     #if DEBUG
-                    dlog("findbar.next surface=\(surface.id.uuidString.prefix(5))")
+                    dlog("findbar.next surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    _ = surface.performBindingAction("navigate_search:next")
+                    onNavigateSearch("navigate_search:next")
                 }) {
                     Image(systemName: "chevron.up")
                 }
@@ -68,9 +71,9 @@ struct SurfaceSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("findbar.prev surface=\(surface.id.uuidString.prefix(5))")
+                    dlog("findbar.prev surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
-                    _ = surface.performBindingAction("navigate_search:previous")
+                    onNavigateSearch("navigate_search:previous")
                 }) {
                     Image(systemName: "chevron.down")
                 }
@@ -79,7 +82,7 @@ struct SurfaceSearchOverlay: View {
 
                 Button(action: {
                     #if DEBUG
-                    dlog("findbar.close surface=\(surface.id.uuidString.prefix(5))")
+                    dlog("findbar.close surface=\(surfaceId.uuidString.prefix(5))")
                     #endif
                     onClose()
                 }) {
@@ -93,12 +96,13 @@ struct SurfaceSearchOverlay: View {
             .clipShape(clipShape)
             .shadow(radius: 4)
             .onAppear {
-                NSLog("Find: overlay appear tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+                NSLog("Find: overlay appear tab=%@ surface=%@", tabId.uuidString, surfaceId.uuidString)
                 isSearchFieldFocused = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .ghosttySearchFocus)) { notification in
-                guard notification.object as? TerminalSurface === surface else { return }
-                NSLog("Find: overlay focus tab=%@ surface=%@", surface.tabId.uuidString, surface.id.uuidString)
+                guard let focusedSurface = notification.object as? TerminalSurface,
+                      focusedSurface.id == surfaceId else { return }
+                NSLog("Find: overlay focus tab=%@ surface=%@", tabId.uuidString, surfaceId.uuidString)
                 DispatchQueue.main.async {
                     isSearchFieldFocused = true
                 }

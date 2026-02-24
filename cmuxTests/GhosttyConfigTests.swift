@@ -162,7 +162,40 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
-    func testClaudeCodeIntegrationDefaultsToDisabledWhenUnset() {
+    func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .unscoped,
+                incomingScope: .app
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .app,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .surface
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .app
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldApplyDefaultBackgroundUpdate(
+                currentScope: .surface,
+                incomingScope: .unscoped
+            )
+        )
+    }
+
+    func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated user defaults suite")
@@ -173,7 +206,7 @@ final class GhosttyConfigTests: XCTestCase {
         }
 
         defaults.removeObject(forKey: ClaudeCodeIntegrationSettings.hooksEnabledKey)
-        XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
+        XCTAssertTrue(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
     func testClaudeCodeIntegrationRespectsStoredPreference() {
@@ -205,6 +238,75 @@ final class GhosttyConfigTests: XCTestCase {
             green: Int(round(green * 255)),
             blue: Int(round(blue * 255))
         )
+    }
+}
+
+final class WorkspaceChromeThemeTests: XCTestCase {
+    func testResolvedChromeColorsUsesLightGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#FDF6E3")
+        XCTAssertNil(colors.borderHex)
+    }
+
+    func testResolvedChromeColorsUsesDarkGhosttyBackground() {
+        guard let backgroundColor = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test color")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(from: backgroundColor)
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertNil(colors.borderHex)
+    }
+}
+
+final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
+    func testResolvedAppearanceConfigPrefersGhosttyRuntimeBackgroundOverLoadedConfig() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let loadedForeground = NSColor(hex: "#ABCDEF") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+        loaded.foregroundColor = loadedForeground
+        loaded.unfocusedSplitOpacity = 0.42
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#FDF6E3")
+        XCTAssertEqual(resolved.foregroundColor.hexString(), "#ABCDEF")
+        XCTAssertEqual(resolved.unfocusedSplitOpacity, 0.42, accuracy: 0.0001)
+    }
+
+    func testResolvedAppearanceConfigPrefersExplicitBackgroundOverride() {
+        guard let loadedBackground = NSColor(hex: "#112233"),
+              let runtimeBackground = NSColor(hex: "#FDF6E3"),
+              let explicitOverride = NSColor(hex: "#272822") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = loadedBackground
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            backgroundOverride: explicitOverride,
+            loadConfig: { loaded },
+            defaultBackground: { runtimeBackground }
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
     }
 }
 
@@ -268,6 +370,95 @@ final class NotificationBurstCoalescerTests: XCTestCase {
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertEqual(flushCount, 2)
+    }
+}
+
+final class GhosttyDefaultBackgroundNotificationDispatcherTests: XCTestCase {
+    func testSignalCoalescesBurstToLatestBackground() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "coalesced notification")
+        expectation.expectedFulfillmentCount = 1
+        var postedUserInfos: [[AnyHashable: Any]] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                postedUserInfos.append(userInfo)
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 0.95, eventId: 1, source: "test.dark")
+            dispatcher.signal(backgroundColor: light, opacity: 0.75, eventId: 2, source: "test.light")
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedUserInfos.count, 1)
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString(),
+            "#FDF6E3"
+        )
+        XCTAssertEqual(
+            postedOpacity(from: postedUserInfos[0][GhosttyNotificationKey.backgroundOpacity]),
+            0.75,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            (postedUserInfos[0][GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value,
+            2
+        )
+        XCTAssertEqual(
+            postedUserInfos[0][GhosttyNotificationKey.backgroundSource] as? String,
+            "test.light"
+        )
+    }
+
+    func testSignalAcrossSeparateBurstsPostsMultipleNotifications() {
+        guard let dark = NSColor(hex: "#272822"),
+              let light = NSColor(hex: "#FDF6E3") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let expectation = expectation(description: "two notifications")
+        expectation.expectedFulfillmentCount = 2
+        var postedHexes: [String] = []
+
+        let dispatcher = GhosttyDefaultBackgroundNotificationDispatcher(
+            delay: 0.01,
+            postNotification: { userInfo in
+                let hex = (userInfo[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+                postedHexes.append(hex)
+                expectation.fulfill()
+            }
+        )
+
+        DispatchQueue.main.async {
+            dispatcher.signal(backgroundColor: dark, opacity: 1.0, eventId: 1, source: "test.dark")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                dispatcher.signal(backgroundColor: light, opacity: 1.0, eventId: 2, source: "test.light")
+            }
+        }
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(postedHexes, ["#272822", "#FDF6E3"])
+    }
+
+    private func postedOpacity(from value: Any?) -> Double {
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.doubleValue
+        }
+        XCTFail("Expected background opacity payload")
+        return -1
     }
 }
 
@@ -356,6 +547,41 @@ final class TabManagerNotificationOrderingSourceTests: XCTestCase {
 }
 
 final class SocketControlSettingsTests: XCTestCase {
+    func testMigrateModeSupportsExpandedSocketModes() {
+        XCTAssertEqual(SocketControlSettings.migrateMode("off"), .off)
+        XCTAssertEqual(SocketControlSettings.migrateMode("cmuxOnly"), .cmuxOnly)
+        XCTAssertEqual(SocketControlSettings.migrateMode("automation"), .automation)
+        XCTAssertEqual(SocketControlSettings.migrateMode("password"), .password)
+        XCTAssertEqual(SocketControlSettings.migrateMode("allow-all"), .allowAll)
+
+        // Legacy aliases
+        XCTAssertEqual(SocketControlSettings.migrateMode("notifications"), .automation)
+        XCTAssertEqual(SocketControlSettings.migrateMode("full"), .allowAll)
+    }
+
+    func testSocketModePermissions() {
+        XCTAssertEqual(SocketControlMode.off.socketFilePermissions, 0o600)
+        XCTAssertEqual(SocketControlMode.cmuxOnly.socketFilePermissions, 0o600)
+        XCTAssertEqual(SocketControlMode.automation.socketFilePermissions, 0o600)
+        XCTAssertEqual(SocketControlMode.password.socketFilePermissions, 0o600)
+        XCTAssertEqual(SocketControlMode.allowAll.socketFilePermissions, 0o666)
+    }
+
+    func testInvalidEnvSocketModeDoesNotOverrideUserMode() {
+        XCTAssertNil(
+            SocketControlSettings.envOverrideMode(
+                environment: ["CMUX_SOCKET_MODE": "definitely-not-a-mode"]
+            )
+        )
+        XCTAssertEqual(
+            SocketControlSettings.effectiveMode(
+                userMode: .password,
+                environment: ["CMUX_SOCKET_MODE": "definitely-not-a-mode"]
+            ),
+            .password
+        )
+    }
+
     func testStableReleaseIgnoresAmbientSocketOverrideByDefault() {
         let path = SocketControlSettings.socketPath(
             environment: [
@@ -434,5 +660,53 @@ final class SocketControlSettingsTests: XCTestCase {
             SocketControlSettings.defaultSocketPath(bundleIdentifier: "com.cmuxterm.app.staging.tag", isDebugBuild: false),
             "/tmp/cmux-staging.sock"
         )
+    }
+}
+
+final class PostHogAnalyticsPropertiesTests: XCTestCase {
+    func testDailyActivePropertiesIncludeVersionAndBuild() {
+        let properties = PostHogAnalytics.dailyActiveProperties(
+            dayUTC: "2026-02-21",
+            reason: "didBecomeActive",
+            infoDictionary: [
+                "CFBundleShortVersionString": "0.31.0",
+                "CFBundleVersion": "230",
+            ]
+        )
+
+        XCTAssertEqual(properties["day_utc"] as? String, "2026-02-21")
+        XCTAssertEqual(properties["reason"] as? String, "didBecomeActive")
+        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
+        XCTAssertEqual(properties["app_build"] as? String, "230")
+    }
+
+    func testSuperPropertiesIncludePlatformVersionAndBuild() {
+        let properties = PostHogAnalytics.superProperties(
+            infoDictionary: [
+                "CFBundleShortVersionString": "0.31.0",
+                "CFBundleVersion": "230",
+            ]
+        )
+
+        XCTAssertEqual(properties["platform"] as? String, "cmuxterm")
+        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
+        XCTAssertEqual(properties["app_build"] as? String, "230")
+    }
+
+    func testPropertiesOmitVersionFieldsWhenUnavailable() {
+        let superProperties = PostHogAnalytics.superProperties(infoDictionary: [:])
+        XCTAssertEqual(superProperties["platform"] as? String, "cmuxterm")
+        XCTAssertNil(superProperties["app_version"])
+        XCTAssertNil(superProperties["app_build"])
+
+        let dailyProperties = PostHogAnalytics.dailyActiveProperties(
+            dayUTC: "2026-02-21",
+            reason: "activeTimer",
+            infoDictionary: [:]
+        )
+        XCTAssertEqual(dailyProperties["day_utc"] as? String, "2026-02-21")
+        XCTAssertEqual(dailyProperties["reason"] as? String, "activeTimer")
+        XCTAssertNil(dailyProperties["app_version"])
+        XCTAssertNil(dailyProperties["app_build"])
     }
 }

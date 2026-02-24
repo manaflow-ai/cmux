@@ -3,6 +3,58 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import Combine
+import CoreText
+
+func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
+    switch context {
+    case GHOSTTY_SURFACE_CONTEXT_WINDOW:
+        return "window"
+    case GHOSTTY_SURFACE_CONTEXT_TAB:
+        return "tab"
+    case GHOSTTY_SURFACE_CONTEXT_SPLIT:
+        return "split"
+    default:
+        return "unknown(\(context))"
+    }
+}
+
+func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
+    guard let quicklookFont = ghostty_surface_quicklook_font(surface) else {
+        return nil
+    }
+
+    let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeRetainedValue()
+    let points = Float(CTFontGetSize(ctFont))
+    guard points > 0 else { return nil }
+    return points
+}
+
+func cmuxInheritedSurfaceConfig(
+    sourceSurface: ghostty_surface_t,
+    context: ghostty_surface_context_e
+) -> ghostty_surface_config_s {
+    let inherited = ghostty_surface_inherited_config(sourceSurface, context)
+    var config = inherited
+
+    // Make runtime zoom inheritance explicit, even when Ghostty's
+    // inherit-font-size config is disabled.
+    let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
+    if let points = runtimePoints {
+        config.font_size = points
+    }
+
+#if DEBUG
+    let inheritedText = String(format: "%.2f", inherited.font_size)
+    let runtimeText = runtimePoints.map { String(format: "%.2f", $0) } ?? "nil"
+    let finalText = String(format: "%.2f", config.font_size)
+    dlog(
+        "zoom.inherit context=\(cmuxSurfaceContextName(context)) " +
+        "inherited=\(inheritedText) runtime=\(runtimeText) final=\(finalText)"
+    )
+#endif
+
+    return config
+}
 
 struct SidebarStatusEntry {
     let key: String
@@ -125,8 +177,8 @@ enum SidebarBranchOrdering {
         fallbackBranch: SidebarGitBranchState?
     ) -> [BranchDirectoryEntry] {
         struct EntryKey: Hashable {
-            let branch: String?
             let directory: String?
+            let branch: String?
         }
 
         struct MutableEntry {
@@ -139,6 +191,14 @@ enum SidebarBranchOrdering {
             guard let text else { return nil }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
+        }
+
+        func canonicalDirectoryKey(_ directory: String?) -> String? {
+            guard let directory = normalized(directory) else { return nil }
+            let expanded = NSString(string: directory).expandingTildeInPath
+            let standardized = NSString(string: expanded).standardizingPath
+            let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
         }
 
         let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
@@ -161,12 +221,35 @@ enum SidebarBranchOrdering {
                 ? (panelBranches[panelId]?.isDirty ?? false)
                 : defaultBranchDirty
 
-            let key = EntryKey(branch: branch, directory: directory)
-            if entries[key] == nil {
+            let key: EntryKey
+            if let directoryKey = canonicalDirectoryKey(directory) {
+                // Keep one line per directory and allow the latest branch state to overwrite.
+                key = EntryKey(directory: directoryKey, branch: nil)
+            } else {
+                key = EntryKey(directory: nil, branch: branch)
+            }
+
+            guard key.directory != nil || key.branch != nil else { continue }
+
+            if var existing = entries[key] {
+                if key.directory != nil {
+                    if let branch {
+                        existing.branch = branch
+                        existing.isDirty = panelDirty
+                    } else if existing.branch == nil {
+                        existing.isDirty = panelDirty
+                    }
+                    if let directory {
+                        existing.directory = directory
+                    }
+                    entries[key] = existing
+                } else if panelDirty {
+                    existing.isDirty = true
+                    entries[key] = existing
+                }
+            } else {
                 order.append(key)
                 entries[key] = MutableEntry(branch: branch, isDirty: panelDirty, directory: directory)
-            } else if panelDirty {
-                entries[key]?.isDirty = true
             }
         }
 
@@ -212,6 +295,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var title: String
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
+    @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published var currentDirectory: String
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -228,6 +312,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+
+    /// Last terminal panel used as an inheritance source (typically last focused terminal).
+    private var lastTerminalConfigInheritancePanelId: UUID?
+    /// Last known terminal font points from inheritance sources. Used as fallback when
+    /// no live terminal surface is currently available.
+    private var lastTerminalConfigInheritanceFontPoints: Float?
+    /// Per-panel inherited zoom lineage. Descendants reuse this root value unless
+    /// a panel is explicitly re-zoomed by the user.
+    private var terminalInheritanceFontPointsByPanelId: [UUID: Float] = [:]
 
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
@@ -252,6 +345,11 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         return panel
+    }
+
+    enum FocusPanelTrigger {
+        case standard
+        case terminalFirstResponder
     }
 
     /// Published directory for each panel
@@ -300,27 +398,56 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitAppearance(from: config.backgroundColor)
     }
 
+    nonisolated static func resolvedChromeColors(
+        from backgroundColor: NSColor
+    ) -> BonsplitConfiguration.Appearance.ChromeColors {
+        .init(backgroundHex: backgroundColor.hexString())
+    }
+
     private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
-        BonsplitConfiguration.Appearance(
+        let chromeColors = resolvedChromeColors(from: backgroundColor)
+        return BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: .init(backgroundHex: backgroundColor.hexString())
+            chromeColors: chromeColors
         )
     }
 
-    func applyGhosttyChrome(from config: GhosttyConfig) {
-        applyGhosttyChrome(backgroundColor: config.backgroundColor)
+    func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
+        applyGhosttyChrome(backgroundColor: config.backgroundColor, reason: reason)
     }
 
-    func applyGhosttyChrome(backgroundColor: NSColor) {
-        let nextHex = backgroundColor.hexString()
-        if bonsplitController.configuration.appearance.chromeColors.backgroundHex == nextHex {
+    func applyGhosttyChrome(backgroundColor: NSColor, reason: String = "unspecified") {
+        let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
+        let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
+        let isNoOp = currentChromeColors.backgroundHex == nextChromeColors.backgroundHex &&
+            currentChromeColors.borderHex == nextChromeColors.borderHex
+
+        if GhosttyApp.shared.backgroundLogEnabled {
+            let currentBackgroundHex = currentChromeColors.backgroundHex ?? "nil"
+            let nextBackgroundHex = nextChromeColors.backgroundHex ?? "nil"
+            GhosttyApp.shared.logBackground(
+                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) nextBg=\(nextBackgroundHex) currentBorder=\(currentChromeColors.borderHex ?? "nil") nextBorder=\(nextChromeColors.borderHex ?? "nil") noop=\(isNoOp)"
+            )
+        }
+
+        if isNoOp {
             return
         }
-        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+        bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme applied workspace=\(id.uuidString) reason=\(reason) resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") resultingBorder=\(bonsplitController.configuration.appearance.chromeColors.borderHex ?? "nil")"
+            )
+        }
     }
 
-    init(title: String = "Terminal", workingDirectory: String? = nil, portOrdinal: Int = 0) {
+    init(
+        title: String = "Terminal",
+        workingDirectory: String? = nil,
+        portOrdinal: Int = 0,
+        configTemplate: ghostty_surface_config_s? = nil
+    ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
@@ -335,7 +462,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
-        let appearance = Self.bonsplitAppearance(from: GhosttyConfig.load())
+        // Avoid re-reading/parsing Ghostty config on every new workspace; this hot path
+        // runs for socket/CLI workspace creation and can cause visible typing lag.
+        let appearance = Self.bonsplitAppearance(from: GhosttyApp.shared.defaultBackgroundColor)
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
@@ -356,11 +485,13 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
+            configTemplate: configTemplate,
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
             portOrdinal: portOrdinal
         )
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
 
         // Create initial tab in bonsplit and store the mapping
         var initialTabId: TabID?
@@ -378,6 +509,10 @@ final class Workspace: Identifiable, ObservableObject {
         // Close the default Welcome tab(s)
         for welcomeTabId in welcomeTabIds {
             bonsplitController.closeTab(welcomeTabId)
+        }
+
+        bonsplitController.onExternalTabDrop = { [weak self] request in
+            self?.handleExternalTabDrop(request) ?? false
         }
 
         // Set ourselves as delegate
@@ -436,8 +571,21 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+#if DEBUG
+    private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+    private var debugLastDidMoveTabTimestamp: TimeInterval = 0
+    private var debugDidMoveTabEventCount: UInt64 = 0
+#endif
     private var geometryReconcileScheduled = false
     private var isNormalizingPinnedTabOrder = false
+    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
+    private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
+
+    private struct PendingNonFocusSplitFocusReassert {
+        let generation: UInt64
+        let preferredPanelId: UUID
+        let splitPanelId: UUID
+    }
 
     struct DetachedSurfaceTransfer {
         let panelId: UUID
@@ -456,6 +604,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var detachingTabIds: Set<TabID> = []
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
+    private var activeDetachCloseTransactions: Int = 0
+    private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+
+#if DEBUG
+    private func debugElapsedMs(since start: TimeInterval) -> String {
+        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+        return String(format: "%.2f", ms)
+    }
+#endif
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
@@ -706,6 +863,10 @@ final class Workspace: Identifiable, ObservableObject {
         self.title = title
     }
 
+    func setCustomColor(_ hex: String?) {
+        customColor = hex
+    }
+
     func setCustomTitle(_ title: String?) {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if trimmed.isEmpty {
@@ -849,6 +1010,169 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Operations
 
+    private func seedTerminalInheritanceFontPoints(
+        panelId: UUID,
+        configTemplate: ghostty_surface_config_s?
+    ) {
+        guard let fontPoints = configTemplate?.font_size, fontPoints > 0 else { return }
+        terminalInheritanceFontPointsByPanelId[panelId] = fontPoints
+        lastTerminalConfigInheritanceFontPoints = fontPoints
+    }
+
+    private func resolvedTerminalInheritanceFontPoints(
+        for terminalPanel: TerminalPanel,
+        sourceSurface: ghostty_surface_t,
+        inheritedConfig: ghostty_surface_config_s
+    ) -> Float? {
+        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
+        if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
+            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
+                // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
+                // treat runtime as the new root for future descendants.
+                return runtimePoints
+            }
+            return rooted
+        }
+        if inheritedConfig.font_size > 0 {
+            return inheritedConfig.font_size
+        }
+        return runtimePoints
+    }
+
+    private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
+        lastTerminalConfigInheritancePanelId = terminalPanel.id
+        if let sourceSurface = terminalPanel.surface.surface,
+           let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
+            let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
+            if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
+                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimePoints
+            }
+            lastTerminalConfigInheritanceFontPoints =
+                terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimePoints
+        }
+    }
+
+    func lastRememberedTerminalPanelForConfigInheritance() -> TerminalPanel? {
+        guard let panelId = lastTerminalConfigInheritancePanelId else { return nil }
+        return terminalPanel(for: panelId)
+    }
+
+    func lastRememberedTerminalFontPointsForConfigInheritance() -> Float? {
+        lastTerminalConfigInheritanceFontPoints
+    }
+
+    /// Candidate terminal panels used as the source when creating inherited Ghostty config.
+    /// Preference order:
+    /// 1) explicitly preferred terminal panel (when the caller has one),
+    /// 2) selected terminal in the target pane,
+    /// 3) currently focused terminal in the workspace,
+    /// 4) last remembered terminal source,
+    /// 5) first terminal tab in the target pane,
+    /// 6) deterministic workspace fallback.
+    private func terminalPanelConfigInheritanceCandidates(
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> [TerminalPanel] {
+        var candidates: [TerminalPanel] = []
+        var seen: Set<UUID> = []
+
+        func appendCandidate(_ panel: TerminalPanel?) {
+            guard let panel, seen.insert(panel.id).inserted else { return }
+            candidates.append(panel)
+        }
+
+        if let preferredPanelId,
+           let terminalPanel = terminalPanel(for: preferredPanelId) {
+            appendCandidate(terminalPanel)
+        }
+
+        if let preferredPaneId,
+           let selectedSurfaceId = bonsplitController.selectedTab(inPane: preferredPaneId)?.id,
+           let selectedPanelId = panelIdFromSurfaceId(selectedSurfaceId),
+           let selectedTerminalPanel = terminalPanel(for: selectedPanelId) {
+            appendCandidate(selectedTerminalPanel)
+        }
+
+        if let focusedTerminalPanel {
+            appendCandidate(focusedTerminalPanel)
+        }
+
+        if let rememberedTerminalPanel = lastRememberedTerminalPanelForConfigInheritance() {
+            appendCandidate(rememberedTerminalPanel)
+        }
+
+        if let preferredPaneId {
+            for tab in bonsplitController.tabs(inPane: preferredPaneId) {
+                guard let panelId = panelIdFromSurfaceId(tab.id),
+                      let terminalPanel = terminalPanel(for: panelId) else { continue }
+                appendCandidate(terminalPanel)
+            }
+        }
+
+        for terminalPanel in panels.values
+            .compactMap({ $0 as? TerminalPanel })
+            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            appendCandidate(terminalPanel)
+        }
+
+        return candidates
+    }
+
+    /// Picks the first terminal panel candidate used as the inheritance source.
+    func terminalPanelForConfigInheritance(
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> TerminalPanel? {
+        terminalPanelConfigInheritanceCandidates(
+            preferredPanelId: preferredPanelId,
+            inPane: preferredPaneId
+        ).first
+    }
+
+    private func inheritedTerminalConfig(
+        preferredPanelId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil
+    ) -> ghostty_surface_config_s? {
+        // Walk candidates in priority order and use the first panel with a live surface.
+        // This avoids returning nil when the top candidate exists but is not attached yet.
+        for terminalPanel in terminalPanelConfigInheritanceCandidates(
+            preferredPanelId: preferredPanelId,
+            inPane: preferredPaneId
+        ) {
+            guard let sourceSurface = terminalPanel.surface.surface else { continue }
+            var config = cmuxInheritedSurfaceConfig(
+                sourceSurface: sourceSurface,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT
+            )
+            if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
+                for: terminalPanel,
+                sourceSurface: sourceSurface,
+                inheritedConfig: config
+            ), rootedFontPoints > 0 {
+                config.font_size = rootedFontPoints
+                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
+            }
+            rememberTerminalConfigInheritanceSource(terminalPanel)
+            if config.font_size > 0 {
+                lastTerminalConfigInheritanceFontPoints = config.font_size
+            }
+            return config
+        }
+
+        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
+            var config = ghostty_surface_config_new()
+            config.font_size = fallbackFontPoints
+#if DEBUG
+            dlog(
+                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"
+            )
+#endif
+            return config
+        }
+
+        return nil
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -857,22 +1181,6 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true
     ) -> TerminalPanel? {
-        // Get inherited config from the source terminal when possible.
-        // If the split is initiated from a non-terminal panel (for example browser),
-        // fall back to any terminal in the workspace.
-        let inheritedConfig: ghostty_surface_config_s? = {
-            if let sourceTerminal = terminalPanel(for: panelId),
-               let existing = sourceTerminal.surface.surface {
-                return ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-            }
-            if let fallbackSurface = panels.values
-                .compactMap({ ($0 as? TerminalPanel)?.surface.surface })
-                .first {
-                return ghostty_surface_inherited_config(fallbackSurface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-            }
-            return nil
-        }()
-
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -885,6 +1193,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         guard let paneId = sourcePaneId else { return nil }
+        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
 
         // Create the new terminal panel.
         let newPanel = TerminalPanel(
@@ -895,6 +1204,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         // Pre-generate the bonsplit tab ID so we can install the panel mapping before bonsplit
         // mutates layout state (avoids transient "Empty Panel" flashes during split).
@@ -906,40 +1216,46 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = newPanel.id
+        let previousFocusedPanelId = focusedPanelId
 
-	        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
-	        // so we can hand it to focusPanel as the "move focus FROM" view.
-	        let previousHostedView = focusedTerminalPanel?.hostedView
+        // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
+        // so we can hand it to focusPanel as the "move focus FROM" view.
+        let previousHostedView = focusedTerminalPanel?.hostedView
 
-	        // Create the split with the new tab already present in the new pane.
-	        isProgrammaticSplit = true
-	        defer { isProgrammaticSplit = false }
-	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
-	            panels.removeValue(forKey: newPanel.id)
-	            panelTitles.removeValue(forKey: newPanel.id)
-	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-	            return nil
-	        }
+        // Create the split with the new tab already present in the new pane.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            return nil
+        }
 
 #if DEBUG
-	        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
 #endif
 
-	        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
-	        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
-	        // stealing focus from the new panel and creating model/surface divergence.
-	        if focus {
-	            previousHostedView?.suppressReparentFocus()
-	            focusPanel(newPanel.id, previousHostedView: previousHostedView)
-	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	                previousHostedView?.clearSuppressReparentFocus()
-	            }
-	        } else {
-	            scheduleFocusReconcile()
-	        }
+        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
+        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
+        // stealing focus from the new panel and creating model/surface divergence.
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(newPanel.id, previousHostedView: previousHostedView)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: newPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
 
-	        return newPanel
-	    }
+        return newPanel
+    }
 
     /// Create a new surface (nested tab) in the specified pane with a terminal panel.
     /// - Parameter focus: nil = focus only if the target pane is already focused (default UI behavior),
@@ -949,16 +1265,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurface(inPane paneId: PaneID, focus: Bool? = nil) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        // Get an existing terminal panel to inherit config from
-        let inheritedConfig: ghostty_surface_config_s? = {
-            for panel in panels.values {
-                if let terminalPanel = panel as? TerminalPanel,
-                   let surface = terminalPanel.surface.surface {
-                    return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-                }
-            }
-            return nil
-        }()
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -969,6 +1276,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         // Create tab in bonsplit
         guard let newTabId = bonsplitController.createTab(
@@ -981,6 +1289,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
 
@@ -1035,29 +1344,34 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = browserPanel.id
+        let previousFocusedPanelId = focusedPanelId
 
-	        // Create the split with the browser tab already present.
-	        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
-	        isProgrammaticSplit = true
-	        defer { isProgrammaticSplit = false }
-	        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
-	            surfaceIdToPanelId.removeValue(forKey: newTab.id)
-	            panels.removeValue(forKey: browserPanel.id)
-	            panelTitles.removeValue(forKey: browserPanel.id)
-	            return nil
-	        }
+        // Create the split with the browser tab already present.
+        // Mark this split as programmatic so didSplitPane doesn't auto-create a terminal.
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: browserPanel.id)
+            panelTitles.removeValue(forKey: browserPanel.id)
+            return nil
+        }
 
-	        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
-	        let previousHostedView = focusedTerminalPanel?.hostedView
-	        if focus {
-	            previousHostedView?.suppressReparentFocus()
-	            focusPanel(browserPanel.id)
-	            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-	                previousHostedView?.clearSuppressReparentFocus()
-	            }
-	        } else {
-	            scheduleFocusReconcile()
-	        }
+        // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(browserPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: browserPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
 
         installBrowserPanelSubscription(browserPanel)
 
@@ -1386,17 +1700,41 @@ final class Workspace: Identifiable, ObservableObject {
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard panels[panelId] != nil else { return nil }
+#if DEBUG
+        let detachStart = ProcessInfo.processInfo.systemUptime
+        dlog(
+            "split.detach.begin ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) activeDetachTxn=\(activeDetachCloseTransactions) " +
+            "pendingDetached=\(pendingDetachedSurfaces.count)"
+        )
+#endif
 
         detachingTabIds.insert(tabId)
         forceCloseTabIds.insert(tabId)
+        activeDetachCloseTransactions += 1
+        defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
         guard bonsplitController.closeTab(tabId) else {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
             forceCloseTabIds.remove(tabId)
+#if DEBUG
+            dlog(
+                "split.detach.fail ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+                "tab=\(tabId.uuid.uuidString.prefix(5)) reason=closeTabRejected elapsedMs=\(debugElapsedMs(since: detachStart))"
+            )
+#endif
             return nil
         }
 
-        return pendingDetachedSurfaces.removeValue(forKey: tabId)
+        let detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+#if DEBUG
+        dlog(
+            "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) transfer=\(detached != nil ? 1 : 0) " +
+            "elapsedMs=\(debugElapsedMs(since: detachStart))"
+        )
+#endif
+        return detached
     }
 
     @discardableResult
@@ -1406,8 +1744,31 @@ final class Workspace: Identifiable, ObservableObject {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard bonsplitController.allPaneIds.contains(paneId) else { return nil }
-        guard panels[detached.panelId] == nil else { return nil }
+#if DEBUG
+        let attachStart = ProcessInfo.processInfo.systemUptime
+        dlog(
+            "split.attach.begin ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+            "pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0)"
+        )
+#endif
+        guard bonsplitController.allPaneIds.contains(paneId) else {
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=invalidPane elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
+        guard panels[detached.panelId] == nil else {
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=panelExists elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
+            return nil
+        }
 
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
@@ -1458,6 +1819,12 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+#if DEBUG
+            dlog(
+                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+            )
+#endif
             return nil
         }
 
@@ -1479,15 +1846,118 @@ final class Workspace: Identifiable, ObservableObject {
         }
         scheduleTerminalGeometryReconcile()
 
+#if DEBUG
+        dlog(
+            "split.attach.end ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0) " +
+            "elapsedMs=\(debugElapsedMs(since: attachStart))"
+        )
+#endif
         return detached.panelId
     }
     // MARK: - Focus Management
 
-    func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
+    private func preserveFocusAfterNonFocusSplit(
+        preferredPanelId: UUID?,
+        splitPanelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?
+    ) {
+        guard let preferredPanelId, panels[preferredPanelId] != nil else {
+            clearNonFocusSplitFocusReassert()
+            scheduleFocusReconcile()
+            return
+        }
+
+        let generation = beginNonFocusSplitFocusReassert(
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
+
+        // Bonsplit splitPane focuses the newly created pane and may emit one delayed
+        // didSelect/didFocus callback. Re-assert focus over multiple turns so model
+        // focus and AppKit first responder stay aligned with non-focus-intent splits.
+        reassertFocusAfterNonFocusSplit(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId,
+            previousHostedView: previousHostedView,
+            allowPreviousHostedView: true
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.reassertFocusAfterNonFocusSplit(
+                generation: generation,
+                preferredPanelId: preferredPanelId,
+                splitPanelId: splitPanelId,
+                previousHostedView: previousHostedView,
+                allowPreviousHostedView: false
+            )
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.reassertFocusAfterNonFocusSplit(
+                    generation: generation,
+                    preferredPanelId: preferredPanelId,
+                    splitPanelId: splitPanelId,
+                    previousHostedView: previousHostedView,
+                    allowPreviousHostedView: false
+                )
+                self.scheduleFocusReconcile()
+                self.clearNonFocusSplitFocusReassert(generation: generation)
+            }
+        }
+    }
+
+    private func reassertFocusAfterNonFocusSplit(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?,
+        allowPreviousHostedView: Bool
+    ) {
+        guard matchesPendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        ) else {
+            return
+        }
+
+        guard panels[preferredPanelId] != nil else {
+            clearNonFocusSplitFocusReassert(generation: generation)
+            return
+        }
+
+        if focusedPanelId == splitPanelId {
+            focusPanel(
+                preferredPanelId,
+                previousHostedView: allowPreviousHostedView ? previousHostedView : nil
+            )
+            return
+        }
+
+        guard focusedPanelId == preferredPanelId,
+              let terminalPanel = terminalPanel(for: preferredPanelId) else {
+            return
+        }
+        terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
+    }
+
+    func focusPanel(
+        _ panelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView? = nil,
+        trigger: FocusPanelTrigger = .standard
+    ) {
+        markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
-        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
-        FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
+        let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
+        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
+        FocusLogStore.shared.append(
+            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
+        )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let currentlyFocusedPanelId = focusedPanelId
@@ -1510,6 +1980,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
+        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+#if DEBUG
+        if shouldSuppressReentrantRefocus {
+            dlog(
+                "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
+                "reason=firstResponderAlreadyConverged"
+            )
+        }
+#endif
 
         if let targetPaneId, !selectionAlreadyConverged {
             bonsplitController.focusPane(targetPaneId)
@@ -1521,11 +2000,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Also focus the underlying panel
         if let panel = panels[panelId] {
-            if currentlyFocusedPanelId != panelId || !selectionAlreadyConverged {
+            if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
                 panel.focus()
             }
 
-            if let terminalPanel = panel as? TerminalPanel {
+            if !shouldSuppressReentrantRefocus, let terminalPanel = panel as? TerminalPanel {
                 // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
                 // (becomeFirstResponder -> onFocus -> focusPanel).
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
@@ -1533,7 +2012,7 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
-        if let targetPaneId {
+        if let targetPaneId, !shouldSuppressReentrantRefocus {
             applyTabSelection(tabId: tabId, inPane: targetPaneId)
         }
     }
@@ -1610,14 +2089,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
-        if let terminalPanel = terminalPanel(for: panelId) {
-            terminalPanel.triggerFlash()
-            return
-        }
-        if let browserPanel = browserPanel(for: panelId) {
-            browserPanel.triggerFlash()
-            return
-        }
+        panels[panelId]?.triggerFlash()
     }
 
     func triggerNotificationFocusFlash(
@@ -1658,14 +2130,19 @@ final class Workspace: Identifiable, ObservableObject {
     /// Create a new terminal panel (used when replacing the last panel)
     @discardableResult
     func createReplacementTerminalPanel() -> TerminalPanel {
+        let inheritedConfig = inheritedTerminalConfig(
+            preferredPanelId: focusedPanelId,
+            inPane: bonsplitController.focusedPaneId
+        )
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: nil,
+            configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         // Create tab in bonsplit
         if let newTabId = bonsplitController.createTab(
@@ -1748,6 +2225,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     private func scheduleFocusReconcile() {
+#if DEBUG
+        if isDetachingCloseTransaction {
+            debugFocusReconcileScheduledDuringDetachCount += 1
+        }
+#endif
         guard !focusReconcileScheduled else { return }
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -1847,6 +2329,147 @@ final class Workspace: Identifiable, ObservableObject {
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
     }
 
+    private enum PanelMoveDestination {
+        case newWorkspaceInCurrentWindow
+        case selectedWorkspaceInNewWindow
+        case existingWorkspace(UUID)
+    }
+
+    private func promptMovePanel(tabId: TabID) {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let app = AppDelegate.shared else { return }
+
+        let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
+        let workspaceTargets = app.workspaceMoveTargets(
+            excludingWorkspaceId: id,
+            referenceWindowId: currentWindowId
+        )
+
+        var options: [(title: String, destination: PanelMoveDestination)] = [
+            ("New Workspace in Current Window", .newWorkspaceInCurrentWindow),
+            ("Selected Workspace in New Window", .selectedWorkspaceInNewWindow),
+        ]
+        options.append(contentsOf: workspaceTargets.map { target in
+            (target.label, .existingWorkspace(target.workspaceId))
+        })
+
+        let alert = NSAlert()
+        alert.messageText = "Move Tab"
+        alert.informativeText = "Choose a destination for this tab."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
+        for option in options {
+            popup.addItem(withTitle: option.title)
+        }
+        popup.selectItem(at: 0)
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let selectedIndex = max(0, min(popup.indexOfSelectedItem, options.count - 1))
+        let destination = options[selectedIndex].destination
+
+        let moved: Bool
+        switch destination {
+        case .newWorkspaceInCurrentWindow:
+            guard let manager = app.tabManagerFor(tabId: id) else { return }
+            let workspace = manager.addWorkspace(select: true)
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspace.id,
+                focus: true,
+                focusWindow: false
+            )
+
+        case .selectedWorkspaceInNewWindow:
+            let newWindowId = app.createMainWindow()
+            guard let destinationManager = app.tabManagerFor(windowId: newWindowId),
+                  let destinationWorkspaceId = destinationManager.selectedTabId else {
+                return
+            }
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: destinationWorkspaceId,
+                focus: true,
+                focusWindow: true
+            )
+            if !moved {
+                _ = app.closeMainWindow(windowId: newWindowId)
+            }
+
+        case .existingWorkspace(let workspaceId):
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspaceId,
+                focus: true,
+                focusWindow: true
+            )
+        }
+
+        if !moved {
+            let failure = NSAlert()
+            failure.alertStyle = .warning
+            failure.messageText = "Move Failed"
+            failure.informativeText = "cmux could not move this tab to the selected destination."
+            failure.addButton(withTitle: "OK")
+            _ = failure.runModal()
+        }
+    }
+
+    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+#if DEBUG
+        let dropStart = ProcessInfo.processInfo.systemUptime
+#endif
+
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+#if DEBUG
+        let destinationLabel: String
+#endif
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+#if DEBUG
+            destinationLabel = "insert pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil")"
+#endif
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+#if DEBUG
+            destinationLabel = "split pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) insertFirst=\(insertFirst ? 1 : 0)"
+#endif
+        }
+
+        #if DEBUG
+        dlog(
+            "split.externalDrop.begin ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
+            "sourcePane=\(request.sourcePaneId.id.uuidString.prefix(5)) destination=\(destinationLabel)"
+        )
+        #endif
+        let moved = app.moveBonsplitTab(
+            tabId: request.tabId.uuid,
+            toWorkspace: id,
+            targetPane: targetPane,
+            targetIndex: targetIndex,
+            splitTarget: splitTarget,
+            focus: true,
+            focusWindow: true
+        )
+#if DEBUG
+        dlog(
+            "split.externalDrop.end ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
+            "moved=\(moved ? 1 : 0) elapsedMs=\(debugElapsedMs(since: dropStart))"
+        )
+#endif
+        return moved
+    }
+
 }
 
 // MARK: - BonsplitDelegate
@@ -1925,6 +2548,11 @@ extension Workspace: BonsplitDelegate {
               let panel = panels[panelId] else {
             return
         }
+
+        if shouldTreatCurrentEventAsExplicitFocusIntent() {
+            markExplicitFocusIntent(on: panelId)
+        }
+
         syncPinnedStateForTab(selectedTabId, panelId: panelId)
         syncUnreadBadgeStateForPanel(panelId)
 
@@ -1934,6 +2562,9 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
+        if let terminalPanel = panel as? TerminalPanel {
+            rememberTerminalConfigInheritanceSource(terminalPanel)
+        }
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
         let markedAt = manualUnreadMarkedAt[panelId]
         if Self.shouldClearManualUnread(
@@ -1974,6 +2605,57 @@ extension Workspace: BonsplitDelegate {
                 GhosttyNotificationKey.surfaceId: panelId
             ]
         )
+    }
+
+    private func beginNonFocusSplitFocusReassert(
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> UInt64 {
+        nonFocusSplitFocusReassertGeneration &+= 1
+        let generation = nonFocusSplitFocusReassertGeneration
+        pendingNonFocusSplitFocusReassert = PendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
+        return generation
+    }
+
+    private func matchesPendingNonFocusSplitFocusReassert(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> Bool {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return false }
+        return pending.generation == generation &&
+            pending.preferredPanelId == preferredPanelId &&
+            pending.splitPanelId == splitPanelId
+    }
+
+    private func clearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return }
+        if let generation, pending.generation != generation { return }
+        pendingNonFocusSplitFocusReassert = nil
+    }
+
+    private func shouldTreatCurrentEventAsExplicitFocusIntent() -> Bool {
+        guard let eventType = NSApp.currentEvent?.type else { return false }
+        switch eventType {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+             .otherMouseDown, .otherMouseUp, .keyDown, .keyUp, .scrollWheel,
+             .gesture, .magnify, .rotate, .swipe:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func markExplicitFocusIntent(on panelId: UUID) {
+        guard let pending = pendingNonFocusSplitFocusReassert,
+              pending.splitPanelId == panelId else {
+            return
+        }
+        pendingNonFocusSplitFocusReassert = nil
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
@@ -2057,6 +2739,7 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -2064,7 +2747,9 @@ extension Workspace: BonsplitDelegate {
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
             scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
+            if !isDetaching {
+                scheduleFocusReconcile()
+            }
             return
         }
 
@@ -2072,22 +2757,23 @@ extension Workspace: BonsplitDelegate {
         NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
         #endif
 
-        let isDetaching = detachingTabIds.remove(tabId) != nil
         let panel = panels[panelId]
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
+            let cachedTitle = panelTitles[panelId]
+            let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 panelId: panelId,
                 panel: panel,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panel.displayTitle),
+                title: resolvedPanelTitle(panelId: panelId, fallback: transferFallbackTitle),
                 icon: panel.displayIcon,
                 iconImageData: browserPanel?.faviconPNGData,
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
-                cachedTitle: panelTitles[panelId],
+                cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId)
             )
@@ -2110,10 +2796,20 @@ extension Workspace: BonsplitDelegate {
         panelSubscriptions.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
+        if lastTerminalConfigInheritancePanelId == panelId {
+            lastTerminalConfigInheritancePanelId = nil
+        }
 
-        // Keep the workspace invariant: always retain at least one real panel.
-        // This prevents runtime close callbacks from ever collapsing into a tabless workspace.
+        // Keep the workspace invariant for normal close paths.
+        // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
+        // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
+            if isDetaching {
+                scheduleTerminalGeometryReconcile()
+                return
+            }
+
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
@@ -2145,7 +2841,9 @@ extension Workspace: BonsplitDelegate {
             normalizePinnedTabs(in: pane)
         }
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetaching {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -2154,18 +2852,50 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
 #if DEBUG
-        let movedPanel = panelIdFromSurfaceId(tab.id)?.uuidString.prefix(5) ?? "unknown"
+        let now = ProcessInfo.processInfo.systemUptime
+        let sincePrev: String
+        if debugLastDidMoveTabTimestamp > 0 {
+            sincePrev = String(format: "%.2f", (now - debugLastDidMoveTabTimestamp) * 1000)
+        } else {
+            sincePrev = "first"
+        }
+        debugLastDidMoveTabTimestamp = now
+        debugDidMoveTabEventCount += 1
+        let movedPanelId = panelIdFromSurfaceId(tab.id)
+        let movedPanel = movedPanelId?.uuidString.prefix(5) ?? "unknown"
+        let selectedBefore = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneBefore = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = focusedPanelId?.uuidString.prefix(5) ?? "nil"
         dlog(
-            "split.moveTab panel=\(movedPanel) " +
+            "split.moveTab idx=\(debugDidMoveTabEventCount) dtSincePrevMs=\(sincePrev) panel=\(movedPanel) " +
             "from=\(source.id.uuidString.prefix(5)) to=\(destination.id.uuidString.prefix(5)) " +
             "sourceTabs=\(controller.tabs(inPane: source).count) destTabs=\(controller.tabs(inPane: destination).count)"
         )
+        dlog(
+            "split.moveTab.state.before idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedBefore) focusedPane=\(focusedPaneBefore) focusedPanel=\(focusedPanelBefore)"
+        )
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
+#if DEBUG
+        let selectedAfter = controller.selectedTab(inPane: destination)
+            .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
+        let focusedPaneAfter = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        let movedPanelFocused = (movedPanelId != nil && movedPanelId == focusedPanelId) ? 1 : 0
+        dlog(
+            "split.moveTab.state.after idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
+            "destSelected=\(selectedAfter) focusedPane=\(focusedPaneAfter) focusedPanel=\(focusedPanelAfter) " +
+            "movedFocused=\(movedPanelFocused)"
+        )
+#endif
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
@@ -2187,6 +2917,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
@@ -2211,13 +2942,15 @@ extension Workspace: BonsplitDelegate {
             if let focusedPane = bonsplitController.focusedPaneId,
                let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
                 applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
-            } else {
+            } else if shouldScheduleFocusReconcile {
                 scheduleFocusReconcile()
             }
         }
 
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if shouldScheduleFocusReconcile {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
@@ -2302,15 +3035,7 @@ extension Workspace: BonsplitDelegate {
                     // Keep the existing placeholder tab identity and replace only the panel mapping.
                     // This avoids an extra create+close tab churn that can transiently render an
                     // empty pane during drag-to-split of a single-tab pane.
-                    let inheritedConfig: ghostty_surface_config_s? = {
-                        for panel in panels.values {
-                            if let terminalPanel = panel as? TerminalPanel,
-                               let surface = terminalPanel.surface.surface {
-                                return ghostty_surface_inherited_config(surface, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-                            }
-                        }
-                        return nil
-                    }()
+                    let inheritedConfig = inheritedTerminalConfig(inPane: originalPane)
 
                     let replacementPanel = TerminalPanel(
                         workspaceId: id,
@@ -2320,6 +3045,7 @@ extension Workspace: BonsplitDelegate {
                     )
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
+                    seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
                     surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
 
                     bonsplitController.updateTab(
@@ -2362,7 +3088,7 @@ extension Workspace: BonsplitDelegate {
         // Get the focused terminal in the original pane to inherit config from
         guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,
               let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
-              let sourcePanel = terminalPanel(for: sourcePanelId) else { return }
+              terminalPanel(for: sourcePanelId) != nil else { return }
 
 #if DEBUG
         dlog(
@@ -2371,11 +3097,10 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
 
-        let inheritedConfig: ghostty_surface_config_s? = if let existing = sourcePanel.surface.surface {
-            ghostty_surface_inherited_config(existing, GHOSTTY_SURFACE_CONTEXT_SPLIT)
-        } else {
-            nil
-        }
+        let inheritedConfig = inheritedTerminalConfig(
+            preferredPanelId: sourcePanelId,
+            inPane: originalPane
+        )
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -2385,6 +3110,7 @@ extension Workspace: BonsplitDelegate {
         )
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         guard let newTabId = bonsplitController.createTab(
             title: newPanel.displayTitle,
@@ -2396,6 +3122,7 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return
         }
 
@@ -2444,6 +3171,8 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+        case .move:
+            promptMovePanel(tabId: tab.id)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -2458,6 +3187,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            clearManualUnread(panelId: panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
@@ -2469,7 +3201,9 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
