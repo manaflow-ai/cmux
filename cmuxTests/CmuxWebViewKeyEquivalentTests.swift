@@ -843,6 +843,44 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
     }
 }
 
+final class SidebarSelectedWorkspaceColorTests: XCTestCase {
+    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 62.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 133.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 252.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 63.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 142.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 252.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

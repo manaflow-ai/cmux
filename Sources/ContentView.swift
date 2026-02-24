@@ -38,6 +38,30 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
+func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+    switch colorScheme {
+    case .dark:
+        return NSColor(
+            srgbRed: 63.0 / 255.0,
+            green: 142.0 / 255.0,
+            blue: 252.0 / 255.0,
+            alpha: 1.0
+        )
+    default:
+        return NSColor(
+            srgbRed: 62.0 / 255.0,
+            green: 133.0 / 255.0,
+            blue: 252.0 / 255.0,
+            alpha: 1.0
+        )
+    }
+}
+
+func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    return NSColor.white.withAlphaComponent(clampedOpacity)
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -5974,12 +5998,14 @@ private struct TabItemView: View {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)) : .primary
+        usesInvertedActiveForeground
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
+            : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
             : .secondary
     }
 
@@ -6465,16 +6491,15 @@ private struct TabItemView: View {
     private var backgroundColor: Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            if isActive        { return Color.accentColor }
+            if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if isMultiSelected { return Color.accentColor.opacity(0.25) }
             return Color.clear
         case .solidFill:
+            if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if let custom = resolvedCustomTabColor {
-                if isActive        { return custom }
                 if isMultiSelected { return custom.opacity(0.35) }
                 return custom.opacity(0.7)
             }
-            if isActive        { return Color.accentColor }
             if isMultiSelected { return Color.accentColor.opacity(0.25) }
             return Color.clear
         }
@@ -6789,15 +6814,15 @@ private struct TabItemView: View {
         if isActive {
             switch level {
             case .info:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.5))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.5))
             case .progress:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
             case .success:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             case .warning:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             case .error:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             }
         }
         switch level {
@@ -6934,11 +6959,11 @@ private struct SidebarStatusPillsRow: View {
     }
 
     private var activePrimaryTextColor: Color {
-        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
     }
 
     private var activeSecondaryTextColor: Color {
-        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.65))
+        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65))
     }
 
     private var statusText: String {
