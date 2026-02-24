@@ -25,6 +25,38 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(loaded?.windows.first?.sidebar.selection, .tabs)
     }
 
+    func testSaveAndLoadRoundTripPreservesWorkspaceCustomColor() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].customColor = "#C0392B"
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertEqual(
+            loaded?.windows.first?.tabManager.workspaces.first?.customColor,
+            "#C0392B"
+        )
+    }
+
+    func testWorkspaceCustomColorDecodeSupportsMissingLegacyField() throws {
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].customColor = nil
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(snapshot)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("\"customColor\""))
+
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+        XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.customColor)
+    }
+
     func testLoadRejectsSchemaVersionMismatch() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -442,6 +474,7 @@ final class SessionPersistenceTests: XCTestCase {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             customTitle: "Restored",
+            customColor: nil,
             isPinned: true,
             currentDirectory: "/tmp",
             focusedPanelId: nil,

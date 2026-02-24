@@ -118,6 +118,7 @@ extension Workspace {
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
             customTitle: customTitle,
+            customColor: customColor,
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -156,6 +157,7 @@ extension Workspace {
 
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
+        setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
 
         statusEntries = Dictionary(
@@ -1323,7 +1325,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomColor(_ hex: String?) {
-        customColor = hex
+        if let hex {
+            customColor = WorkspaceTabColorSettings.normalizedHex(hex)
+        } else {
+            customColor = nil
+        }
     }
 
     func setCustomTitle(_ title: String?) {

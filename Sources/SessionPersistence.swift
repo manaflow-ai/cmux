@@ -322,6 +322,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
+    var customColor: String?
     var isPinned: Bool
     var currentDirectory: String
     var focusedPanelId: UUID?
