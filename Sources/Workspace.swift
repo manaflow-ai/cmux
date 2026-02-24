@@ -839,6 +839,11 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    enum FocusPanelTrigger {
+        case standard
+        case terminalFirstResponder
+    }
+
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     @Published var panelTitles: [UUID: String] = [:]
@@ -2444,12 +2449,19 @@ final class Workspace: Identifiable, ObservableObject {
         terminalPanel.hostedView.ensureFocus(for: id, surfaceId: preferredPanelId)
     }
 
-    func focusPanel(_ panelId: UUID, previousHostedView: GhosttySurfaceScrollView? = nil) {
+    func focusPanel(
+        _ panelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView? = nil,
+        trigger: FocusPanelTrigger = .standard
+    ) {
         markExplicitFocusIntent(on: panelId)
 #if DEBUG
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
-        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane)")
-        FocusLogStore.shared.append("Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane)")
+        let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
+        dlog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
+        FocusLogStore.shared.append(
+            "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
+        )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
         let currentlyFocusedPanelId = focusedPanelId
@@ -2472,6 +2484,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
+        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+#if DEBUG
+        if shouldSuppressReentrantRefocus {
+            dlog(
+                "focus.panel.skipReentrant panel=\(panelId.uuidString.prefix(5)) " +
+                "reason=firstResponderAlreadyConverged"
+            )
+        }
+#endif
 
         if let targetPaneId, !selectionAlreadyConverged {
             bonsplitController.focusPane(targetPaneId)
@@ -2483,11 +2504,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Also focus the underlying panel
         if let panel = panels[panelId] {
-            if currentlyFocusedPanelId != panelId || !selectionAlreadyConverged {
+            if (currentlyFocusedPanelId != panelId || !selectionAlreadyConverged) && !shouldSuppressReentrantRefocus {
                 panel.focus()
             }
 
-            if let terminalPanel = panel as? TerminalPanel {
+            if !shouldSuppressReentrantRefocus, let terminalPanel = panel as? TerminalPanel {
                 // Avoid re-entrant focus loops when focus was initiated by AppKit first-responder
                 // (becomeFirstResponder -> onFocus -> focusPanel).
                 if !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
@@ -2495,7 +2516,7 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
-        if let targetPaneId {
+        if let targetPaneId, !shouldSuppressReentrantRefocus {
             applyTabSelection(tabId: tabId, inPane: targetPaneId)
         }
     }
