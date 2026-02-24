@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -90,6 +91,60 @@ final class AppTransportSecurityTests: XCTestCase {
         )
     }
 
+    func testInfoPlistContainsBluetoothUsageDescriptionForPasskeys() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSBluetoothAlwaysUsageDescription"] as? String,
+            "Resources/Info.plist must include NSBluetoothAlwaysUsageDescription for WebKit passkey Bluetooth flows."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSBluetoothAlwaysUsageDescription must be non-empty."
+        )
+    }
+
+    func testInfoPlistContainsCameraUsageDescription() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSCameraUsageDescription"] as? String,
+            "Resources/Info.plist must include NSCameraUsageDescription for website camera permission prompts."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSCameraUsageDescription must be non-empty."
+        )
+    }
+
+    func testInfoPlistContainsMicrophoneUsageDescription() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSMicrophoneUsageDescription"] as? String,
+            "Resources/Info.plist must include NSMicrophoneUsageDescription for website microphone permission prompts."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSMicrophoneUsageDescription must be non-empty."
+        )
+    }
+
     private func findProjectRoot() -> URL {
         var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
         for _ in 0..<10 {
@@ -100,6 +155,93 @@ final class AppTransportSecurityTests: XCTestCase {
             dir = dir.deletingLastPathComponent()
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    }
+}
+
+final class BrowserMediaCapturePermissionSettingsTests: XCTestCase {
+    func testMediaCapturePermissionDecisionRoundTrip() {
+        let suiteName = "BrowserMediaCapturePermissionSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let scheme = "https"
+        let host = "accounts.google.com"
+        let port = 443
+
+        XCTAssertNil(BrowserMediaCapturePermissionSettings.decision(
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        ))
+
+        BrowserMediaCapturePermissionSettings.setDecision(
+            .grant,
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        )
+        XCTAssertEqual(BrowserMediaCapturePermissionSettings.decision(
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        ), .grant)
+
+        BrowserMediaCapturePermissionSettings.setDecision(
+            .deny,
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        )
+        XCTAssertEqual(BrowserMediaCapturePermissionSettings.decision(
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        ), .deny)
+
+        BrowserMediaCapturePermissionSettings.setDecision(
+            .prompt,
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        )
+        XCTAssertNil(BrowserMediaCapturePermissionSettings.decision(
+            originScheme: scheme,
+            host: host,
+            port: port,
+            mediaType: .cameraAndMicrophone,
+            defaults: defaults
+        ))
+    }
+
+    func testStorageKeyNormalizesSchemeAndHost() {
+        let keyA = BrowserMediaCapturePermissionSettings.storageKey(
+            originScheme: "HTTPS",
+            host: "Accounts.Google.Com",
+            port: 443,
+            mediaType: .camera
+        )
+        let keyB = BrowserMediaCapturePermissionSettings.storageKey(
+            originScheme: "https",
+            host: "accounts.google.com",
+            port: 443,
+            mediaType: .camera
+        )
+        XCTAssertEqual(keyA, keyB)
     }
 }
 
