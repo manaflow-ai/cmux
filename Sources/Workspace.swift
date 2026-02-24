@@ -999,6 +999,10 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.closeTab(welcomeTabId)
         }
 
+        bonsplitController.onExternalTabDrop = { [weak self] request in
+            self?.handleExternalTabDrop(request) ?? false
+        }
+
         // Set ourselves as delegate
         bonsplitController.delegate = self
 
@@ -2728,6 +2732,122 @@ final class Workspace: Identifiable, ObservableObject {
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
     }
 
+    private enum PanelMoveDestination {
+        case newWorkspaceInCurrentWindow
+        case selectedWorkspaceInNewWindow
+        case existingWorkspace(UUID)
+    }
+
+    private func promptMovePanel(tabId: TabID) {
+        guard let panelId = panelIdFromSurfaceId(tabId),
+              let app = AppDelegate.shared else { return }
+
+        let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
+        let workspaceTargets = app.workspaceMoveTargets(
+            excludingWorkspaceId: id,
+            referenceWindowId: currentWindowId
+        )
+
+        var options: [(title: String, destination: PanelMoveDestination)] = [
+            ("New Workspace in Current Window", .newWorkspaceInCurrentWindow),
+            ("Selected Workspace in New Window", .selectedWorkspaceInNewWindow),
+        ]
+        options.append(contentsOf: workspaceTargets.map { target in
+            (target.label, .existingWorkspace(target.workspaceId))
+        })
+
+        let alert = NSAlert()
+        alert.messageText = "Move Tab"
+        alert.informativeText = "Choose a destination for this tab."
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
+        for option in options {
+            popup.addItem(withTitle: option.title)
+        }
+        popup.selectItem(at: 0)
+        alert.accessoryView = popup
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let selectedIndex = max(0, min(popup.indexOfSelectedItem, options.count - 1))
+        let destination = options[selectedIndex].destination
+
+        let moved: Bool
+        switch destination {
+        case .newWorkspaceInCurrentWindow:
+            guard let manager = app.tabManagerFor(tabId: id) else { return }
+            let workspace = manager.addWorkspace(select: true)
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspace.id,
+                focus: true,
+                focusWindow: false
+            )
+
+        case .selectedWorkspaceInNewWindow:
+            let newWindowId = app.createMainWindow()
+            guard let destinationManager = app.tabManagerFor(windowId: newWindowId),
+                  let destinationWorkspaceId = destinationManager.selectedTabId else {
+                return
+            }
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: destinationWorkspaceId,
+                focus: true,
+                focusWindow: true
+            )
+            if !moved {
+                _ = app.closeMainWindow(windowId: newWindowId)
+            }
+
+        case .existingWorkspace(let workspaceId):
+            moved = app.moveSurface(
+                panelId: panelId,
+                toWorkspace: workspaceId,
+                focus: true,
+                focusWindow: true
+            )
+        }
+
+        if !moved {
+            let failure = NSAlert()
+            failure.alertStyle = .warning
+            failure.messageText = "Move Failed"
+            failure.informativeText = "cmux could not move this tab to the selected destination."
+            failure.addButton(withTitle: "OK")
+            _ = failure.runModal()
+        }
+    }
+
+    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+        }
+
+        return app.moveBonsplitTab(
+            tabId: request.tabId.uuid,
+            toWorkspace: id,
+            targetPane: targetPane,
+            targetIndex: targetIndex,
+            splitTarget: splitTarget,
+            focus: true,
+            focusWindow: true
+        )
+    }
+
 }
 
 // MARK: - BonsplitDelegate
@@ -3384,6 +3504,8 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
+        case .move:
+            promptMovePanel(tabId: tab.id)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -3398,6 +3520,9 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
             setPanelPinned(panelId: panelId, pinned: shouldPin)
+        case .markAsRead:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            clearManualUnread(panelId: panelId)
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
