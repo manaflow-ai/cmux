@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import WebKit
 import Bonsplit
 import Combine
 import CoreText
@@ -1374,14 +1375,16 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
         let browserPanel = BrowserPanel(
             workspaceId: id,
             initialURL: url,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            webViewConfiguration: webViewConfiguration
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle

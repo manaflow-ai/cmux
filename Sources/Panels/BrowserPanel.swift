@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
+import AVFoundation
 import Bonsplit
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
@@ -400,6 +401,148 @@ enum BrowserUserAgentSettings {
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
     // fallback/old UIs or trigger bot checks.
     static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+}
+
+enum BrowserMediaCapturePermissionType: String {
+    case camera
+    case microphone
+    case cameraAndMicrophone
+
+    init(_ type: WKMediaCaptureType) {
+        switch type {
+        case .camera:
+            self = .camera
+        case .microphone:
+            self = .microphone
+        case .cameraAndMicrophone:
+            self = .cameraAndMicrophone
+        @unknown default:
+            self = .cameraAndMicrophone
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .camera:
+            return "Camera"
+        case .microphone:
+            return "Microphone"
+        case .cameraAndMicrophone:
+            return "Camera and microphone"
+        }
+    }
+
+    var requiredSystemMediaTypes: [AVMediaType] {
+        switch self {
+        case .camera:
+            return [.video]
+        case .microphone:
+            return [.audio]
+        case .cameraAndMicrophone:
+            return [.video, .audio]
+        }
+    }
+}
+
+private enum BrowserSitePermissionDecision: String {
+    case allow
+    case deny
+
+    var webKitDecision: WKPermissionDecision {
+        switch self {
+        case .allow:
+            return .grant
+        case .deny:
+            return .deny
+        }
+    }
+
+    init?(webKitDecision: WKPermissionDecision) {
+        switch webKitDecision {
+        case .grant:
+            self = .allow
+        case .deny:
+            self = .deny
+        case .prompt:
+            return nil
+        @unknown default:
+            return nil
+        }
+    }
+}
+
+enum BrowserMediaCapturePermissionSettings {
+    static let decisionsKey = "browserMediaCapturePermissionDecisions"
+
+    static func storageKey(
+        originScheme: String,
+        host: String,
+        port: Int,
+        mediaType: BrowserMediaCapturePermissionType
+    ) -> String {
+        let normalizedScheme = originScheme.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(normalizedScheme)://\(normalizedHost):\(port)|\(mediaType.rawValue)"
+    }
+
+    static func decision(
+        originScheme: String,
+        host: String,
+        port: Int,
+        mediaType: BrowserMediaCapturePermissionType,
+        defaults: UserDefaults = .standard
+    ) -> WKPermissionDecision? {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else { return nil }
+        let key = storageKey(
+            originScheme: originScheme,
+            host: normalizedHost,
+            port: port,
+            mediaType: mediaType
+        )
+        guard let stored = loadDecisionMap(defaults: defaults)[key],
+              let decision = BrowserSitePermissionDecision(rawValue: stored) else {
+            return nil
+        }
+        return decision.webKitDecision
+    }
+
+    static func setDecision(
+        _ decision: WKPermissionDecision,
+        originScheme: String,
+        host: String,
+        port: Int,
+        mediaType: BrowserMediaCapturePermissionType,
+        defaults: UserDefaults = .standard
+    ) {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else { return }
+        let key = storageKey(
+            originScheme: originScheme,
+            host: normalizedHost,
+            port: port,
+            mediaType: mediaType
+        )
+        var map = loadDecisionMap(defaults: defaults)
+        if let stored = BrowserSitePermissionDecision(webKitDecision: decision)?.rawValue {
+            map[key] = stored
+        } else {
+            map.removeValue(forKey: key)
+        }
+        defaults.set(map, forKey: decisionsKey)
+    }
+
+    private static func loadDecisionMap(defaults: UserDefaults) -> [String: String] {
+        guard let stored = defaults.dictionary(forKey: decisionsKey) else { return [:] }
+        var out: [String: String] = [:]
+        out.reserveCapacity(stored.count)
+        for (key, value) in stored {
+            guard let keyString = key as String?,
+                  let valueString = value as? String else { continue }
+            out[keyString] = valueString
+        }
+        return out
+    }
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -1243,18 +1386,25 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
+    init(
+        workspaceId: UUID,
+        initialURL: URL? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.browserThemeMode = BrowserThemeSettings.mode()
 
         // Configure web view
-        let config = WKWebViewConfiguration()
-        config.processPool = BrowserPanel.sharedProcessPool
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = .default()
+        let config = webViewConfiguration ?? WKWebViewConfiguration()
+        if webViewConfiguration == nil {
+            config.processPool = BrowserPanel.sharedProcessPool
+            // Ensure browser cookies/storage persist across navigations and launches.
+            // This reduces repeated consent/bot-challenge flows on sites like Google.
+            config.websiteDataStore = .default()
+        }
 
         // Enable developer extras (DevTools)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -1338,6 +1488,14 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
             self.openLinkInNewTab(url: url)
+        }
+        browserUIDelegate.createPopupWebView = { [weak self] configuration, navigationAction, windowFeatures in
+            guard let self else { return nil }
+            return self.createPopupWebView(
+                with: configuration,
+                navigationAction: navigationAction,
+                windowFeatures: windowFeatures
+            )
         }
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
@@ -1839,6 +1997,48 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 }
 
 extension BrowserPanel {
+    @discardableResult
+    private func createBrowserSurfaceInCurrentPane(
+        url: URL? = nil,
+        focus: Bool = true,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration? = nil
+    ) -> BrowserPanel? {
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let paneId = workspace.paneId(forPanelId: id) else { return nil }
+        return workspace.newBrowserSurface(
+            inPane: paneId,
+            url: url,
+            focus: focus,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            webViewConfiguration: webViewConfiguration
+        )
+    }
+
+    private func createPopupWebView(
+        with configuration: WKWebViewConfiguration,
+        navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard let popupPanel = createBrowserSurfaceInCurrentPane(
+            focus: true,
+            webViewConfiguration: configuration
+        ) else {
+            return nil
+        }
+        popupPanel.shouldRenderWebView = true
+        #if DEBUG
+        let hadToolbarOverride = (windowFeatures.toolbarsVisibility != nil) ? 1 : 0
+        dlog(
+            "browser.popup.open sourcePanel=\(id.uuidString.prefix(5)) " +
+            "popupPanel=\(popupPanel.id.uuidString.prefix(5)) " +
+            "type=\(navigationAction.navigationType.rawValue) " +
+            "toolbarOverride=\(hadToolbarOverride)"
+        )
+        #endif
+        return popupPanel.webView
+    }
 
     /// Go back in history
     func goBack() {
@@ -1854,11 +2054,7 @@ extension BrowserPanel {
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let paneId = workspace.paneId(forPanelId: id) else { return }
-        workspace.newBrowserSurface(
-            inPane: paneId,
+        _ = createBrowserSurfaceInCurrentPane(
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
@@ -2669,11 +2865,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — navigate in the current webview
-        if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
-            webView.load(navigationAction.request)
-            decisionHandler(.cancel)
+        // Let target=_blank / window.open() continue to the UI delegate so it can
+        // create a real popup tab with a dedicated WKWebView.
+        if navigationAction.targetFrame == nil {
+            decisionHandler(.allow)
             return
         }
 
@@ -2762,6 +2957,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
+    var createPopupWebView: ((WKWebViewConfiguration, WKNavigationAction, WKWindowFeatures) -> WKWebView?)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
@@ -2783,8 +2979,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         completion(alert.runModal())
     }
 
-    /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
+    /// Create a real popup web view for target=_blank/window.open flows.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
@@ -2802,17 +2997,68 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 #endif
                 return nil
             }
-            if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent =
-                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
-                requestNavigation(navigationAction.request, intent)
-            } else if navigationAction.modifierFlags.contains(.command) {
+            if let createPopupWebView {
+                return createPopupWebView(configuration, navigationAction, windowFeatures)
+            }
+            if navigationAction.modifierFlags.contains(.command) {
                 openInNewTab?(url)
-            } else {
-                webView.load(navigationAction.request)
+                return nil
+            }
+            if let requestNavigation {
+                requestNavigation(navigationAction.request, .currentTab)
+                return nil
             }
         }
         return nil
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+        let mediaType = BrowserMediaCapturePermissionType(type)
+        if let stored = BrowserMediaCapturePermissionSettings.decision(
+            originScheme: origin.`protocol`,
+            host: origin.host,
+            port: Int(origin.port),
+            mediaType: mediaType
+        ) {
+            decisionHandler(stored)
+            return
+        }
+
+        requestSystemMediaAccess(for: mediaType) { [weak self] hasSystemPermission in
+            guard let self else {
+                decisionHandler(.deny)
+                return
+            }
+            guard hasSystemPermission else {
+                self.presentSystemMediaAccessDeniedAlert(for: mediaType, webView: webView) {
+                    decisionHandler(.deny)
+                }
+                return
+            }
+
+            self.presentMediaCapturePermissionAlert(
+                for: origin,
+                mediaType: mediaType,
+                webView: webView
+            ) { decision, remember in
+                if remember {
+                    BrowserMediaCapturePermissionSettings.setDecision(
+                        decision,
+                        originScheme: origin.`protocol`,
+                        host: origin.host,
+                        port: Int(origin.port),
+                        mediaType: mediaType
+                    )
+                }
+                decisionHandler(decision)
+            }
+        }
     }
 
     /// Handle <input type="file"> elements by presenting the native file picker.
@@ -2887,5 +3133,120 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 completionHandler(nil)
             }
         }
+    }
+
+    private func requestSystemMediaAccess(
+        for mediaType: BrowserMediaCapturePermissionType,
+        completion: @escaping (Bool) -> Void
+    ) {
+        requestSystemMediaAccess(for: mediaType.requiredSystemMediaTypes, completion: completion)
+    }
+
+    private func requestSystemMediaAccess(
+        for mediaTypes: [AVMediaType],
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let first = mediaTypes.first else {
+            completion(true)
+            return
+        }
+        let rest = Array(mediaTypes.dropFirst())
+        requestSingleSystemMediaAccess(for: first) { [weak self] granted in
+            guard granted else {
+                completion(false)
+                return
+            }
+            guard let self else {
+                completion(false)
+                return
+            }
+            self.requestSystemMediaAccess(for: rest, completion: completion)
+        }
+    }
+
+    private func requestSingleSystemMediaAccess(
+        for mediaType: AVMediaType,
+        completion: @escaping (Bool) -> Void
+    ) {
+        switch AVCaptureDevice.authorizationStatus(for: mediaType) {
+        case .authorized:
+            completion(true)
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: mediaType) { granted in
+                DispatchQueue.main.async {
+                    completion(granted)
+                }
+            }
+        case .denied, .restricted:
+            completion(false)
+        @unknown default:
+            completion(false)
+        }
+    }
+
+    private func presentMediaCapturePermissionAlert(
+        for origin: WKSecurityOrigin,
+        mediaType: BrowserMediaCapturePermissionType,
+        webView: WKWebView,
+        completion: @escaping (WKPermissionDecision, Bool) -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "\(originLabel(for: origin)) wants to use your \(mediaType.displayName.lowercased())."
+        alert.informativeText = "Allow access so this site can continue media capture and sign-in flows."
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Don't Allow")
+        alert.showsSuppressionButton = true
+        alert.suppressionButton?.title = "Remember this decision for this site"
+        presentDialog(alert, for: webView) { response in
+            let decision: WKPermissionDecision = (response == .alertFirstButtonReturn) ? .grant : .deny
+            let remember = alert.suppressionButton?.state == .on
+            completion(decision, remember)
+        }
+    }
+
+    private func presentSystemMediaAccessDeniedAlert(
+        for mediaType: BrowserMediaCapturePermissionType,
+        webView: WKWebView,
+        completion: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "\(mediaType.displayName) access is disabled for cmux."
+        alert.informativeText = "Enable it in System Settings > Privacy & Security to allow website media permissions."
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Not Now")
+        presentDialog(alert, for: webView) { response in
+            if response == .alertFirstButtonReturn,
+               let url = self.mediaPrivacySettingsURL(for: mediaType) {
+                _ = NSWorkspace.shared.open(url)
+            }
+            completion()
+        }
+    }
+
+    private func mediaPrivacySettingsURL(for mediaType: BrowserMediaCapturePermissionType) -> URL? {
+        let anchor: String
+        switch mediaType {
+        case .camera:
+            anchor = "Privacy_Camera"
+        case .microphone:
+            anchor = "Privacy_Microphone"
+        case .cameraAndMicrophone:
+            anchor = "Privacy_Camera"
+        }
+        return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")
+    }
+
+    private func originLabel(for origin: WKSecurityOrigin) -> String {
+        let scheme = origin.`protocol`.isEmpty ? "https" : origin.`protocol`
+        let host = origin.host.isEmpty ? "this site" : origin.host
+        let port = Int(origin.port)
+        let defaultPort: Int? = (scheme.lowercased() == "https") ? 443 : (scheme.lowercased() == "http") ? 80 : nil
+        let includePort = defaultPort == nil || defaultPort != port
+        if includePort {
+            return "\(scheme)://\(host):\(port)"
+        }
+        return "\(scheme)://\(host)"
     }
 }
