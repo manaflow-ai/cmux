@@ -90,6 +90,24 @@ final class AppTransportSecurityTests: XCTestCase {
         )
     }
 
+    func testInfoPlistContainsBluetoothUsageDescriptionForPasskeys() throws {
+        let projectRoot = findProjectRoot()
+        let infoPlistURL = projectRoot.appendingPathComponent("Resources/Info.plist")
+        let data = try Data(contentsOf: infoPlistURL)
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        let plist = try XCTUnwrap(
+            PropertyListSerialization.propertyList(from: data, options: [], format: &format) as? [String: Any]
+        )
+        let usageDescription = try XCTUnwrap(
+            plist["NSBluetoothAlwaysUsageDescription"] as? String,
+            "Resources/Info.plist must include NSBluetoothAlwaysUsageDescription for WebKit passkey Bluetooth flows."
+        )
+        XCTAssertFalse(
+            usageDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "NSBluetoothAlwaysUsageDescription must be non-empty."
+        )
+    }
+
     private func findProjectRoot() -> URL {
         var dir = URL(fileURLWithPath: #file).deletingLastPathComponent().deletingLastPathComponent()
         for _ in 0..<10 {

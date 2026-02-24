@@ -97,6 +97,8 @@
 		<key>NSAllowsArbitraryLoadsInWebContent</key>
 		<true/>
 	</dict>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>cmux uses Bluetooth for cross-device passkey sign-in in embedded browser authentication flows.</string>
 	<key>SUFeedURL</key>
 	<string>https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
