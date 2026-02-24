@@ -2028,6 +2028,33 @@ struct CMUXCLI {
             return String(describing: value)
         }
 
+        func displayBrowserLogItems(_ value: Any?) -> String? {
+            guard let items = value as? [Any], !items.isEmpty else {
+                return nil
+            }
+
+            let lines = items.map { item -> String in
+                guard let dict = item as? [String: Any] else {
+                    return displayBrowserValue(item)
+                }
+
+                let text = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let levelRaw = (dict["level"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let level = levelRaw.isEmpty ? "log" : levelRaw
+
+                if text.isEmpty {
+                    if let message = (dict["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !message.isEmpty {
+                        return "[error] \(message)"
+                    }
+                    return displayBrowserValue(dict)
+                }
+                return "[\(level)] \(text)"
+            }
+
+            return lines.joined(separator: "\n")
+        }
+
         func nonFlagArgs(_ values: [String]) -> [String] {
             values.filter { !$0.hasPrefix("-") }
         }
@@ -2812,7 +2839,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid])
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["entries"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
@@ -2826,7 +2854,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
             let payload = try client.sendV2(method: "browser.errors.list", params: params)
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["errors"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
