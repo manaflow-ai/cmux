@@ -566,6 +566,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingTabSelection: (tabId: TabID, pane: PaneID)?
     private var isReconcilingFocusState = false
     private var focusReconcileScheduled = false
+#if DEBUG
+    private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
+#endif
     private var geometryReconcileScheduled = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -594,6 +597,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var detachingTabIds: Set<TabID> = []
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
+    private var activeDetachCloseTransactions: Int = 0
+    private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
         surfaceIdToPanelId[surfaceId]
@@ -1684,6 +1689,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         detachingTabIds.insert(tabId)
         forceCloseTabIds.insert(tabId)
+        activeDetachCloseTransactions += 1
+        defer { activeDetachCloseTransactions = max(0, activeDetachCloseTransactions - 1) }
         guard bonsplitController.closeTab(tabId) else {
             detachingTabIds.remove(tabId)
             pendingDetachedSurfaces.removeValue(forKey: tabId)
@@ -2129,6 +2136,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     private func scheduleFocusReconcile() {
+#if DEBUG
+        if isDetachingCloseTransaction {
+            debugFocusReconcileScheduledDuringDetachCount += 1
+        }
+#endif
         guard !focusReconcileScheduled else { return }
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -2613,6 +2625,7 @@ extension Workspace: BonsplitDelegate {
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
+        let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -2620,7 +2633,9 @@ extension Workspace: BonsplitDelegate {
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
             scheduleTerminalGeometryReconcile()
-            scheduleFocusReconcile()
+            if !isDetaching {
+                scheduleFocusReconcile()
+            }
             return
         }
 
@@ -2628,7 +2643,6 @@ extension Workspace: BonsplitDelegate {
         NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
         #endif
 
-        let isDetaching = detachingTabIds.remove(tabId) != nil
         let panel = panels[panelId]
 
         if isDetaching, let panel {
@@ -2677,7 +2691,6 @@ extension Workspace: BonsplitDelegate {
         if panels.isEmpty {
             if isDetaching {
                 scheduleTerminalGeometryReconcile()
-                scheduleFocusReconcile()
                 return
             }
 
@@ -2712,7 +2725,9 @@ extension Workspace: BonsplitDelegate {
             normalizePinnedTabs(in: pane)
         }
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetaching {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -2732,7 +2747,9 @@ extension Workspace: BonsplitDelegate {
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
@@ -2754,6 +2771,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
@@ -2778,13 +2796,15 @@ extension Workspace: BonsplitDelegate {
             if let focusedPane = bonsplitController.focusedPaneId,
                let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
                 applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
-            } else {
+            } else if shouldScheduleFocusReconcile {
                 scheduleFocusReconcile()
             }
         }
 
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if shouldScheduleFocusReconcile {
+            scheduleFocusReconcile()
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
@@ -3035,7 +3055,9 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
         scheduleTerminalGeometryReconcile()
-        scheduleFocusReconcile()
+        if !isDetachingCloseTransaction {
+            scheduleFocusReconcile()
+        }
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
