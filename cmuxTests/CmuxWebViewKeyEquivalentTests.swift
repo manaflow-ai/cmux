@@ -1581,6 +1581,126 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     }
 }
 
+final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
+    func testDoesNotConsumeWhenPaletteIsNotVisible() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: false,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+    }
+
+    func testConsumesAppCommandShortcutsWhenPaletteIsVisible() {
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "n",
+                keyCode: 45
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "t",
+                keyCode: 17
+            )
+        )
+        XCTAssertTrue(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: ",",
+                keyCode: 43
+            )
+        )
+    }
+
+    func testAllowsClipboardAndUndoShortcutsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "v",
+                keyCode: 9
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command, .shift],
+                chars: "z",
+                keyCode: 6
+            )
+        )
+    }
+
+    func testAllowsArrowAndDeleteEditingCommandsForPaletteTextEditing() {
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 123
+            )
+        )
+        XCTAssertFalse(
+            shouldConsumeShortcutWhileCommandPaletteVisible(
+                isCommandPaletteVisible: true,
+                normalizedFlags: [.command],
+                chars: "",
+                keyCode: 51
+            )
+        )
+    }
+}
+
+final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
+    func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
+        let panelId = UUID()
+        XCTAssertTrue(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
+        let panelId = UUID()
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: false,
+                focusedBrowserAddressBarPanelId: panelId,
+                focusedPanelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
+        XCTAssertFalse(
+            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: true,
+                focusedBrowserAddressBarPanelId: UUID(),
+                focusedPanelId: UUID()
+            )
+        )
+    }
+}
+
 final class CommandPaletteRenameSelectionSettingsTests: XCTestCase {
     private let suiteName = "cmux.tests.commandPaletteRenameSelection.\(UUID().uuidString)"
 

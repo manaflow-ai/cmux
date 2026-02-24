@@ -1169,9 +1169,15 @@ struct ContentView: View {
         }
     }
 
+    private enum CommandPaletteRestoreFocusIntent {
+        case panel
+        case browserAddressBar
+    }
+
     private struct CommandPaletteRestoreFocusTarget {
         let workspaceId: UUID
         let panelId: UUID
+        let intent: CommandPaletteRestoreFocusIntent
     }
 
     private enum CommandPaletteInputFocusTarget {
@@ -4137,6 +4143,14 @@ struct ContentView: View {
         return false
     }
 
+    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+        focusedPanelIsBrowser: Bool,
+        focusedBrowserAddressBarPanelId: UUID?,
+        focusedPanelId: UUID
+    ) -> Bool {
+        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
+    }
+
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
@@ -4178,9 +4192,15 @@ struct ContentView: View {
 
     private func presentCommandPalette(initialQuery: String) {
         if let panelContext = focusedPanelContext {
+            let shouldRestoreBrowserAddressBar = Self.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+                focusedPanelIsBrowser: panelContext.panel.panelType == .browser,
+                focusedBrowserAddressBarPanelId: AppDelegate.shared?.focusedBrowserAddressBarPanelId(),
+                focusedPanelId: panelContext.panelId
+            )
             commandPaletteRestoreFocusTarget = CommandPaletteRestoreFocusTarget(
                 workspaceId: panelContext.workspace.id,
-                panelId: panelContext.panelId
+                panelId: panelContext.panelId,
+                intent: shouldRestoreBrowserAddressBar ? .browserAddressBar : .panel
             )
         } else {
             commandPaletteRestoreFocusTarget = nil
@@ -4236,15 +4256,44 @@ struct ContentView: View {
         }
         tabManager.focusTab(target.workspaceId, surfaceId: target.panelId, suppressFlash: true)
 
+        if let context = focusedPanelContext,
+           context.workspace.id == target.workspaceId,
+           context.panelId == target.panelId {
+            restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
+            return
+        }
+
         guard attemptsRemaining > 0 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
             guard !isCommandPalettePresented else { return }
             if let context = focusedPanelContext,
                context.workspace.id == target.workspaceId,
                context.panelId == target.panelId {
+                restoreCommandPaletteInputFocusIfNeeded(target: target, attemptsRemaining: 6)
                 return
             }
             restoreCommandPaletteFocus(target: target, attemptsRemaining: attemptsRemaining - 1)
+        }
+    }
+
+    private func restoreCommandPaletteInputFocusIfNeeded(
+        target: CommandPaletteRestoreFocusTarget,
+        attemptsRemaining: Int
+    ) {
+        guard !isCommandPalettePresented else { return }
+        guard target.intent == .browserAddressBar else { return }
+        guard attemptsRemaining > 0 else { return }
+        guard let appDelegate = AppDelegate.shared else { return }
+
+        if appDelegate.requestBrowserAddressBarFocus(panelId: target.panelId) {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            restoreCommandPaletteInputFocusIfNeeded(
+                target: target,
+                attemptsRemaining: attemptsRemaining - 1
+            )
         }
     }
 
