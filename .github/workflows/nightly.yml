@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 env:
-  CREATE_DMG_VERSION: 6.0.0
+  CREATE_DMG_VERSION: 8.0.0
 
 jobs:
   decide:
