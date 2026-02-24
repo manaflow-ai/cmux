@@ -1,7 +1,9 @@
 import SwiftUI
 import AppKit
-import Neon
-import SwiftTreeSitter
+import STTextView
+import STPluginNeon
+import TextFormation
+import TextFormationPlugin
 
 struct CodeEditorPanelView: View {
     @ObservedObject var panel: CodeEditorPanel
@@ -50,7 +52,7 @@ struct CodeEditorPanelView: View {
                 filePath: panel.filePath,
                 onFirstAppear: { textView in
                     panel.currentTextProvider = { [weak textView] in
-                        textView?.string ?? ""
+                        textView?.text ?? ""
                     }
                 },
                 onTextChange: {
@@ -62,108 +64,124 @@ struct CodeEditorPanelView: View {
     }
 }
 
-// MARK: - NSTextView wrapper
+// MARK: - STTextView wrapper
 
 struct CodeEditorTextView: NSViewRepresentable {
     let initialText: String
     let filePath: String
-    var onFirstAppear: (NSTextView) -> Void
+    var onFirstAppear: (STTextView) -> Void
     var onTextChange: () -> Void
     var onSave: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextChange: onTextChange)
+        Coordinator(onTextChange: onTextChange, onSave: onSave)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
+        let config = GhosttyConfig.load()
+        let baseFont = NSFont.monospacedSystemFont(ofSize: config.fontSize, weight: .regular)
+
+        let textView = SaveAwareSTTextView()
+        textView.font = baseFont
+        textView.textColor = config.foregroundColor
+        textView.backgroundColor = config.backgroundColor
+        textView.insertionPointColor = config.cursorColor
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.usesFontPanel = false
+
+        // Line wrapping
+        textView.isHorizontallyResizable = false
+
+        // Line numbers
+        textView.showsLineNumbers = true
+        if let gutter = textView.gutterView {
+            gutter.textColor = config.foregroundColor.withAlphaComponent(0.35)
+            gutter.drawSeparator = true
+            gutter.separatorColor = config.foregroundColor.withAlphaComponent(0.12)
+        }
+
+        // Current line highlight
+        textView.highlightSelectedLine = true
+        textView.selectedLineHighlightColor = config.backgroundColor.isLightColor
+            ? NSColor.black.withAlphaComponent(0.04)
+            : NSColor.white.withAlphaComponent(0.04)
+
+        // Tab width
+        let paragraph = NSParagraphStyle.default.mutableCopy() as! NSMutableParagraphStyle
+        let charWidth = ("0" as NSString).size(withAttributes: [.font: baseFont]).width
+        paragraph.defaultTabInterval = CGFloat(config.tabWidth) * charWidth
+        textView.defaultParagraphStyle = paragraph
+
+        // Set initial text
+        textView.text = initialText
+
+        // Syntax highlighting via Plugin-Neon
+        if let lang = LanguageDetection.treeSitterLanguage(forFilePath: filePath) {
+            let theme = SyntaxHighlightTheme.neonTheme(baseFont: baseFont)
+            textView.addPlugin(NeonPlugin(theme: theme, language: lang))
+        }
+
+        // Auto-indentation and bracket handling via TextFormation
+        let indentUnit = String(repeating: " ", count: config.tabWidth)
+        let indenter = TextualIndenter(patterns: TextualIndenter.basicPatterns)
+        let filters: [Filter] = [
+            StandardOpenPairFilter(open: "(", close: ")"),
+            StandardOpenPairFilter(open: "{", close: "}"),
+            StandardOpenPairFilter(open: "[", close: "]"),
+            StandardOpenPairFilter(same: "\""),
+            StandardOpenPairFilter(same: "'"),
+            StandardOpenPairFilter(same: "`"),
+            NewlineProcessingFilter(),
+        ]
+        let providers = WhitespaceProviders(
+            leadingWhitespace: indenter.substitionProvider(indentationUnit: indentUnit, width: config.tabWidth),
+            trailingWhitespace: WhitespaceProviders.removeAllProvider
+        )
+        textView.addPlugin(TextFormationPlugin(filters: filters, whitespaceProviders: providers))
+
+        // Delegate and save handler
+        textView.textDelegate = context.coordinator
+        textView.onSave = onSave
+
+        // Scroll view
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-
-        let textView = SaveAwareTextView()
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.allowsUndo = true
-        textView.isRichText = true
-        textView.usesFontPanel = false
-        let config = GhosttyConfig.load()
-        let baseFont = NSFont.monospacedSystemFont(ofSize: config.fontSize, weight: .regular)
-        textView.font = baseFont
-        textView.textColor = config.foregroundColor
-        textView.backgroundColor = config.backgroundColor
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.insertionPointColor = config.cursorColor
-
-        // Line wrapping
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.widthTracksTextView = true
-        textView.autoresizingMask = [.width]
-
-        // Insets
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-
-        textView.string = initialText
-        textView.typingAttributes = [
-            .font: baseFont,
-            .foregroundColor: config.foregroundColor,
-        ]
-        textView.delegate = context.coordinator
-        textView.onSave = onSave
-
+        scrollView.drawsBackground = false
         scrollView.documentView = textView
 
         // Give the panel access to the text view's current content
         onFirstAppear(textView)
 
-        // Set up syntax highlighting — parse config off-main, apply on main
-        let coordinator = context.coordinator
-        let path = filePath
-        DispatchQueue.global(qos: .userInitiated).async {
-            guard let langConfig = LanguageDetection.languageConfiguration(forFilePath: path) else { return }
-            let provider = SyntaxHighlightTheme.attributeProvider(baseFont: baseFont)
-            DispatchQueue.main.async {
-                let config = TextViewHighlighter.Configuration(
-                    languageConfiguration: langConfig,
-                    attributeProvider: provider,
-                    locationTransformer: { _ in nil }
-                )
-                guard let highlighter = try? TextViewHighlighter(textView: textView, configuration: config) else { return }
-                highlighter.observeEnclosingScrollView()
-                coordinator.highlighter = highlighter
-            }
-        }
-
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        // NSTextView is the source of truth — no updates needed from SwiftUI
+        // STTextView is the source of truth — no updates needed from SwiftUI
     }
 
-    class Coordinator: NSObject, NSTextViewDelegate {
+    class Coordinator: NSObject, STTextViewDelegate {
         let onTextChange: () -> Void
-        var highlighter: TextViewHighlighter?
+        let onSave: () -> Void
 
-        init(onTextChange: @escaping () -> Void) {
+        init(onTextChange: @escaping () -> Void, onSave: @escaping () -> Void) {
             self.onTextChange = onTextChange
+            self.onSave = onSave
         }
 
-        func textDidChange(_ notification: Notification) {
+        func textViewDidChangeText(_ notification: Notification) {
             onTextChange()
         }
     }
 }
 
-// MARK: - NSTextView subclass for Cmd+S and plain-text paste
+// MARK: - STTextView subclass for Cmd+S
 
-private class SaveAwareTextView: NSTextView {
+private class SaveAwareSTTextView: STTextView {
     var onSave: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -173,9 +191,5 @@ private class SaveAwareTextView: NSTextView {
             return true
         }
         return super.performKeyEquivalent(with: event)
-    }
-
-    override func paste(_ sender: Any?) {
-        pasteAsPlainText(sender)
     }
 }

@@ -1,86 +1,88 @@
 import Foundation
-import SwiftTreeSitter
-import CodeEditLanguages
+import STPluginNeon
+import TreeSitterResource
 
 enum LanguageDetection {
-    private static var configCache: [TreeSitterLanguage: LanguageConfiguration] = [:]
-    private static let cacheLock = NSLock()
 
-    static func languageConfiguration(forFilePath path: String) -> LanguageConfiguration? {
-        let url = URL(fileURLWithPath: path)
-        let codeLang = CodeLanguage.detectLanguageFrom(url: url)
-
-        guard codeLang.id != .plainText,
-              let language = codeLang.language,
-              let queryURL = codeLang.queryURL else {
-            return nil
+    /// Map file extension to Plugin-Neon's TreeSitterLanguage (20 languages supported).
+    static func treeSitterLanguage(forFilePath path: String) -> TreeSitterLanguage? {
+        let ext = (path as NSString).pathExtension.lowercased()
+        switch ext {
+        case "sh", "bash", "zsh":              return .bash
+        case "c", "h":                         return .c
+        case "cpp", "cc", "cxx", "hpp", "hxx": return .cpp
+        case "cs":                             return .csharp
+        case "css":                            return .css
+        case "go":                             return .go
+        case "html", "htm":                    return .html
+        case "java":                           return .java
+        case "js", "mjs", "cjs":               return .javascript
+        case "json", "jsonc":                  return .json
+        case "md", "markdown":                 return .markdown
+        case "php":                            return .php
+        case "py", "pyw":                      return .python
+        case "rb":                             return .ruby
+        case "rs":                             return .rust
+        case "swift":                          return .swift
+        case "sql":                            return .sql
+        case "toml":                           return .toml
+        case "ts", "mts", "cts":               return .typescript
+        case "yaml", "yml":                    return .yaml
+        default:                               return nil
         }
-
-        cacheLock.lock()
-        if let cached = configCache[codeLang.id] {
-            cacheLock.unlock()
-            return cached
-        }
-        cacheLock.unlock()
-
-        let queriesDirectory = queryURL.deletingLastPathComponent()
-        guard let config = try? LanguageConfiguration(language, name: codeLang.tsName, queriesURL: queriesDirectory) else {
-            return nil
-        }
-
-        cacheLock.lock()
-        configCache[codeLang.id] = config
-        cacheLock.unlock()
-
-        return config
     }
 
+    /// Display name for the header bar badge.
     static func languageName(forFilePath path: String) -> String? {
-        let url = URL(fileURLWithPath: path)
-        let codeLang = CodeLanguage.detectLanguageFrom(url: url)
-        guard codeLang.id != .plainText else { return nil }
-        return displayName(for: codeLang)
-    }
-
-    private static func displayName(for lang: CodeLanguage) -> String {
-        switch lang.id {
-        case .bash: return "Bash"
-        case .c: return "C"
-        case .cpp: return "C++"
-        case .cSharp: return "C#"
-        case .css: return "CSS"
-        case .dart: return "Dart"
-        case .dockerfile: return "Dockerfile"
-        case .elixir: return "Elixir"
-        case .go: return "Go"
-        case .goMod: return "Go Mod"
-        case .haskell: return "Haskell"
-        case .html: return "HTML"
-        case .java: return "Java"
-        case .javascript: return "JavaScript"
-        case .jsdoc: return "JSDoc"
-        case .json: return "JSON"
-        case .jsx: return "JSX"
-        case .kotlin: return "Kotlin"
-        case .lua: return "Lua"
-        case .markdown: return "Markdown"
-        case .objc: return "Objective-C"
-        case .ocaml: return "OCaml"
-        case .perl: return "Perl"
-        case .php: return "PHP"
-        case .python: return "Python"
-        case .regex: return "Regex"
-        case .ruby: return "Ruby"
-        case .rust: return "Rust"
-        case .scala: return "Scala"
-        case .sql: return "SQL"
-        case .swift: return "Swift"
-        case .toml: return "TOML"
-        case .tsx: return "TSX"
-        case .typescript: return "TypeScript"
-        case .yaml: return "YAML"
-        case .zig: return "Zig"
-        default: return lang.tsName.capitalized
+        let ext = (path as NSString).pathExtension.lowercased()
+        switch ext {
+        case "sh", "bash", "zsh":              return "Bash"
+        case "c", "h":                         return "C"
+        case "cpp", "cc", "cxx", "hpp", "hxx": return "C++"
+        case "cs":                             return "C#"
+        case "css":                            return "CSS"
+        case "dart":                           return "Dart"
+        case "dockerfile":                     return "Dockerfile"
+        case "ex", "exs":                      return "Elixir"
+        case "go":                             return "Go"
+        case "hs":                             return "Haskell"
+        case "html", "htm":                    return "HTML"
+        case "java":                           return "Java"
+        case "js", "mjs", "cjs":               return "JavaScript"
+        case "json", "jsonc":                  return "JSON"
+        case "jsx":                            return "JSX"
+        case "kt", "kts":                      return "Kotlin"
+        case "lua":                            return "Lua"
+        case "md", "markdown":                 return "Markdown"
+        case "m":                              return "Objective-C"
+        case "ml", "mli":                      return "OCaml"
+        case "pl", "pm":                       return "Perl"
+        case "php":                            return "PHP"
+        case "py", "pyw":                      return "Python"
+        case "rb":                             return "Ruby"
+        case "rs":                             return "Rust"
+        case "scala":                          return "Scala"
+        case "sql":                            return "SQL"
+        case "swift":                          return "Swift"
+        case "toml":                           return "TOML"
+        case "tsx":                            return "TSX"
+        case "ts", "mts", "cts":               return "TypeScript"
+        case "yaml", "yml":                    return "YAML"
+        case "zig":                            return "Zig"
+        case "xml", "svg", "plist":            return "XML"
+        case "txt":                            return "Plain Text"
+        case "cfg", "conf", "ini":             return "Config"
+        case "makefile":                       return "Makefile"
+        default:
+            // Check filename-based detection
+            let name = (path as NSString).lastPathComponent.lowercased()
+            switch name {
+            case "makefile", "gnumakefile":    return "Makefile"
+            case "dockerfile":                 return "Dockerfile"
+            case ".gitignore", ".gitattributes": return "Git Config"
+            case ".env":                       return "Env"
+            default:                           return nil
+            }
         }
     }
 }

@@ -37,8 +37,9 @@
 			A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
 			A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 			A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
-			A5003000 /* Neon in Frameworks */ = {isa = PBXBuildFile; productRef = A5003001 /* Neon */; };
-			A5003010 /* CodeEditLanguages in Frameworks */ = {isa = PBXBuildFile; productRef = A5003011 /* CodeEditLanguages */; };
+			A5003060 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = A5003061 /* STTextView */; };
+			A5003070 /* STTextView-Plugin-Neon in Frameworks */ = {isa = PBXBuildFile; productRef = A5003071 /* STTextView-Plugin-Neon */; };
+			A5003080 /* TextFormationPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = A5003081 /* TextFormationPlugin */; };
 			A5003021 /* SyntaxHighlightTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003020 /* SyntaxHighlightTheme.swift */; };
 			A5003031 /* LanguageDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003030 /* LanguageDetection.swift */; };
 			A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
@@ -228,8 +229,9 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
-					A5003000 /* Neon in Frameworks */,
-					A5003010 /* CodeEditLanguages in Frameworks */,
+					A5003060 /* STTextView in Frameworks */,
+					A5003070 /* STTextView-Plugin-Neon in Frameworks */,
+					A5003080 /* TextFormationPlugin in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -469,8 +471,9 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
-					A5003001 /* Neon */,
-					A5003011 /* CodeEditLanguages */,
+					A5003061 /* STTextView */,
+					A5003071 /* STTextView-Plugin-Neon */,
+					A5003081 /* TextFormationPlugin */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -553,8 +556,9 @@
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
-					A5003002 /* XCRemoteSwiftPackageReference "Neon" */,
-					A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */,
+					A5003062 /* XCRemoteSwiftPackageReference "STTextView" */,
+					A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */,
+					A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -953,20 +957,28 @@
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
 			};
-			A5003002 /* XCRemoteSwiftPackageReference "Neon" */ = {
+			A5003062 /* XCRemoteSwiftPackageReference "STTextView" */ = {
 				isa = XCRemoteSwiftPackageReference;
-				repositoryURL = "https://github.com/ChimeHQ/Neon.git";
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView.git";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 2.2.0;
+				};
+			};
+			A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView-Plugin-Neon.git";
 				requirement = {
 					kind = branch;
 					branch = main;
 				};
 			};
-			A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */ = {
+			A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */ = {
 				isa = XCRemoteSwiftPackageReference;
-				repositoryURL = "https://github.com/CodeEditApp/CodeEditLanguages.git";
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView-Plugin-TextFormation.git";
 				requirement = {
-					kind = upToNextMajorVersion;
-					minimumVersion = 0.1.0;
+					kind = branch;
+					branch = main;
 				};
 			};
 /* End XCRemoteSwiftPackageReference section */
@@ -992,15 +1004,20 @@
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
 			};
-			A5003001 /* Neon */ = {
+			A5003061 /* STTextView */ = {
 				isa = XCSwiftPackageProductDependency;
-				package = A5003002 /* XCRemoteSwiftPackageReference "Neon" */;
-				productName = Neon;
+				package = A5003062 /* XCRemoteSwiftPackageReference "STTextView" */;
+				productName = STTextView;
 			};
-			A5003011 /* CodeEditLanguages */ = {
+			A5003071 /* STTextView-Plugin-Neon */ = {
 				isa = XCSwiftPackageProductDependency;
-				package = A5003012 /* XCRemoteSwiftPackageReference "CodeEditLanguages" */;
-				productName = CodeEditLanguages;
+				package = A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */;
+				productName = "STTextView-Plugin-Neon";
+			};
+			A5003081 /* TextFormationPlugin */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */;
+				productName = TextFormationPlugin;
 			};
 /* End XCSwiftPackageProductDependency section */
 
