@@ -286,6 +286,14 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
+func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowser: Bool
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    return keyCode == 36 || keyCode == 76
+}
+
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -5281,6 +5289,7 @@ enum MenuBarIconRenderer {
 private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
 private var cmuxFirstResponderGuardHitViewOverride: NSView?
 #endif
+private var cmuxBrowserReturnForwardingDepth = 0
 
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
@@ -5398,6 +5407,7 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
+        let firstResponderWebView = self.firstResponder.flatMap { Self.cmuxOwningWebView(for: $0) }
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing, don't intercept key events — let them flow
             // through normal AppKit event dispatch so the input method can process them.
@@ -5429,6 +5439,31 @@ private extension NSWindow {
 #endif
                 return true
             }
+        }
+
+        // Web forms rely on Return/Enter flowing through keyDown. If the original
+        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
+        // WebKit. Route Return/Enter directly to the current first responder and
+        // mark handled to avoid the AppKit alert sound path.
+        if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsBrowser: firstResponderWebView != nil
+        ) {
+            // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
+            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
+            if cmuxBrowserReturnForwardingDepth > 0 {
+#if DEBUG
+                dlog("  → browser Return/Enter reentry; using normal dispatch")
+#endif
+                return false
+            }
+            cmuxBrowserReturnForwardingDepth += 1
+            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
+#if DEBUG
+            dlog("  → browser Return/Enter routed to firstResponder.keyDown")
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
         }
 
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
