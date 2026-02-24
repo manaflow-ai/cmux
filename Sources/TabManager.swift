@@ -1881,10 +1881,10 @@ class TabManager: ObservableObject {
         return false
     }
 
-    /// Toggle zoom on a panel - bonsplit doesn't have zoom support
+    /// Toggle bonsplit pane zoom on the panel's containing pane.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        // Bonsplit doesn't have zoom support
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.toggleSplitZoom(surfaceId: surfaceId)
     }
 
     /// Close a surface/panel

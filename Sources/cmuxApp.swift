@@ -3556,26 +3556,56 @@ private struct SettingsCardNote: View {
 private struct ShortcutSettingRow: View {
     let action: KeyboardShortcutSettings.Action
     @State private var shortcut: StoredShortcut
+    @State private var optionalShortcut: StoredShortcut?
 
     init(action: KeyboardShortcutSettings.Action) {
         self.action = action
         _shortcut = State(initialValue: KeyboardShortcutSettings.shortcut(for: action))
+        _optionalShortcut = State(initialValue: KeyboardShortcutSettings.customShortcut(for: action))
     }
 
     var body: some View {
-        KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
-            .onChange(of: shortcut) { newValue in
-                KeyboardShortcutSettings.setShortcut(newValue, for: action)
+        Group {
+            if action.allowsUnconfiguredValue {
+                OptionalKeyboardShortcutRecorder(label: action.label, shortcut: $optionalShortcut)
+                    .onChange(of: optionalShortcut) { newValue in
+                        KeyboardShortcutSettings.setOptionalShortcut(newValue, for: action)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                        let latest = KeyboardShortcutSettings.customShortcut(for: action)
+                        if latest != optionalShortcut {
+                            optionalShortcut = latest
+                        }
+                    }
+            } else {
+                KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
+                    .onChange(of: shortcut) { newValue in
+                        KeyboardShortcutSettings.setShortcut(newValue, for: action)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                        let latest = KeyboardShortcutSettings.shortcut(for: action)
+                        if latest != shortcut {
+                            shortcut = latest
+                        }
+                    }
             }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                let latest = KeyboardShortcutSettings.shortcut(for: action)
-                if latest != shortcut {
-                    shortcut = latest
-                }
+        }
+        .onAppear {
+            shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if action.allowsUnconfiguredValue {
+                optionalShortcut = KeyboardShortcutSettings.customShortcut(for: action)
+            } else {
+                optionalShortcut = nil
             }
+        }
+        .onChange(of: action) { _, newAction in
+            shortcut = KeyboardShortcutSettings.shortcut(for: newAction)
+            optionalShortcut = newAction.allowsUnconfiguredValue
+                ? KeyboardShortcutSettings.customShortcut(for: newAction)
+                : nil
+        }
     }
 }
-
 private struct SettingsRootView: View {
     var body: some View {
         SettingsView()

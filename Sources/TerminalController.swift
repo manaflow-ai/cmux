@@ -9764,6 +9764,7 @@ class TerminalController {
     private struct LayoutDebugResponse: Codable, Sendable {
         let layout: LayoutSnapshot
         let selectedPanels: [LayoutDebugSelectedPanel]
+        let zoomedPaneId: String?
         let mainWindowNumber: Int?
         let keyWindowNumber: Int?
     }
@@ -9926,6 +9927,7 @@ class TerminalController {
             let payload = LayoutDebugResponse(
                 layout: layout,
                 selectedPanels: selectedPanels,
+                zoomedPaneId: tab.bonsplitController.zoomedPaneId?.id.uuidString,
                 mainWindowNumber: NSApp.mainWindow?.windowNumber,
                 keyWindowNumber: NSApp.keyWindow?.windowNumber
             )

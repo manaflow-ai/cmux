@@ -95,6 +95,11 @@ const CATEGORIES: ShortcutCategory[] = [
         combos: [["⌥", "⌘", "⇧", "D"]],
         description: "Split browser down",
       },
+      {
+        id: "sp-toggle-zoom",
+        combos: [["Unset by default"]],
+        description: "Toggle split zoom",
+      },
     ],
   },
   {

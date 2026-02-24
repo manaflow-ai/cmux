@@ -32,6 +32,7 @@ enum KeyboardShortcutSettings {
         case splitDown
         case splitBrowserRight
         case splitBrowserDown
+        case toggleSplitZoom
 
         // Panels
         case openBrowser
@@ -65,6 +66,7 @@ enum KeyboardShortcutSettings {
             case .splitDown: return "Split Down"
             case .splitBrowserRight: return "Split Browser Right"
             case .splitBrowserDown: return "Split Browser Down"
+            case .toggleSplitZoom: return "Toggle Split Zoom"
             case .openBrowser: return "Open Browser"
             case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
             case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
@@ -93,6 +95,7 @@ enum KeyboardShortcutSettings {
             case .splitDown: return "shortcut.splitDown"
             case .splitBrowserRight: return "shortcut.splitBrowserRight"
             case .splitBrowserDown: return "shortcut.splitBrowserDown"
+            case .toggleSplitZoom: return "shortcut.toggleSplitZoom"
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
@@ -144,6 +147,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
                 return StoredShortcut(key: "d", command: true, shift: true, option: true, control: false)
+            case .toggleSplitZoom:
+                return StoredShortcut(key: "z", command: true, shift: false, option: true, control: false)
             case .nextSurface:
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
@@ -161,22 +166,51 @@ enum KeyboardShortcutSettings {
             }
         }
 
+        var allowsUnconfiguredValue: Bool {
+            switch self {
+            case .toggleSplitZoom:
+                return true
+            default:
+                return false
+            }
+        }
+
         func tooltip(_ base: String) -> String {
-            "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
+            if allowsUnconfiguredValue {
+                if let configured = KeyboardShortcutSettings.customShortcut(for: self) {
+                    return "\(base) (\(configured.displayString))"
+                }
+                return base
+            }
+            return "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
         }
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {
-        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+        guard let shortcut = customShortcut(for: action) else {
             return action.defaultShortcut
         }
         return shortcut
     }
 
+    static func customShortcut(for action: Action) -> StoredShortcut? {
+        guard let data = UserDefaults.standard.data(forKey: action.defaultsKey) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(StoredShortcut.self, from: data)
+    }
+
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
         if let data = try? JSONEncoder().encode(shortcut) {
             UserDefaults.standard.set(data, forKey: action.defaultsKey)
+        }
+    }
+
+    static func setOptionalShortcut(_ shortcut: StoredShortcut?, for action: Action) {
+        if let shortcut {
+            setShortcut(shortcut, for: action)
+        } else {
+            resetShortcut(for: action)
         }
     }
 
@@ -222,6 +256,7 @@ enum KeyboardShortcutSettings {
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
     static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
     static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
+    static func toggleSplitZoomShortcut() -> StoredShortcut? { customShortcut(for: .toggleSplitZoom) }
 
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
@@ -401,6 +436,37 @@ struct KeyboardShortcutRecorder: View {
     }
 }
 
+/// View for recording a keyboard shortcut that can be unset.
+struct OptionalKeyboardShortcutRecorder: View {
+    let label: String
+    @Binding var shortcut: StoredShortcut?
+    @State private var isRecording = false
+
+    var body: some View {
+        HStack {
+            Text(label)
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                OptionalShortcutRecorderButton(shortcut: $shortcut, isRecording: $isRecording)
+                    .frame(width: 120)
+
+                Button {
+                    shortcut = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear shortcut")
+                .disabled(shortcut == nil || isRecording)
+            }
+        }
+    }
+}
+
 private struct ShortcutRecorderButton: NSViewRepresentable {
     @Binding var shortcut: StoredShortcut
     @Binding var isRecording: Bool
@@ -419,6 +485,29 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ShortcutRecorderNSButton, context: Context) {
+        nsView.shortcut = shortcut
+        nsView.updateTitle()
+    }
+}
+
+private struct OptionalShortcutRecorderButton: NSViewRepresentable {
+    @Binding var shortcut: StoredShortcut?
+    @Binding var isRecording: Bool
+
+    func makeNSView(context: Context) -> OptionalShortcutRecorderNSButton {
+        let button = OptionalShortcutRecorderNSButton()
+        button.shortcut = shortcut
+        button.onShortcutRecorded = { newShortcut in
+            shortcut = newShortcut
+            isRecording = false
+        }
+        button.onRecordingChanged = { recording in
+            isRecording = recording
+        }
+        return button
+    }
+
+    func updateNSView(_ nsView: OptionalShortcutRecorderNSButton, context: Context) {
         nsView.shortcut = shortcut
         nsView.updateTitle()
     }
@@ -490,6 +579,101 @@ private class ShortcutRecorderNSButton: NSButton {
         }
 
         // Also stop recording if window loses focus
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowResigned),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        onRecordingChanged?(false)
+        updateTitle()
+
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+    }
+
+    @objc private func windowResigned() {
+        stopRecording()
+    }
+
+    deinit {
+        stopRecording()
+    }
+}
+
+private class OptionalShortcutRecorderNSButton: NSButton {
+    var shortcut: StoredShortcut?
+    var onShortcutRecorded: ((StoredShortcut) -> Void)?
+    var onRecordingChanged: ((Bool) -> Void)?
+    private var isRecording = false
+    private var eventMonitor: Any?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(buttonClicked)
+        updateTitle()
+    }
+
+    func updateTitle() {
+        if isRecording {
+            title = "Press shortcut…"
+        } else {
+            title = shortcut?.displayString ?? "Unset"
+        }
+    }
+
+    @objc private func buttonClicked() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        isRecording = true
+        onRecordingChanged?(true)
+        updateTitle()
+
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+
+            if event.keyCode == 53 { // Escape
+                self.stopRecording()
+                return nil
+            }
+
+            if let newShortcut = StoredShortcut.from(event: event) {
+                self.shortcut = newShortcut
+                self.onShortcutRecorded?(newShortcut)
+                self.stopRecording()
+                return nil
+            }
+
+            // Consume unsupported keys while recording to avoid triggering app shortcuts.
+            return nil
+        }
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(windowResigned),

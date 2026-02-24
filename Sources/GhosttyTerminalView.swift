@@ -1067,6 +1067,17 @@ class GhosttyApp {
                 return tabManager.equalizeSplits(tabId: tabId)
             }
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
+            // When users configure a custom split-zoom shortcut in Settings, the app-level
+            // shortcut router should be authoritative. In that case, ignore Ghostty's bound
+            // trigger so the fallback key no longer fires in terminal panes.
+            let shouldUseGhosttyFallback = performOnMain {
+                AppDelegate.shared?.shouldUseGhosttySplitZoomFallbackShortcut() ?? true
+            }
+            if !shouldUseGhosttyFallback {
+                // Consume the Ghostty action so native terminal zoom does not activate.
+                // Split zoom must remain sourced from cmux/bonsplit state.
+                return true
+            }
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id else {
                 return false

@@ -1473,6 +1473,35 @@ final class Workspace: Identifiable, ObservableObject {
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
     }
 
+    private func clearSplitZoomSnapshot() {
+        _ = bonsplitController.setZoomedPane(nil)
+    }
+
+    private func invalidateSplitZoomSnapshotIfFocusedPaneChanged(_ focusedPane: PaneID) {
+        guard let zoomedPane = bonsplitController.zoomedPaneId else { return }
+        if zoomedPane != focusedPane {
+            _ = bonsplitController.setZoomedPane(nil)
+        }
+    }
+
+    func toggleSplitZoom(surfaceId: UUID) -> Bool {
+        // Split zoom only makes sense when there are multiple panes. Treat the shortcut
+        // as handled but no-op for single-pane layouts and clear any stale zoom state.
+        if bonsplitController.allPaneIds.count <= 1 {
+            _ = bonsplitController.setZoomedPane(nil)
+            return true
+        }
+
+        let targetPane = paneId(forPanelId: surfaceId) ?? bonsplitController.focusedPaneId
+        guard let targetPane else { return false }
+        guard bonsplitController.togglePaneZoom(targetPane) else { return false }
+        bonsplitController.focusPane(targetPane)
+        if let tabId = bonsplitController.selectedTab(inPane: targetPane)?.id {
+            applyTabSelection(tabId: tabId, inPane: targetPane)
+        }
+        return true
+    }
+
     /// Returns the nearest right-side sibling pane for browser placement.
     /// The search is local to the source pane's ancestry in the split tree:
     /// use the closest horizontal ancestor where the source is in the first (left) branch.
@@ -2542,6 +2571,7 @@ extension Workspace: BonsplitDelegate {
         } else {
             return
         }
+        invalidateSplitZoomSnapshotIfFocusedPaneChanged(focusedPane)
 
         // Focus the selected panel
         guard let panelId = panelIdFromSurfaceId(selectedTabId),
@@ -2736,6 +2766,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        clearSplitZoomSnapshot()
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -2916,6 +2947,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        clearSplitZoomSnapshot()
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -2970,6 +3002,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        clearSplitZoomSnapshot()
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

@@ -602,6 +602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var ghosttyToggleSplitZoomShortcut: StoredShortcut?
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -2901,6 +2902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ghosttyGotoSplitRightShortcut = nil
             ghosttyGotoSplitUpShortcut = nil
             ghosttyGotoSplitDownShortcut = nil
+            ghosttyToggleSplitZoomShortcut = nil
             return
         }
 
@@ -2915,6 +2917,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
             ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
+        )
+        ghosttyToggleSplitZoomShortcut = storedShortcutFromGhosttyTrigger(
+            ghostty_config_trigger(config, "toggle_split_zoom", UInt("toggle_split_zoom".utf8.count))
         )
     }
 
@@ -3260,6 +3265,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager?.addTab()
             }
             return true
+        }
+
+        // Split zoom shortcut must win before New Window (Cmd+Shift+N) so a custom
+        // split-zoom binding that reuses this key combo does not open another window.
+        let configuredSplitZoomShortcut = KeyboardShortcutSettings.toggleSplitZoomShortcut()
+        if let configuredSplitZoomShortcut,
+           matchShortcut(event: event, shortcut: configuredSplitZoomShortcut) {
+            guard let manager = tabManager,
+                  let tabId = manager.selectedTabId,
+                  let panelId = manager.focusedPanelId(for: tabId) else {
+                return false
+            }
+            return manager.toggleSplitZoom(tabId: tabId, surfaceId: panelId)
+        }
+
+        if configuredSplitZoomShortcut == nil,
+           let shortcut = ghosttyToggleSplitZoomShortcut,
+           matchShortcut(event: event, shortcut: shortcut) {
+            guard let manager = tabManager,
+                  let tabId = manager.selectedTabId,
+                  let panelId = manager.focusedPanelId(for: tabId) else {
+                return false
+            }
+            return manager.toggleSplitZoom(tabId: tabId, surfaceId: panelId)
         }
 
         // New Window: Cmd+Shift+N
@@ -3958,6 +3987,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
+    }
+
+    @MainActor
+    func shouldUseGhosttySplitZoomFallbackShortcut() -> Bool {
+        KeyboardShortcutSettings.toggleSplitZoomShortcut() == nil
     }
 
 #if DEBUG
