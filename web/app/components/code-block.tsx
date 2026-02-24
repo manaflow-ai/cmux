@@ -60,7 +60,9 @@ export async function CodeBlock({
             : undefined
         }
       >
-        <code>{children}</code>
+        <code style={variant === "ascii" ? { fontFamily: "inherit" } : undefined}>
+          {children}
+        </code>
       </pre>
     </div>
   );
