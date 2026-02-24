@@ -332,14 +332,6 @@ struct BrowserPanelView: View {
 #endif
             onRequestPanelFocus()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .webViewMiddleClickedLink).filter { [weak panel] note in
-            guard let webView = note.object as? CmuxWebView else { return false }
-            return webView === panel?.webView
-        }) { note in
-            if let url = note.userInfo?["url"] as? URL {
-                panel.openLinkInNewTab(url: url)
-            }
-        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
