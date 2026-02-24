@@ -3844,7 +3844,11 @@ struct ContentView: View {
             tabManager.newSurface()
         }
         registry.register(commandId: "palette.newBrowserTab") {
-            _ = tabManager.openBrowser()
+            // Let command-palette dismissal complete first so omnibar focus
+            // is not blocked by the palette visibility guard.
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
         }
         registry.register(commandId: "palette.closeTab") {
             tabManager.closeCurrentPanelWithConfirmation()

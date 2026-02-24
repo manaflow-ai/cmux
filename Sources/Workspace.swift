@@ -2029,7 +2029,6 @@ final class Workspace: Identifiable, ObservableObject {
         guard trigger == .standard else { return }
         guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
         guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
-        guard !browserPanel.webView.isLoading else { return }
         guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
 
         _ = browserPanel.requestAddressBarFocus()
@@ -2651,6 +2650,13 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
+        let focusIntentAllowsBrowserOmnibarAutofocus =
+            shouldTreatCurrentEventAsExplicitFocusIntent() ||
+            TerminalController.socketCommandAllowsInAppFocusMutations()
+        if let browserPanel = panel as? BrowserPanel,
+           previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
+            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
+        }
         if let terminalPanel = panel as? TerminalPanel {
             rememberTerminalConfigInheritanceSource(terminalPanel)
         }

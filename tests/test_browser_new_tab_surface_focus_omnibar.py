@@ -2,7 +2,8 @@
 """
 Regression test:
 1. Focusing a blank browser surface should focus the omnibar.
-2. If command palette is open, focusing that blank browser surface must not steal input.
+2. Focusing a pane that contains a blank browser should focus the omnibar.
+3. If command palette is open, focusing that blank browser surface must not steal input.
 """
 
 import json
@@ -72,18 +73,31 @@ def set_command_palette_visible(client: cmux, window_id: str, target_visible: bo
     return False
 
 
+def current_window_id(client: cmux) -> str:
+    window_current = v2_call(client, "window.current", request_id="window-current")
+    window_id = window_current.get("window_id")
+    if not isinstance(window_id, str) or not window_id:
+        raise cmuxError(f"Invalid window.current payload: {window_current}")
+    return window_id
+
+
 def main() -> int:
     client = cmux()
-    workspace_id: str | None = None
+    workspace_ids: list[str] = []
     window_id: str | None = None
 
     try:
         client.connect()
         client.activate_app()
 
+        # Scenario 1: focus_surface on a blank browser should focus omnibar.
         workspace_id = client.new_workspace()
+        workspace_ids.append(workspace_id)
         client.select_workspace(workspace_id)
         time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to ensure command palette is hidden for scenario 1")
 
         browser_id = client.new_surface(panel_type="browser")
         time.sleep(0.3)
@@ -112,9 +126,78 @@ def main() -> int:
         if not did_focus_address_bar:
             raise cmuxError("Blank browser surface did not focus omnibar after focus_surface")
 
-        # Edge behavior: command palette should keep input focus even when switching to a blank browser surface.
+        client.close_workspace(workspace_id)
+        workspace_ids.remove(workspace_id)
+        time.sleep(0.3)
+
+        # Scenario 2: focusing a pane that contains a blank browser should focus omnibar.
+        workspace_id = client.new_workspace()
+        workspace_ids.append(workspace_id)
+        client.select_workspace(workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to ensure command palette is hidden for scenario 2")
+
+        initial_surfaces = client.list_surfaces()
+        left_terminal_id = next((surface_id for _, surface_id, _ in initial_surfaces), None)
+        if not left_terminal_id:
+            raise cmuxError("Missing initial terminal surface for split setup")
+
+        split_browser_id = client.new_pane(direction="right", panel_type="browser")
+        time.sleep(0.3)
+
+        pane_rows = client.list_panes()
+        left_pane: str | None = None
+        browser_pane: str | None = None
+        for _, pane_id, _, _ in pane_rows:
+            pane_surface_ids = {surface_id for _, surface_id, _, _ in client.list_pane_surfaces(pane_id)}
+            if left_terminal_id in pane_surface_ids:
+                left_pane = pane_id
+            if split_browser_id in pane_surface_ids:
+                browser_pane = pane_id
+
+        if not left_pane or not browser_pane:
+            raise cmuxError("Failed to locate split panes for pane-focus scenario")
+
+        client.focus_pane(left_pane)
+        time.sleep(0.2)
+        client.focus_pane(browser_pane)
+
+        did_focus_split_browser = wait_for(
+            lambda: bool(
+                browser_address_bar_focus_state(
+                    client,
+                    surface_id=split_browser_id,
+                    request_id="browser-focus-pane"
+                ).get("focused")
+            ),
+            timeout_s=3.0,
+            interval_s=0.1
+        )
+        if not did_focus_split_browser:
+            raise cmuxError("Blank browser pane did not focus omnibar after focus_pane")
+
+        client.close_workspace(workspace_id)
+        workspace_ids.remove(workspace_id)
+        time.sleep(0.3)
+
+        # Scenario 3: command palette should keep input focus when switching to a blank browser surface.
+        workspace_id = client.new_workspace()
+        workspace_ids.append(workspace_id)
+        client.select_workspace(workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to reset command palette before scenario 3")
+
         blank_browser_id = client.new_surface(panel_type="browser")
         time.sleep(0.3)
+
+        surfaces = client.list_surfaces()
+        terminal_id = next((surface_id for _, surface_id, _ in surfaces if surface_id != blank_browser_id), None)
+        if not terminal_id:
+            raise cmuxError("Missing terminal surface for command palette scenario")
 
         client.focus_surface_by_panel(terminal_id)
         wait_for(
@@ -127,12 +210,6 @@ def main() -> int:
             timeout_s=2.0,
             interval_s=0.1
         )
-
-        window_current = v2_call(client, "window.current", request_id="window-current")
-        window_id_value = window_current.get("window_id")
-        if not isinstance(window_id_value, str) or not window_id_value:
-            raise cmuxError(f"Invalid window.current payload: {window_current}")
-        window_id = window_id_value
 
         if not set_command_palette_visible(client, window_id, True):
             raise cmuxError("Failed to open command palette")
@@ -172,7 +249,7 @@ def main() -> int:
                 _ = set_command_palette_visible(client, window_id, False)
             except Exception:
                 pass
-        if workspace_id:
+        for workspace_id in list(workspace_ids):
             try:
                 client.close_workspace(workspace_id)
             except Exception:
