@@ -7621,3 +7621,121 @@ final class BonsplitTabIDExtractionTests: XCTestCase {
         XCTAssertFalse(cmuxTabIdMatchesUUID(b, uuid: aUUID))
     }
 }
+
+@MainActor
+final class WorkspaceZmxPersistenceRegressionTests: XCTestCase {
+    private func withZmxPersistenceEnabled<T>(_ enabled: Bool, _ body: () throws -> T) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: ZmxPersistenceSettings.enabledKey)
+        defaults.set(enabled, forKey: ZmxPersistenceSettings.enabledKey)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: ZmxPersistenceSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: ZmxPersistenceSettings.enabledKey)
+            }
+        }
+        return try body()
+    }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testInitialAndReplacementTerminalPanelsGetTrackedZmxSessions() {
+        withZmxPersistenceEnabled(true) {
+            let workspace = Workspace()
+            guard let initialPanelId = workspace.focusedPanelId else {
+                XCTFail("Expected initial focused panel")
+                return
+            }
+
+            let initialSession = workspace.zmxSessionNames[initialPanelId]
+            XCTAssertNotNil(initialSession, "Expected initial terminal to have a zmx session name")
+
+            XCTAssertTrue(workspace.closePanel(initialPanelId, force: true))
+            drainMainQueue()
+            drainMainQueue()
+
+            XCTAssertNil(workspace.zmxSessionNames[initialPanelId], "Closed panel zmx mapping should be removed")
+            XCTAssertEqual(workspace.panels.count, 1, "Closing the last panel should create one replacement panel")
+
+            guard let replacementPanelId = workspace.panels.keys.first else {
+                XCTFail("Expected replacement panel")
+                return
+            }
+            let replacementSession = workspace.zmxSessionNames[replacementPanelId]
+            XCTAssertNotNil(replacementSession, "Expected replacement terminal to get a zmx session name")
+            XCTAssertNotEqual(initialSession, replacementSession, "Replacement panel should not reuse closed panel's session")
+        }
+    }
+
+    func testDetachedTerminalPreservesZmxSessionNameOnReattach() {
+        withZmxPersistenceEnabled(true) {
+            let workspace = Workspace()
+            guard let initialPanelId = workspace.focusedPanelId else {
+                XCTFail("Expected initial focused panel")
+                return
+            }
+            guard let splitPanel = workspace.newTerminalSplit(
+                from: initialPanelId,
+                orientation: .horizontal,
+                focus: false
+            ) else {
+                XCTFail("Expected split terminal panel")
+                return
+            }
+            drainMainQueue()
+            drainMainQueue()
+
+            guard let splitSession = workspace.zmxSessionNames[splitPanel.id] else {
+                XCTFail("Expected split panel to have zmx mapping")
+                return
+            }
+            guard let targetPane = workspace.bonsplitController.allPaneIds.first else {
+                XCTFail("Expected at least one pane")
+                return
+            }
+
+            guard let detached = workspace.detachSurface(panelId: splitPanel.id) else {
+                XCTFail("Expected detach to succeed")
+                return
+            }
+            XCTAssertEqual(detached.zmxSessionName, splitSession)
+            XCTAssertNil(workspace.zmxSessionNames[splitPanel.id], "Detached panel should not remain mapped in source workspace")
+
+            let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: targetPane, focus: false)
+            XCTAssertEqual(restoredPanelId, splitPanel.id)
+            XCTAssertEqual(workspace.zmxSessionNames[splitPanel.id], splitSession)
+        }
+    }
+
+    func testReconstructSplitTreeRehydratesPanelDirectoriesFromSnapshot() {
+        withZmxPersistenceEnabled(false) {
+            let source = Workspace()
+            guard let sourcePanelId = source.focusedPanelId else {
+                XCTFail("Expected source panel")
+                return
+            }
+            let expectedDirectory = "/tmp/cmux-zmx-restore-dir"
+            source.updatePanelDirectory(panelId: sourcePanelId, directory: expectedDirectory)
+            let snapshot = source.generateSnapshot()
+
+            let restored = Workspace(restoring: snapshot, portOrdinal: 999)
+            restored.reconstructSplitTree(from: snapshot.splitTree, zmxEnabled: false)
+
+            XCTAssertEqual(restored.bonsplitController.allTabIds.count, 1, "Restore should not keep extra pre-restore tabs")
+            XCTAssertEqual(restored.panelDirectories.count, 1, "Restore should retain saved terminal directories")
+
+            guard let restoredPanelId = restored.panels.keys.first else {
+                XCTFail("Expected restored panel")
+                return
+            }
+            XCTAssertEqual(restored.panelDirectories[restoredPanelId], expectedDirectory)
+        }
+    }
+}
