@@ -790,8 +790,32 @@ struct BrowserPanelView: View {
         applyOmnibarEffects(effects)
     }
 
+    private func isCommandPaletteVisibleForPanelWindow() -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+
+        if let window = panel.webView.window, app.isCommandPaletteVisible(for: window) {
+            return true
+        }
+
+        if let manager = app.tabManagerFor(tabId: panel.workspaceId),
+           let windowId = app.windowId(for: manager),
+           let window = app.mainWindow(for: windowId),
+           app.isCommandPaletteVisible(for: window) {
+            return true
+        }
+
+        if let keyWindow = NSApp.keyWindow, app.isCommandPaletteVisible(for: keyWindow) {
+            return true
+        }
+        if let mainWindow = NSApp.mainWindow, app.isCommandPaletteVisible(for: mainWindow) {
+            return true
+        }
+        return false
+    }
+
     private func applyPendingAddressBarFocusRequestIfNeeded() {
         guard let requestId = panel.pendingAddressBarFocusRequestId else { return }
+        guard !isCommandPaletteVisibleForPanelWindow() else { return }
         guard lastHandledAddressBarFocusRequestId != requestId else { return }
         lastHandledAddressBarFocusRequestId = requestId
         panel.beginSuppressWebViewFocusForAddressBar()
@@ -819,6 +843,7 @@ struct BrowserPanelView: View {
     private func autoFocusOmnibarIfBlank() {
         guard isFocused else { return }
         guard !addressBarFocused else { return }
+        guard !isCommandPaletteVisibleForPanelWindow() else { return }
         // If a test/automation explicitly focused WebKit, don't steal focus back.
         guard !panel.shouldSuppressOmnibarAutofocus() else { return }
         // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
