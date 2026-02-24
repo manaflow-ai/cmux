@@ -194,6 +194,16 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
+## Star History
+
+<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+ </picture>
+</a>
+
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
