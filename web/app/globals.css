@@ -168,6 +168,7 @@ body {
   background: none;
   padding: 0;
   font-size: 1em;
+  font-family: inherit;
 }
 
 /* Shiki dual theme */

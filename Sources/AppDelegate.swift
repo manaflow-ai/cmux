@@ -1113,19 +1113,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
-        guard let source = locateSurface(surfaceId: panelId),
-              let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }),
-              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
+#if DEBUG
+        let moveStart = ProcessInfo.processInfo.systemUptime
+        let splitLabel = splitTarget.map { split in
+            "\(split.orientation.rawValue):\(split.insertFirst ? 1 : 0)"
+        } ?? "none"
+        func elapsedMs(since start: TimeInterval) -> String {
+            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            return String(format: "%.2f", ms)
+        }
+        dlog(
+            "surface.move.begin panel=\(panelId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
+            "targetPane=\(targetPane?.id.uuidString.prefix(5) ?? "auto") targetIndex=\(targetIndex.map(String.init) ?? "nil") " +
+            "split=\(splitLabel) focus=\(focus ? 1 : 0) focusWindow=\(focusWindow ? 1 : 0)"
+        )
+#endif
+        guard let source = locateSurface(surfaceId: panelId) else {
+#if DEBUG
+            dlog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourcePanelNotFound elapsedMs=\(elapsedMs(since: moveStart))")
+#endif
             return false
         }
+        guard let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }) else {
+#if DEBUG
+            dlog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sourceWorkspaceMissing elapsedMs=\(elapsedMs(since: moveStart))")
+#endif
+            return false
+        }
+        guard let destinationManager = tabManagerFor(tabId: targetWorkspaceId) else {
+#if DEBUG
+            dlog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=destinationManagerMissing elapsedMs=\(elapsedMs(since: moveStart))")
+#endif
+            return false
+        }
+        guard let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
+#if DEBUG
+            dlog("surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=destinationWorkspaceMissing elapsedMs=\(elapsedMs(since: moveStart))")
+#endif
+            return false
+        }
+#if DEBUG
+        dlog(
+            "surface.move.route panel=\(panelId.uuidString.prefix(5)) sourceWs=\(sourceWorkspace.id.uuidString.prefix(5)) " +
+            "sourceWin=\(source.windowId.uuidString.prefix(5)) destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) " +
+            "sameWorkspace=\(destinationWorkspace.id == sourceWorkspace.id ? 1 : 0)"
+        )
+#endif
 
         let resolvedTargetPane = targetPane.flatMap { pane in
             destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? destinationWorkspace.bonsplitController.focusedPaneId
             ?? destinationWorkspace.bonsplitController.allPaneIds.first
 
-        guard let resolvedTargetPane else { return false }
+        guard let resolvedTargetPane else {
+#if DEBUG
+            dlog(
+                "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=targetPaneMissing " +
+                "destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return false
+        }
 
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
@@ -1136,26 +1184,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         movingTab: sourceTabId,
                         insertFirst: splitTarget.insertFirst
                       ) != nil else {
+#if DEBUG
+                    dlog(
+                        "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=sameWorkspaceSplitFailed " +
+                        "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) split=\(splitLabel) " +
+                        "elapsedMs=\(elapsedMs(since: moveStart))"
+                    )
+#endif
                     return false
                 }
                 if focus {
                     source.tabManager.focusTab(sourceWorkspace.id, surfaceId: panelId, suppressFlash: true)
                 }
+#if DEBUG
+                dlog(
+                    "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceSplit moved=1 " +
+                    "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+                )
+#endif
                 return true
             }
 
-            return sourceWorkspace.moveSurface(
+            let moved = sourceWorkspace.moveSurface(
                 panelId: panelId,
                 toPane: resolvedTargetPane,
                 atIndex: targetIndex,
                 focus: focus
             )
+#if DEBUG
+            dlog(
+                "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=sameWorkspaceMove moved=\(moved ? 1 : 0) " +
+                "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) targetIndex=\(targetIndex.map(String.init) ?? "nil") " +
+                "elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return moved
         }
 
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
+#if DEBUG
+        let detachStart = ProcessInfo.processInfo.systemUptime
+#endif
 
-        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return false }
+        guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else {
+#if DEBUG
+            dlog(
+                "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=detachFailed " +
+                "elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return false
+        }
+#if DEBUG
+        let detachMs = elapsedMs(since: detachStart)
+        let attachStart = ProcessInfo.processInfo.systemUptime
+#endif
         guard destinationWorkspace.attachDetachedSurface(
             detached,
             inPane: resolvedTargetPane,
@@ -1169,10 +1253,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sourceIndex: sourceIndex,
                 focus: focus
             )
+#if DEBUG
+            dlog(
+                "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=attachFailed " +
+                "detachMs=\(detachMs) elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
             return false
         }
+#if DEBUG
+        let attachMs = elapsedMs(since: attachStart)
+        var splitMs = "0.00"
+#endif
 
         if let splitTarget {
+#if DEBUG
+            let splitStart = ProcessInfo.processInfo.systemUptime
+#endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
                   destinationWorkspace.bonsplitController.splitPane(
                     resolvedTargetPane,
@@ -1189,15 +1286,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         focus: focus
                     )
                 }
+#if DEBUG
+                dlog(
+                    "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=postAttachSplitFailed " +
+                    "detachMs=\(detachMs) attachMs=\(attachMs) elapsedMs=\(elapsedMs(since: moveStart))"
+                )
+#endif
                 return false
             }
+#if DEBUG
+            splitMs = elapsedMs(since: splitStart)
+#endif
         }
 
+#if DEBUG
+        let cleanupStart = ProcessInfo.processInfo.systemUptime
+#endif
         cleanupEmptySourceWorkspaceAfterSurfaceMove(
             sourceWorkspace: sourceWorkspace,
             sourceManager: source.tabManager,
             sourceWindowId: source.windowId
         )
+#if DEBUG
+        let cleanupMs = elapsedMs(since: cleanupStart)
+        let focusStart = ProcessInfo.processInfo.systemUptime
+#endif
 
         if focus {
             let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
@@ -1215,6 +1328,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
+#if DEBUG
+        let focusMs = elapsedMs(since: focusStart)
+        dlog(
+            "surface.move.end panel=\(panelId.uuidString.prefix(5)) path=crossWorkspace moved=1 " +
+            "sourceWs=\(sourceWorkspace.id.uuidString.prefix(5)) destinationWs=\(destinationWorkspace.id.uuidString.prefix(5)) " +
+            "targetPane=\(resolvedTargetPane.id.uuidString.prefix(5)) targetIndex=\(targetIndex.map(String.init) ?? "nil") " +
+            "split=\(splitLabel) detachMs=\(detachMs) attachMs=\(attachMs) splitMs=\(splitMs) " +
+            "cleanupMs=\(cleanupMs) focusMs=\(focusMs) elapsedMs=\(elapsedMs(since: moveStart))"
+        )
+#endif
 
         return true
     }
@@ -1229,8 +1352,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focus: Bool = true,
         focusWindow: Bool = true
     ) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId) else { return false }
-        return moveSurface(
+#if DEBUG
+        let moveStart = ProcessInfo.processInfo.systemUptime
+        func elapsedMs(since start: TimeInterval) -> String {
+            let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
+            return String(format: "%.2f", ms)
+        }
+        dlog(
+            "surface.moveBonsplit.begin tab=\(tabId.uuidString.prefix(5)) targetWs=\(targetWorkspaceId.uuidString.prefix(5)) " +
+            "targetPane=\(targetPane?.id.uuidString.prefix(5) ?? "auto") targetIndex=\(targetIndex.map(String.init) ?? "nil")"
+        )
+#endif
+        guard let located = locateBonsplitSurface(tabId: tabId) else {
+#if DEBUG
+            dlog(
+                "surface.moveBonsplit.fail tab=\(tabId.uuidString.prefix(5)) reason=tabNotFound " +
+                "targetWs=\(targetWorkspaceId.uuidString.prefix(5)) elapsedMs=\(elapsedMs(since: moveStart))"
+            )
+#endif
+            return false
+        }
+#if DEBUG
+        dlog(
+            "surface.moveBonsplit.located tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "sourceWs=\(located.workspaceId.uuidString.prefix(5)) sourceWin=\(located.windowId.uuidString.prefix(5))"
+        )
+#endif
+        let moved = moveSurface(
             panelId: located.panelId,
             toWorkspace: targetWorkspaceId,
             targetPane: targetPane,
@@ -1239,6 +1387,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             focus: focus,
             focusWindow: focusWindow
         )
+#if DEBUG
+        dlog(
+            "surface.moveBonsplit.end tab=\(tabId.uuidString.prefix(5)) panel=\(located.panelId.uuidString.prefix(5)) " +
+            "moved=\(moved ? 1 : 0) elapsedMs=\(elapsedMs(since: moveStart))"
+        )
+#endif
+        return moved
     }
 
     func tabManagerFor(windowId: UUID) -> TabManager? {

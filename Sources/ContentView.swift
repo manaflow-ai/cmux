@@ -5241,8 +5241,8 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    // Double-click the sidebar title-bar area to zoom the
-                    // window, matching the panel top-bar behaviour.
+                    // Double-click the sidebar title-bar area to trigger the
+                    // standard macOS titlebar action (zoom/minimize).
                     DoubleClickZoomView()
                         .frame(height: trafficLightPadding)
                 }
@@ -7492,11 +7492,10 @@ private struct DoubleClickZoomView: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { self }
         override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                window?.zoom(nil)
-            } else {
-                super.mouseDown(with: event)
+            if event.clickCount == 2, performStandardTitlebarDoubleClick(window: window) {
+                return
             }
+            super.mouseDown(with: event)
         }
     }
 }
