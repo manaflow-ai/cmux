@@ -2517,6 +2517,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
+        var shouldApplySurfaceFocus = false
         if result {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
@@ -2538,6 +2539,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // stayed behind.
             let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
             if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
+                shouldApplySurfaceFocus = true
                 onFocus?()
             } else if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
 #if DEBUG
@@ -2548,7 +2550,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             }
         }
-        if result, let surface = ensureSurfaceReadyForInput() {
+        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
@@ -4102,9 +4104,11 @@ final class GhosttySurfaceScrollView: NSView {
         isHidden = !visible
 #if DEBUG
         if wasVisible != visible {
+            let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
+            let suffix = debugVisibilityStateSuffix(transition: transition)
             debugLogWorkspaceSwitchTiming(
                 event: "ws.term.visible",
-                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(visible ? 1 : 0)"
+                suffix: suffix
             )
         }
 #endif
@@ -4124,9 +4128,11 @@ final class GhosttySurfaceScrollView: NSView {
         isActive = active
 #if DEBUG
         if wasActive != active {
+            let transition = "\(wasActive ? 1 : 0)->\(active ? 1 : 0)"
+            let suffix = debugVisibilityStateSuffix(transition: transition)
             debugLogWorkspaceSwitchTiming(
                 event: "ws.term.active",
-                suffix: "surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") value=\(active ? 1 : 0)"
+                suffix: suffix
             )
         }
 #endif
@@ -4147,6 +4153,37 @@ final class GhosttySurfaceScrollView: NSView {
         }
         let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
         dlog("\(event) id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) \(suffix)")
+    }
+
+    private func debugFirstResponderLabel() -> String {
+        guard let window, let firstResponder = window.firstResponder else { return "nil" }
+        if let view = firstResponder as? NSView {
+            if view === surfaceView {
+                return "surfaceView"
+            }
+            if view.isDescendant(of: surfaceView) {
+                return "surfaceDescendant"
+            }
+            return String(describing: type(of: view))
+        }
+        return String(describing: type(of: firstResponder))
+    }
+
+    private func debugVisibilityStateSuffix(transition: String) -> String {
+        let surface = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let hiddenInHierarchy = (isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor) ? 1 : 0
+        let inWindow = window != nil ? 1 : 0
+        let hasSuperview = superview != nil ? 1 : 0
+        let hostHidden = isHidden ? 1 : 0
+        let surfaceHidden = surfaceView.isHidden ? 1 : 0
+        let boundsText = String(format: "%.1fx%.1f", bounds.width, bounds.height)
+        let frameText = String(format: "%.1fx%.1f", frame.width, frame.height)
+        let responder = debugFirstResponderLabel()
+        return
+            "surface=\(surface) transition=\(transition) active=\(isActive ? 1 : 0) " +
+            "visibleFlag=\(surfaceView.isVisibleInUI ? 1 : 0) hostHidden=\(hostHidden) surfaceHidden=\(surfaceHidden) " +
+            "hiddenHierarchy=\(hiddenInHierarchy) inWindow=\(inWindow) hasSuperview=\(hasSuperview) " +
+            "bounds=\(boundsText) frame=\(frameText) firstResponder=\(responder)"
     }
 #endif
 
@@ -4999,32 +5036,36 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         let coordinator = context.coordinator
-#if DEBUG
         let previousDesiredIsActive = coordinator.desiredIsActive
-#endif
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
         let previousDesiredShowsUnreadNotificationRing = coordinator.desiredShowsUnreadNotificationRing
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
+        let desiredStateChanged =
+            previousDesiredIsActive != isActive ||
+            previousDesiredIsVisibleInUI != isVisibleInUI ||
+            previousDesiredPortalZPriority != portalZPriority
         coordinator.desiredIsActive = isActive
         coordinator.desiredIsVisibleInUI = isVisibleInUI
         coordinator.desiredShowsUnreadNotificationRing = showsUnreadNotificationRing
         coordinator.desiredPortalZPriority = portalZPriority
         coordinator.hostedView = hostedView
 #if DEBUG
-        if previousDesiredIsActive != isActive ||
-            previousDesiredIsVisibleInUI != isVisibleInUI ||
-            previousDesiredPortalZPriority != portalZPriority {
+        if desiredStateChanged {
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 dlog(
                     "ws.swiftui.update id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
                     "surface=\(terminalSurface.id.uuidString.prefix(5)) visible=\(isVisibleInUI ? 1 : 0) " +
-                    "active=\(isActive ? 1 : 0) z=\(portalZPriority)"
+                    "active=\(isActive ? 1 : 0) z=\(portalZPriority) " +
+                    "hostWindow=\(nsView.window != nil ? 1 : 0) hostedWindow=\(hostedView.window != nil ? 1 : 0) " +
+                    "hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
                 )
             } else {
                 dlog(
                     "ws.swiftui.update id=none surface=\(terminalSurface.id.uuidString.prefix(5)) " +
-                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0) z=\(portalZPriority)"
+                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0) z=\(portalZPriority) " +
+                    "hostWindow=\(nsView.window != nil ? 1 : 0) hostedWindow=\(hostedView.window != nil ? 1 : 0) " +
+                    "hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
                 )
             }
         }
@@ -5112,6 +5153,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 // Bind is deferred until host moves into a window. Update the
                 // existing portal entry's visibleInUI now so that any portal sync
                 // that runs before the deferred bind completes won't hide the view.
+#if DEBUG
+                if desiredStateChanged {
+                    dlog(
+                        "ws.hostState.deferBind surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                        "reason=hostNoWindow visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                        "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority) " +
+                        "hostedWindow=\(hostedView.window != nil ? 1 : 0) hostedSuperview=\(hostedView.superview != nil ? 1 : 0)"
+                    )
+                }
+#endif
                 TerminalWindowPortalRegistry.updateEntryVisibility(
                     for: hostedView,
                     visibleInUI: coordinator.desiredIsVisibleInUI
@@ -5135,6 +5186,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
         } else {
             // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
             // The currently bound host remains authoritative for immediate visible/active state.
+#if DEBUG
+            if desiredStateChanged {
+                dlog(
+                    "ws.hostState.deferApply surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                    "reason=staleHostBinding hostWindow=\(hostWindowAttached ? 1 : 0) " +
+                    "boundToCurrent=\(isBoundToCurrentHost ? 1 : 0) hostedSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+                    "visible=\(isVisibleInUI ? 1 : 0) active=\(isActive ? 1 : 0)"
+                )
+            }
+#endif
             TerminalWindowPortalRegistry.updateEntryVisibility(
                 for: hostedView,
                 visibleInUI: isVisibleInUI

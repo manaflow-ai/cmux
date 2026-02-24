@@ -6,6 +6,40 @@ private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
     String(format: "(%.1f,%.1f)", point.x, point.y)
 }
 
+/// Runs the same action macOS titlebars use for double-click:
+/// zoom by default, or minimize when the user preference is set.
+@discardableResult
+func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
+    guard let window else { return false }
+
+    let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain) ?? [:]
+    if let action = (globalDefaults["AppleActionOnDoubleClick"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() {
+        switch action {
+        case "minimize":
+            window.miniaturize(nil)
+            return true
+        case "none":
+            return false
+        case "maximize", "zoom":
+            window.zoom(nil)
+            return true
+        default:
+            break
+        }
+    }
+
+    if let miniaturizeOnDoubleClick = globalDefaults["AppleMiniaturizeOnDoubleClick"] as? Bool,
+       miniaturizeOnDoubleClick {
+        window.miniaturize(nil)
+        return true
+    }
+
+    window.zoom(nil)
+    return true
+}
+
 private var windowDragSuppressionDepthKey: UInt8 = 0
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
@@ -154,16 +188,20 @@ func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSVie
 
         if let topHit {
             let ownsTopHit = topHit === dragHandleView || topHit.isDescendant(of: dragHandleView)
+            let topHitBelongsToTitlebarOverlay = topHit === superview || topHit.isDescendant(of: superview)
             let isPassiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(topHit)
             #if DEBUG
             dlog(
-                "titlebar.dragHandle.hitTest capture=\(ownsTopHit) strategy=windowTopHit point=\(windowDragHandleFormatPoint(point)) top=\(type(of: topHit)) passiveHost=\(isPassiveHostHit)"
+                "titlebar.dragHandle.hitTest capture=\(ownsTopHit) strategy=windowTopHit point=\(windowDragHandleFormatPoint(point)) top=\(type(of: topHit)) inTitlebarOverlay=\(topHitBelongsToTitlebarOverlay) passiveHost=\(isPassiveHostHit)"
             )
             #endif
             if ownsTopHit {
                 return true
             }
-            if !isPassiveHostHit {
+            // Underlay content can transiently overlap titlebar space (notably browser
+            // chrome/webview layers). Only let top-hits block capture when they belong
+            // to this titlebar overlay stack.
+            if topHitBelongsToTitlebarOverlay && !isPassiveHostHit {
                 return false
             }
         }
@@ -238,11 +276,13 @@ struct WindowDragHandleView: NSViewRepresentable {
             #endif
 
             if event.clickCount >= 2 {
-                window?.zoom(nil)
+                let handled = performStandardTitlebarDoubleClick(window: window)
                 #if DEBUG
-                dlog("titlebar.dragHandle.mouseDownDoubleClick zoom=1")
+                dlog("titlebar.dragHandle.mouseDownDoubleClick handled=\(handled ? 1 : 0)")
                 #endif
-                return
+                if handled {
+                    return
+                }
             }
 
             guard !isWindowDragSuppressed(window: window) else {

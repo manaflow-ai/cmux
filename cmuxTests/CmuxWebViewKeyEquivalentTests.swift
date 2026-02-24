@@ -149,6 +149,42 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 36) // kVK_Return
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36) // kVK_Return
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testKeypadEnterDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 76) // kVK_ANSI_KeypadEnter
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
     @MainActor
     func testCanBlockFirstResponderAcquisitionWhenPaneIsUnfocused() {
         _ = NSApplication.shared
@@ -1013,6 +1049,114 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
 
         panel.setBrowserThemeMode(.system)
         XCTAssertNil(panel.webView.appearance)
+    }
+}
+
+final class BrowserNavigationNewTabDecisionTests: XCTestCase {
+    func testLinkActivatedCmdClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testLinkActivatedMiddleClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testLinkActivatedPlainLeftClickStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationMiddleClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testOtherNavigationLeftClickStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testLinkActivatedButtonFourWithoutMiddleIntentStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 4,
+                hasRecentMiddleClickIntent: false
+            )
+        )
+    }
+
+    func testLinkActivatedButtonFourWithRecentMiddleIntentOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 4,
+                hasRecentMiddleClickIntent: true
+            )
+        )
+    }
+
+    func testLinkActivatedUsesCurrentEventFallbackForMiddleClick() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0,
+                currentEventType: .otherMouseUp,
+                currentEventButtonNumber: 2
+            )
+        )
+    }
+
+    func testCurrentEventFallbackDoesNotAffectNonLinkNavigation() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .reload,
+                modifierFlags: [],
+                buttonNumber: 0,
+                currentEventType: .otherMouseUp,
+                currentEventButtonNumber: 2
+            )
+        )
+    }
+
+    func testNonLinkNavigationNeverForcesNewTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .reload,
+                modifierFlags: [.command],
+                buttonNumber: 2
+            )
+        )
     }
 }
 
@@ -2971,6 +3115,51 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             "Detaching into another workspace should not enqueue delayed source focus reconciliation"
         )
 #endif
+    }
+
+    func testDetachAttachAcrossWorkspacesPreservesNonCustomPanelTitle() {
+        let source = Workspace()
+        guard let panelId = source.focusedPanelId else {
+            XCTFail("Expected source focused panel")
+            return
+        }
+
+        XCTAssertTrue(source.updatePanelTitle(panelId: panelId, title: "detached-runtime-title"))
+
+        guard let detached = source.detachSurface(panelId: panelId) else {
+            XCTFail("Expected detach to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.cachedTitle, "detached-runtime-title")
+        XCTAssertNil(detached.customTitle)
+        XCTAssertEqual(
+            detached.title,
+            "detached-runtime-title",
+            "Detached transfer should carry the cached non-custom title"
+        )
+
+        let destination = Workspace()
+        guard let destinationPane = destination.bonsplitController.allPaneIds.first else {
+            XCTFail("Expected destination pane")
+            return
+        }
+
+        let attachedPanelId = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        )
+        XCTAssertEqual(attachedPanelId, panelId)
+        XCTAssertEqual(destination.panelTitle(panelId: panelId), "detached-runtime-title")
+
+        guard let attachedTabId = destination.surfaceIdFromPanelId(panelId),
+              let attachedTab = destination.bonsplitController.tab(attachedTabId) else {
+            XCTFail("Expected attached tab mapping")
+            return
+        }
+        XCTAssertEqual(attachedTab.title, "detached-runtime-title")
+        XCTAssertFalse(attachedTab.hasCustomTitle)
     }
 
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
