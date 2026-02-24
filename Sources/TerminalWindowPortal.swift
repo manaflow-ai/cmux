@@ -547,6 +547,8 @@ final class WindowTerminalPortal: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
+    private var geometryRecoveryRetryCountByHostedId: [ObjectIdentifier: Int] = [:]
+    private let maxGeometryRecoveryRetries = 4
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
@@ -896,6 +898,7 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        geometryRecoveryRetryCountByHostedId.removeValue(forKey: hostedId)
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -919,6 +922,7 @@ final class WindowTerminalPortal: NSObject {
         guard entry.visibleInUI else { return }
         entry.visibleInUI = false
         entriesByHostedId[hostedId] = entry
+        geometryRecoveryRetryCountByHostedId.removeValue(forKey: hostedId)
         entry.hostedView?.isHidden = true
 #if DEBUG
         dlog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
@@ -1073,6 +1077,35 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    private func scheduleGeometryRecoveryRetry(for hostedId: ObjectIdentifier, reason: String) {
+        let currentCount = geometryRecoveryRetryCountByHostedId[hostedId, default: 0]
+        guard currentCount < maxGeometryRecoveryRetries else {
+#if DEBUG
+            if let entry = entriesByHostedId[hostedId] {
+                dlog(
+                    "portal.sync.retry.skip hosted=\(portalDebugToken(entry.hostedView)) " +
+                    "reason=\(reason) attempts=\(currentCount)"
+                )
+            }
+#endif
+            return
+        }
+        geometryRecoveryRetryCountByHostedId[hostedId] = currentCount + 1
+#if DEBUG
+        if let entry = entriesByHostedId[hostedId] {
+            dlog(
+                "portal.sync.retry hosted=\(portalDebugToken(entry.hostedView)) " +
+                "reason=\(reason) attempt=\(currentCount + 1)"
+            )
+        }
+#endif
+        scheduleDeferredFullSynchronizeAll()
+    }
+
+    private func resetGeometryRecoveryRetry(for hostedId: ObjectIdentifier) {
+        geometryRecoveryRetryCountByHostedId.removeValue(forKey: hostedId)
+    }
+
     private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
@@ -1102,6 +1135,7 @@ final class WindowTerminalPortal: NSObject {
                 }
 #endif
                 hostedView.isHidden = true
+                resetGeometryRecoveryRetry(for: hostedId)
             }
             return
         }
@@ -1115,6 +1149,11 @@ final class WindowTerminalPortal: NSObject {
             }
 #endif
             hostedView.isHidden = true
+            if entry.visibleInUI {
+                scheduleGeometryRecoveryRetry(for: hostedId, reason: "anchorWindowMismatch")
+            } else {
+                resetGeometryRecoveryRetry(for: hostedId)
+            }
             return
         }
 
@@ -1141,7 +1180,11 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             hostedView.isHidden = true
-            scheduleDeferredFullSynchronizeAll()
+            if entry.visibleInUI {
+                scheduleGeometryRecoveryRetry(for: hostedId, reason: "hostBoundsNotReady")
+            } else {
+                resetGeometryRecoveryRetry(for: hostedId)
+            }
             return
         }
         let hasFiniteFrame =
@@ -1170,6 +1213,10 @@ final class WindowTerminalPortal: NSObject {
             !hasFiniteFrame ||
             outsideHostBounds
         let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
+        let shouldRetryGeometryRecovery =
+            entry.visibleInUI &&
+            !anchorHidden &&
+            (tinyFrame || !hasFiniteFrame || outsideHostBounds || shouldDeferReveal)
 
         let oldFrame = hostedView.frame
 #if DEBUG
@@ -1254,6 +1301,20 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             hostedView.isHidden = false
+            hostedView.reconcileGeometryNow()
+            hostedView.refreshSurfaceNow()
+            resetGeometryRecoveryRetry(for: hostedId)
+        }
+
+        if shouldRetryGeometryRecovery {
+            scheduleGeometryRecoveryRetry(
+                for: hostedId,
+                reason: shouldDeferReveal ? "deferReveal" : "geometryNotReady"
+            )
+        } else if !shouldHide {
+            resetGeometryRecoveryRetry(for: hostedId)
+        } else if !entry.visibleInUI {
+            resetGeometryRecoveryRetry(for: hostedId)
         }
 
 #if DEBUG
@@ -1305,6 +1366,7 @@ final class WindowTerminalPortal: NSObject {
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
         }
+        geometryRecoveryRetryCountByHostedId.removeAll()
         NSLayoutConstraint.deactivate(installConstraints)
         installConstraints.removeAll()
         hostView.removeFromSuperview()
