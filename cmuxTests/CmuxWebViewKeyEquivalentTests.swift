@@ -690,29 +690,27 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 }
 
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
-    func testLightModeUsesSubtleAccentTintOverThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .light, accentMix: 0.02)
+    func testLightModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
     }
 
-    func testDarkModeUsesSlightlyStrongerAccentTintOverThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .dark, accentMix: 0.03)
+    func testDarkModeSlightlyDarkensThemeBackground() {
+        assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
         for colorScheme: ColorScheme,
-        accentMix: CGFloat,
+        darkenMix: CGFloat,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
-        let accent = NSColor(srgbRed: 0.25, green: 0.47, blue: 0.92, alpha: 1.0)
-        let expected = themeBackground.blended(withFraction: accentMix, of: accent) ?? themeBackground
+        let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
 
         guard
             let actual = resolvedBrowserOmnibarPillBackgroundColor(
                 for: colorScheme,
-                themeBackgroundColor: themeBackground,
-                accentColor: accent
+                themeBackgroundColor: themeBackground
             ).usingColorSpace(.sRGB),
             let expectedSRGB = expected.usingColorSpace(.sRGB),
             let themeSRGB = themeBackground.usingColorSpace(.sRGB)

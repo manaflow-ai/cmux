@@ -180,20 +180,19 @@ func resolvedBrowserChromeBackgroundColor(
 
 func resolvedBrowserOmnibarPillBackgroundColor(
     for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor,
-    accentColor: NSColor
+    themeBackgroundColor: NSColor
 ) -> NSColor {
-    let accentMix: CGFloat
+    let darkenMix: CGFloat
     switch colorScheme {
     case .light:
-        accentMix = 0.02
+        darkenMix = 0.04
     case .dark:
-        accentMix = 0.03
+        darkenMix = 0.05
     @unknown default:
-        accentMix = 0.02
+        darkenMix = 0.04
     }
 
-    return themeBackgroundColor.blended(withFraction: accentMix, of: accentColor) ?? themeBackgroundColor
+    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
 }
 
 /// View for rendering a browser panel with address bar
@@ -278,8 +277,7 @@ struct BrowserPanelView: View {
     private var omnibarPillBackgroundColor: NSColor {
         resolvedBrowserOmnibarPillBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: browserChromeBackgroundColor,
-            accentColor: .controlAccentColor
+            themeBackgroundColor: browserChromeBackgroundColor
         )
     }
 
