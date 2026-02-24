@@ -6289,3 +6289,45 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+    func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: false,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: true
+            )
+        )
+    }
+
+    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
+        XCTAssertFalse(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: true,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+
+    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
+        XCTAssertTrue(
+            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
+                hostWindowAttached: true,
+                hostedViewHasSuperview: false,
+                isBoundToCurrentHost: false
+            )
+        )
+    }
+}
