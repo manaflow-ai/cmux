@@ -166,6 +166,35 @@ private extension View {
     }
 }
 
+func resolvedBrowserChromeBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    switch colorScheme {
+    case .dark, .light:
+        return themeBackgroundColor
+    @unknown default:
+        return themeBackgroundColor
+    }
+}
+
+func resolvedBrowserOmnibarPillBackgroundColor(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> NSColor {
+    let darkenMix: CGFloat
+    switch colorScheme {
+    case .light:
+        darkenMix = 0.04
+    case .dark:
+        darkenMix = 0.05
+    @unknown default:
+        darkenMix = 0.04
+    }
+
+    return themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
+}
+
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -239,14 +268,17 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        switch colorScheme {
-        case .dark:
-            return GhosttyApp.shared.defaultBackgroundColor
-        case .light:
-            return .windowBackgroundColor
-        @unknown default:
-            return .windowBackgroundColor
-        }
+        resolvedBrowserChromeBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
+    private var omnibarPillBackgroundColor: NSColor {
+        resolvedBrowserOmnibarPillBackgroundColor(
+            for: colorScheme,
+            themeBackgroundColor: browserChromeBackgroundColor
+        )
     }
 
     var body: some View {
@@ -278,7 +310,7 @@ struct BrowserPanelView: View {
                     }
                 )
                 .frame(width: omnibarPillFrame.width)
-                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 6)
+                .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
                 .zIndex(1000)
             }
         }
@@ -648,7 +680,7 @@ struct BrowserPanelView: View {
         .padding(.vertical, 4)
         .background(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
+                .fill(Color(nsColor: omnibarPillBackgroundColor))
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
@@ -2594,11 +2626,12 @@ private struct OmnibarSuggestionsView: View {
     let searchSuggestionsEnabled: Bool
     let onCommit: (OmnibarSuggestion) -> Void
     let onHighlight: (Int) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
-    // Keep radii below the smallest rendered heights so corners don't get
-    // auto-clamped and visually change as popup height changes.
-    private let popupCornerRadius: CGFloat = 16
-    private let rowHighlightCornerRadius: CGFloat = 12
+    // Keep radii below half of the smallest rendered heights so this keeps a
+    // squircle silhouette instead of auto-clamping into a capsule.
+    private let popupCornerRadius: CGFloat = 12
+    private let rowHighlightCornerRadius: CGFloat = 9
     private let singleLineRowHeight: CGFloat = 24
     private let rowSpacing: CGFloat = 1
     private let topInset: CGFloat = 3
@@ -2651,6 +2684,101 @@ private struct OmnibarSuggestionsView: View {
         contentHeight > maxPopupHeight
     }
 
+    private var listTextColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color(nsColor: .labelColor)
+        case .dark:
+            return Color.white.opacity(0.9)
+        @unknown default:
+            return Color(nsColor: .labelColor)
+        }
+    }
+
+    private var badgeTextColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color(nsColor: .secondaryLabelColor)
+        case .dark:
+            return Color.white.opacity(0.72)
+        @unknown default:
+            return Color(nsColor: .secondaryLabelColor)
+        }
+    }
+
+    private var badgeBackgroundColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.06)
+        case .dark:
+            return Color.white.opacity(0.08)
+        @unknown default:
+            return Color.black.opacity(0.06)
+        }
+    }
+
+    private var rowHighlightColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.07)
+        case .dark:
+            return Color.white.opacity(0.12)
+        @unknown default:
+            return Color.black.opacity(0.07)
+        }
+    }
+
+    private var popupOverlayGradientColors: [Color] {
+        switch colorScheme {
+        case .light:
+            return [
+                Color.white.opacity(0.55),
+                Color.white.opacity(0.2),
+            ]
+        case .dark:
+            return [
+                Color.black.opacity(0.26),
+                Color.black.opacity(0.14),
+            ]
+        @unknown default:
+            return [
+                Color.white.opacity(0.55),
+                Color.white.opacity(0.2),
+            ]
+        }
+    }
+
+    private var popupBorderGradientColors: [Color] {
+        switch colorScheme {
+        case .light:
+            return [
+                Color.white.opacity(0.65),
+                Color.black.opacity(0.12),
+            ]
+        case .dark:
+            return [
+                Color.white.opacity(0.22),
+                Color.white.opacity(0.06),
+            ]
+        @unknown default:
+            return [
+                Color.white.opacity(0.65),
+                Color.black.opacity(0.12),
+            ]
+        }
+    }
+
+    private var popupShadowColor: Color {
+        switch colorScheme {
+        case .light:
+            return Color.black.opacity(0.18)
+        case .dark:
+            return Color.black.opacity(0.45)
+        @unknown default:
+            return Color.black.opacity(0.18)
+        }
+    }
+
     @ViewBuilder
     private var rowsView: some View {
         VStack(spacing: rowSpacing) {
@@ -2664,18 +2792,18 @@ private struct OmnibarSuggestionsView: View {
                 HStack(spacing: 6) {
                         Text(item.listText)
                             .font(.system(size: 11))
-                            .foregroundStyle(Color.white.opacity(0.9))
+                            .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
                                 .font(.system(size: 9.5, weight: .medium))
-                                .foregroundStyle(Color.white.opacity(0.72))
+                                .foregroundStyle(badgeTextColor)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(
                                     RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(badgeBackgroundColor)
                                 )
                         }
                         Spacer(minLength: 0)
@@ -2691,7 +2819,7 @@ private struct OmnibarSuggestionsView: View {
                         RoundedRectangle(cornerRadius: rowHighlightCornerRadius, style: .continuous)
                             .fill(
                                 idx == selectedIndex
-                                    ? Color.white.opacity(0.12)
+                                    ? rowHighlightColor
                                     : Color.clear
                             )
                     )
@@ -2746,10 +2874,7 @@ private struct OmnibarSuggestionsView: View {
                     RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [
-                                    Color.black.opacity(0.26),
-                                    Color.black.opacity(0.14),
-                                ],
+                                colors: popupOverlayGradientColors,
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -2760,18 +2885,16 @@ private struct OmnibarSuggestionsView: View {
             RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous)
                 .stroke(
                     LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.22),
-                            Color.white.opacity(0.06),
-                        ],
+                        colors: popupBorderGradientColors,
                         startPoint: .top,
                         endPoint: .bottom
                     ),
                     lineWidth: 1
                 )
         )
-        .shadow(color: Color.black.opacity(0.45), radius: 20, y: 10)
-        .contentShape(Rectangle())
+        .clipShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
+        .shadow(color: popupShadowColor, radius: 20, y: 10)
+        .contentShape(RoundedRectangle(cornerRadius: popupCornerRadius, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")

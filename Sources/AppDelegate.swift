@@ -36,6 +36,188 @@ enum FinderServicePathResolver {
     }
 }
 
+enum TerminalDirectoryOpenTarget: String, CaseIterable {
+    case vscode
+    case cursor
+    case windsurf
+    case antigravity
+    case finder
+    case terminal
+    case iterm2
+    case ghostty
+    case warp
+    case xcode
+    case androidStudio
+    case zed
+
+    struct DetectionEnvironment {
+        let homeDirectoryPath: String
+        let fileExistsAtPath: (String) -> Bool
+
+        static let live = DetectionEnvironment(
+            homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+        )
+    }
+
+    static var commandPaletteShortcutTargets: [Self] {
+        Array(allCases)
+    }
+
+    static func availableTargets(in environment: DetectionEnvironment = .live) -> Set<Self> {
+        Set(commandPaletteShortcutTargets.filter { $0.isAvailable(in: environment) })
+    }
+
+    static let cachedLiveAvailableTargets: Set<Self> = availableTargets(in: .live)
+
+    var commandPaletteCommandId: String {
+        "palette.terminalOpenDirectory.\(rawValue)"
+    }
+
+    var commandPaletteTitle: String {
+        switch self {
+        case .vscode:
+            return "Open Current Directory in VS Code"
+        case .cursor:
+            return "Open Current Directory in Cursor"
+        case .windsurf:
+            return "Open Current Directory in Windsurf"
+        case .antigravity:
+            return "Open Current Directory in Antigravity"
+        case .finder:
+            return "Open Current Directory in Finder"
+        case .terminal:
+            return "Open Current Directory in Terminal"
+        case .iterm2:
+            return "Open Current Directory in iTerm2"
+        case .ghostty:
+            return "Open Current Directory in Ghostty"
+        case .warp:
+            return "Open Current Directory in Warp"
+        case .xcode:
+            return "Open Current Directory in Xcode"
+        case .androidStudio:
+            return "Open Current Directory in Android Studio"
+        case .zed:
+            return "Open Current Directory in Zed"
+        }
+    }
+
+    var commandPaletteKeywords: [String] {
+        let common = ["terminal", "directory", "open", "ide"]
+        switch self {
+        case .vscode:
+            return common + ["vs", "code", "visual", "studio"]
+        case .cursor:
+            return common + ["cursor"]
+        case .windsurf:
+            return common + ["windsurf"]
+        case .antigravity:
+            return common + ["antigravity"]
+        case .finder:
+            return common + ["finder", "file", "manager", "reveal"]
+        case .terminal:
+            return common + ["terminal", "shell"]
+        case .iterm2:
+            return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .ghostty:
+            return common + ["ghostty", "terminal", "shell"]
+        case .warp:
+            return common + ["warp", "terminal", "shell"]
+        case .xcode:
+            return common + ["xcode", "apple"]
+        case .androidStudio:
+            return common + ["android", "studio"]
+        case .zed:
+            return common + ["zed"]
+        }
+    }
+
+    func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
+        applicationPath(in: environment) != nil
+    }
+
+    func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
+        guard let path = applicationPath(in: environment) else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private func applicationPath(in environment: DetectionEnvironment) -> String? {
+        for path in expandedCandidatePaths(in: environment) where environment.fileExistsAtPath(path) {
+            return path
+        }
+        return nil
+    }
+
+    private func expandedCandidatePaths(in environment: DetectionEnvironment) -> [String] {
+        let globalPrefix = "/Applications/"
+        let userPrefix = "\(environment.homeDirectoryPath)/Applications/"
+        var expanded: [String] = []
+
+        for candidate in applicationBundlePathCandidates {
+            expanded.append(candidate)
+            if candidate.hasPrefix(globalPrefix) {
+                let suffix = String(candidate.dropFirst(globalPrefix.count))
+                expanded.append(userPrefix + suffix)
+            }
+        }
+
+        return uniquePreservingOrder(expanded)
+    }
+
+    private var applicationBundlePathCandidates: [String] {
+        switch self {
+        case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
+        case .cursor:
+            return [
+                "/Applications/Cursor.app",
+                "/Applications/Cursor Preview.app",
+                "/Applications/Cursor Nightly.app",
+            ]
+        case .windsurf:
+            return ["/Applications/Windsurf.app"]
+        case .antigravity:
+            return ["/Applications/Antigravity.app"]
+        case .finder:
+            return ["/System/Library/CoreServices/Finder.app"]
+        case .terminal:
+            return ["/System/Applications/Utilities/Terminal.app"]
+        case .iterm2:
+            return [
+                "/Applications/iTerm.app",
+                "/Applications/iTerm2.app",
+            ]
+        case .ghostty:
+            return ["/Applications/Ghostty.app"]
+        case .warp:
+            return ["/Applications/Warp.app"]
+        case .xcode:
+            return ["/Applications/Xcode.app"]
+        case .androidStudio:
+            return ["/Applications/Android Studio.app"]
+        case .zed:
+            return [
+                "/Applications/Zed.app",
+                "/Applications/Zed Preview.app",
+                "/Applications/Zed Nightly.app",
+            ]
+        }
+    }
+
+    private func uniquePreservingOrder(_ paths: [String]) -> [String] {
+        var seen: Set<String> = []
+        var deduped: [String] = []
+        for path in paths where seen.insert(path).inserted {
+            deduped.append(path)
+        }
+        return deduped
+    }
+}
+
 enum WorkspaceShortcutMapper {
     /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
     /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
@@ -192,6 +374,17 @@ func browserZoomShortcutAction(
     return nil
 }
 
+func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+    firstResponderIsWindow: Bool,
+    hostedSize: CGSize,
+    hostedHiddenInHierarchy: Bool,
+    hostedAttachedToWindow: Bool
+) -> Bool {
+    guard firstResponderIsWindow else { return false }
+    let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
+    return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
+}
+
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
@@ -294,6 +487,29 @@ func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) 
     }
 }
 #endif
+
+func shouldSuppressWindowMoveForFolderDrag(hitView: NSView?) -> Bool {
+    var candidate = hitView
+    while let view = candidate {
+        if view is DraggableFolderNSView {
+            return true
+        }
+        candidate = view.superview
+    }
+    return false
+}
+
+func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown,
+          window.isMovable,
+          let contentView = window.contentView else {
+        return false
+    }
+
+    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+    let hitView = contentView.hitTest(contentPoint)
+    return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
@@ -398,6 +614,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.makeFirstResponder(_:))
         let swizzledSelector = #selector(NSWindow.cmux_makeFirstResponder(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
+    private static let didInstallWindowSendEventSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.sendEvent(_:))
+        let swizzledSelector = #selector(NSWindow.cmux_sendEvent(_:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
             return
@@ -552,6 +778,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             options.debug = false
             #endif
             options.sendDefaultPii = true
+
+            // Performance tracing (10% of transactions)
+            options.tracesSampleRate = 0.1
+            // App hang timeout (default is 2s, be explicit)
+            options.appHangTimeoutInterval = 2.0
+            // Attach stack traces to all events
+            options.attachStacktrace = true
+            // Capture failed HTTP requests
+            options.enableCaptureFailedRequests = true
         }
 
         if !isRunningUnderXCTest {
@@ -657,6 +892,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        sentryBreadcrumb("app.didBecomeActive", category: "lifecycle", data: [
+            "tabCount": tabManager?.tabs.count ?? 0
+        ])
         let env = ProcessInfo.processInfo.environment
         if !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
@@ -2107,6 +2345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
+        window.isMovable = false
         if let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot) {
             window.setFrame(restoredFrame, display: false)
         } else {
@@ -2879,6 +3118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
+        _ = didInstallWindowSendEventSwizzle
     }
 
 #if DEBUG
@@ -2896,6 +3136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
+        _ = Self.didInstallWindowSendEventSwizzle
     }
 
     private func installShortcutMonitor() {
@@ -3530,6 +3771,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                return true
+            }
             _ = performSplitShortcut(direction: .right)
             return true
         }
@@ -3538,6 +3782,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
+                return true
+            }
             _ = performSplitShortcut(direction: .down)
             return true
         }
@@ -3670,6 +3917,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            return false
+        }
+
+        let hostedView = terminalPanel.hostedView
+        let hostedSize = hostedView.bounds.size
+        let hostedHiddenInHierarchy = hostedView.isHiddenOrHasHiddenAncestor
+        let hostedAttachedToWindow = hostedView.window != nil
+        let firstResponderIsWindow = NSApp.keyWindow?.firstResponder is NSWindow
+
+        let shouldSuppress = shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+            firstResponderIsWindow: firstResponderIsWindow,
+            hostedSize: hostedSize,
+            hostedHiddenInHierarchy: hostedHiddenInHierarchy,
+            hostedAttachedToWindow: hostedAttachedToWindow
+        )
+        guard shouldSuppress else { return false }
+
+        tabManager.reconcileFocusedPanelFromFirstResponderForKeyboard()
+
+#if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "split.shortcut suppressed dir=\(directionLabel) reason=transient_focus_state " +
+            "fr=\(firstResponderType) hidden=\(hostedHiddenInHierarchy ? 1 : 0) " +
+            "attached=\(hostedAttachedToWindow ? 1 : 0) " +
+            "frame=\(String(format: "%.1fx%.1f", hostedSize.width, hostedSize.height))"
+        )
+#endif
+        return true
     }
 
 #if DEBUG
@@ -5417,6 +5707,36 @@ private extension NSWindow {
         }
 #endif
         return cmux_makeFirstResponder(responder)
+    }
+
+    @objc func cmux_sendEvent(_ event: NSEvent) {
+        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
+              let contentView = self.contentView else {
+            cmux_sendEvent(event)
+            return
+        }
+
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        let hitView = contentView.hitTest(contentPoint)
+        let previousMovableState = isMovable
+        if previousMovableState {
+            isMovable = false
+        }
+
+        #if DEBUG
+        let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        #endif
+
+        cmux_sendEvent(event)
+
+        if previousMovableState {
+            isMovable = previousMovableState
+        }
+
+        #if DEBUG
+        dlog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+        #endif
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
