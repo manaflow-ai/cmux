@@ -843,6 +843,43 @@ final class SidebarActiveForegroundColorTests: XCTestCase {
     }
 }
 
+final class SidebarSelectedWorkspaceColorTests: XCTestCase {
+    func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 136.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
+        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 145.0 / 255.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
+    }
+
+    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+}
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut
@@ -1203,6 +1240,72 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/c"
+        )
+
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            snapshot.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertEqual(
+            snapshot.forwardHistoryURLStrings,
+            ["https://example.com/d"]
+        )
+    }
+
+    func testSessionNavigationHistoryBackAndForwardUpdateStacks() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [
+                "https://example.com/a",
+                "https://example.com/b"
+            ],
+            forwardHistoryURLStrings: [
+                "https://example.com/d"
+            ],
+            currentURLString: "https://example.com/c"
+        )
+
+        panel.goBack()
+        let afterBack = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(afterBack.backHistoryURLStrings, ["https://example.com/a"])
+        XCTAssertEqual(
+            afterBack.forwardHistoryURLStrings,
+            ["https://example.com/c", "https://example.com/d"]
+        )
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
+
+        panel.goForward()
+        let afterForward = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            afterForward.backHistoryURLStrings,
+            ["https://example.com/a", "https://example.com/b"]
+        )
+        XCTAssertEqual(afterForward.forwardHistoryURLStrings, ["https://example.com/d"])
+        XCTAssertTrue(panel.canGoBack)
+        XCTAssertTrue(panel.canGoForward)
+    }
+}
+
+@MainActor
 final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class FakeInspector: NSObject {
         private(set) var showCount = 0
@@ -1517,6 +1620,44 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
         XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.capsLock]))
         XCTAssertTrue(browserOmnibarShouldSubmitOnReturn(flags: [.shift, .capsLock]))
         XCTAssertFalse(browserOmnibarShouldSubmitOnReturn(flags: [.command, .capsLock]))
+    }
+}
+
+final class BrowserReturnKeyDownRoutingTests: XCTestCase {
+    func testRoutesForReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testRoutesForKeypadEnterWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 76,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testDoesNotRouteForNonEnterKey() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 13,
+                firstResponderIsBrowser: true
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenFirstResponderIsNotBrowser() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: false
+            )
+        )
     }
 }
 
@@ -2135,6 +2276,59 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
             totalCount: 5
         )
         XCTAssertEqual(noSelectionIndex, 5)
+    }
+}
+
+@MainActor
+final class WorkspaceCreationPlacementTests: XCTestCase {
+    func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() {
+        let currentPlacement = WorkspacePlacementSettings.current()
+
+        let defaultManager = makeManagerWithThreeWorkspaces()
+        let defaultBaselineOrder = defaultManager.tabs.map(\.id)
+        let defaultInserted = defaultManager.addWorkspace()
+        guard let defaultInsertedIndex = defaultManager.tabs.firstIndex(where: { $0.id == defaultInserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+        XCTAssertEqual(defaultManager.tabs.map(\.id).filter { $0 != defaultInserted.id }, defaultBaselineOrder)
+
+        let explicitManager = makeManagerWithThreeWorkspaces()
+        let explicitBaselineOrder = explicitManager.tabs.map(\.id)
+        let explicitInserted = explicitManager.addWorkspace(placementOverride: currentPlacement)
+        guard let explicitInsertedIndex = explicitManager.tabs.firstIndex(where: { $0.id == explicitInserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+        XCTAssertEqual(explicitManager.tabs.map(\.id).filter { $0 != explicitInserted.id }, explicitBaselineOrder)
+        XCTAssertEqual(defaultInsertedIndex, explicitInsertedIndex)
+    }
+
+    func testAddWorkspaceEndOverrideAlwaysAppends() {
+        let manager = makeManagerWithThreeWorkspaces()
+        let baselineCount = manager.tabs.count
+        guard baselineCount >= 3 else {
+            XCTFail("Expected at least three workspaces for placement regression test")
+            return
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .end)
+        guard let insertedIndex = manager.tabs.firstIndex(where: { $0.id == inserted.id }) else {
+            XCTFail("Expected inserted workspace in tab list")
+            return
+        }
+
+        XCTAssertEqual(insertedIndex, baselineCount)
+    }
+
+    private func makeManagerWithThreeWorkspaces() -> TabManager {
+        let manager = TabManager()
+        _ = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        if let first = manager.tabs.first {
+            manager.selectWorkspace(first)
+        }
+        return manager
     }
 }
 

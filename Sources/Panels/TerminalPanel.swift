@@ -83,13 +83,15 @@ final class TerminalPanel: Panel, ObservableObject {
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
+        additionalEnvironment: [String: String] = [:],
         portOrdinal: Int = 0
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)

@@ -1186,6 +1186,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published can go forward state
     @Published private(set) var canGoForward: Bool = false
 
+    private var nativeCanGoBack: Bool = false
+    private var nativeCanGoForward: Bool = false
+    private var usesRestoredSessionHistory: Bool = false
+    private var restoredBackHistoryStack: [URL] = []
+    private var restoredForwardHistoryStack: [URL] = []
+    private var restoredHistoryCurrentURL: URL?
+
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
 
@@ -1388,6 +1395,43 @@ final class BrowserPanel: Panel, ObservableObject {
         focusFlashToken &+= 1
     }
 
+    func sessionNavigationHistorySnapshot() -> (
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String]
+    ) {
+        if usesRestoredSessionHistory {
+            let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
+            // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
+            let forward = restoredForwardHistoryStack.reversed().compactMap { Self.serializableSessionHistoryURLString($0) }
+            return (back, forward)
+        }
+
+        let back = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        let forward = webView.backForwardList.forwardList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        return (back, forward)
+    }
+
+    func restoreSessionNavigationHistory(
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String],
+        currentURLString: String?
+    ) {
+        let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
+        let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
+        guard !restoredBack.isEmpty || !restoredForward.isEmpty else { return }
+
+        usesRestoredSessionHistory = true
+        restoredBackHistoryStack = restoredBack
+        // Store nearest-forward entries at the end to make stack pop operations trivial.
+        restoredForwardHistoryStack = Array(restoredForward.reversed())
+        restoredHistoryCurrentURL = Self.sanitizedSessionHistoryURL(currentURLString)
+        refreshNavigationAvailability()
+    }
+
     private func setupObservers() {
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
@@ -1421,7 +1465,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go back
         let backObserver = webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoBack = webView.canGoBack
+                guard let self else { return }
+                self.nativeCanGoBack = webView.canGoBack
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(backObserver)
@@ -1429,7 +1475,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go forward
         let forwardObserver = webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoForward = webView.canGoForward
+                guard let self else { return }
+                self.nativeCanGoForward = webView.canGoForward
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(forwardObserver)
@@ -1695,13 +1743,28 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        to url: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         let request = URLRequest(url: url)
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(request: URLRequest, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         guard let url = request.url else { return }
+        if !preserveRestoredSessionHistory {
+            abandonRestoredSessionHistoryIfNeeded()
+        }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
@@ -1846,12 +1909,48 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredBackHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredForwardHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goBack()
     }
 
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredForwardHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredBackHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goForward()
     }
 
@@ -2214,6 +2313,64 @@ extension BrowserPanel {
         }
 
         return nil
+    }
+
+    private func resolvedCurrentSessionHistoryURL() -> URL? {
+        if let webViewURL = webView.url,
+           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+            return webViewURL
+        }
+        if let currentURL,
+           Self.serializableSessionHistoryURLString(currentURL) != nil {
+            return currentURL
+        }
+        return restoredHistoryCurrentURL
+    }
+
+    private func refreshNavigationAvailability() {
+        let resolvedCanGoBack: Bool
+        let resolvedCanGoForward: Bool
+        if usesRestoredSessionHistory {
+            resolvedCanGoBack = !restoredBackHistoryStack.isEmpty
+            resolvedCanGoForward = !restoredForwardHistoryStack.isEmpty
+        } else {
+            resolvedCanGoBack = nativeCanGoBack
+            resolvedCanGoForward = nativeCanGoForward
+        }
+
+        if canGoBack != resolvedCanGoBack {
+            canGoBack = resolvedCanGoBack
+        }
+        if canGoForward != resolvedCanGoForward {
+            canGoForward = resolvedCanGoForward
+        }
+    }
+
+    private func abandonRestoredSessionHistoryIfNeeded() {
+        guard usesRestoredSessionHistory else { return }
+        usesRestoredSessionHistory = false
+        restoredBackHistoryStack.removeAll(keepingCapacity: false)
+        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
+        restoredHistoryCurrentURL = nil
+        refreshNavigationAvailability()
+    }
+
+    private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
+        guard let url else { return nil }
+        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != "about:blank" else { return nil }
+        return value
+    }
+
+    private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
+        return URL(string: trimmed)
+    }
+
+    private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
+        values.compactMap { sanitizedSessionHistoryURL($0) }
     }
 
 }

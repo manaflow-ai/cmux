@@ -558,6 +558,10 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 
 @MainActor
 class TabManager: ObservableObject {
+    /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
+    /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
+    weak var window: NSWindow?
+
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
 
@@ -754,7 +758,11 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
-    func addWorkspace(workingDirectory overrideWorkingDirectory: String? = nil, select: Bool = true) -> Workspace {
+    func addWorkspace(
+        workingDirectory overrideWorkingDirectory: String? = nil,
+        select: Bool = true,
+        placementOverride: NewWorkspacePlacement? = nil
+    ) -> Workspace {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
@@ -767,7 +775,7 @@ class TabManager: ObservableObject {
             configTemplate: inheritedConfig
         )
         wireClosedBrowserTracking(for: newWorkspace)
-        let insertIndex = newTabInsertIndex()
+        let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
         } else {
@@ -832,8 +840,8 @@ class TabManager: ObservableObject {
         return trimmed.isEmpty ? nil : normalized
     }
 
-    private func newTabInsertIndex() -> Int {
-        let placement = WorkspacePlacementSettings.current()
+    private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
+        let placement = placementOverride ?? WorkspacePlacementSettings.current()
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let selectedIndex = selectedTabId.flatMap { tabId in
             tabs.firstIndex(where: { $0.id == tabId })
@@ -1496,8 +1504,8 @@ class TabManager: ObservableObject {
 
     private func updateWindowTitle(for tab: Workspace?) {
         let title = windowTitle(for: tab)
-        let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first
-        targetWindow?.title = title
+        guard let targetWindow = window else { return }
+        targetWindow.title = title
     }
 
     private func windowTitle(for tab: Workspace?) -> String {
@@ -3120,6 +3128,75 @@ class TabManager: ObservableObject {
         }
     }
 #endif
+}
+
+extension TabManager {
+    func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
+        let workspaceSnapshots = tabs
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            tabs.firstIndex(where: { $0.id == selectedTabId })
+        }
+        return SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            workspaces: workspaceSnapshots
+        )
+    }
+
+    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+        for tab in tabs {
+            unwireClosedBrowserTracking(for: tab)
+        }
+
+        tabs.removeAll(keepingCapacity: false)
+        lastFocusedPanelByTab.removeAll()
+        pendingPanelTitleUpdates.removeAll()
+        tabHistory.removeAll()
+        historyIndex = -1
+        isNavigatingHistory = false
+        pendingWorkspaceUnfocusTarget = nil
+        workspaceCycleCooldownTask?.cancel()
+        workspaceCycleCooldownTask = nil
+        isWorkspaceCycleHot = false
+        selectionSideEffectsGeneration &+= 1
+        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+
+        let workspaceSnapshots = snapshot.workspaces
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        for workspaceSnapshot in workspaceSnapshots {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let workspace = Workspace(
+                title: workspaceSnapshot.processTitle,
+                workingDirectory: workspaceSnapshot.currentDirectory,
+                portOrdinal: ordinal
+            )
+            workspace.restoreSessionSnapshot(workspaceSnapshot)
+            wireClosedBrowserTracking(for: workspace)
+            tabs.append(workspace)
+        }
+
+        if tabs.isEmpty {
+            _ = addWorkspace(select: false)
+        }
+
+        selectedTabId = nil
+        if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
+           tabs.indices.contains(selectedWorkspaceIndex) {
+            selectedTabId = tabs[selectedWorkspaceIndex].id
+        } else {
+            selectedTabId = tabs.first?.id
+        }
+
+        if let selectedTabId {
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
+            )
+        }
+    }
 }
 
 // MARK: - Direction Types for Backwards Compatibility

@@ -71,7 +71,7 @@ enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
             // Matches Bonsplit tab icon tint for active tabs.
             return Color(nsColor: .labelColor)
         case .accent:
-            return .accentColor
+            return cmuxAccentColor()
         case .tertiary:
             return Color(nsColor: .tertiaryLabelColor)
         }
@@ -178,6 +178,17 @@ func resolvedBrowserChromeBackgroundColor(
     }
 }
 
+func resolvedBrowserChromeColorScheme(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> ColorScheme {
+    let backgroundColor = resolvedBrowserChromeBackgroundColor(
+        for: colorScheme,
+        themeBackgroundColor: themeBackgroundColor
+    )
+    return backgroundColor.isLightColor ? .light : .dark
+}
+
 func resolvedBrowserOmnibarPillBackgroundColor(
     for colorScheme: ColorScheme,
     themeBackgroundColor: NSColor
@@ -274,9 +285,16 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var browserChromeColorScheme: ColorScheme {
+        resolvedBrowserChromeColorScheme(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
     private var omnibarPillBackgroundColor: NSColor {
         resolvedBrowserOmnibarPillBackgroundColor(
-            for: colorScheme,
+            for: browserChromeColorScheme,
             themeBackgroundColor: browserChromeBackgroundColor
         )
     }
@@ -288,8 +306,8 @@ struct BrowserPanelView: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                .stroke(Color.accentColor.opacity(focusFlashOpacity), lineWidth: 3)
-                .shadow(color: Color.accentColor.opacity(focusFlashOpacity * 0.35), radius: 10)
+                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }
@@ -312,6 +330,7 @@ struct BrowserPanelView: View {
                 .frame(width: omnibarPillFrame.width)
                 .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
                 .zIndex(1000)
+                .environment(\.colorScheme, browserChromeColorScheme)
             }
         }
         .coordinateSpace(name: "BrowserPanelViewSpace")
@@ -458,6 +477,7 @@ struct BrowserPanelView: View {
         .background(Color(nsColor: browserChromeBackgroundColor))
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
+        .environment(\.colorScheme, browserChromeColorScheme)
     }
 
     private var addressBarButtonBar: some View {
@@ -676,7 +696,7 @@ struct BrowserPanelView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)
-                .stroke(addressBarFocused ? Color.accentColor : Color.clear, lineWidth: 1)
+                .stroke(addressBarFocused ? cmuxAccentColor() : Color.clear, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .background {

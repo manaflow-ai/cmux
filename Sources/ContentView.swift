@@ -38,6 +38,49 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
+func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
+    switch colorScheme {
+    case .dark:
+        return NSColor(
+            srgbRed: 0,
+            green: 145.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    default:
+        return NSColor(
+            srgbRed: 0,
+            green: 136.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    }
+}
+
+func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
+    return cmuxAccentNSColor(for: scheme)
+}
+
+func cmuxAccentNSColor() -> NSColor {
+    NSColor(name: nil) { appearance in
+        cmuxAccentNSColor(for: appearance)
+    }
+}
+
+func cmuxAccentColor() -> Color {
+    Color(nsColor: cmuxAccentNSColor())
+}
+
+func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+    cmuxAccentNSColor(for: colorScheme)
+}
+
+func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    return NSColor.white.withAlphaComponent(clampedOpacity)
+}
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -185,7 +228,14 @@ enum WindowGlassEffect {
 }
 
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool = true
+    @Published var isVisible: Bool
+    @Published var persistedWidth: CGFloat
+
+    init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
+        self.isVisible = isVisible
+        let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
+        self.persistedWidth = CGFloat(sanitized)
+    }
 
     func toggle() {
         isVisible.toggle()
@@ -1436,6 +1486,15 @@ struct ContentView: View {
         }
     }
 
+    private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
+        let minWidth = CGFloat(SessionPersistencePolicy.minimumSidebarWidth)
+        let maxWidth = max(minWidth, maxSidebarWidth())
+        if !candidate.isFinite {
+            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        }
+        return max(minWidth, min(maxWidth, candidate))
+    }
+
     private func activateSidebarResizerCursor() {
         sidebarResizerCursorReleaseWorkItem?.cancel()
         sidebarResizerCursorReleaseWorkItem = nil
@@ -1968,6 +2027,13 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
+            let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
+            if abs(sidebarWidth - restoredWidth) > 0.5 {
+                sidebarWidth = restoredWidth
+            }
+            if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
+                sidebarState.persistedWidth = restoredWidth
+            }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -2223,11 +2289,31 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarWidth) { _ in
+            let sanitized = normalizedSidebarWidth(sidebarWidth)
+            if abs(sidebarWidth - sanitized) > 0.5 {
+                sidebarWidth = sanitized
+                return
+            }
+            if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
+                sidebarState.persistedWidth = sanitized
+            }
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
             updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
+            let sanitized = normalizedSidebarWidth(newValue)
+            if abs(newValue - sanitized) > 0.5 {
+                sidebarState.persistedWidth = sanitized
+                return
+            }
+            guard !isResizerDragging else { return }
+            if abs(sidebarWidth - sanitized) > 0.5 {
+                sidebarWidth = sanitized
+            }
         })
 
         view = AnyView(view.ignoresSafeArea())
@@ -2559,7 +2645,7 @@ struct ContentView: View {
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
                             let rowBackground: Color = isSelected
-                                ? Color.accentColor.opacity(0.12)
+                                ? cmuxAccentColor().opacity(0.12)
                                 : (isHovered ? Color.primary.opacity(0.08) : .clear)
 
                             Button {
@@ -5244,9 +5330,9 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    // Double-click the sidebar title-bar area to trigger the
-                    // standard macOS titlebar action (zoom/minimize).
-                    DoubleClickZoomView()
+                    // Match native titlebar behavior in the sidebar top strip:
+                    // drag-to-move and double-click action (zoom/minimize).
+                    WindowDragHandleView()
                         .frame(height: trafficLightPadding)
                 }
                 .background(Color.clear)
@@ -5888,7 +5974,7 @@ private struct SidebarEmptyArea: View {
             .contentShape(Rectangle())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onTapGesture(count: 2) {
-                tabManager.addTab()
+                tabManager.addWorkspace(placementOverride: .end)
                 if let selectedId = tabManager.selectedTabId {
                     selectedTabIds = [selectedId]
                     lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
@@ -5908,7 +5994,7 @@ private struct SidebarEmptyArea: View {
             .overlay(alignment: .top) {
                 if shouldShowTopDropIndicator {
                     Rectangle()
-                        .fill(Color.accentColor)
+                        .fill(cmuxAccentColor())
                         .frame(height: 2)
                         .padding(.horizontal, 8)
                         .offset(y: -(rowSpacing / 2))
@@ -6003,17 +6089,19 @@ private struct TabItemView: View {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)) : .primary
+        usesInvertedActiveForeground
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
+            : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
             : .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.25) : Color.accentColor
+        usesInvertedActiveForeground ? Color.white.opacity(0.25) : cmuxAccentColor()
     }
 
     private var activeProgressTrackColor: Color {
@@ -6021,7 +6109,7 @@ private struct TabItemView: View {
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? Color.white.opacity(0.8) : Color.accentColor
+        usesInvertedActiveForeground ? Color.white.opacity(0.8) : cmuxAccentColor()
     }
 
     private var shortcutHintEmphasis: Double {
@@ -6292,7 +6380,7 @@ private struct TabItemView: View {
         .overlay(alignment: .top) {
             if showsCenteredTopDropIndicator {
                 Rectangle()
-                    .fill(Color.accentColor)
+                    .fill(cmuxAccentColor())
                     .frame(height: 2)
                     .padding(.horizontal, 8)
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
@@ -6494,17 +6582,16 @@ private struct TabItemView: View {
     private var backgroundColor: Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            if isActive        { return Color.accentColor }
-            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
+            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         case .solidFill:
+            if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if let custom = resolvedCustomTabColor {
-                if isActive        { return custom }
                 if isMultiSelected { return custom.opacity(0.35) }
                 return custom.opacity(0.7)
             }
-            if isActive        { return Color.accentColor }
-            if isMultiSelected { return Color.accentColor.opacity(0.25) }
+            if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         }
     }
@@ -6818,15 +6905,15 @@ private struct TabItemView: View {
         if isActive {
             switch level {
             case .info:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.5))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.5))
             case .progress:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
             case .success:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             case .warning:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             case .error:
-                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+                return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.9))
             }
         }
         switch level {
@@ -6963,11 +7050,11 @@ private struct SidebarStatusPillsRow: View {
     }
 
     private var activePrimaryTextColor: Color {
-        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
     }
 
     private var activeSecondaryTextColor: Color {
-        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.65))
+        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65))
     }
 
     private var statusText: String {
@@ -7557,27 +7644,6 @@ private struct SidebarTabDropDelegate: DropDelegate {
         guard let indicator else { return "nil" }
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
-    }
-}
-
-/// AppKit-level double-click handler for the sidebar title-bar area.
-/// Uses NSView hit-testing so it isn't swallowed by the SwiftUI ScrollView underneath.
-private struct DoubleClickZoomView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        DoubleClickZoomNSView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class DoubleClickZoomNSView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-        override func hitTest(_ point: NSPoint) -> NSView? { self }
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2, performStandardTitlebarDoubleClick(window: window) {
-                return
-            }
-            super.mouseDown(with: event)
-        }
     }
 }
 
