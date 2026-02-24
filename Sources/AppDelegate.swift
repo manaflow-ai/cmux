@@ -1977,10 +1977,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 
         if focus {
-            if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
+            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
+            if let destinationWindowId {
                 _ = focusMainWindow(windowId: destinationWindowId)
             }
             destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
+            if let destinationWindowId {
+                reassertCrossWindowSurfaceMoveFocusIfNeeded(
+                    destinationWindowId: destinationWindowId,
+                    sourceWindowId: source.windowId,
+                    destinationWorkspaceId: targetWorkspaceId,
+                    destinationPanelId: panelId,
+                    destinationManager: destinationManager
+                )
+            }
         }
 
         return true
@@ -2231,6 +2241,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             _ = closeMainWindow(windowId: sourceWindowId)
         }
+    }
+
+    private func reassertCrossWindowSurfaceMoveFocusIfNeeded(
+        destinationWindowId: UUID,
+        sourceWindowId: UUID,
+        destinationWorkspaceId: UUID,
+        destinationPanelId: UUID,
+        destinationManager: TabManager
+    ) {
+        let reassert: () -> Void = { [weak self, weak destinationManager] in
+            guard let self, let destinationManager else { return }
+            guard let workspace = destinationManager.tabs.first(where: { $0.id == destinationWorkspaceId }),
+                  workspace.panels[destinationPanelId] != nil else {
+                return
+            }
+            guard let destinationWindow = self.mainWindow(for: destinationWindowId) else { return }
+            guard let keyWindow = NSApp.keyWindow,
+                  let keyWindowId = self.mainWindowId(for: keyWindow),
+                  keyWindowId == sourceWindowId,
+                  keyWindow !== destinationWindow else {
+                return
+            }
+
+            self.bringToFront(destinationWindow)
+            destinationManager.focusTab(
+                destinationWorkspaceId,
+                surfaceId: destinationPanelId,
+                suppressFlash: true
+            )
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: reassert)
     }
 
     private func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
