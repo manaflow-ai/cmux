@@ -18,6 +18,15 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    name: "あさざ",
+    handle: "@asaza_0928",
+    avatar: "/avatars/asaza_0928.jpg",
+    text: "cmux 良さそうすぎてついにバイバイ VSCode するときなのかもしれない",
+    translation: "cmux looks so good it might finally be time to say goodbye to VSCode",
+    url: "https://x.com/asaza_0928/status/2026057269075698015",
+    platform: "x" as const,
+  },
+  {
     name: "johnthedebs",
     handle: "johnthedebs",
     avatar: null,
@@ -73,15 +82,6 @@ export const testimonials = [
     text: "cmux.dev に乗り換えた",
     translation: "Switched to cmux.dev",
     url: "https://x.com/kataring/status/2026189035056832718",
-    platform: "x" as const,
-  },
-  {
-    name: "あさざ",
-    handle: "@asaza_0928",
-    avatar: "/avatars/asaza_0928.jpg",
-    text: "cmux 良さそうすぎてついにバイバイ VSCode するときなのかもしれない",
-    translation: "cmux looks so good it might finally be time to say goodbye to VSCode",
-    url: "https://x.com/asaza_0928/status/2026057269075698015",
     platform: "x" as const,
   },
 ];
