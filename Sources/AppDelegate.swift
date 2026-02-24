@@ -480,6 +480,29 @@ func browserZoomShortcutTraceActionString(_ action: BrowserZoomShortcutAction?) 
 }
 #endif
 
+func shouldSuppressWindowMoveForFolderDrag(hitView: NSView?) -> Bool {
+    var candidate = hitView
+    while let view = candidate {
+        if view is DraggableFolderNSView {
+            return true
+        }
+        candidate = view.superview
+    }
+    return false
+}
+
+func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown,
+          window.isMovable,
+          let contentView = window.contentView else {
+        return false
+    }
+
+    let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+    let hitView = contentView.hitTest(contentPoint)
+    return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
@@ -569,6 +592,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.makeFirstResponder(_:))
         let swizzledSelector = #selector(NSWindow.cmux_makeFirstResponder(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
+    private static let didInstallWindowSendEventSwizzle: Void = {
+        let targetClass: AnyClass = NSWindow.self
+        let originalSelector = #selector(NSWindow.sendEvent(_:))
+        let swizzledSelector = #selector(NSWindow.cmux_sendEvent(_:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
             return
@@ -1410,6 +1443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
+        window.isMovable = false
         window.center()
         window.contentView = NSHostingView(rootView: root)
 
@@ -2179,6 +2213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
+        _ = didInstallWindowSendEventSwizzle
     }
 
 #if DEBUG
@@ -2196,6 +2231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
+        _ = Self.didInstallWindowSendEventSwizzle
     }
 
     private func installShortcutMonitor() {
@@ -4708,6 +4744,36 @@ private extension NSWindow {
         }
 #endif
         return cmux_makeFirstResponder(responder)
+    }
+
+    @objc func cmux_sendEvent(_ event: NSEvent) {
+        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
+              let contentView = self.contentView else {
+            cmux_sendEvent(event)
+            return
+        }
+
+        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+        let hitView = contentView.hitTest(contentPoint)
+        let previousMovableState = isMovable
+        if previousMovableState {
+            isMovable = false
+        }
+
+        #if DEBUG
+        let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableState)")
+        #endif
+
+        cmux_sendEvent(event)
+
+        if previousMovableState {
+            isMovable = previousMovableState
+        }
+
+        #if DEBUG
+        dlog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+        #endif
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
