@@ -178,6 +178,17 @@ func resolvedBrowserChromeBackgroundColor(
     }
 }
 
+func resolvedBrowserChromeColorScheme(
+    for colorScheme: ColorScheme,
+    themeBackgroundColor: NSColor
+) -> ColorScheme {
+    let backgroundColor = resolvedBrowserChromeBackgroundColor(
+        for: colorScheme,
+        themeBackgroundColor: themeBackgroundColor
+    )
+    return backgroundColor.isLightColor ? .light : .dark
+}
+
 func resolvedBrowserOmnibarPillBackgroundColor(
     for colorScheme: ColorScheme,
     themeBackgroundColor: NSColor
@@ -274,9 +285,16 @@ struct BrowserPanelView: View {
         )
     }
 
+    private var browserChromeColorScheme: ColorScheme {
+        resolvedBrowserChromeColorScheme(
+            for: colorScheme,
+            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+        )
+    }
+
     private var omnibarPillBackgroundColor: NSColor {
         resolvedBrowserOmnibarPillBackgroundColor(
-            for: colorScheme,
+            for: browserChromeColorScheme,
             themeBackgroundColor: browserChromeBackgroundColor
         )
     }
@@ -312,6 +330,7 @@ struct BrowserPanelView: View {
                 .frame(width: omnibarPillFrame.width)
                 .offset(x: omnibarPillFrame.minX, y: omnibarPillFrame.maxY + 3)
                 .zIndex(1000)
+                .environment(\.colorScheme, browserChromeColorScheme)
             }
         }
         .coordinateSpace(name: "BrowserPanelViewSpace")
@@ -458,6 +477,7 @@ struct BrowserPanelView: View {
         .background(Color(nsColor: browserChromeBackgroundColor))
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
+        .environment(\.colorScheme, browserChromeColorScheme)
     }
 
     private var addressBarButtonBar: some View {
