@@ -159,6 +159,11 @@ body {
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
+.docs-content pre {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
 .docs-content pre code {
   background: none;
   padding: 0;
