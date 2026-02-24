@@ -117,6 +117,9 @@ final class WindowBrowserHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         updateDividerCursor(at: point)
 
+        if shouldPassThroughToTitlebar(at: point) {
+            return nil
+        }
         if shouldPassThroughToSidebarResizer(at: point) {
             return nil
         }
@@ -125,6 +128,14 @@ final class WindowBrowserHostView: NSView {
         }
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        // Window-level portal hosts sit above SwiftUI content. Never intercept
+        // hits that land in the native titlebar region.
+        let windowPoint = convert(point, to: nil)
+        return windowPoint.y >= (window.contentLayoutRect.maxY - 0.5)
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
