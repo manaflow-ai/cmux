@@ -1193,6 +1193,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        cleanupEmptySourceWorkspaceAfterSurfaceMove(
+            sourceWorkspace: sourceWorkspace,
+            sourceManager: source.tabManager,
+            sourceWindowId: source.windowId
+        )
+
         if focus {
             if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
                 _ = focusMainWindow(windowId: destinationWindowId)
@@ -1433,6 +1439,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             atIndex: sourceIndex,
             focus: focus
         )
+    }
+
+    private func cleanupEmptySourceWorkspaceAfterSurfaceMove(
+        sourceWorkspace: Workspace,
+        sourceManager: TabManager,
+        sourceWindowId: UUID
+    ) {
+        guard sourceWorkspace.panels.isEmpty else { return }
+        guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
+
+        if sourceManager.tabs.count > 1 {
+            sourceManager.closeWorkspace(sourceWorkspace)
+        } else {
+            _ = closeMainWindow(windowId: sourceWindowId)
+        }
     }
 
     private func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {

@@ -2671,9 +2671,16 @@ extension Workspace: BonsplitDelegate {
             lastTerminalConfigInheritancePanelId = nil
         }
 
-        // Keep the workspace invariant: always retain at least one real panel.
-        // This prevents runtime close callbacks from ever collapsing into a tabless workspace.
+        // Keep the workspace invariant for normal close paths.
+        // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
+        // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
+            if isDetaching {
+                scheduleTerminalGeometryReconcile()
+                scheduleFocusReconcile()
+                return
+            }
+
             let replacement = createReplacementTerminalPanel()
             if let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {

@@ -2898,6 +2898,34 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testDetachLastSurfaceLeavesWorkspaceTemporarilyEmptyForMoveFlow() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: panelId) else {
+            XCTFail("Expected initial panel and pane")
+            return
+        }
+
+        XCTAssertEqual(workspace.panels.count, 1)
+
+        guard let detached = workspace.detachSurface(panelId: panelId) else {
+            XCTFail("Expected detach of last surface to succeed")
+            return
+        }
+
+        XCTAssertEqual(detached.panelId, panelId)
+        XCTAssertTrue(
+            workspace.panels.isEmpty,
+            "Detaching the last surface should not auto-create a replacement panel"
+        )
+        XCTAssertNil(workspace.surfaceIdFromPanelId(panelId))
+        XCTAssertEqual(workspace.bonsplitController.tabs(inPane: paneId).count, 0)
+
+        let restoredPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
+        XCTAssertEqual(restoredPanelId, panelId)
+        XCTAssertEqual(workspace.panels.count, 1)
+    }
+
     func testBrowserSplitWithFocusFalseRecoversFromDelayedStaleSelection() {
         let workspace = Workspace()
         guard let originalFocusedPanelId = workspace.focusedPanelId else {
