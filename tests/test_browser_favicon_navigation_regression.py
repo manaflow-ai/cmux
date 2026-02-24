@@ -69,6 +69,13 @@ def main() -> int:
         failures.append("handleWebViewLoadingChanged() no longer cancels stale favicon tasks")
     if "lastFaviconURLString = nil" not in loading_block:
         failures.append("handleWebViewLoadingChanged() no longer resets favicon URL cache on new loads")
+    if "faviconPNGData = nil" not in loading_block:
+        failures.append("handleWebViewLoadingChanged() no longer clears stale favicon data on new loads")
+
+    # Committed-navigation failures (didFail) must also clear stale favicon/title.
+    did_fail_block = extract_block(panel_source, "func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error)")
+    if "didFailNavigation?" not in did_fail_block:
+        failures.append("didFail (committed navigation failure) does not call didFailNavigation to clear stale state")
 
     if failures:
         print("FAIL: browser favicon navigation regression guard failed")
