@@ -48,11 +48,21 @@ export async function CodeBlock({
         </div>
       )}
       <pre
-        className={`bg-code-bg border border-border px-4 py-3 overflow-x-auto text-[13px] ${lineHeightClass} font-mono ${
-          title ? "rounded-b-lg" : "rounded-lg"
-        }`}
+        className={`bg-code-bg border border-border px-4 py-3 overflow-x-auto text-[13px] ${lineHeightClass} ${
+          variant === "ascii" ? "" : "font-mono "
+        }${title ? "rounded-b-lg" : "rounded-lg"}`}
+        style={
+          variant === "ascii"
+            ? {
+                fontFamily:
+                  "Menlo, Monaco, Consolas, 'Courier New', monospace",
+              }
+            : undefined
+        }
       >
-        <code>{children}</code>
+        <code style={variant === "ascii" ? { fontFamily: "inherit" } : undefined}>
+          {children}
+        </code>
       </pre>
     </div>
   );
