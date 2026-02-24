@@ -4980,6 +4980,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
         Coordinator()
     }
 
+    static func shouldApplyImmediateHostedStateUpdate(
+        hostWindowAttached: Bool,
+        hostedViewHasSuperview: Bool,
+        isBoundToCurrentHost: Bool
+    ) -> Bool {
+        if !hostWindowAttached { return true }
+        if isBoundToCurrentHost { return true }
+        return !hostedViewHasSuperview
+    }
+
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
@@ -5022,8 +5032,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setVisibleInUI(isVisibleInUI)
-        hostedView.setActive(isActive)
         hostedView.setInactiveOverlay(
             color: inactiveOverlayColor,
             opacity: CGFloat(inactiveOverlayOpacity),
@@ -5058,7 +5066,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
 
-        if let host = nsView as? HostContainerView {
+        let hostContainer = nsView as? HostContainerView
+        if let host = hostContainer {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in
                 guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
@@ -5108,6 +5117,28 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     visibleInUI: coordinator.desiredIsVisibleInUI
                 )
             }
+        }
+
+        let hostWindowAttached = hostContainer?.window != nil
+        let isBoundToCurrentHost = hostContainer.map { host in
+            TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
+        } ?? true
+        let shouldApplyImmediateHostedState = Self.shouldApplyImmediateHostedStateUpdate(
+            hostWindowAttached: hostWindowAttached,
+            hostedViewHasSuperview: hostedView.superview != nil,
+            isBoundToCurrentHost: isBoundToCurrentHost
+        )
+
+        if shouldApplyImmediateHostedState {
+            hostedView.setVisibleInUI(isVisibleInUI)
+            hostedView.setActive(isActive)
+        } else {
+            // Preserve portal entry visibility while a stale host is still receiving SwiftUI updates.
+            // The currently bound host remains authoritative for immediate visible/active state.
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: hostedView,
+                visibleInUI: isVisibleInUI
+            )
         }
     }
 
