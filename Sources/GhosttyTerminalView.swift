@@ -2517,6 +2517,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
+        var shouldApplySurfaceFocus = false
         if result {
             // If we become first responder before the ghostty surface exists (e.g. during
             // split/tab creation while the surface is still being created), record the desired focus.
@@ -2538,6 +2539,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // stayed behind.
             let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
             if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
+                shouldApplySurfaceFocus = true
                 onFocus?()
             } else if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
 #if DEBUG
@@ -2548,7 +2550,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             }
         }
-        if result, let surface = ensureSurfaceReadyForInput() {
+        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
