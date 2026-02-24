@@ -1854,15 +1854,59 @@ extension BrowserPanel {
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let paneId = workspace.paneId(forPanelId: id) else { return }
+#if DEBUG
+        dlog(
+            "browser.newTab.openLink.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "url=\(url.absoluteString) " +
+            "bypassHost=\(bypassInsecureHTTPHostOnce ?? "nil")"
+        )
+#endif
+
+        guard let tabManager = AppDelegate.shared?.tabManager else {
+#if DEBUG
+            dlog(
+                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
+                "reason=missingTabManager url=\(url.absoluteString)"
+            )
+#endif
+            return
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            dlog(
+                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
+                "reason=workspaceNotFound workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "url=\(url.absoluteString)"
+            )
+#endif
+            return
+        }
+        guard let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog(
+                "browser.newTab.openLink.abort panel=\(id.uuidString.prefix(5)) " +
+                "reason=paneNotFound workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "url=\(url.absoluteString)"
+            )
+#endif
+            return
+        }
+
         workspace.newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
+#if DEBUG
+        dlog(
+            "browser.newTab.openLink.dispatched panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "pane=\(paneId.id.uuidString.prefix(5)) " +
+            "url=\(url.absoluteString)"
+        )
+#endif
     }
 
     /// Reload the current page

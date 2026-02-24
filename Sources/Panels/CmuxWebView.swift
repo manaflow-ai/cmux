@@ -139,13 +139,34 @@ final class CmuxWebView: WKWebView {
     // MARK: - Mouse back/forward buttons & middle-click
 
     override func otherMouseDown(with event: NSEvent) {
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        dlog(
+            "browser.mouse.otherDown web=\(ObjectIdentifier(self)) " +
+            "button=\(event.buttonNumber) clicks=\(event.clickCount) " +
+            "mods=\(modifiers) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
         // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
         // Consume the event so WebKit doesn't handle it.
         switch event.buttonNumber {
         case 3:
+#if DEBUG
+            dlog(
+                "browser.mouse.otherDown.navigate web=\(ObjectIdentifier(self)) " +
+                "action=back canGoBack=\(canGoBack ? 1 : 0)"
+            )
+#endif
             goBack()
             return
         case 4:
+#if DEBUG
+            dlog(
+                "browser.mouse.otherDown.navigate web=\(ObjectIdentifier(self)) " +
+                "action=forward canGoForward=\(canGoForward ? 1 : 0)"
+            )
+#endif
             goForward()
             return
         default:
@@ -158,8 +179,28 @@ final class CmuxWebView: WKWebView {
         // Middle-click (button 2) on a link opens it in a new tab.
         if event.buttonNumber == 2 {
             let point = convert(event.locationInWindow, from: nil)
+#if DEBUG
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+            dlog(
+                "browser.middleClick.up web=\(ObjectIdentifier(self)) " +
+                "clicks=\(event.clickCount) mods=\(modifiers) " +
+                "point=(\(Int(point.x)),\(Int(point.y)))"
+            )
+#endif
             findLinkAtPoint(point) { [weak self] url in
+#if DEBUG
+                dlog(
+                    "browser.middleClick.lookup.complete web=\(String(describing: self.map { ObjectIdentifier($0) })) " +
+                    "found=\(url != nil ? 1 : 0) url=\(url?.absoluteString ?? "nil")"
+                )
+#endif
                 guard let self, let url else { return }
+#if DEBUG
+                dlog(
+                    "browser.middleClick.notification.post web=\(ObjectIdentifier(self)) " +
+                    "url=\(url.absoluteString)"
+                )
+#endif
                 NotificationCenter.default.post(
                     name: .webViewMiddleClickedLink,
                     object: self,
@@ -175,19 +216,73 @@ final class CmuxWebView: WKWebView {
     private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
         // WKWebView's coordinate system is flipped (origin top-left for web content).
         let flippedY = bounds.height - point.y
+#if DEBUG
+        dlog(
+            "browser.middleClick.lookup.begin web=\(ObjectIdentifier(self)) " +
+            "point=(\(Int(point.x)),\(Int(point.y))) " +
+            "flippedY=\(Int(flippedY)) " +
+            "bounds=(\(Int(bounds.width))x\(Int(bounds.height)))"
+        )
+#endif
         let js = """
         (() => {
-            let el = document.elementFromPoint(\(point.x), \(flippedY));
-            while (el) {
-                if (el.tagName === 'A' && el.href) return el.href;
+            const start = document.elementFromPoint(\(point.x), \(flippedY));
+            let el = start;
+            let depth = 0;
+            while (el && depth < 64) {
+                if (el.tagName === 'A') {
+                    return {
+                        href: el.href || '',
+                        tag: el.tagName || '',
+                        startTag: start ? (start.tagName || '') : '',
+                        depth: depth,
+                        text: (el.textContent || '').trim().slice(0, 80),
+                    };
+                }
                 el = el.parentElement;
+                depth += 1;
             }
-            return '';
+            return {
+                href: '',
+                tag: start ? (start.tagName || '') : '',
+                startTag: start ? (start.tagName || '') : '',
+                depth: depth,
+                text: '',
+            };
         })();
         """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
+        evaluateJavaScript(js) { [weak self] result, error in
+            guard let self else {
+                completion(nil)
+                return
+            }
+
+#if DEBUG
+            if let error {
+                dlog(
+                    "browser.middleClick.lookup.error web=\(ObjectIdentifier(self)) " +
+                    "err=\(error.localizedDescription)"
+                )
+            }
+#endif
+
+            let payload = result as? [String: Any]
+            let href = payload?["href"] as? String ?? (result as? String ?? "")
+
+#if DEBUG
+            let tag = payload?["tag"] as? String ?? "nil"
+            let startTag = payload?["startTag"] as? String ?? "nil"
+            let depth = (payload?["depth"] as? NSNumber)?.intValue ?? -1
+            let text = (payload?["text"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")
+            let safeText = text.isEmpty ? "nil" : text
+            dlog(
+                "browser.middleClick.lookup.result web=\(ObjectIdentifier(self)) " +
+                "hrefPresent=\(href.isEmpty ? 0 : 1) " +
+                "tag=\(tag) startTag=\(startTag) depth=\(depth) text=\(safeText)"
+            )
+#endif
+
+            guard !href.isEmpty, let url = URL(string: href) else {
                 completion(nil)
                 return
             }
