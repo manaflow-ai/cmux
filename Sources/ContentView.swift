@@ -7645,7 +7645,6 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard bounds.contains(point) else { return nil }
-        maybeDisableWindowDraggingEarly(trigger: "hitTest")
         let hit = super.hitTest(point)
         #if DEBUG
         let hitDesc = hit.map { String(describing: type(of: $0)) } ?? "nil"
@@ -7685,9 +7684,9 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
 
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
-        if !hasActiveDragSession {
-            restoreWindowMovableStateIfNeeded()
-        }
+        // Always restore suppression on mouse-up; drag-session callbacks can be
+        // skipped for non-started drags, which would otherwise leave suppression stuck.
+        restoreWindowMovableStateIfNeeded()
     }
 
     override func rightMouseDown(with event: NSEvent) {
