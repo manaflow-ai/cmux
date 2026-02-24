@@ -133,9 +133,13 @@ final class WindowBrowserHostView: NSView {
     private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
         guard let window else { return false }
         // Window-level portal hosts sit above SwiftUI content. Never intercept
-        // hits that land in the native titlebar region.
+        // hits that land in native titlebar space or the custom titlebar strip
+        // we reserve directly under it for window drag/double-click behaviors.
         let windowPoint = convert(point, to: nil)
-        return windowPoint.y >= (window.contentLayoutRect.maxY - 0.5)
+        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
+        let interactionBandMinY = window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
+        return windowPoint.y >= interactionBandMinY
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
