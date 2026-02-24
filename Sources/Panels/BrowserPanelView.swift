@@ -2181,6 +2181,13 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     }
 }
 
+func browserOmnibarShouldReacquireFocusAfterEndEditing(
+    suppressWebViewFocus: Bool,
+    nextResponderIsOtherTextField: Bool
+) -> Bool {
+    suppressWebViewFocus && !nextResponderIsOtherTextField
+}
+
 private final class OmnibarNativeTextField: NSTextField {
     var onPointerDown: (() -> Void)?
     var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
@@ -2293,6 +2300,29 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        private func nextResponderIsOtherTextField(window: NSWindow?) -> Bool {
+            guard let window, let field = parentField else { return false }
+            let responder = window.firstResponder
+
+            if let editor = responder as? NSTextView,
+               let delegateField = editor.delegate as? NSTextField {
+                return delegateField !== field
+            }
+
+            if let textField = responder as? NSTextField {
+                return textField !== field
+            }
+
+            return false
+        }
+
+        private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
+            return browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: parent.shouldSuppressWebViewFocus(),
+                nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
+            )
+        }
+
         func controlTextDidBeginEditing(_ obj: Notification) {
             if !parent.isFocused {
                 DispatchQueue.main.async {
@@ -2305,15 +2335,18 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ obj: Notification) {
             if parent.isFocused {
-                if parent.shouldSuppressWebViewFocus() {
+                if shouldReacquireFocusAfterEndEditing(window: parentField?.window) {
                     guard pendingFocusRequest != true else { return }
                     pendingFocusRequest = true
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.pendingFocusRequest = nil
                         guard self.parent.isFocused else { return }
-                        guard self.parent.shouldSuppressWebViewFocus() else { return }
                         guard let field = self.parentField, let window = field.window else { return }
+                        guard self.shouldReacquireFocusAfterEndEditing(window: window) else {
+                            self.parent.onFieldLostFocus()
+                            return
+                        }
                         // Check both the field itself AND its field editor (which becomes
                         // the actual first responder when the text field is being edited).
                         let fr = window.firstResponder

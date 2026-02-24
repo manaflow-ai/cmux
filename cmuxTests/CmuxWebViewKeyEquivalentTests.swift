@@ -6012,3 +6012,32 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
         )
     }
 }
+
+final class BrowserOmnibarFocusPolicyTests: XCTestCase {
+    func testReacquiresFocusWhenWebViewSuppressionIsActiveAndNextResponderIsNotAnotherTextField() {
+        XCTAssertTrue(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: false
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenAnotherTextFieldAlreadyTookFocus() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: true,
+                nextResponderIsOtherTextField: true
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenWebViewSuppressionIsInactive() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                suppressWebViewFocus: false,
+                nextResponderIsOtherTextField: false
+            )
+        )
+    }
+}
