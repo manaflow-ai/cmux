@@ -1245,6 +1245,18 @@ class GhosttyApp {
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
+            if let staleOverride = surfaceView.backgroundColor {
+                surfaceView.backgroundColor = nil
+                if backgroundLogEnabled {
+                    logBackground(
+                        "surface override cleared tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") cleared=\(staleOverride.hexString()) source=action.config_change.surface"
+                    )
+                }
+                surfaceView.applySurfaceBackground()
+                DispatchQueue.main.async {
+                    surfaceView.applyWindowBackgroundIfActive()
+                }
+            }
             updateDefaultBackground(
                 from: action.action.config_change.config,
                 source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
