@@ -753,6 +753,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var installedThemeFrame: NSView?
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
+    private var isPaletteVisible = false
+    private var windowDidBecomeKeyObserver: NSObjectProtocol?
+    private var windowDidResignKeyObserver: NSObjectProtocol?
 
     init(window: NSWindow) {
         self.window = window
@@ -775,6 +778,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
         ])
         _ = ensureInstalled()
+        installWindowKeyObservers()
     }
 
     @discardableResult
@@ -906,6 +910,52 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
+    private func installWindowKeyObservers() {
+        guard let window else { return }
+        windowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFocusLockForWindowState()
+            }
+        }
+        windowDidResignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateFocusLockForWindowState()
+            }
+        }
+    }
+
+    private func updateFocusLockForWindowState() {
+        guard let window else {
+            stopFocusLockTimer()
+            return
+        }
+        guard isPaletteVisible else {
+            stopFocusLockTimer()
+            return
+        }
+
+        guard window.isKeyWindow else {
+            stopFocusLockTimer()
+            if isPaletteResponder(window.firstResponder) {
+                _ = window.makeFirstResponder(nil)
+            }
+            return
+        }
+
+        startFocusLockTimer()
+        if !isPaletteTextInputFirstResponder(window.firstResponder) {
+            scheduleFocusIntoPalette(retries: 8)
+        }
+    }
+
     private func startFocusLockTimer() {
         guard focusLockTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -952,6 +1002,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(rootView: AnyView, isVisible: Bool) {
         guard ensureInstalled() else { return }
+        isPaletteVisible = isVisible
         if isVisible {
             hostingView.rootView = rootView
             containerView.capturesMouseEvents = true
@@ -960,10 +1011,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             if let themeFrame = installedThemeFrame, themeFrame.subviews.last !== containerView {
                 themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
             }
-            startFocusLockTimer()
-            if let window, !isPaletteTextInputFirstResponder(window.firstResponder) {
-                scheduleFocusIntoPalette(retries: 8)
-            }
+            updateFocusLockForWindowState()
         } else {
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
