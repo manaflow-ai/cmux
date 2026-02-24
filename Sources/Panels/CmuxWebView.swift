@@ -63,72 +63,6 @@ final class CmuxWebView: WKWebView {
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
-#if DEBUG
-    private func debugKeyDescription(_ event: NSEvent) -> String {
-        var parts: [String] = []
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.command) { parts.append("Cmd") }
-        if flags.contains(.shift) { parts.append("Shift") }
-        if flags.contains(.option) { parts.append("Opt") }
-        if flags.contains(.control) { parts.append("Ctrl") }
-        let chars = event.charactersIgnoringModifiers ?? "?"
-        parts.append("'\(chars)'(\(event.keyCode))")
-        return parts.joined(separator: "+")
-    }
-
-    private func debugEnterTrace(
-        stage: String,
-        event: NSEvent,
-        consumed: Bool? = nil,
-        note: String? = nil
-    ) {
-        let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        let host = url?.host ?? "nil"
-        var line =
-            "enter.trace stage=\(stage) web=\(ObjectIdentifier(self)) " +
-            "event=\(debugKeyDescription(event)) fr=\(firstResponderType) " +
-            "win=\(window?.windowNumber ?? -1) host=\(host)"
-        if let consumed {
-            line += " consumed=\(consumed ? 1 : 0)"
-        }
-        if let note {
-            line += " note=\(note)"
-        }
-        dlog(line)
-    }
-
-    private func debugLogActiveElementForEnter(stage: String) {
-        let js = """
-        (() => {
-            const el = document.activeElement;
-            if (!el) return 'none';
-            const tag = (el.tagName || '').toLowerCase();
-            const id = el.id || '-';
-            const name = el.getAttribute('name') || '-';
-            const type = el.getAttribute('type') || '-';
-            return `${tag}|${id}|${name}|${type}`;
-        })();
-        """
-        evaluateJavaScript(js) { [weak self] result, error in
-            guard let self else { return }
-            let activeSummary: String
-            if let error {
-                activeSummary = "error=\(error.localizedDescription)"
-            } else if let text = result as? String {
-                activeSummary = text
-            } else if let result {
-                activeSummary = String(describing: result)
-            } else {
-                activeSummary = "nil"
-            }
-            dlog(
-                "enter.trace stage=\(stage).dom web=\(ObjectIdentifier(self)) " +
-                "active=\(activeSummary)"
-            )
-        }
-    }
-#endif
-
     override func becomeFirstResponder() -> Bool {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
@@ -182,14 +116,6 @@ final class CmuxWebView: WKWebView {
         if event.keyCode == 36 || event.keyCode == 76 {
             // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
             // receives the keyDown path used by form submission handlers.
-#if DEBUG
-            debugEnterTrace(
-                stage: "web.performKeyEquivalent.bypass",
-                event: event,
-                consumed: false,
-                note: "returnFalseForEnter"
-            )
-#endif
             return false
         }
 
@@ -215,37 +141,14 @@ final class CmuxWebView: WKWebView {
     }
 
     override func keyDown(with event: NSEvent) {
-#if DEBUG
-        if event.keyCode == 36 || event.keyCode == 76 {
-            debugEnterTrace(stage: "web.keyDown.pre", event: event, note: "beforeSuper")
-            debugLogActiveElementForEnter(stage: "web.keyDown.pre")
-        }
-#endif
-
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
            AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-#if DEBUG
-            if event.keyCode == 36 || event.keyCode == 76 {
-                debugEnterTrace(
-                    stage: "web.keyDown.commandConsumed",
-                    event: event,
-                    consumed: true,
-                    note: "handleBrowserSurfaceKeyEquivalent"
-                )
-            }
-#endif
             return
         }
 
         super.keyDown(with: event)
-#if DEBUG
-        if event.keyCode == 36 || event.keyCode == 76 {
-            debugEnterTrace(stage: "web.keyDown.post", event: event, note: "afterSuper")
-            debugLogActiveElementForEnter(stage: "web.keyDown.post")
-        }
-#endif
     }
 
     // MARK: - Focus on click
