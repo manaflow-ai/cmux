@@ -5241,9 +5241,9 @@ struct VerticalTabsSidebar: View {
                         .allowsHitTesting(false)
                 }
                 .overlay(alignment: .top) {
-                    // Double-click the sidebar title-bar area to trigger the
-                    // standard macOS titlebar action (zoom/minimize).
-                    DoubleClickZoomView()
+                    // Match native titlebar behavior in the sidebar top strip:
+                    // drag-to-move and double-click action (zoom/minimize).
+                    WindowDragHandleView()
                         .frame(height: trafficLightPadding)
                 }
                 .background(Color.clear)
@@ -7476,27 +7476,6 @@ private struct SidebarTabDropDelegate: DropDelegate {
         guard let indicator else { return "nil" }
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
-    }
-}
-
-/// AppKit-level double-click handler for the sidebar title-bar area.
-/// Uses NSView hit-testing so it isn't swallowed by the SwiftUI ScrollView underneath.
-private struct DoubleClickZoomView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        DoubleClickZoomNSView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    private final class DoubleClickZoomNSView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-        override func hitTest(_ point: NSPoint) -> NSView? { self }
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2, performStandardTitlebarDoubleClick(window: window) {
-                return
-            }
-            super.mouseDown(with: event)
-        }
     }
 }
 
