@@ -773,12 +773,13 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 }
 
-final class SidebarStatusPillActiveForegroundColorTests: XCTestCase {
-    func testLightModeUsesBlackWithRequestedOpacity() {
-        guard let color = sidebarStatusPillActiveForegroundNSColor(
-            colorScheme: .light,
-            opacity: 0.8
-        ).usingColorSpace(.sRGB) else {
+final class SidebarActiveForegroundColorTests: XCTestCase {
+    func testLightAppearanceUsesBlackWithRequestedOpacity() {
+        guard let lightAppearance = NSAppearance(named: .aqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.8,
+                  appAppearance: lightAppearance
+              ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -789,11 +790,12 @@ final class SidebarStatusPillActiveForegroundColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
     }
 
-    func testDarkModeUsesWhiteWithRequestedOpacity() {
-        guard let color = sidebarStatusPillActiveForegroundNSColor(
-            colorScheme: .dark,
-            opacity: 0.65
-        ).usingColorSpace(.sRGB) else {
+    func testDarkAppearanceUsesWhiteWithRequestedOpacity() {
+        guard let darkAppearance = NSAppearance(named: .darkAqua),
+              let color = sidebarActiveForegroundNSColor(
+                  opacity: 0.65,
+                  appAppearance: darkAppearance
+              ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }

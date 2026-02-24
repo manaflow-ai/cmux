@@ -28,17 +28,14 @@ private func coloredCircleImage(color: NSColor) -> NSImage {
     return image
 }
 
-func sidebarStatusPillActiveForegroundNSColor(
-    colorScheme: ColorScheme,
-    opacity: CGFloat
+func sidebarActiveForegroundNSColor(
+    opacity: CGFloat,
+    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
 ) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
-    switch colorScheme {
-    case .dark:
-        return NSColor.white.withAlphaComponent(clampedOpacity)
-    default:
-        return NSColor.black.withAlphaComponent(clampedOpacity)
-    }
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
+    return baseColor.withAlphaComponent(clampedOpacity)
 }
 
 struct ShortcutHintPillBackground: View {
@@ -5929,11 +5926,13 @@ private struct TabItemView: View {
     }
 
     private var activePrimaryTextColor: Color {
-        usesInvertedActiveForeground ? .white : .primary
+        usesInvertedActiveForeground ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)) : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
-        usesInvertedActiveForeground ? .white.opacity(opacity) : .secondary
+        usesInvertedActiveForeground
+            ? Color(nsColor: sidebarActiveForegroundNSColor(opacity: CGFloat(opacity)))
+            : .secondary
     }
 
     private var activeUnreadBadgeFillColor: Color {
@@ -6676,11 +6675,16 @@ private struct TabItemView: View {
     private func logLevelColor(_ level: SidebarLogLevel, isActive: Bool) -> Color {
         if isActive {
             switch level {
-            case .info: return .white.opacity(0.5)
-            case .progress: return .white.opacity(0.8)
-            case .success: return .white.opacity(0.9)
-            case .warning: return .white.opacity(0.9)
-            case .error: return .white.opacity(0.9)
+            case .info:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.5))
+            case .progress:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
+            case .success:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .warning:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
+            case .error:
+                return Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.9))
             }
         }
         switch level {
@@ -6781,7 +6785,6 @@ private struct SidebarStatusPillsRow: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -6818,11 +6821,11 @@ private struct SidebarStatusPillsRow: View {
     }
 
     private var activePrimaryTextColor: Color {
-        Color(nsColor: sidebarStatusPillActiveForegroundNSColor(colorScheme: colorScheme, opacity: 0.8))
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.8))
     }
 
     private var activeSecondaryTextColor: Color {
-        Color(nsColor: sidebarStatusPillActiveForegroundNSColor(colorScheme: colorScheme, opacity: 0.65))
+        Color(nsColor: sidebarActiveForegroundNSColor(opacity: 0.65))
     }
 
     private var statusText: String {
