@@ -54,6 +54,52 @@ private func installCmuxUnitTestInspectorOverride() {
     cmuxUnitTestInspectorOverrideInstalled = true
 }
 
+final class SplitShortcutTransientFocusGuardTests: XCTestCase {
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsDetached() {
+        XCTAssertTrue(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: false
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderFallsBackButGeometryIsHealthy() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: true,
+                hostedSize: CGSize(width: 1051.5, height: 1207),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+
+    func testAllowsWhenFirstResponderIsTerminalEvenIfViewIsTiny() {
+        XCTAssertFalse(
+            shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+                firstResponderIsWindow: false,
+                hostedSize: CGSize(width: 79, height: 0),
+                hostedHiddenInHierarchy: false,
+                hostedAttachedToWindow: true
+            )
+        )
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -4714,6 +4760,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    private func realizeWindowLayout(_ window: NSWindow) {
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4902,6 +4956,50 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             portal.terminalViewAtWindowPoint(overlapInWindow) === terminal1,
             "Promoting z-priority should bring an already-visible terminal to front"
         )
+    }
+
+    func testHiddenPortalDefersRevealUntilFrameHasUsableSize() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let portal = WindowTerminalPortal(window: window)
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 40, width: 280, height: 220))
+        contentView.addSubview(anchor)
+
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        XCTAssertFalse(hosted.isHidden, "Healthy geometry should be visible")
+
+        // Collapse to a tiny frame first.
+        anchor.frame = NSRect(x: 160.5, y: 1037.0, width: 79.0, height: 0.0)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertTrue(hosted.isHidden, "Tiny geometry should hide the portal-hosted terminal")
+
+        // Then restore to a non-zero but still too-small frame. It should remain hidden.
+        anchor.frame = NSRect(x: 160.9, y: 1026.5, width: 93.6, height: 10.3)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertTrue(
+            hosted.isHidden,
+            "Portal should defer reveal until geometry reaches a usable size"
+        )
+
+        // Once the frame is large enough again, reveal should resume.
+        anchor.frame = NSRect(x: 40, y: 40, width: 180, height: 40)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        XCTAssertFalse(hosted.isHidden, "Portal should unhide after geometry is usable")
     }
 }
 

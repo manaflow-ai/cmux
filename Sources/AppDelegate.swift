@@ -366,6 +366,17 @@ func browserZoomShortcutAction(
     return nil
 }
 
+func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+    firstResponderIsWindow: Bool,
+    hostedSize: CGSize,
+    hostedHiddenInHierarchy: Bool,
+    hostedAttachedToWindow: Bool
+) -> Bool {
+    guard firstResponderIsWindow else { return false }
+    let tinyGeometry = hostedSize.width <= 1 || hostedSize.height <= 1
+    return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
+}
+
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
@@ -2801,6 +2812,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                return true
+            }
             _ = performSplitShortcut(direction: .right)
             return true
         }
@@ -2809,6 +2823,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
+            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
+                return true
+            }
             _ = performSplitShortcut(direction: .down)
             return true
         }
@@ -2941,6 +2958,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
+        guard let tabManager,
+              let workspace = tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            return false
+        }
+
+        let hostedView = terminalPanel.hostedView
+        let hostedSize = hostedView.bounds.size
+        let hostedHiddenInHierarchy = hostedView.isHiddenOrHasHiddenAncestor
+        let hostedAttachedToWindow = hostedView.window != nil
+        let firstResponderIsWindow = NSApp.keyWindow?.firstResponder is NSWindow
+
+        let shouldSuppress = shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
+            firstResponderIsWindow: firstResponderIsWindow,
+            hostedSize: hostedSize,
+            hostedHiddenInHierarchy: hostedHiddenInHierarchy,
+            hostedAttachedToWindow: hostedAttachedToWindow
+        )
+        guard shouldSuppress else { return false }
+
+        tabManager.reconcileFocusedPanelFromFirstResponderForKeyboard()
+
+#if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "split.shortcut suppressed dir=\(directionLabel) reason=transient_focus_state " +
+            "fr=\(firstResponderType) hidden=\(hostedHiddenInHierarchy ? 1 : 0) " +
+            "attached=\(hostedAttachedToWindow ? 1 : 0) " +
+            "frame=\(String(format: "%.1fx%.1f", hostedSize.width, hostedSize.height))"
+        )
+#endif
+        return true
     }
 
 #if DEBUG
