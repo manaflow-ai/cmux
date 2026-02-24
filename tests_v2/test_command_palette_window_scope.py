@@ -43,6 +43,64 @@ def _set_palette_visible(client: cmux, window_id: str, visible: bool) -> None:
     )
 
 
+def _focus_window(client: cmux, window_id: str) -> None:
+    client.focus_window(window_id)
+    client.activate_app()
+    _wait_until(
+        lambda: client.current_window().lower() == window_id.lower(),
+        timeout_s=3.0,
+        message=f"failed to focus window {window_id}",
+    )
+    time.sleep(0.15)
+
+
+def _assert_shortcut_window_scoped(client: cmux, shortcut: str, w1: str, w2: str) -> None:
+    _set_palette_visible(client, w1, False)
+    _set_palette_visible(client, w2, False)
+
+    _focus_window(client, w1)
+    client.simulate_shortcut(shortcut)
+    _wait_until(
+        lambda: _palette_visible(client, w1),
+        timeout_s=3.0,
+        message=f"{shortcut} did not open palette in window1",
+    )
+    if _palette_visible(client, w2):
+        raise cmuxError(f"{shortcut} in window1 incorrectly opened palette in window2")
+
+    _focus_window(client, w2)
+    client.simulate_shortcut(shortcut)
+    _wait_until(
+        lambda: _palette_visible(client, w2),
+        timeout_s=3.0,
+        message=f"{shortcut} did not open palette in window2",
+    )
+    if not _palette_visible(client, w1):
+        raise cmuxError(
+            f"{shortcut} in window2 incorrectly toggled window1 palette off "
+            "(cross-window routing regression)"
+        )
+
+    client.simulate_shortcut(shortcut)
+    _wait_until(
+        lambda: not _palette_visible(client, w2),
+        timeout_s=3.0,
+        message=f"second {shortcut} did not close palette in window2",
+    )
+    if not _palette_visible(client, w1):
+        raise cmuxError(
+            f"second {shortcut} in window2 incorrectly changed window1 palette visibility"
+        )
+
+    _focus_window(client, w1)
+    client.simulate_shortcut(shortcut)
+    _wait_until(
+        lambda: not _palette_visible(client, w1),
+        timeout_s=3.0,
+        message=f"second {shortcut} did not close palette in window1",
+    )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as client:
         client.activate_app()
@@ -51,8 +109,8 @@ def main() -> int:
         w2 = client.new_window()
         time.sleep(0.25)
 
-        ws1 = client.new_workspace(window_id=w1)
-        ws2 = client.new_workspace(window_id=w2)
+        _ = client.new_workspace(window_id=w1)
+        _ = client.new_workspace(window_id=w2)
         time.sleep(0.25)
         _set_palette_visible(client, w1, False)
         _set_palette_visible(client, w2, False)
@@ -90,6 +148,11 @@ def main() -> int:
             timeout_s=3.0,
             message="window2 command palette did not close",
         )
+
+        # Reproduce keyboard-shortcut window-scoping path:
+        # opening from window2 must not jump back and toggle window1.
+        _assert_shortcut_window_scoped(client, "cmd+shift+p", w1, w2)
+        _assert_shortcut_window_scoped(client, "cmd+p", w1, w2)
 
     print("PASS: command palette is scoped to active window")
     return 0
