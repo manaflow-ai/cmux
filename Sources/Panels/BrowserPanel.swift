@@ -1695,6 +1695,9 @@ final class BrowserPanel: Panel, ObservableObject {
             faviconTask?.cancel()
             faviconTask = nil
             lastFaviconURLString = nil
+            // Clear the previous page's favicon so it never persists across navigations.
+            // The loading spinner covers this gap; didFinish will fetch the new favicon.
+            faviconPNGData = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -2683,6 +2686,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+        // Treat committed-navigation failures the same as provisional ones so
+        // stale favicon/title state from the prior page gets cleared.
+        let failedURL = webView.url?.absoluteString ?? ""
+        didFailNavigation?(webView, failedURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
