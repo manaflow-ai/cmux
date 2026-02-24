@@ -691,11 +691,11 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
 
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeUsesSubtleAccentTintOverThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .light, accentMix: 0.08)
+        assertResolvedColorMatchesExpectedBlend(for: .light, accentMix: 0.02)
     }
 
     func testDarkModeUsesSlightlyStrongerAccentTintOverThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .dark, accentMix: 0.12)
+        assertResolvedColorMatchesExpectedBlend(for: .dark, accentMix: 0.03)
     }
 
     private func assertResolvedColorMatchesExpectedBlend(

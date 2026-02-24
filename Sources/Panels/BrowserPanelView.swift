@@ -186,11 +186,11 @@ func resolvedBrowserOmnibarPillBackgroundColor(
     let accentMix: CGFloat
     switch colorScheme {
     case .light:
-        accentMix = 0.08
+        accentMix = 0.02
     case .dark:
-        accentMix = 0.12
+        accentMix = 0.03
     @unknown default:
-        accentMix = 0.08
+        accentMix = 0.02
     }
 
     return themeBackgroundColor.blended(withFraction: accentMix, of: accentColor) ?? themeBackgroundColor
