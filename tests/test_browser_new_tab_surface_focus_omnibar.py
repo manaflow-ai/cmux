@@ -4,6 +4,7 @@ Regression test:
 1. Focusing a blank browser surface should focus the omnibar.
 2. Focusing a pane that contains a blank browser should focus the omnibar.
 3. If command palette is open, focusing that blank browser surface must not steal input.
+4. Cmd+P switcher focusing an existing blank browser surface should focus the omnibar.
 """
 
 import json
@@ -70,6 +71,46 @@ def set_command_palette_visible(client: cmux, window_id: str, target_visible: bo
             request_id=f"palette-toggle-{idx}",
         )
         time.sleep(0.15)
+    return False
+
+
+def command_palette_results(client: cmux, window_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    payload = v2_call(
+        client,
+        "debug.command_palette.results",
+        {"window_id": window_id, "limit": limit},
+        request_id="palette-results"
+    )
+    rows = payload.get("results")
+    if isinstance(rows, list):
+        return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def command_palette_selected_index(client: cmux, window_id: str) -> int:
+    payload = v2_call(
+        client,
+        "debug.command_palette.selection",
+        {"window_id": window_id},
+        request_id="palette-selection"
+    )
+    selected_index = payload.get("selected_index")
+    if isinstance(selected_index, int):
+        return max(0, selected_index)
+    return 0
+
+
+def move_command_palette_selection_to_index(client: cmux, window_id: str, target_index: int) -> bool:
+    target = max(0, target_index)
+    for _ in range(40):
+        current = command_palette_selected_index(client, window_id)
+        if current == target:
+            return True
+        if current < target:
+            client.simulate_shortcut("down")
+        else:
+            client.simulate_shortcut("up")
+        time.sleep(0.05)
     return False
 
 
@@ -236,7 +277,90 @@ def main() -> int:
         if bool(blank_focus_state.get("focused")):
             raise cmuxError("Blank browser tab stole omnibar focus while command palette was visible")
 
-        print("PASS: blank-browser surface focus drives omnibar, and command palette visibility blocks focus stealing")
+        client.close_workspace(workspace_id)
+        workspace_ids.remove(workspace_id)
+        time.sleep(0.3)
+
+        # Scenario 4: Cmd+P switcher selecting an existing blank browser surface should focus omnibar.
+        workspace_id = client.new_workspace()
+        workspace_ids.append(workspace_id)
+        client.select_workspace(workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to reset command palette before scenario 4")
+
+        switcher_browser_id = client.new_surface(panel_type="browser")
+        time.sleep(0.3)
+
+        switcher_surfaces = client.list_surfaces()
+        switcher_terminal_id = next((surface_id for _, surface_id, _ in switcher_surfaces if surface_id != switcher_browser_id), None)
+        if not switcher_terminal_id:
+            raise cmuxError("Missing terminal surface for Cmd+P switcher scenario")
+
+        client.focus_surface_by_panel(switcher_terminal_id)
+        time.sleep(0.2)
+
+        client.simulate_shortcut("cmd+p")
+        if not wait_for(
+            lambda: bool(
+                v2_call(
+                    client,
+                    "debug.command_palette.visible",
+                    {"window_id": window_id},
+                    request_id="palette-visible-switcher-open"
+                ).get("visible")
+            ),
+            timeout_s=2.0,
+            interval_s=0.1
+        ):
+            raise cmuxError("Cmd+P did not open command palette switcher")
+
+        client.simulate_type("new tab")
+        time.sleep(0.2)
+
+        target_command_id = f"switcher.surface.{workspace_id.lower()}.{switcher_browser_id.lower()}"
+        switcher_results = command_palette_results(client, window_id, limit=50)
+        target_index = next(
+            (
+                idx for idx, row in enumerate(switcher_results)
+                if isinstance(row.get("command_id"), str) and row.get("command_id") == target_command_id
+            ),
+            None
+        )
+        if target_index is None:
+            raise cmuxError(f"Cmd+P switcher did not list target surface command {target_command_id}")
+
+        if not move_command_palette_selection_to_index(client, window_id, target_index):
+            raise cmuxError(f"Failed to move Cmd+P selection to result index {target_index}")
+
+        client.simulate_shortcut("enter")
+
+        did_focus_switcher_target = wait_for(
+            lambda: (
+                not bool(
+                    v2_call(
+                        client,
+                        "debug.command_palette.visible",
+                        {"window_id": window_id},
+                        request_id="palette-visible-switcher-after-enter"
+                    ).get("visible")
+                )
+                and bool(
+                    browser_address_bar_focus_state(
+                        client,
+                        surface_id=switcher_browser_id,
+                        request_id="browser-focus-switcher"
+                    ).get("focused")
+                )
+            ),
+            timeout_s=3.0,
+            interval_s=0.1
+        )
+        if not did_focus_switcher_target:
+            raise cmuxError("Cmd+P switcher focus to blank browser did not focus omnibar")
+
+        print("PASS: blank-browser focus paths (surface, pane, and Cmd+P switcher) drive omnibar, while command palette visibility blocks focus stealing")
         return 0
 
     except cmuxError as exc:

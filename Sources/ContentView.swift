@@ -3099,11 +3099,16 @@ struct ContentView: View {
         workspaceId: UUID,
         panelId: UUID?
     ) {
-        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-        if let panelId {
-            tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
-        } else {
-            tabManager.focusTab(workspaceId, suppressFlash: true)
+        // Switcher commands dismiss the palette after action dispatch.
+        // Defer focus mutation one turn so browser omnibar autofocus can run
+        // without being blocked by the palette-visibility guard.
+        DispatchQueue.main.async {
+            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+            if let panelId {
+                tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
+            } else {
+                tabManager.focusTab(workspaceId, suppressFlash: true)
+            }
         }
     }
 
