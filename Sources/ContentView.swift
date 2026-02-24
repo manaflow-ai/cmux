@@ -5076,6 +5076,9 @@ struct VerticalTabsSidebar: View {
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
+    /// True when `draggedTabId` was set via a cross-window notification
+    /// to avoid re-posting `stateDidChange` and creating a notification loop.
+    @State private var draggedTabIdFromNotification = false
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
@@ -5180,10 +5183,16 @@ struct VerticalTabsSidebar: View {
             )
         }
         .onChange(of: draggedTabId) { newDraggedTabId in
-            SidebarDragLifecycleNotification.postStateDidChange(
-                tabId: newDraggedTabId,
-                reason: "drag_state_change"
-            )
+            // Skip posting the notification when this change came from a
+            // cross-window notification to avoid an infinite loop.
+            if draggedTabIdFromNotification {
+                draggedTabIdFromNotification = false
+            } else {
+                SidebarDragLifecycleNotification.postStateDidChange(
+                    tabId: newDraggedTabId,
+                    reason: "drag_state_change"
+                )
+            }
 #if DEBUG
             dlog("sidebar.dragState.sidebar tab=\(debugShortSidebarTabId(newDraggedTabId))")
 #endif
@@ -5204,6 +5213,26 @@ struct VerticalTabsSidebar: View {
             dlog("sidebar.dragClear tab=\(debugShortSidebarTabId(draggedTabId)) reason=\(reason)")
 #endif
             draggedTabId = nil
+        }
+        // Pick up drag state from other windows so cross-window drops work.
+        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
+            let tabId = SidebarDragLifecycleNotification.tabId(from: notification)
+            // Only adopt the dragged tab when it belongs to a different window
+            // (i.e. NOT in our own tabManager).
+            if let tabId {
+                let isLocal = tabManager.tabs.contains(where: { $0.id == tabId })
+                if !isLocal && draggedTabId != tabId {
+                    draggedTabIdFromNotification = true
+                    draggedTabId = tabId
+#if DEBUG
+                    dlog("sidebar.crossWindowDrag.adopt tab=\(debugShortSidebarTabId(tabId))")
+#endif
+                }
+            } else if let current = draggedTabId, !tabManager.tabs.contains(where: { $0.id == current }) {
+                // The source window cleared the drag for a foreign tab — clear ours too.
+                draggedTabIdFromNotification = true
+                draggedTabId = nil
+            }
         }
     }
 
@@ -6785,8 +6814,31 @@ enum SidebarDropPlanner {
         pointerY: CGFloat? = nil,
         targetHeight: CGFloat? = nil
     ) -> SidebarDropIndicator? {
-        guard tabIds.count > 1, let draggedTabId else { return nil }
-        guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
+        guard let draggedTabId else { return nil }
+        let fromIndex = tabIds.firstIndex(of: draggedTabId)
+
+        // Cross-window drag: the dragged tab isn't in our tab list.
+        // Show an indicator at the pointer position so the user sees
+        // where the workspace will land.
+        if fromIndex == nil {
+            guard !tabIds.isEmpty else {
+                return SidebarDropIndicator(tabId: nil, edge: .bottom)
+            }
+            if let targetTabId, let targetTabIndex = tabIds.firstIndex(of: targetTabId) {
+                let edge: SidebarDropEdge
+                if let pointerY, let targetHeight {
+                    edge = edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
+                } else {
+                    edge = .bottom
+                }
+                let insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
+                return indicatorForInsertionPosition(insertionPosition, tabIds: tabIds)
+            }
+            return SidebarDropIndicator(tabId: nil, edge: .bottom)
+        }
+
+        guard tabIds.count > 1 else { return nil }
+        let fromIdx = fromIndex!
 
         let insertionPosition: Int
         if let targetTabId {
@@ -6795,15 +6847,15 @@ enum SidebarDropPlanner {
             if let pointerY, let targetHeight {
                 edge = edgeForPointer(locationY: pointerY, targetHeight: targetHeight)
             } else {
-                edge = preferredEdge(fromIndex: fromIndex, targetTabId: targetTabId, tabIds: tabIds)
+                edge = preferredEdge(fromIndex: fromIdx, targetTabId: targetTabId, tabIds: tabIds)
             }
             insertionPosition = (edge == .bottom) ? targetTabIndex + 1 : targetTabIndex
         } else {
             insertionPosition = tabIds.count
         }
 
-        let targetIndex = resolvedTargetIndex(from: fromIndex, insertionPosition: insertionPosition, totalCount: tabIds.count)
-        guard targetIndex != fromIndex else { return nil }
+        let targetIndex = resolvedTargetIndex(from: fromIdx, insertionPosition: insertionPosition, totalCount: tabIds.count)
+        guard targetIndex != fromIdx else { return nil }
         return indicatorForInsertionPosition(insertionPosition, tabIds: tabIds)
     }
 
@@ -7104,6 +7156,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
             draggedTabId = nil
             dropIndicator = nil
             dragAutoScrollController.stop()
+            SidebarDragLifecycleNotification.postClearRequest(reason: "drop_complete")
         }
         #if DEBUG
         dlog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
@@ -7114,40 +7167,68 @@ private struct SidebarTabDropDelegate: DropDelegate {
 #endif
             return false
         }
-        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
+
+        let isLocalTab = tabManager.tabs.contains(where: { $0.id == draggedTabId })
+
+        if isLocalTab {
+            // Same-window reorder
+            guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
+                return false
+            }
+            let tabIds = tabManager.tabs.map(\.id)
+            guard let targetIndex = SidebarDropPlanner.targetIndex(
+                draggedTabId: draggedTabId,
+                targetTabId: targetTabId,
+                indicator: dropIndicator,
+                tabIds: tabIds
+            ) else {
 #if DEBUG
-            dlog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
+                dlog(
+                    "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
+                    "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dropIndicator))"
+                )
 #endif
-            return false
-        }
-        let tabIds = tabManager.tabs.map(\.id)
-        guard let targetIndex = SidebarDropPlanner.targetIndex(
-            draggedTabId: draggedTabId,
-            targetTabId: targetTabId,
-            indicator: dropIndicator,
-            tabIds: tabIds
-        ) else {
+                return false
+            }
+
+            guard fromIndex != targetIndex else {
 #if DEBUG
-            dlog(
-                "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
-                "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dropIndicator))"
-            )
+                dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
-            return false
+                syncSidebarSelection()
+                return true
+            }
+
+#if DEBUG
+            dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+#endif
+            _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        } else {
+            // Cross-window move: detach from source window, attach to this window.
+            guard let srcTabManager = AppDelegate.shared?.tabManagerFor(tabId: draggedTabId),
+                  let workspace = srcTabManager.detachWorkspace(tabId: draggedTabId) else {
+#if DEBUG
+                dlog("sidebar.drop.abort reason=crossWindowDetachFailed tab=\(draggedTabId.uuidString.prefix(5))")
+#endif
+                return false
+            }
+
+            // Determine insertion index in the target window.
+            let insertIndex: Int = {
+                if let targetTabId,
+                   let idx = tabManager.tabs.firstIndex(where: { $0.id == targetTabId }) {
+                    let edge = dropIndicator?.edge ?? .bottom
+                    return edge == .top ? idx : idx + 1
+                }
+                return tabManager.tabs.count
+            }()
+
+#if DEBUG
+            dlog("sidebar.drop.crossWindow tab=\(draggedTabId.uuidString.prefix(5)) insertAt=\(insertIndex)")
+#endif
+            tabManager.attachWorkspace(workspace, at: insertIndex, select: true)
         }
 
-        guard fromIndex != targetIndex else {
-#if DEBUG
-            dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
-#endif
-            syncSidebarSelection()
-            return true
-        }
-
-#if DEBUG
-        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
-#endif
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
