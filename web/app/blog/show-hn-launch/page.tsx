@@ -203,7 +203,7 @@ export default function ShowHNLaunchPage() {
       <div className="my-6">
         <Image
           src={starHistory}
-          alt="cmux GitHub star history showing growth from near 0 to 900+ stars after the Show HN launch"
+          alt="cmux GitHub star history showing growth from near 0 to over 1,400 stars after the Show HN launch"
           placeholder="blur"
           className="w-full rounded-xl"
         />

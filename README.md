@@ -19,6 +19,14 @@
   <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a>
 </p>
 
+## Star History
+
+<p align="center">
+  <a href="https://star-history.com/#manaflow-ai/cmux&Date">
+    <img src="./docs/assets/star-history.png" alt="cmux GitHub star history" width="900" />
+  </a>
+</p>
+
 ## Features
 
 <table>
