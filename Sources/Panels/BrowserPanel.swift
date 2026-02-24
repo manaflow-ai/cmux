@@ -2,6 +2,8 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
+import AuthenticationServices
+import CoreBluetooth
 import Bonsplit
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
@@ -1095,6 +1097,159 @@ private enum BrowserInsecureHTTPNavigationIntent {
 }
 
 @MainActor
+private enum BrowserAuthenticationBootstrapPolicy {
+    static func shouldRequestSystemPrompts() -> Bool {
+        let env = ProcessInfo.processInfo.environment
+        if env["XCTestConfigurationFilePath"] != nil { return false }
+        if env["CMUX_UI_TEST_MODE"] == "1" { return false }
+        return true
+    }
+
+    static func isEligibleURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+}
+
+@MainActor
+private final class BrowserBluetoothAuthorizationBootstrap: NSObject, @preconcurrency CBCentralManagerDelegate {
+    private static var shared: BrowserBluetoothAuthorizationBootstrap?
+    private static var hasCompletedInitialCheck = false
+    private static var hasPresentedPermissionAlert = false
+    private static var hasPresentedPoweredOffAlert = false
+    private var manager: CBCentralManager?
+
+    static func ensureRequestedIfNeeded(for url: URL) {
+        guard BrowserAuthenticationBootstrapPolicy.isEligibleURL(url) else { return }
+        guard BrowserAuthenticationBootstrapPolicy.shouldRequestSystemPrompts() else { return }
+        guard !hasCompletedInitialCheck else { return }
+        if shared == nil {
+            shared = BrowserBluetoothAuthorizationBootstrap()
+        }
+        shared?.ensureManagerReady()
+    }
+
+    private func ensureManagerReady() {
+        guard manager == nil else { return }
+        manager = CBCentralManager(
+            delegate: self,
+            queue: .main,
+            options: [CBCentralManagerOptionShowPowerAlertKey: true]
+        )
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        switch CBManager.authorization {
+        case .notDetermined:
+            return
+        case .denied, .restricted:
+            Self.presentPermissionAlertIfNeeded()
+            finishInitialCheck()
+        case .allowedAlways:
+            switch central.state {
+            case .unknown, .resetting:
+                return
+            case .poweredOff:
+                Self.presentPoweredOffAlertIfNeeded()
+            case .unsupported, .unauthorized, .poweredOn:
+                break
+            @unknown default:
+                break
+            }
+            finishInitialCheck()
+        @unknown default:
+            finishInitialCheck()
+        }
+    }
+
+    private func finishInitialCheck() {
+        Self.hasCompletedInitialCheck = true
+        manager = nil
+        Self.shared = nil
+    }
+
+    private static func presentPermissionAlertIfNeeded() {
+        guard !hasPresentedPermissionAlert else { return }
+        hasPresentedPermissionAlert = true
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Enable Bluetooth Access for Passkeys"
+        alert.informativeText = """
+        cmux needs Bluetooth permission to support nearby-device passkeys and security keys in browser panels.
+
+        You can enable Bluetooth access in System Settings > Privacy & Security > Bluetooth.
+        """
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Not Now")
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        openBluetoothSettings(urls: [
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth",
+        ])
+    }
+
+    private static func presentPoweredOffAlertIfNeeded() {
+        guard !hasPresentedPoweredOffAlert else { return }
+        hasPresentedPoweredOffAlert = true
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Turn On Bluetooth for Passkeys"
+        alert.informativeText = """
+        Bluetooth is currently off. Nearby-device passkeys and security keys require Bluetooth to be enabled.
+        """
+        alert.addButton(withTitle: "Open Bluetooth Settings")
+        alert.addButton(withTitle: "Not Now")
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return }
+        openBluetoothSettings(urls: [
+            "x-apple.systempreferences:com.apple.Bluetooth",
+            "x-apple.systempreferences:com.apple.preferences.Bluetooth",
+        ])
+    }
+
+    private static func openBluetoothSettings(urls: [String]) {
+        for raw in urls {
+            guard let url = URL(string: raw) else { continue }
+            if NSWorkspace.shared.open(url) {
+                return
+            }
+        }
+    }
+}
+
+@MainActor
+private enum BrowserPasskeyAuthorizationBootstrap {
+    private static var hasCheckedAuthorizationState = false
+    private static var authorizationTask: Task<Void, Never>?
+
+    static func ensureRequestedIfNeeded(for url: URL) {
+        guard BrowserAuthenticationBootstrapPolicy.isEligibleURL(url) else { return }
+        guard BrowserAuthenticationBootstrapPolicy.shouldRequestSystemPrompts() else { return }
+        guard !hasCheckedAuthorizationState else { return }
+        hasCheckedAuthorizationState = true
+
+        guard #available(macOS 13.3, *) else { return }
+
+        authorizationTask = Task { @MainActor in
+            let manager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
+            switch manager.authorizationStateForPlatformCredentials {
+            case .authorized, .denied:
+                break
+            case .notDetermined:
+                _ = await manager.requestAuthorizationForPublicKeyCredentials()
+            @unknown default:
+                break
+            }
+            authorizationTask = nil
+        }
+    }
+}
+
+@MainActor
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
@@ -1702,6 +1857,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private func navigateWithoutInsecureHTTPPrompt(request: URLRequest, recordTypedNavigation: Bool) {
         guard let url = request.url else { return }
+        BrowserBluetoothAuthorizationBootstrap.ensureRequestedIfNeeded(for: url)
+        BrowserPasskeyAuthorizationBootstrap.ensureRequestedIfNeeded(for: url)
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
