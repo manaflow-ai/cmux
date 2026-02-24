@@ -18,6 +18,15 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    name: "あさざ",
+    handle: "@asaza_0928",
+    avatar: "/avatars/asaza_0928.jpg",
+    text: "cmux 良さそうすぎてついにバイバイ VSCode するときなのかもしれない",
+    translation: "cmux looks so good it might finally be time to say goodbye to VSCode",
+    url: "https://x.com/asaza_0928/status/2026057269075698015",
+    platform: "x" as const,
+  },
+  {
     name: "johnthedebs",
     handle: "johnthedebs",
     avatar: null,
@@ -48,6 +57,32 @@ export const testimonials = [
     text: "I like it, ran it in the past day on three parallel projects each with several worktrees. Having this paired with lazygit and yazi / nvim made me a bit more productive than usual without having to chase multiple ghostty / iTerm instances. Also feels more natural than tmux.",
     url: "https://www.reddit.com/r/ClaudeCode/comments/1r9g45u/comment/o6sxbr3/",
     platform: "reddit" as const,
+  },
+  {
+    name: "Norihiro Narayama",
+    handle: "@northprint",
+    avatar: "/avatars/northprint.jpg",
+    text: "cmux良さそうなので入れてみたけれど、良い",
+    translation: "Tried cmux since it looked good — it's good",
+    url: "https://x.com/northprint/status/2025740286677434581",
+    platform: "x" as const,
+  },
+  {
+    name: "Kishore Neelamegam",
+    handle: "@indykish",
+    avatar: "/avatars/indykish.jpg",
+    text: "cmux is pretty good.",
+    url: "https://x.com/indykish/status/2025318347970412673",
+    platform: "x" as const,
+  },
+  {
+    name: "かたりん",
+    handle: "@kataring",
+    avatar: "/avatars/kataring.jpg",
+    text: "cmux.dev に乗り換えた",
+    translation: "Switched to cmux.dev",
+    url: "https://x.com/kataring/status/2026189035056832718",
+    platform: "x" as const,
   },
 ];
 
@@ -159,6 +194,11 @@ export function TestimonialCard({
       <p className="text-[15px] leading-relaxed text-muted group-hover:text-foreground transition-colors">
         {testimonial.text}
       </p>
+      {"translation" in testimonial && testimonial.translation && (
+        <p className="text-xs text-muted/60 mt-1.5 italic">
+          {testimonial.translation}
+        </p>
+      )}
     </a>
   );
 }
