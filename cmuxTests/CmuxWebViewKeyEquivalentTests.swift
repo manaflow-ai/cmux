@@ -1047,6 +1047,72 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
         )
     }
 
+    func testOtherNavigationMiddleClickOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testOtherNavigationLeftClickStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testLinkActivatedButtonFourWithoutMiddleIntentStaysInCurrentTab() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 4,
+                hasRecentMiddleClickIntent: false
+            )
+        )
+    }
+
+    func testLinkActivatedButtonFourWithRecentMiddleIntentOpensInNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 4,
+                hasRecentMiddleClickIntent: true
+            )
+        )
+    }
+
+    func testLinkActivatedUsesCurrentEventFallbackForMiddleClick() {
+        XCTAssertTrue(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0,
+                currentEventType: .otherMouseUp,
+                currentEventButtonNumber: 2
+            )
+        )
+    }
+
+    func testCurrentEventFallbackDoesNotAffectNonLinkNavigation() {
+        XCTAssertFalse(
+            browserNavigationShouldOpenInNewTab(
+                navigationType: .reload,
+                modifierFlags: [],
+                buttonNumber: 0,
+                currentEventType: .otherMouseUp,
+                currentEventButtonNumber: 2
+            )
+        )
+    }
+
     func testNonLinkNavigationNeverForcesNewTab() {
         XCTAssertFalse(
             browserNavigationShouldOpenInNewTab(
