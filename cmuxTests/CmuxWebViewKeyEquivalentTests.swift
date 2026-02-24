@@ -149,6 +149,42 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertTrue(spy.invoked)
     }
 
+    func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 36) // kVK_Return
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testCmdReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [.command])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [.command], keyCode: 36) // kVK_Return
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
+    func testKeypadEnterDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "\r", modifiers: [])
+
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let event = makeKeyDownEvent(key: "\r", modifiers: [], keyCode: 76) // kVK_ANSI_KeypadEnter
+        XCTAssertNotNil(event)
+
+        XCTAssertFalse(webView.performKeyEquivalent(with: event!))
+        XCTAssertFalse(spy.invoked)
+    }
+
     @MainActor
     func testCanBlockFirstResponderAcquisitionWhenPaneIsUnfocused() {
         _ = NSApplication.shared
