@@ -1199,15 +1199,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sourceWindowId: source.windowId
         )
 
+        let destinationWindowId = windowId(for: destinationManager)
         if focus {
-            let destinationWindowId = focusWindow ? windowId(for: destinationManager) : nil
-            if let destinationWindowId {
-                _ = focusMainWindow(windowId: destinationWindowId)
+            let focusWindowId = focusWindow ? destinationWindowId : nil
+            if let focusWindowId {
+                _ = focusMainWindow(windowId: focusWindowId)
             }
             destinationManager.focusTab(targetWorkspaceId, surfaceId: panelId, suppressFlash: true)
-            if let destinationWindowId {
+            if let focusWindowId {
                 reassertCrossWindowSurfaceMoveFocusIfNeeded(
-                    destinationWindowId: destinationWindowId,
+                    destinationWindowId: focusWindowId,
                     sourceWindowId: source.windowId,
                     destinationWorkspaceId: targetWorkspaceId,
                     destinationPanelId: panelId,
@@ -1215,6 +1216,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
+        refreshCrossWorkspaceSurfaceMoveRendering(
+            sourceWorkspace: sourceWorkspace,
+            destinationWorkspace: destinationWorkspace,
+            sourceWindowId: source.windowId,
+            destinationWindowId: destinationWindowId
+        )
 
         return true
     }
@@ -1464,6 +1471,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             _ = closeMainWindow(windowId: sourceWindowId)
         }
+    }
+
+    private func refreshCrossWorkspaceSurfaceMoveRendering(
+        sourceWorkspace: Workspace,
+        destinationWorkspace: Workspace,
+        sourceWindowId: UUID,
+        destinationWindowId: UUID?
+    ) {
+        let refresh: () -> Void = { [weak self, weak sourceWorkspace, weak destinationWorkspace] in
+            guard let self else { return }
+            if let sourceWorkspace {
+                refreshTerminalRendering(in: sourceWorkspace)
+            }
+            if let destinationWorkspace {
+                refreshTerminalRendering(in: destinationWorkspace)
+            }
+
+            var windowIds: Set<UUID> = [sourceWindowId]
+            if let destinationWindowId {
+                windowIds.insert(destinationWindowId)
+            }
+            for windowId in windowIds {
+                refreshTerminalWindowRendering(windowId: windowId)
+            }
+        }
+
+        refresh()
+        DispatchQueue.main.async(execute: refresh)
+    }
+
+    private func refreshTerminalRendering(in workspace: Workspace) {
+        for panel in workspace.panels.values {
+            guard let terminalPanel = panel as? TerminalPanel else { continue }
+            terminalPanel.hostedView.reconcileGeometryNow()
+            terminalPanel.surface.forceRefresh()
+        }
+    }
+
+    private func refreshTerminalWindowRendering(windowId: UUID) {
+        guard let window = mainWindow(for: windowId) else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.contentView?.displayIfNeeded()
+        TerminalWindowPortalRegistry.synchronizeWindow(window)
     }
 
     private func reassertCrossWindowSurfaceMoveFocusIfNeeded(

@@ -700,6 +700,13 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Force a one-shot geometry + refresh synchronization for all hosted views
+    /// in this window. Used after cross-window tab/panel transfers where both
+    /// source and destination windows mutate in the same interaction.
+    func synchronizeAllHostedViewsNow() {
+        synchronizeAllEntriesFromExternalGeometryChange()
+    }
+
     private func ensureDividerOverlayOnTop() {
         if dividerOverlayView.superview !== hostView {
             dividerOverlayView.frame = hostView.bounds
@@ -1449,6 +1456,19 @@ enum TerminalWindowPortalRegistry {
         guard let window = anchorView.window else { return }
         let portal = portal(for: window)
         portal.synchronizeHostedViewForAnchor(anchorView)
+    }
+
+    /// Force a one-shot sync for an existing portal in the given window.
+    /// This intentionally does not instantiate a new portal if none is active.
+    static func synchronizeWindow(_ window: NSWindow) {
+        let windowId = ObjectIdentifier(window)
+        guard let existing = portalsByWindowId[windowId]
+            ?? (objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal) else {
+            return
+        }
+        portalsByWindowId[windowId] = existing
+        installWindowCloseObserverIfNeeded(for: window)
+        existing.synchronizeAllHostedViewsNow()
     }
 
     static func hideHostedView(_ hostedView: GhosttySurfaceScrollView) {
