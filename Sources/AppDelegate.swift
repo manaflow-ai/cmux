@@ -2660,7 +2660,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return event }
             if event.type == .keyDown {
 #if DEBUG
-                let isEnterKey = event.keyCode == 36 || event.keyCode == 76
                 if (ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1"
                     || UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")),
                    event.timestamp > 0 {
@@ -2672,36 +2671,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 dlog(
                     "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
                 )
-                if isEnterKey {
-                    dlog(
-                        "enter.trace stage=app.monitor.pre event=\(NSWindow.keyDescription(event)) " +
-                        "fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
-                    )
-                }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
 #endif
                 if self.handleCustomShortcut(event: event) {
 #if DEBUG
-                    if isEnterKey {
-                        dlog(
-                            "enter.trace stage=app.monitor.consume event=\(NSWindow.keyDescription(event)) " +
-                            "reason=handleCustomShortcut"
-                        )
-                    }
                     dlog("  → consumed by handleCustomShortcut")
                     DebugEventLog.shared.dump()
 #endif
                     return nil // Consume the event
                 }
 #if DEBUG
-                if isEnterKey {
-                    dlog(
-                        "enter.trace stage=app.monitor.pass event=\(NSWindow.keyDescription(event)) " +
-                        "reason=handleCustomShortcutReturnedFalse"
-                    )
-                }
                 DebugEventLog.shared.dump()
 #endif
                 return event // Pass through
@@ -3821,18 +3802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
-        let consumed = handleCustomShortcut(event: event)
-#if DEBUG
-        if event.keyCode == 36 || event.keyCode == 76 {
-            let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            dlog(
-                "enter.trace stage=app.browserSurfaceKeyEquivalent event=\(NSWindow.keyDescription(event)) " +
-                "consumed=\(consumed ? 1 : 0) fr=\(frType) " +
-                "addrBarId=\(browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil")"
-            )
-        }
-#endif
-        return consumed
+        handleCustomShortcut(event: event)
     }
 
 #if DEBUG
@@ -5250,19 +5220,9 @@ private extension NSWindow {
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
-        let isEnterKey = event.keyCode == 36 || event.keyCode == 76
 #if DEBUG
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
-        if isEnterKey {
-            let frGhostty = cmuxOwningGhosttyView(for: self.firstResponder) != nil
-            let frWeb = self.firstResponder.flatMap { Self.cmuxOwningWebView(for: $0) } != nil
-            dlog(
-                "enter.trace stage=window.performKeyEquivalent.start event=\(Self.keyDescription(event)) " +
-                "fr=\(frType) frGhostty=\(frGhostty ? 1 : 0) frWeb=\(frWeb ? 1 : 0) " +
-                "win=\(self.windowNumber)"
-            )
-        }
 #endif
 
         // When the terminal surface is the first responder, prevent SwiftUI's
@@ -5293,12 +5253,6 @@ private extension NSWindow {
                 let result = ghosttyView.performKeyEquivalent(with: event)
 #if DEBUG
                 dlog("  → ghostty direct: \(result)")
-                if isEnterKey {
-                    dlog(
-                        "enter.trace stage=window.performKeyEquivalent.ghosttyDirect " +
-                        "event=\(Self.keyDescription(event)) consumed=\(result ? 1 : 0)"
-                    )
-                }
 #endif
                 return result
             }
@@ -5320,16 +5274,7 @@ private extension NSWindow {
             }
         }
 
-        let consumedByBrowserSurface = AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true
-#if DEBUG
-        if isEnterKey {
-            dlog(
-                "enter.trace stage=window.performKeyEquivalent.browserSurface event=\(Self.keyDescription(event)) " +
-                "consumed=\(consumedByBrowserSurface ? 1 : 0)"
-            )
-        }
-#endif
-        if consumedByBrowserSurface {
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
 #endif
@@ -5368,12 +5313,6 @@ private extension NSWindow {
         let result = cmux_performKeyEquivalent(with: event)
 #if DEBUG
         if result { dlog("  → consumed by original performKeyEquivalent") }
-        if isEnterKey {
-            dlog(
-                "enter.trace stage=window.performKeyEquivalent.original event=\(Self.keyDescription(event)) " +
-                "consumed=\(result ? 1 : 0)"
-            )
-        }
 #endif
         return result
     }
