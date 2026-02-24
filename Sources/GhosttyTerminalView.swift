@@ -1914,6 +1914,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 
+        // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
+        // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
+        // but callbacks have not resumed for the current display.
+        if let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+           displayID != 0 {
+            ghostty_surface_set_display_id(surface, displayID)
+        }
+
         view.forceRefreshSurface()
         ghostty_surface_refresh(surface)
     }
