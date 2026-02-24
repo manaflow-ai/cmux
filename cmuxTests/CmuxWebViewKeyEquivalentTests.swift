@@ -773,6 +773,38 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 }
 
+final class SidebarStatusPillActiveForegroundColorTests: XCTestCase {
+    func testLightModeUsesBlackWithRequestedOpacity() {
+        guard let color = sidebarStatusPillActiveForegroundNSColor(
+            colorScheme: .light,
+            opacity: 0.8
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.8, accuracy: 0.001)
+    }
+
+    func testDarkModeUsesWhiteWithRequestedOpacity() {
+        guard let color = sidebarStatusPillActiveForegroundNSColor(
+            colorScheme: .dark,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+}
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

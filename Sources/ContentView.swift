@@ -28,6 +28,19 @@ private func coloredCircleImage(color: NSColor) -> NSImage {
     return image
 }
 
+func sidebarStatusPillActiveForegroundNSColor(
+    colorScheme: ColorScheme,
+    opacity: CGFloat
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    switch colorScheme {
+    case .dark:
+        return NSColor.white.withAlphaComponent(clampedOpacity)
+    default:
+        return NSColor.black.withAlphaComponent(clampedOpacity)
+    }
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -6768,12 +6781,13 @@ private struct SidebarStatusPillsRow: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(statusText)
                 .font(.system(size: 10))
-                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
+                .foregroundColor(isActive ? activePrimaryTextColor : .secondary)
                 .lineLimit(isExpanded ? nil : 3)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.leading)
@@ -6796,11 +6810,19 @@ private struct SidebarStatusPillsRow: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .help(statusText)
+    }
+
+    private var activePrimaryTextColor: Color {
+        Color(nsColor: sidebarStatusPillActiveForegroundNSColor(colorScheme: colorScheme, opacity: 0.8))
+    }
+
+    private var activeSecondaryTextColor: Color {
+        Color(nsColor: sidebarStatusPillActiveForegroundNSColor(colorScheme: colorScheme, opacity: 0.65))
     }
 
     private var statusText: String {
