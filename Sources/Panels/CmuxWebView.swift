@@ -8,6 +8,37 @@ import WebKit
 /// key equivalents first so app-level shortcuts continue to work when WebKit is
 /// the first responder.
 final class CmuxWebView: WKWebView {
+    // Some sites/WebKit paths report middle-click link activations as
+    // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
+    // middle-click so navigation delegates can recover intent reliably.
+    private struct MiddleClickIntent {
+        let webViewID: ObjectIdentifier
+        let uptime: TimeInterval
+    }
+
+    private static var lastMiddleClickIntent: MiddleClickIntent?
+    private static let middleClickIntentMaxAge: TimeInterval = 0.8
+
+    static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
+        guard let webView = webView as? CmuxWebView else { return false }
+        guard let intent = lastMiddleClickIntent else { return false }
+
+        let age = ProcessInfo.processInfo.systemUptime - intent.uptime
+        if age > middleClickIntentMaxAge {
+            lastMiddleClickIntent = nil
+            return false
+        }
+
+        return intent.webViewID == ObjectIdentifier(webView)
+    }
+
+    private static func recordMiddleClickIntent(for webView: CmuxWebView) {
+        lastMiddleClickIntent = MiddleClickIntent(
+            webViewID: ObjectIdentifier(webView),
+            uptime: ProcessInfo.processInfo.systemUptime
+        )
+    }
+
     private final class ContextMenuFallbackBox: NSObject {
         weak var target: AnyObject?
         let action: Selector?
@@ -136,16 +167,33 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    // MARK: - Mouse back/forward buttons & middle-click
+    // MARK: - Mouse back/forward buttons
 
     override func otherMouseDown(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            Self.recordMiddleClickIntent(for: self)
+        }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        dlog(
+            "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
         // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
         // Consume the event so WebKit doesn't handle it.
         switch event.buttonNumber {
         case 3:
+#if DEBUG
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
+#endif
             goBack()
             return
         case 4:
+#if DEBUG
+            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
+#endif
             goForward()
             return
         default:
@@ -155,25 +203,23 @@ final class CmuxWebView: WKWebView {
     }
 
     override func otherMouseUp(with event: NSEvent) {
-        // Middle-click (button 2) on a link opens it in a new tab.
         if event.buttonNumber == 2 {
-            let point = convert(event.locationInWindow, from: nil)
-            findLinkAtPoint(point) { [weak self] url in
-                guard let self, let url else { return }
-                NotificationCenter.default.post(
-                    name: .webViewMiddleClickedLink,
-                    object: self,
-                    userInfo: ["url": url]
-                )
-            }
-            return
+            Self.recordMiddleClickIntent(for: self)
         }
+#if DEBUG
+        let point = convert(event.locationInWindow, from: nil)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+        dlog(
+            "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
+            "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+#endif
         super.otherMouseUp(with: event)
     }
 
-    /// Use JavaScript to find the nearest anchor element at the given view-local point.
+    /// Finds the nearest anchor element at a given view-local point.
+    /// Used as a context-menu download fallback.
     private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        // WKWebView's coordinate system is flipped (origin top-left for web content).
         let flippedY = bounds.height - point.y
         let js = """
         (() => {

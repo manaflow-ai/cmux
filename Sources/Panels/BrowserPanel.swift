@@ -1956,15 +1956,43 @@ extension BrowserPanel {
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let paneId = workspace.paneId(forPanelId: id) else { return }
+#if DEBUG
+        dlog(
+            "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(url.absoluteString) " +
+            "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
+        )
+#endif
+        guard let tabManager = AppDelegate.shared?.tabManager else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingTabManager")
+#endif
+            return
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+            return
+        }
+        guard let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
+#endif
+            return
+        }
         workspace.newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
+#if DEBUG
+        dlog(
+            "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
     }
 
     /// Reload the current page
@@ -2664,6 +2692,39 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - Navigation Delegate
 
+func browserNavigationShouldOpenInNewTab(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    guard navigationType == .linkActivated || navigationType == .other else {
+        return false
+    }
+
+    if modifierFlags.contains(.command) {
+        return true
+    }
+    if buttonNumber == 2 {
+        return true
+    }
+    // In some WebKit paths, middle-click arrives as buttonNumber=4.
+    // Recover intent when we just observed a local middle-click.
+    if buttonNumber == 4, hasRecentMiddleClickIntent {
+        return true
+    }
+
+    // WebKit can omit buttonNumber for middle-click link activations.
+    if let currentEventType,
+       (currentEventType == .otherMouseDown || currentEventType == .otherMouseUp),
+       currentEventButtonNumber == 2 {
+        return true
+    }
+    return false
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -2802,16 +2863,41 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+        )
+#endif
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if navigationAction.navigationType == .linkActivated,
-               navigationAction.modifierFlags.contains(.command) {
+            if shouldOpenInNewTab {
                 intent = .newTab
             } else {
                 intent = .currentTab
             }
+#if DEBUG
+            dlog(
+                "browser.nav.decidePolicy.action kind=blockedInsecure intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                "url=\(url.absoluteString)"
+            )
+#endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
             decisionHandler(.cancel)
             return
@@ -2833,23 +2919,33 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — navigate in the current webview
-        if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
-            webView.load(navigationAction.request)
-            decisionHandler(.cancel)
-            return
-        }
-
-        // Cmd+click on a regular link — open in a new tab
-        if navigationAction.navigationType == .linkActivated,
-           navigationAction.modifierFlags.contains(.command),
+        // Cmd+click and middle-click on regular links should always open in a new tab.
+        if shouldOpenInNewTab,
            let url = navigationAction.request.url {
+#if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
             openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
 
+        // target=_blank or window.open() without explicit new-tab intent — navigate in-place.
+        if navigationAction.targetFrame == nil,
+           navigationAction.request.url != nil {
+#if DEBUG
+            let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+            dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
+#endif
+            webView.load(navigationAction.request)
+            decisionHandler(.cancel)
+            return
+        }
+
+#if DEBUG
+        let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+        dlog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
+#endif
         decisionHandler(.allow)
     }
 
@@ -2948,13 +3044,32 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
+    /// Cmd+click and middle-click open in a new tab; regular target=_blank navigates in-place.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+        )
+#endif
         if let url = navigationAction.request.url {
             if browserShouldOpenURLExternally(url) {
                 let opened = NSWorkspace.shared.open(url)
@@ -2968,11 +3083,23 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             }
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent =
-                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                    shouldOpenInNewTab ? .newTab : .currentTab
+#if DEBUG
+                dlog(
+                    "browser.nav.createWebView.action kind=requestNavigation intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                    "url=\(url.absoluteString)"
+                )
+#endif
                 requestNavigation(navigationAction.request, intent)
-            } else if navigationAction.modifierFlags.contains(.command) {
+            } else if shouldOpenInNewTab {
+#if DEBUG
+                dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
                 openInNewTab?(url)
             } else {
+#if DEBUG
+                dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
+#endif
                 webView.load(navigationAction.request)
             }
         }
