@@ -4374,8 +4374,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
-        // input), don't intercept key events — let them flow through to the input method.
-        if let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
+        // input), don't intercept non-Cmd key events — let them flow through to the
+        // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
+        // work during composition since Cmd is never part of IME input sequences.
+        if !normalizedFlags.contains(.command),
+           let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
             return false
         }
@@ -6735,9 +6738,11 @@ private extension NSWindow {
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
         let firstResponderWebView = self.firstResponder.flatMap { Self.cmuxOwningWebView(for: $0) }
         if let ghosttyView = firstResponderGhosttyView {
-            // If the IME is composing, don't intercept key events — let them flow
-            // through normal AppKit event dispatch so the input method can process them.
-            if ghosttyView.hasMarkedText() {
+            // If the IME is composing and the key has no Cmd modifier, don't intercept —
+            // let it flow through normal AppKit event dispatch so the input method can
+            // process it. Cmd-based shortcuts should still work during composition since
+            // Cmd is never part of IME input sequences.
+            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
                 return cmux_performKeyEquivalent(with: event)
             }
 
