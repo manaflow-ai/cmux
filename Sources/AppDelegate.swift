@@ -730,6 +730,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private let sessionPersistenceQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionPersistence",
+        qos: .utility
+    )
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1039,10 +1043,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?,
         defaults: UserDefaults = .standard
     ) {
-        guard let frame else { return }
-        let payload = PersistedWindowGeometry(frame: frame, display: display)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
+            return
+        }
         defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+    }
+
+    private nonisolated static func encodedPersistedWindowGeometryData(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?
+    ) -> Data? {
+        guard let frame else { return nil }
+        let payload = PersistedWindowGeometry(frame: frame, display: display)
+        return try? JSONEncoder().encode(payload)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -1491,7 +1504,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let interval = SessionPersistencePolicy.autosaveInterval
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
-            _ = self?.saveSessionSnapshot(includeScrollback: false)
+            guard let self,
+                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
+                return
+            }
+            _ = self.saveSessionSnapshot(includeScrollback: false)
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -1560,22 +1577,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+
+        let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback
+        )
+
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
-            if removeWhenEmpty {
-                SessionPersistenceStore.removeSnapshot()
-            }
+            persistSessionSnapshot(
+                nil,
+                removeWhenEmpty: removeWhenEmpty,
+                persistedGeometryData: nil,
+                synchronously: writeSynchronously
+            )
             return false
         }
-        if let primaryWindow = snapshot.windows.first {
-            persistWindowGeometry(
+
+        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+            Self.encodedPersistedWindowGeometryData(
                 frame: primaryWindow.frame,
                 display: primaryWindow.display
             )
         }
+
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
-        return SessionPersistenceStore.save(snapshot)
+        persistSessionSnapshot(
+            snapshot,
+            removeWhenEmpty: false,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: writeSynchronously
+        )
+        return true
     }
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
@@ -1593,6 +1627,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool
     ) -> Bool {
         isApplyingStartupSessionRestore && !includeScrollback
+    }
+
+    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
+        !isTerminatingApp
+    }
+
+    nonisolated static func shouldWriteSessionSnapshotSynchronously(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool
+    ) -> Bool {
+        isTerminatingApp && includeScrollback
+    }
+
+    private func persistSessionSnapshot(
+        _ snapshot: AppSessionSnapshot?,
+        removeWhenEmpty: Bool,
+        persistedGeometryData: Data?,
+        synchronously: Bool
+    ) {
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+
+        let writeBlock = {
+            if let persistedGeometryData {
+                UserDefaults.standard.set(
+                    persistedGeometryData,
+                    forKey: Self.persistedWindowGeometryDefaultsKey
+                )
+            }
+            if let snapshot {
+                _ = SessionPersistenceStore.save(snapshot)
+            } else if removeWhenEmpty {
+                SessionPersistenceStore.removeSnapshot()
+            }
+        }
+
+        if synchronously {
+            writeBlock()
+        } else {
+            sessionPersistenceQueue.async(execute: writeBlock)
+        }
     }
 
     private func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {

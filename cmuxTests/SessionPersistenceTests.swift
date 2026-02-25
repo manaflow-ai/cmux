@@ -363,6 +363,42 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSessionAutosaveTickPolicySkipsWhenTerminating() {
+        XCTAssertTrue(
+            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+        )
+    }
+
+    func testSessionSnapshotSynchronousWritePolicy() {
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: false,
+                includeScrollback: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: false,
+                includeScrollback: true
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: true,
+                includeScrollback: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: true,
+                includeScrollback: true
+            )
+        )
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(
