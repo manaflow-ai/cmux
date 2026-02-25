@@ -3387,7 +3387,7 @@ private struct TabItemView: View {
     private struct PullRequestStatusIcon: View {
         let status: SidebarPullRequestStatus
         let color: Color
-        private static let frameSize: CGFloat = 14
+        private static let frameSize: CGFloat = 13
 
         var body: some View {
             switch status {
@@ -3397,7 +3397,7 @@ private struct TabItemView: View {
                 PullRequestMergedIcon(color: color)
             case .closed:
                 Image(systemName: "xmark.circle")
-                    .font(.system(size: 9, weight: .regular))
+                    .font(.system(size: 8, weight: .regular))
                     .foregroundColor(color)
                     .frame(width: Self.frameSize, height: Self.frameSize)
             }
@@ -3653,12 +3653,12 @@ private struct SidebarMetadataEntryRow: View {
         if iconRaw.hasPrefix("emoji:") {
             let value = String(iconRaw.dropFirst("emoji:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 10)))
+            return AnyView(Text(value).font(.system(size: 9)))
         }
         if iconRaw.hasPrefix("text:") {
             let value = String(iconRaw.dropFirst("text:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 9, weight: .semibold)))
+            return AnyView(Text(value).font(.system(size: 8, weight: .semibold)))
         }
         let symbolName: String
         if iconRaw.hasPrefix("sf:") {
@@ -3667,7 +3667,7 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(Image(systemName: symbolName).font(.system(size: 9, weight: .medium)))
+        return AnyView(Image(systemName: symbolName).font(.system(size: 8, weight: .medium)))
     }
 
     @ViewBuilder
