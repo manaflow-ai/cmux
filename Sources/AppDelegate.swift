@@ -2984,7 +2984,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func shortcutEventHasAddressableWindow(_ event: NSEvent?) -> Bool {
         guard let event else { return false }
-        return event.window != nil || event.windowNumber >= 0
+        // NSEvent.windowNumber can be 0 for responder-chain events that are not
+        // actually bound to an NSWindow (notably some WebKit key paths).
+        return event.window != nil || event.windowNumber > 0
     }
 
     private func mainWindowContext(
@@ -3007,7 +3009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context
         }
 
-        if event.windowNumber >= 0,
+        if event.windowNumber > 0,
            let numberedWindow = NSApp.window(withWindowNumber: event.windowNumber),
            let context = contextForMainTerminalWindow(numberedWindow) {
             #if DEBUG
@@ -3022,7 +3024,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return context
         }
 
-        if event.windowNumber >= 0,
+        if event.windowNumber > 0,
            let context = mainWindowContexts.values.first(where: { candidate in
                let window = candidate.window ?? windowForMainWindowId(candidate.windowId)
                return window?.windowNumber == event.windowNumber
