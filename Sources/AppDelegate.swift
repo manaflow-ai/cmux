@@ -737,6 +737,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private var shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = false
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -4280,6 +4281,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
+        let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
+
+        if !event.isARepeat {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = false
+        }
+        if isPlainEscape, event.isARepeat, shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss {
+            return true
+        }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -4314,10 +4323,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 closeButton.performClick(nil)
                 return true
             }
+            if isPlainEscape {
+                _ = closeConfirmationPanel.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+                return true
+            }
             return false
         }
 
-        let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteVisible(for: $0)
@@ -4327,17 +4340,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            commandPaletteVisibleInTargetWindow,
            let paletteWindow = commandPaletteTargetWindow {
             NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
             return true
         }
 
         if isPlainEscape {
             if let modalWindow = NSApp.modalWindow {
                 _ = modalWindow.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
                 return true
             }
 
             if let sheetWindow = sheetWindowForEscapeEvent(event) {
                 _ = sheetWindow.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
                 return true
             }
         }
@@ -4402,6 +4418,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
             return true
         }
 
