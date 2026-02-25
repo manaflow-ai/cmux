@@ -1226,6 +1226,8 @@ struct ContentView: View {
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
 
@@ -1368,6 +1370,7 @@ struct ContentView: View {
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceShouldPin = "workspace.shouldPin"
+        static let workspaceHasPullRequests = "workspace.hasPullRequests"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -3339,6 +3342,10 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasPullRequests,
+                !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
+            )
         }
 
         if let panelContext = focusedPanelContext {
@@ -3646,6 +3653,18 @@ struct ContentView: View {
             )
         )
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openWorkspacePullRequests",
+                title: constant("Open All Workspace PR Links"),
+                subtitle: workspaceSubtitle,
+                keywords: ["pull", "request", "review", "merge", "pr", "mr", "open", "links", "workspace"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    $0.bool(CommandPaletteContextKeys.workspaceHasPullRequests)
+                }
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
@@ -3997,6 +4016,13 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.previousTabInPane") {
             tabManager.selectPreviousSurface()
+        }
+        registry.register(commandId: "palette.openWorkspacePullRequests") {
+            DispatchQueue.main.async {
+                if !openWorkspacePullRequestsInConfiguredBrowser() {
+                    NSSound.beep()
+                }
+            }
         }
 
         registry.register(commandId: "palette.browserBack") {
@@ -4638,6 +4664,31 @@ struct ContentView: View {
             return false
         }
         return NSWorkspace.shared.open(url)
+    }
+
+    private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {
+        guard let workspace = tabManager.selectedWorkspace else { return false }
+        let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
+        guard !pullRequests.isEmpty else { return false }
+
+        var openedCount = 0
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            for pullRequest in pullRequests {
+                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
+                    openedCount += 1
+                } else if NSWorkspace.shared.open(pullRequest.url) {
+                    openedCount += 1
+                }
+            }
+            return openedCount > 0
+        }
+
+        for pullRequest in pullRequests {
+            if NSWorkspace.shared.open(pullRequest.url) {
+                openedCount += 1
+            }
+        }
+        return openedCount > 0
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
@@ -7008,7 +7059,7 @@ private struct TabItemView: View {
     private struct PullRequestStatusIcon: View {
         let status: SidebarPullRequestStatus
         let color: Color
-        private static let frameSize: CGFloat = 13
+        private static let frameSize: CGFloat = 12
 
         var body: some View {
             switch status {
@@ -7018,7 +7069,7 @@ private struct TabItemView: View {
                 PullRequestMergedIcon(color: color)
             case .closed:
                 Image(systemName: "xmark.circle")
-                    .font(.system(size: 8, weight: .regular))
+                    .font(.system(size: 7, weight: .regular))
                     .foregroundColor(color)
                     .frame(width: Self.frameSize, height: Self.frameSize)
             }
@@ -7027,9 +7078,9 @@ private struct TabItemView: View {
 
     private struct PullRequestOpenIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.4
-        private static let frameSize: CGFloat = 14
+        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.0
+        private static let frameSize: CGFloat = 13
 
         var body: some View {
             ZStack {
@@ -7065,9 +7116,9 @@ private struct TabItemView: View {
 
     private struct PullRequestMergedIcon: View {
         let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.4
-        private static let frameSize: CGFloat = 14
+        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.0
+        private static let frameSize: CGFloat = 13
 
         var body: some View {
             ZStack {
