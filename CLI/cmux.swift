@@ -2121,13 +2121,19 @@ struct CMUXCLI {
         }
 
         if options.extraArguments.isEmpty {
-            // No explicit remote command provided: launch an interactive shell while prepending
-            // ~/.cmux/bin so `cmux` works in this SSH session without touching remote dotfiles.
+            // No explicit remote command provided: keep destination-only argv so Ghostty's
+            // ssh-terminfo bootstrap can safely append its own remote install command.
+            // Use RemoteCommand for session-local PATH bootstrap to make `cmux` available.
             if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
                 parts.append("-tt")
             }
+            if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
+                parts += [
+                    "-o",
+                    "RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l",
+                ]
+            }
             parts.append(options.destination)
-            parts.append("export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l")
         } else {
             parts.append(options.destination)
             parts.append(contentsOf: options.extraArguments)
