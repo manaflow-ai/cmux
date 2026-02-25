@@ -1,6 +1,24 @@
 import XCTest
 import Foundation
 
+// UI runners can adjust wall clock time mid-test; use monotonic uptime for polling deadlines.
+private func pollUntil(
+    timeout: TimeInterval,
+    pollInterval: TimeInterval = 0.05,
+    condition: () -> Bool
+) -> Bool {
+    let start = ProcessInfo.processInfo.systemUptime
+    while true {
+        if condition() {
+            return true
+        }
+        if (ProcessInfo.processInfo.systemUptime - start) >= timeout {
+            return false
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+    }
+}
+
 final class UpdatePillUITests: XCTestCase {
     override func setUp() {
         super.setUp()
@@ -131,25 +149,28 @@ final class UpdatePillUITests: XCTestCase {
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count >= count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        pollUntil(timeout: timeout) {
+            app.windows.count >= count
         }
-        return app.windows.count >= count
     }
 
     private func assertVisibleSize(_ element: XCUIElement, timeout: TimeInterval = 2.0) {
-        let deadline = Date().addingTimeInterval(timeout)
+        let pollInterval: TimeInterval = 0.05
         var size = element.frame.size
-        while Date() < deadline {
+        var exists = element.exists
+        var hittable = element.isHittable
+
+        let visible = pollUntil(timeout: timeout, pollInterval: pollInterval) {
             size = element.frame.size
-            if size.width > 20 && size.height > 10 {
-                return
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            exists = element.exists
+            hittable = element.isHittable
+            return size.width > 20 && size.height > 10
         }
-        XCTFail("Expected UpdatePill to have visible size, got \(size)")
+        if !visible {
+            XCTFail(
+                "Expected UpdatePill to have visible size, got \(size), exists=\(exists), hittable=\(hittable)"
+            )
+        }
     }
 
     private func attachScreenshot(name: String, screenshot: XCUIScreenshot = XCUIScreen.main.screenshot()) {
@@ -197,12 +218,14 @@ final class UpdatePillUITests: XCTestCase {
 
     private func launchAndActivate(_ app: XCUIApplication, activateTimeout: TimeInterval = 2.0) {
         app.launch()
-        let deadline = Date().addingTimeInterval(activateTimeout)
-        while Date() < deadline, app.state != .runningForeground {
+        let activated = pollUntil(timeout: activateTimeout) {
+            guard app.state != .runningForeground else {
+                return true
+            }
             app.activate()
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return app.state == .runningForeground
         }
-        if app.state != .runningForeground {
+        if !activated {
             app.activate()
         }
     }
@@ -293,40 +316,32 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
         app.launchArguments += ["-shortcutHintTitlebarYOffset", "0"]
         app.launch()
 
-        let deadline = Date().addingTimeInterval(2.0)
-        while Date() < deadline, app.state != .runningForeground {
+        _ = pollUntil(timeout: 2.0) {
+            guard app.state != .runningForeground else {
+                return true
+            }
             app.activate()
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return app.state == .runningForeground
         }
 
         return app
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count >= count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        pollUntil(timeout: timeout) {
+            app.windows.count >= count
         }
-        return app.windows.count >= count
     }
 
     private func waitForElementVisible(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        pollUntil(timeout: timeout) {
             if element.exists {
                 let frame = element.frame
                 if frame.width > 1, frame.height > 1 {
                     return true
                 }
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return false
         }
-
-        if element.exists {
-            let frame = element.frame
-            return frame.width > 1 && frame.height > 1
-        }
-        return false
     }
 }

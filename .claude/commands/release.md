@@ -11,16 +11,26 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
 2. **Create a release branch**
    - Create branch: `git checkout -b release/vX.Y.Z`
 
-3. **Gather changes since the last release**
+3. **Gather changes and contributors since the last release**
    - Find the most recent git tag: `git describe --tags --abbrev=0`
    - Get commits since that tag: `git log --oneline <last-tag>..HEAD --no-merges`
    - **Filter for end-user visible changes only** - ignore developer tooling, CI, docs, tests
    - Categorize changes into: Added, Changed, Fixed, Removed
+   - **Collect contributors:** For each PR referenced in the commits, get the author:
+     ```bash
+     gh pr view <N> --repo manaflow-ai/cmux --json author --jq '.author.login'
+     ```
+   - Also check for linked issue reporters (the person who filed the bug):
+     ```bash
+     gh issue view <N> --repo manaflow-ai/cmux --json author --jq '.author.login'
+     ```
+   - Build a deduplicated list of all contributor `@handle`s for the release
 
 4. **Update the changelog**
    - Add a new section at the top of `CHANGELOG.md` with the new version and today's date
    - **Only include changes that affect the end-user experience** - things users will see, feel, or interact with
    - Write clear, user-facing descriptions (not raw commit messages)
+   - **Credit contributors inline** (see Contributor Credits below)
    - Also update `docs-site/content/docs/changelog.mdx` with the same content
    - If there are no user-facing changes, ask the user if they still want to release
 
@@ -89,18 +99,47 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
 - Focus on what the user experiences, not how it was implemented
 - Link to issues/PRs if relevant
 
+## Contributor Credits
+
+Credit the people who made each release happen. This builds community and encourages contributions.
+
+**Per-entry attribution** — append contributor credit after each changelog bullet:
+- For code contributions (PR author): `— thanks @user!`
+- For bug reports (issue reporter, if different from PR author): `— thanks @reporter for the report!`
+- Core team (`lawrencecchen`, `austinywang`) contributions get no per-entry callout — core work is the baseline
+
+**Summary section** — add a "Thanks to N contributors!" section at the bottom of each release:
+```markdown
+### Thanks to N contributors!
+
+- [@user1](https://github.com/user1)
+- [@user2](https://github.com/user2)
+```
+- List all contributors alphabetically by GitHub handle (including core team)
+- Link each handle to their GitHub profile
+- Include everyone: PR authors, issue reporters, anyone whose work is in the release
+
+**GitHub Release body** — when the release is published, the GitHub Release should also include the "Thanks to N contributors!" section with linked handles.
+
 ## Example Changelog Entry
 
 ```markdown
 ## [0.13.0] - 2025-01-30
 
 ### Added
-- New keyboard shortcut for quick tab switching
+- New keyboard shortcut for quick tab switching ([#42](https://github.com/manaflow-ai/cmux/pull/42)) — thanks @contributor!
 
 ### Fixed
-- Memory leak when closing split panes
-- Notification badges not clearing properly
+- Memory leak when closing split panes ([#38](https://github.com/manaflow-ai/cmux/pull/38)) — thanks @fixer!
+- Notification badges not clearing properly ([#35](https://github.com/manaflow-ai/cmux/pull/35)) — thanks @reporter for the report!
 
 ### Changed
-- Improved terminal rendering performance
+- Improved terminal rendering performance ([#40](https://github.com/manaflow-ai/cmux/pull/40))
+
+### Thanks to 4 contributors!
+
+- [@contributor](https://github.com/contributor)
+- [@fixer](https://github.com/fixer)
+- [@lawrencechen](https://github.com/lawrencechen)
+- [@reporter](https://github.com/reporter)
 ```
