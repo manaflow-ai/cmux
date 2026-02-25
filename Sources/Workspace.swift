@@ -2807,7 +2807,11 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             hostedView.reconcileGeometryNow()
-            terminalPanel.surface.forceRefresh()
+            if hasSurface {
+                terminalPanel.surface.forceRefresh()
+            } else if isAttached && hasUsableBounds {
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            }
         }
 
         return needsFollowUpPass
@@ -2846,6 +2850,31 @@ final class Workspace: Identifiable, ObservableObject {
             guard let self else { return }
             self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
         }
+    }
+
+    private func scheduleMovedTerminalRefresh(panelId: UUID) {
+        guard terminalPanel(for: panelId) != nil else { return }
+
+        // Force an NSViewRepresentable update after drag/move reparenting. This keeps
+        // portal host binding current when a pane auto-closes during tab moves.
+        terminalPanel(for: panelId)?.requestViewReattach()
+
+        let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let self, let panel = self.terminalPanel(for: panelId) else { return }
+                panel.hostedView.reconcileGeometryNow()
+                if panel.surface.surface != nil {
+                    panel.surface.forceRefresh()
+                } else {
+                    panel.surface.requestBackgroundSurfaceStartIfNeeded()
+                }
+            }
+        }
+
+        // Run once immediately and once on the next turn so rapid split close/reparent
+        // sequences still get a post-layout redraw.
+        runRefreshPass(0)
+        runRefreshPass(0.03)
     }
 
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
@@ -3479,11 +3508,17 @@ extension Workspace: BonsplitDelegate {
 #endif
         applyTabSelection(tabId: tab.id, inPane: destination)
 #if DEBUG
+        let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
+#endif
+        if let movedPanelId = panelIdFromSurfaceId(tab.id) {
+            scheduleMovedTerminalRefresh(panelId: movedPanelId)
+        }
+#if DEBUG
         let selectedAfter = controller.selectedTab(inPane: destination)
             .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
         let focusedPaneAfter = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
-        let movedPanelFocused = (movedPanelId != nil && movedPanelId == focusedPanelId) ? 1 : 0
+        let movedPanelFocused = (movedPanelIdAfter != nil && movedPanelIdAfter == focusedPanelId) ? 1 : 0
         dlog(
             "split.moveTab.state.after idx=\(debugDidMoveTabEventCount) panel=\(movedPanel) " +
             "destSelected=\(selectedAfter) focusedPane=\(focusedPaneAfter) focusedPanel=\(focusedPanelAfter) " +

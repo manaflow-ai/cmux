@@ -8586,20 +8586,20 @@ class TerminalController {
         // Socket commands are line-based; allow callers to express control chars with backslash escapes.
         let text = unescapeSocketText(raw)
 
-	        var result = "ERROR: No window"
-	        DispatchQueue.main.sync {
-	            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
-	            // fail during key window transitions.
-	            guard let window = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first else { return }
-	            NSApp.activate(ignoringOtherApps: true)
-	            window.makeKeyAndOrderFront(nil)
-	            guard let fr = window.firstResponder else {
-	                result = "ERROR: No first responder"
-	                return
-	            }
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
+            // fail during key window transitions.
+            guard let window = NSApp.keyWindow
+                ?? NSApp.mainWindow
+                ?? NSApp.windows.first(where: { $0.isVisible })
+                ?? NSApp.windows.first else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            guard let fr = window.firstResponder else {
+                result = "ERROR: No first responder"
+                return
+            }
 
             if let client = fr as? NSTextInputClient {
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -8607,7 +8607,22 @@ class TerminalController {
                 return
             }
 
-            // Fall back to the responder chain insertText action.
+            // If workspace handoff temporarily leaves a non-terminal first responder,
+            // route debug typing to the selected terminal's focused panel directly.
+            if let tabManager,
+               let tabId = tabManager.selectedTabId,
+               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+               let panelId = tab.focusedPanelId,
+               let terminalPanel = tab.terminalPanel(for: panelId),
+               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                // Match Enter semantics expected by tests/debug tooling when bypassing AppKit.
+                let directText = text.replacingOccurrences(of: "\n", with: "\r")
+                terminalPanel.surface.sendText(directText)
+                result = "OK"
+                return
+            }
+
+            // Fall back to the responder-chain insertText action.
             (fr as? NSResponder)?.insertText(text)
             result = "OK"
         }
