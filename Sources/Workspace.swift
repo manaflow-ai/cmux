@@ -9,7 +9,15 @@ struct SidebarStatusEntry {
     let value: String
     let icon: String?
     let color: String?
+    let url: URL?
+    let priority: Int
+    let format: SidebarMetadataFormat
     let timestamp: Date
+}
+
+enum SidebarMetadataFormat: String {
+    case plain
+    case markdown
 }
 
 enum SidebarLogLevel: String {
@@ -977,6 +985,14 @@ final class Workspace: Identifiable, ObservableObject {
             panelPullRequests: panelPullRequests,
             fallbackPullRequest: pullRequest
         )
+    }
+
+    func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
+        statusEntries.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
     }
 
     // MARK: - Panel Operations

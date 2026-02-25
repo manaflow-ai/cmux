@@ -165,10 +165,19 @@ class TerminalController {
         key: String,
         value: String,
         icon: String?,
-        color: String?
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat
     ) -> Bool {
         guard let current else { return true }
-        return current.key != key || current.value != value || current.icon != icon || current.color != color
+        return current.key != key ||
+            current.value != value ||
+            current.icon != icon ||
+            current.color != color ||
+            current.url != url ||
+            current.priority != priority ||
+            current.format != format
     }
 
     nonisolated static func shouldReplaceProgress(
@@ -716,11 +725,20 @@ class TerminalController {
         case "set_status":
             return setStatus(args)
 
+        case "report_meta":
+            return reportMeta(args)
+
         case "clear_status":
             return clearStatus(args)
 
+        case "clear_meta":
+            return clearMeta(args)
+
         case "list_status":
             return listStatus(args)
+
+        case "list_meta":
+            return listMeta(args)
 
         case "log":
             return appendLog(args)
@@ -7885,9 +7903,12 @@ class TerminalController {
           clear_notifications             - Clear all notifications
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           clear_status <key> [--tab=X] - Remove a status entry
+          clear_meta <key> [--tab=X] - Remove sidebar metadata entry
           list_status [--tab=X]   - List all status entries
+          list_meta [--tab=X]     - List sidebar metadata entries
           log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
           clear_log [--tab=X]     - Clear log entries
           list_log [--limit=N] [--tab=X] - List log entries
@@ -10826,16 +10847,59 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private func setStatus(_ args: String) -> String {
+    private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
+        switch raw.lowercased() {
+        case "plain":
+            return .plain
+        case "markdown", "md":
+            return .markdown
+        default:
+            return nil
+        }
+    }
+
+    private func normalizedOptionValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptionsNoStop(args)
-        guard parsed.positional.count >= 2 else {
-            return "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X]"
-        }
+        guard parsed.positional.count >= 2 else { return missingError }
+
         let key = parsed.positional[0]
         let value = parsed.positional[1...].joined(separator: " ")
-        let icon = parsed.options["icon"]
-        let color = parsed.options["color"]
+        let icon = normalizedOptionValue(parsed.options["icon"])
+        let color = normalizedOptionValue(parsed.options["color"])
+
+        let formatRaw = normalizedOptionValue(parsed.options["format"]) ?? SidebarMetadataFormat.plain.rawValue
+        guard let format = parseSidebarMetadataFormat(formatRaw) else {
+            return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
+        }
+
+        let priority: Int
+        if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
+            guard let parsedPriority = Int(rawPriority) else {
+                return "ERROR: Invalid metadata priority '\(rawPriority)' — must be an integer"
+            }
+            priority = max(-9999, min(9999, parsedPriority))
+        } else {
+            priority = 0
+        }
+
+        let parsedURL: URL?
+        if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
+            guard let candidate = URL(string: rawURL),
+                  let scheme = candidate.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
+            }
+            parsedURL = candidate
+        } else {
+            parsedURL = nil
+        }
 
         var result = "OK"
         DispatchQueue.main.sync {
@@ -10848,7 +10912,10 @@ class TerminalController {
                 key: key,
                 value: value,
                 icon: icon,
-                color: color
+                color: color,
+                url: parsedURL,
+                priority: priority,
+                format: format
             ) else {
                 return
             }
@@ -10857,16 +10924,19 @@ class TerminalController {
                 value: value,
                 icon: icon,
                 color: color,
+                url: parsedURL,
+                priority: priority,
+                format: format,
                 timestamp: Date()
             )
         }
         return result
     }
 
-    private func clearStatus(_ args: String) -> String {
+    private func clearSidebarMetadata(_ args: String, usage: String) -> String {
         let parsed = parseOptions(args)
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
-            return "ERROR: Missing status key — usage: clear_status <key> [--tab=X]"
+            return "ERROR: Missing metadata key — usage: \(usage)"
         }
 
         var result = "OK"
@@ -10882,26 +10952,61 @@ class TerminalController {
         return result
     }
 
-    private func listStatus(_ args: String) -> String {
+    private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {
+        var line = "\(entry.key)=\(entry.value)"
+        if let icon = entry.icon { line += " icon=\(icon)" }
+        if let color = entry.color { line += " color=\(color)" }
+        if let url = entry.url { line += " url=\(url.absoluteString)" }
+        if entry.priority != 0 { line += " priority=\(entry.priority)" }
+        if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        return line
+    }
+
+    private func listSidebarMetadata(_ args: String, emptyMessage: String) -> String {
         var result = ""
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
             }
-            if tab.statusEntries.isEmpty {
-                result = "No status entries"
+            let entries = tab.sidebarStatusEntriesInDisplayOrder()
+            if entries.isEmpty {
+                result = emptyMessage
                 return
             }
-            let lines = tab.statusEntries.values.sorted(by: { $0.key < $1.key }).map { entry in
-                var line = "\(entry.key)=\(entry.value)"
-                if let icon = entry.icon { line += " icon=\(icon)" }
-                if let color = entry.color { line += " color=\(color)" }
-                return line
-            }
-            result = lines.joined(separator: "\n")
+            result = entries.map(sidebarMetadataLine).joined(separator: "\n")
         }
         return result
+    }
+
+    private func setStatus(_ args: String) -> String {
+        upsertSidebarMetadata(
+            args,
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+        )
+    }
+
+    private func reportMeta(_ args: String) -> String {
+        upsertSidebarMetadata(
+            args,
+            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+        )
+    }
+
+    private func clearStatus(_ args: String) -> String {
+        clearSidebarMetadata(args, usage: "clear_status <key> [--tab=X]")
+    }
+
+    private func clearMeta(_ args: String) -> String {
+        clearSidebarMetadata(args, usage: "clear_meta <key> [--tab=X]")
+    }
+
+    private func listStatus(_ args: String) -> String {
+        listSidebarMetadata(args, emptyMessage: "No status entries")
+    }
+
+    private func listMeta(_ args: String) -> String {
+        listSidebarMetadata(args, emptyMessage: "No metadata entries")
     }
 
     private func appendLog(_ args: String) -> String {
@@ -11533,12 +11638,10 @@ class TerminalController {
                 lines.append("progress=none")
             }
 
-            lines.append("status_count=\(tab.statusEntries.count)")
-            for entry in tab.statusEntries.values.sorted(by: { $0.key < $1.key }) {
-                var line = "  \(entry.key)=\(entry.value)"
-                if let icon = entry.icon { line += " icon=\(icon)" }
-                if let color = entry.color { line += " color=\(color)" }
-                lines.append(line)
+            let statusEntries = tab.sidebarStatusEntriesInDisplayOrder()
+            lines.append("status_count=\(statusEntries.count)")
+            for entry in statusEntries {
+                lines.append("  \(sidebarMetadataLine(entry))")
             }
 
             lines.append("log_count=\(tab.logEntries.count)")

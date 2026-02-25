@@ -2569,6 +2569,7 @@ struct SettingsView: View {
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2781,6 +2782,17 @@ struct SettingsView: View {
                             subtitle: "Display PR status, number, and a clickable link when available."
                         ) {
                             Toggle("", isOn: $sidebarShowPullRequest)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Custom Metadata in Sidebar",
+                            subtitle: "Display metadata rows from report_meta/set_status, including icons and optional links."
+                        ) {
+                            Toggle("", isOn: $sidebarShowMetadata)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -3312,6 +3324,7 @@ struct SettingsView: View {
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowPullRequest = true
+        sidebarShowMetadata = true
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

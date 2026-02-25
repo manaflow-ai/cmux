@@ -2485,7 +2485,7 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
@@ -2665,16 +2665,16 @@ private struct TabItemView: View {
                     .multilineTextAlignment(.leading)
             }
 
-            if sidebarShowStatusPills, !tab.statusEntries.isEmpty {
-                SidebarStatusPillsRow(
-                    entries: tab.statusEntries.values.sorted(by: { (lhs, rhs) in
-                        if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-                        return lhs.key < rhs.key
-                    }),
-                    isActive: usesInvertedActiveForeground,
-                    onFocus: { updateSelection() }
-                )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            if sidebarShowMetadata {
+                let metadataEntries = tab.sidebarStatusEntriesInDisplayOrder()
+                if !metadataEntries.isEmpty {
+                    SidebarMetadataRows(
+                        entries: metadataEntries,
+                        isActive: usesInvertedActiveForeground,
+                        onFocus: { updateSelection() }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
 
             // Latest log entry
@@ -3535,30 +3535,19 @@ private struct TabItemView: View {
     }
 }
 
-private struct SidebarStatusPillsRow: View {
+private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(statusText)
-                .font(.system(size: 10))
-                .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
-                .lineLimit(isExpanded ? nil : 3)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onFocus()
-                    guard shouldShowToggle else { return }
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
-                }
+            ForEach(visibleEntries, id: \.key) { entry in
+                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+            }
 
             if shouldShowToggle {
                 Button(isExpanded ? "Show less" : "Show more") {
@@ -3573,21 +3562,116 @@ private struct SidebarStatusPillsRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .help(statusText)
+        .help(helpText)
     }
 
-    private var statusText: String {
-        entries
-            .map { entry in
-                let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty { return value }
-                return entry.key
-            }
-            .joined(separator: "\n")
+    private var visibleEntries: [SidebarStatusEntry] {
+        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
+        return Array(entries.prefix(collapsedEntryLimit))
+    }
+
+    private var helpText: String {
+        entries.map { entry in
+            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? entry.key : trimmed
+        }
+        .joined(separator: "\n")
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > 1 || statusText.count > 120
+        entries.count > collapsedEntryLimit
+    }
+}
+
+private struct SidebarMetadataEntryRow: View {
+    let entry: SidebarStatusEntry
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    var body: some View {
+        Group {
+            if let url = entry.url {
+                Button {
+                    onFocus()
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    rowContent(underlined: true)
+                }
+                .buttonStyle(.plain)
+                .help(url.absoluteString)
+            } else {
+                rowContent(underlined: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onFocus() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowContent(underlined: Bool) -> some View {
+        HStack(spacing: 4) {
+            if let icon = iconView {
+                icon
+                    .foregroundColor(foregroundColor.opacity(0.95))
+            }
+            metadataText(underlined: underlined)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var foregroundColor: Color {
+        if let raw = entry.color, let explicit = Color(hex: raw) {
+            return explicit
+        }
+        return isActive ? .white.opacity(0.8) : .secondary
+    }
+
+    private var iconView: AnyView? {
+        guard let iconRaw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !iconRaw.isEmpty else {
+            return nil
+        }
+        if iconRaw.hasPrefix("emoji:") {
+            let value = String(iconRaw.dropFirst("emoji:".count))
+            guard !value.isEmpty else { return nil }
+            return AnyView(Text(value).font(.system(size: 10)))
+        }
+        if iconRaw.hasPrefix("text:") {
+            let value = String(iconRaw.dropFirst("text:".count))
+            guard !value.isEmpty else { return nil }
+            return AnyView(Text(value).font(.system(size: 9, weight: .semibold)))
+        }
+        let symbolName: String
+        if iconRaw.hasPrefix("sf:") {
+            symbolName = String(iconRaw.dropFirst("sf:".count))
+        } else {
+            symbolName = iconRaw
+        }
+        guard !symbolName.isEmpty else { return nil }
+        return AnyView(Image(systemName: symbolName).font(.system(size: 9, weight: .medium)))
+    }
+
+    @ViewBuilder
+    private func metadataText(underlined: Bool) -> some View {
+        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = trimmed.isEmpty ? entry.key : trimmed
+        if entry.format == .markdown,
+           let attributed = try? AttributedString(
+                markdown: display,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+           ) {
+            Text(attributed)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        } else {
+            Text(display)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        }
     }
 }
 
