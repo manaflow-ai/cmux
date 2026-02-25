@@ -4273,6 +4273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
         let hasOption = flags.contains(.option)
@@ -4316,15 +4317,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
-            return false
-        }
-
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+
+        if isPlainEscape,
+           commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteTargetWindow {
+            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+            return true
+        }
+
+        if isPlainEscape {
+            if let modalWindow = NSApp.modalWindow {
+                _ = modalWindow.performKeyEquivalent(with: event)
+                return true
+            }
+
+            if let sheetWindow = sheetWindowForEscapeEvent(event) {
+                _ = sheetWindow.performKeyEquivalent(with: event)
+                return true
+            }
+        }
+
+        if NSApp.modalWindow != nil || sheetWindowForEscapeEvent(event) != nil {
+            return false
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
@@ -4863,6 +4883,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func sheetWindowForEscapeEvent(_ event: NSEvent) -> NSWindow? {
+        if let eventWindow = event.window, eventWindow.sheetParent != nil {
+            return eventWindow
+        }
+        if let sheet = NSApp.keyWindow?.attachedSheet {
+            return sheet
+        }
+        if let sheet = NSApp.mainWindow?.attachedSheet {
+            return sheet
+        }
+        return NSApp.windows.compactMap { $0.attachedSheet }.first(where: { $0.isVisible })
     }
 
     private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {

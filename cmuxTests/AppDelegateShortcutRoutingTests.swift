@@ -6,6 +6,15 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class EscapeTrackingSheetPanel: NSPanel {
+    private(set) var performKeyEquivalentCallCount = 0
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        performKeyEquivalentCallCount += 1
+        return true
+    }
+}
+
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -368,6 +377,108 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         wait(for: [workspaceExpectation, renameTabExpectation], timeout: 1.0)
         XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testEscapeDismissesVisibleCommandPaletteAndConsumesEvent() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let dismissExpectation = expectation(description: "Expected command palette toggle request on Escape")
+        var observedWindow: NSWindow?
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteToggleRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedWindow = notification.object as? NSWindow
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [dismissExpectation], timeout: 1.0)
+        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testEscapeIsForwardedToAttachedSheetAndConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let sheet = EscapeTrackingSheetPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 140),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.beginSheet(sheet)
+        defer {
+            if sheet.sheetParent != nil {
+                window.endSheet(sheet)
+            }
+            sheet.orderOut(nil)
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: sheet.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(sheet.performKeyEquivalentCallCount, 1)
     }
 
     func testCmdDigitDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing() {
