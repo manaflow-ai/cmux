@@ -194,6 +194,16 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
+## Session restore (current behavior)
+
+On relaunch, cmux currently restores app layout and metadata only:
+- Window/workspace/pane layout
+- Working directories
+- Terminal scrollback (best effort)
+- Browser URL and navigation history
+
+cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
+
 ## Star History
 
 <a href="https://star-history.com/#manaflow-ai/cmux&Date">
