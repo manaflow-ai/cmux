@@ -6085,6 +6085,25 @@ private struct SidebarEmptyArea: View {
     }
 }
 
+enum SidebarPathFormatter {
+    static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
+
+    static func shortenedPath(
+        _ path: String,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return path }
+        if trimmed == homeDirectoryPath {
+            return "~"
+        }
+        if trimmed.hasPrefix(homeDirectoryPath + "/") {
+            return "~" + trimmed.dropFirst(homeDirectoryPath.count)
+        }
+        return trimmed
+    }
+}
+
 private struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
@@ -6223,6 +6242,11 @@ private struct TabItemView: View {
     }
 
     var body: some View {
+        let latestNotificationSubtitle = latestNotificationText
+        let compactBranchDirectoryRow = branchDirectoryRow
+        let branchDirectoryLines = verticalBranchDirectoryLines
+        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 let unreadCount = notificationStore.unreadCount(forTabId: tab.id)
@@ -6289,7 +6313,7 @@ private struct TabItemView: View {
                 .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
             }
 
-            if let subtitle = latestNotificationText {
+            if let subtitle = latestNotificationSubtitle {
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundColor(activeSecondaryColor(0.8))
@@ -6361,15 +6385,15 @@ private struct TabItemView: View {
             // Branch + directory row
             if sidebarShowBranchDirectory {
                 if sidebarBranchVerticalLayout {
-                    if !verticalBranchDirectoryLines.isEmpty {
+                    if !branchDirectoryLines.isEmpty {
                         HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
+                            if sidebarShowGitBranchIcon, branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
                                     .font(.system(size: 9))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
@@ -6396,7 +6420,7 @@ private struct TabItemView: View {
                             }
                         }
                     }
-                } else if let dirRow = branchDirectoryRow {
+                } else if let dirRow = compactBranchDirectoryRow {
                     HStack(spacing: 3) {
                         if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                             Image(systemName: "arrow.triangle.branch")
@@ -6957,17 +6981,13 @@ private struct TabItemView: View {
         tab.sidebarBranchDirectoryEntriesInDisplayOrder()
     }
 
-    private var verticalRowsContainBranch: Bool {
-        sidebarShowGitBranch && verticalBranchDirectoryLines.contains { $0.branch != nil }
-    }
-
     private struct VerticalBranchDirectoryLine {
         let branch: String?
         let directory: String?
     }
 
     private var verticalBranchDirectoryLines: [VerticalBranchDirectoryLine] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = SidebarPathFormatter.homeDirectoryPath
         return verticalBranchDirectoryEntries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
@@ -6976,7 +6996,7 @@ private struct TabItemView: View {
 
             let directoryText: String? = {
                 guard let directory = entry.directory else { return nil }
-                let shortened = shortenPath(directory, home: home)
+                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
                 return shortened.isEmpty ? nil : shortened
             }()
 
@@ -6995,12 +7015,12 @@ private struct TabItemView: View {
 
     private var directorySummaryText: String? {
         guard !tab.panels.isEmpty else { return nil }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = SidebarPathFormatter.homeDirectoryPath
         var seen: Set<String> = []
         var entries: [String] = []
         for panelId in tab.sidebarOrderedPanelIds() {
             let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
-            let shortened = shortenPath(directory, home: home)
+            let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
             guard !shortened.isEmpty else { continue }
             if seen.insert(shortened).inserted {
                 entries.append(shortened)
@@ -7089,18 +7109,6 @@ private struct TabItemView: View {
         case .warning: return .orange
         case .error: return .red
         }
-    }
-
-    private func shortenPath(_ path: String, home: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return path }
-        if trimmed == home {
-            return "~"
-        }
-        if trimmed.hasPrefix(home + "/") {
-            return "~" + trimmed.dropFirst(home.count)
-        }
-        return trimmed
     }
 
     private struct PullRequestStatusIcon: View {
