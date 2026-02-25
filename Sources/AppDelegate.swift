@@ -3275,7 +3275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.checkForUpdates(nil)
             },
             onOpenPreferences: { [weak self] in
-                self?.openPreferencesWindow()
+                self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
                 NSApp.terminate(nil)
@@ -3283,9 +3283,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
+    static func presentPreferencesWindow(
+        showFallbackSettingsWindow: @MainActor () -> Void = {
+            SettingsWindowController.shared.show()
+        },
+        activateApplication: @MainActor () -> Void = {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
+#if DEBUG
+        dlog("settings.open.present path=customWindowDirect")
+#endif
+        showFallbackSettingsWindow()
+        activateApplication()
+#if DEBUG
+        dlog("settings.open.present activate=1")
+#endif
+    }
+
+    @MainActor
+    func openPreferencesWindow(debugSource: String) {
+#if DEBUG
+        dlog("settings.open.request source=\(debugSource)")
+#endif
+        Self.presentPreferencesWindow()
+    }
+
     @objc func openPreferencesWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        openPreferencesWindow(debugSource: "appDelegate")
     }
 
     func refreshMenuBarExtraForDebug() {

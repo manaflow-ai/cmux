@@ -3931,7 +3931,17 @@ struct ContentView: View {
             AppDelegate.shared?.jumpToLatestUnread()
         }
         registry.register(commandId: "palette.openSettings") {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+#if DEBUG
+            dlog("palette.openSettings.invoke")
+#endif
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.openPreferencesWindow(debugSource: "palette.openSettings")
+            } else {
+#if DEBUG
+                dlog("palette.openSettings.missingAppDelegate fallback=1")
+#endif
+                AppDelegate.presentPreferencesWindow()
+            }
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
@@ -4250,6 +4260,9 @@ struct ContentView: View {
     }
 
     private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
+#if DEBUG
+        dlog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
+#endif
         recordCommandPaletteUsage(command.id)
         command.action()
         if command.dismissOnRun {
