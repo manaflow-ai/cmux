@@ -2902,6 +2902,101 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
+
+    func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
+        let manager = TabManager()
+        guard let initialWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected initial selected workspace")
+            return
+        }
+        guard let url = URL(string: "https://example.com/pull/123") else {
+            XCTFail("Expected test URL to be valid")
+            return
+        }
+
+        let targetWorkspace = manager.addWorkspace(select: false)
+        manager.selectWorkspace(initialWorkspace)
+        let initialPaneCount = targetWorkspace.bonsplitController.allPaneIds.count
+        let initialPanelCount = targetWorkspace.panels.count
+
+        guard let browserPanelId = manager.openBrowser(
+            inWorkspace: targetWorkspace.id,
+            url: url,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created in target workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, targetWorkspace.id, "Expected target workspace to become selected")
+        XCTAssertEqual(
+            targetWorkspace.bonsplitController.allPaneIds.count,
+            initialPaneCount + 1,
+            "Expected split-right browser open to create a new pane"
+        )
+        XCTAssertEqual(
+            targetWorkspace.panels.count,
+            initialPanelCount + 1,
+            "Expected browser panel count to increase by one"
+        )
+        XCTAssertEqual(
+            targetWorkspace.focusedPanelId,
+            browserPanelId,
+            "Expected created browser panel to be focused in target workspace"
+        )
+        XCTAssertTrue(
+            targetWorkspace.panels[browserPanelId] is BrowserPanel,
+            "Expected created panel to be a browser panel"
+        )
+    }
+
+    func testOpenBrowserInWorkspaceSplitRightReusesTopRightPaneWhenAlreadySplit() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let topRightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) != nil,
+              let topRightPaneId = workspace.paneId(forPanelId: topRightPanel.id),
+              let url = URL(string: "https://example.com/pull/456") else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+        guard let browserPanelId = manager.openBrowser(
+            inWorkspace: workspace.id,
+            url: url,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            initialPaneCount,
+            "Expected split-right browser open to reuse existing panes"
+        )
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: browserPanelId),
+            topRightPaneId,
+            "Expected browser to open in the top-right pane when multiple splits already exist"
+        )
+
+        let targetPaneTabs = workspace.bonsplitController.tabs(inPane: topRightPaneId)
+        guard let lastSurfaceId = targetPaneTabs.last?.id else {
+            XCTFail("Expected top-right pane to contain tabs")
+            return
+        }
+        XCTAssertEqual(
+            workspace.panelIdFromSurfaceId(lastSurfaceId),
+            browserPanelId,
+            "Expected browser surface to be appended at end in the reused top-right pane"
+        )
+    }
 }
 
 @MainActor
@@ -3678,6 +3773,149 @@ final class SidebarBranchOrderingTests: XCTestCase {
         XCTAssertEqual(
             rows,
             [SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/default")]
+        )
+    }
+
+    func testOrderedUniquePullRequestsFollowsPanelOrderAcrossSplitsAndTabs() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second, third, fourth],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 337,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/337",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 18,
+                    label: "MR",
+                    url: "https://gitlab.com/manaflow/cmux/-/merge_requests/18",
+                    status: .open
+                ),
+                third: pullRequestState(
+                    number: 337,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/337",
+                    status: .merged
+                ),
+                fourth: pullRequestState(
+                    number: 92,
+                    label: "PR",
+                    url: "https://bitbucket.org/manaflow/cmux/pull-requests/92",
+                    status: .closed
+                )
+            ],
+            fallbackPullRequest: pullRequestState(
+                number: 1,
+                label: "PR",
+                url: "https://example.invalid/fallback/1",
+                status: .open
+            )
+        )
+
+        XCTAssertEqual(
+            pullRequests.map { "\($0.label)#\($0.number)" },
+            ["PR#337", "MR#18", "PR#92"]
+        )
+        XCTAssertEqual(
+            pullRequests.map(\.status),
+            [.merged, .open, .closed]
+        )
+    }
+
+    func testOrderedUniquePullRequestsTreatsSameNumberDifferentLabelsAsDistinct() {
+        let first = UUID()
+        let second = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 42,
+                    label: "MR",
+                    url: "https://gitlab.com/manaflow/cmux/-/merge_requests/42",
+                    status: .open
+                )
+            ],
+            fallbackPullRequest: nil
+        )
+
+        XCTAssertEqual(
+            pullRequests.map { "\($0.label)#\($0.number)" },
+            ["PR#42", "MR#42"]
+        )
+    }
+
+    func testOrderedUniquePullRequestsTreatsSameNumberAndLabelDifferentUrlsAsDistinct() {
+        let first = UUID()
+        let second = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/other-repo/pull/42",
+                    status: .open
+                )
+            ],
+            fallbackPullRequest: nil
+        )
+
+        XCTAssertEqual(
+            pullRequests.map(\.url.absoluteString),
+            [
+                "https://github.com/manaflow-ai/cmux/pull/42",
+                "https://github.com/manaflow-ai/other-repo/pull/42"
+            ]
+        )
+    }
+
+    func testOrderedUniquePullRequestsUsesFallbackWhenNoPanelPullRequestsExist() {
+        let fallback = pullRequestState(
+            number: 11,
+            label: "PR",
+            url: "https://github.com/manaflow-ai/cmux/pull/11",
+            status: .open
+        )
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [],
+            panelPullRequests: [:],
+            fallbackPullRequest: fallback
+        )
+
+        XCTAssertEqual(pullRequests, [fallback])
+    }
+
+    private func pullRequestState(
+        number: Int,
+        label: String,
+        url: String,
+        status: SidebarPullRequestStatus
+    ) -> SidebarPullRequestState {
+        SidebarPullRequestState(
+            number: number,
+            label: label,
+            url: URL(string: url)!,
+            status: status
         )
     }
 }
@@ -6275,6 +6513,18 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
 
+    func testSidebarPullRequestLinksDefaultToCmuxBrowser() {
+        XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
+    }
+
+    func testSidebarPullRequestLinksPreferenceUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
+    }
+
     func testOpenCommandInterceptionDefaultsToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults))
     }
@@ -6513,7 +6763,10 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 key: "agent",
                 value: "idle",
                 icon: "bolt",
-                color: "#ffffff"
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain
             )
         )
     }
@@ -6532,7 +6785,10 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 key: "agent",
                 value: "running",
                 icon: "bolt",
-                color: "#ffffff"
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain
             )
         )
     }

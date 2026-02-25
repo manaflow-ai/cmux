@@ -2631,6 +2631,14 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
+    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
+    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2849,6 +2857,84 @@ struct SettingsView: View {
                             .pickerStyle(.menu)
                         }
 
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Branch + Directory in Sidebar",
+                            subtitle: "Display the built-in git branch and working-directory row."
+                        ) {
+                            Toggle("", isOn: $sidebarShowBranchDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Pull Requests in Sidebar",
+                            subtitle: "Display review items (PR/MR/etc.) with status, number, and clickable link."
+                        ) {
+                            Toggle("", isOn: $sidebarShowPullRequest)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Sidebar PR Links in cmux Browser",
+                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
+                                ? "Clicks open inside cmux browser."
+                                : "Clicks open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Listening Ports in Sidebar",
+                            subtitle: "Display detected listening ports for the active workspace."
+                        ) {
+                            Toggle("", isOn: $sidebarShowPorts)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Latest Log in Sidebar",
+                            subtitle: "Display the latest imperative log/status message."
+                        ) {
+                            Toggle("", isOn: $sidebarShowLog)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Progress in Sidebar",
+                            subtitle: "Display the built-in progress bar from set_progress."
+                        ) {
+                            Toggle("", isOn: $sidebarShowProgress)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Custom Metadata in Sidebar",
+                            subtitle: "Display custom metadata from report_meta/set_status and report_meta_block."
+                        ) {
+                            Toggle("", isOn: $sidebarShowMetadata)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
                     }
 
                     SettingsSectionHeader(title: "Workspace Colors")
@@ -3389,6 +3475,13 @@ struct SettingsView: View {
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarShowBranchDirectory = true
+        sidebarShowPullRequest = true
+        openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+        sidebarShowPorts = true
+        sidebarShowLog = true
+        sidebarShowProgress = true
+        sidebarShowMetadata = true
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

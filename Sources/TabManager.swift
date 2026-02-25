@@ -1940,19 +1940,81 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
+    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
+    @discardableResult
+    func openBrowser(
+        inWorkspace tabId: UUID,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+
+        if preferSplitRight {
+            if let targetPaneId = workspace.topRightBrowserReusePane(),
+               let browserPanel = workspace.newBrowserSurface(
+                   inPane: targetPaneId,
+                   url: url,
+                   focus: true,
+                   insertAtEnd: insertAtEnd
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+
+            let splitSourcePanelId: UUID? = {
+                if let focusedPanelId = workspace.focusedPanelId,
+                   workspace.panels[focusedPanelId] != nil {
+                    return focusedPanelId
+                }
+                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
+                   workspace.panels[rememberedPanelId] != nil {
+                    return rememberedPanelId
+                }
+                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
+                    return orderedPanelId
+                }
+                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+            }()
+
+            if let splitSourcePanelId,
+               let browserPanel = workspace.newBrowserSplit(
+                   from: splitSourcePanelId,
+                   orientation: .horizontal,
+                   url: url,
+                   focus: true
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+        }
+
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(
+                  inPane: paneId,
+                  url: url,
+                  focus: true,
+                  insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+        return browserPanel.id
+    }
+
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
     func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
-        guard let tabId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let focusedPaneId = tab.bonsplitController.focusedPaneId else { return nil }
-        let panel = tab.newBrowserSurface(
-            inPane: focusedPaneId,
+        guard let tabId = selectedTabId else { return nil }
+        return openBrowser(
+            inWorkspace: tabId,
             url: url,
-            focus: true,
+            preferSplitRight: false,
             insertAtEnd: insertAtEnd
         )
-        return panel?.id
     }
 
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
