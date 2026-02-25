@@ -737,6 +737,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private var pendingCommandPaletteRequestByWindowId: [UUID: TimeInterval] = [:]
+    private let commandPaletteRequestGraceInterval: TimeInterval = 0.75
     private var shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = false
 
     var updateViewModel: UpdateViewModel {
@@ -2197,6 +2199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
         commandPaletteVisibilityByWindowId[windowId] = visible
+        if visible {
+            pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
+        }
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
@@ -2224,6 +2229,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func isCommandPaletteVisible(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
         return commandPaletteVisibilityByWindowId[windowId] ?? false
+    }
+
+    private func notePendingCommandPaletteRequest(for window: NSWindow?) {
+        guard let window, let windowId = mainWindowId(for: window) else { return }
+        pendingCommandPaletteRequestByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func isCommandPaletteRequestPending(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window),
+              let requestTimestamp = pendingCommandPaletteRequestByWindowId[windowId] else {
+            return false
+        }
+
+        let age = ProcessInfo.processInfo.systemUptime - requestTimestamp
+        if age <= commandPaletteRequestGraceInterval {
+            return true
+        }
+
+        pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
+        return false
+    }
+
+    private func clearPendingCommandPaletteRequest(for window: NSWindow?) {
+        guard let window, let windowId = mainWindowId(for: window) else { return }
+        pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
     }
 
     func shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
@@ -4335,11 +4365,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+        let commandPaletteRequestPendingInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteRequestPending(for: $0)
+        } ?? false
 
         if isPlainEscape,
-           commandPaletteVisibleInTargetWindow,
+           (commandPaletteVisibleInTargetWindow || commandPaletteRequestPendingInTargetWindow),
            let paletteWindow = commandPaletteTargetWindow {
             NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+            clearPendingCommandPaletteRequest(for: paletteWindow)
             shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
             return true
         }
@@ -4381,6 +4415,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            notePendingCommandPaletteRequest(for: targetWindow)
             return true
         }
 
@@ -4388,6 +4423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            notePendingCommandPaletteRequest(for: targetWindow)
             return true
         }
 
