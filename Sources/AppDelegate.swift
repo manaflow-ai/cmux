@@ -4537,6 +4537,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Cmd+W must close the focused panel even if first-responder momentarily lags on a
+        // browser NSTextView during split focus transitions.
+        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.settings" {
+                targetWindow.performClose(nil)
+            } else {
+                let responder = event.window?.firstResponder
+                    ?? NSApp.keyWindow?.firstResponder
+                    ?? NSApp.mainWindow?.firstResponder
+                if let ghosttyView = cmuxOwningGhosttyView(for: responder),
+                   let workspaceId = ghosttyView.tabId,
+                   let panelId = ghosttyView.terminalSurface?.id,
+                   let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
+#if DEBUG
+                    dlog(
+                        "shortcut.cmdW route=ghostty workspace=\(workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) selected=\(manager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
+                    )
+#endif
+                    manager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: panelId)
+                } else {
+#if DEBUG
+                    dlog("shortcut.cmdW route=focusedPanelFallback")
+#endif
+                    tabManager?.closeCurrentPanelWithConfirmation()
+                }
+            }
+            return true
+        }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspace)) {
             tabManager?.closeCurrentWorkspaceWithConfirmation()
             return true

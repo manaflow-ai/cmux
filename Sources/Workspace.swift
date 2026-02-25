@@ -1952,17 +1952,38 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
-        // currently focused, close whichever tab bonsplit marks selected in that focused pane.
-        guard focusedPanelId == panelId,
+        // currently focused (or is the active terminal first responder), close whichever tab
+        // bonsplit marks selected in that focused pane.
+        let firstResponderPanelId = cmuxOwningGhosttyView(
+            for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
+        )?.terminalSurface?.id
+        let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
+        guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
               let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+#if DEBUG
+            dlog(
+                "surface.close.fallback.skip panel=\(panelId.uuidString.prefix(5)) " +
+                "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
+                "firstResponderPanel=\(firstResponderPanelId?.uuidString.prefix(5) ?? "nil") " +
+                "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
             return false
         }
 
         if force {
             forceCloseTabIds.insert(selected.id)
         }
-        return bonsplitController.closeTab(selected.id)
+        let closed = bonsplitController.closeTab(selected.id)
+#if DEBUG
+        dlog(
+            "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
+            "selectedTab=\(String(describing: selected.id).prefix(5)) " +
+            "closed=\(closed ? 1 : 0)"
+        )
+#endif
+        return closed
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {

@@ -1463,6 +1463,14 @@ enum TerminalWindowPortalRegistry {
         portal.hideEntry(forHostedId: hostedId)
     }
 
+    /// Permanently detach a hosted terminal view from the window-level portal.
+    /// Use this when a terminal panel is actually closing (not transient SwiftUI dismantle).
+    static func detach(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
+        portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
+    }
+
     /// Update the visibleInUI flag on an existing portal entry without rebinding.
     /// Called when a bind is deferred (host not yet in window) to prevent stale
     /// portal syncs from hiding a view that is about to become visible.
