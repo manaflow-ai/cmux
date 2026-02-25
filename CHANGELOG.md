@@ -19,7 +19,7 @@ All notable changes to cmux are documented here.
 - Browser link middle-click handling now uses native WebKit behavior ([#416](https://github.com/manaflow-ai/cmux/pull/416))
 - Settings-window actions now route through a single command-palette/settings flow
 - Sentry upgraded with tracing, breadcrumbs, and dSYM upload support ([#366](https://github.com/manaflow-ai/cmux/pull/366))
-- Clarified session restore scope: cmux restores layout, working directory, scrollback, and browser history, but does not resume live terminal process state yet
+- Session restore scope clarification: cmux restores layout, working directory, scrollback, and browser history, but does not resume live terminal process state yet
 
 ### Fixed
 - Startup split hang when pressing Cmd+D then Ctrl+D early after launch ([#364](https://github.com/manaflow-ai/cmux/pull/364))
