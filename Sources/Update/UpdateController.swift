@@ -8,6 +8,8 @@ class UpdateController {
     private(set) var updater: SPUUpdater
     private let userDriver: UpdateDriver
     private var installCancellable: AnyCancellable?
+    private var attemptInstallCancellable: AnyCancellable?
+    private var didObserveAttemptUpdateProgress: Bool = false
     private var noUpdateDismissCancellable: AnyCancellable?
     private var noUpdateDismissWorkItem: DispatchWorkItem?
     private var readyCheckWorkItem: DispatchWorkItem?
@@ -46,6 +48,7 @@ class UpdateController {
 
     deinit {
         installCancellable?.cancel()
+        attemptInstallCancellable?.cancel()
         noUpdateDismissCancellable?.cancel()
         noUpdateDismissWorkItem?.cancel()
         readyCheckWorkItem?.cancel()
@@ -105,6 +108,35 @@ class UpdateController {
             }
             state.confirm()
         }
+    }
+
+    /// Check for updates and auto-confirm install if one is found.
+    func attemptUpdate() {
+        stopAttemptUpdateMonitoring()
+        didObserveAttemptUpdateProgress = false
+
+        attemptInstallCancellable = viewModel.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+
+                if state.isInstallable || !state.isIdle {
+                    self.didObserveAttemptUpdateProgress = true
+                }
+
+                if case .updateAvailable = state {
+                    UpdateLogStore.shared.append("attemptUpdate auto-confirming available update")
+                    state.confirm()
+                    return
+                }
+
+                guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
+                    return
+                }
+                self.stopAttemptUpdateMonitoring()
+            }
+
+        checkForUpdates()
     }
 
     /// Check for updates (used by the menu item).
@@ -173,6 +205,12 @@ class UpdateController {
             return true
         }
         return true
+    }
+
+    private func stopAttemptUpdateMonitoring() {
+        attemptInstallCancellable?.cancel()
+        attemptInstallCancellable = nil
+        didObserveAttemptUpdateProgress = false
     }
 
     private func installNoUpdateDismissObserver() {

@@ -35,4 +35,31 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertLessThanOrEqual(leftDelta, -40, "Expected drag-left to move resizer left")
         XCTAssertGreaterThanOrEqual(leftDelta, -122, "Resizer moved farther than requested drag-left offset")
     }
+
+    func testSidebarResizerHasMaximumWidthCap() {
+        let app = XCUIApplication()
+        app.launch()
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0))
+
+        let elements = app.descendants(matching: .any)
+        let resizer = elements["SidebarResizer"]
+        XCTAssertTrue(resizer.waitForExistence(timeout: 5.0))
+
+        let start = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let farRight = start.withOffset(CGVector(dx: 5000, dy: 0))
+        start.press(forDuration: 0.1, thenDragTo: farRight)
+
+        let windowFrame = window.frame
+        let remainingWidth = max(0, windowFrame.maxX - resizer.frame.maxX)
+        let minimumExpectedRemaining = windowFrame.width * 0.45
+
+        XCTAssertGreaterThanOrEqual(
+            remainingWidth,
+            minimumExpectedRemaining,
+            "Expected sidebar max-width clamp to leave substantial terminal width. " +
+            "remaining=\(remainingWidth), window=\(windowFrame.width)"
+        )
+    }
 }

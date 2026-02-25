@@ -22,7 +22,7 @@ export function SiteHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-30 w-full bg-background/80 backdrop-blur-sm">
+      <header className="sticky top-0 z-30 w-full bg-background">
         <div className="w-full max-w-6xl mx-auto flex items-center px-6 h-12">
           {/* Left: logo + section */}
           <div className="flex flex-1 items-center gap-3 min-w-0">

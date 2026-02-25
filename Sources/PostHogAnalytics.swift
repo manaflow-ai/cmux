@@ -39,8 +39,9 @@ final class PostHogAnalytics {
 
         PostHogSDK.shared.setup(config)
 
-        // Tag every event so PostHog can distinguish desktop from web.
-        PostHogSDK.shared.register(["platform": "cmuxterm"])
+        // Tag every event so PostHog can distinguish desktop from web and
+        // break events down by released app version/build.
+        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
 
         // The SDK automatically generates and persists an anonymous distinct ID.
 
@@ -68,10 +69,14 @@ final class PostHogAnalytics {
 
         defaults.set(today, forKey: lastActiveDayUTCKey)
 
-        PostHogSDK.shared.capture("cmux_daily_active", properties: [
-            "day_utc": today,
-            "reason": reason,
-        ])
+        PostHogSDK.shared.capture(
+            "cmux_daily_active",
+            properties: Self.dailyActiveProperties(
+                dayUTC: today,
+                reason: reason,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
+            )
+        )
 
         // For DAU we care more about delivery than batching.
         PostHogSDK.shared.flush()
@@ -89,5 +94,35 @@ final class PostHogAnalytics {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        var properties: [String: Any] = ["platform": "cmuxterm"]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated static func dailyActiveProperties(
+        dayUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        var properties: [String: Any] = [
+            "day_utc": dayUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        var properties: [String: Any] = [:]
+        if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
+            properties["app_version"] = value
+        }
+        if let value = infoDictionary["CFBundleVersion"] as? String, !value.isEmpty {
+            properties["app_build"] = value
+        }
+        return properties
     }
 }
