@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Darwin
+import Bonsplit
 
 @main
 struct cmuxApp: App {
@@ -1724,11 +1725,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     func show() {
         guard let window else { return }
 #if DEBUG
-        NSLog(
-            "settings.window.show requested isVisible=%d isKey=%d",
-            window.isVisible ? 1 : 0,
-            window.isKeyWindow ? 1 : 0
-        )
+        dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
@@ -1736,11 +1733,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
         window.makeKeyAndOrderFront(nil)
 #if DEBUG
-        NSLog(
-            "settings.window.show completed isVisible=%d isKey=%d",
-            window.isVisible ? 1 : 0,
-            window.isKeyWindow ? 1 : 0
-        )
+        dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
     }
 }
