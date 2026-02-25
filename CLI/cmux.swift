@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import LocalAuthentication
 import Security
 #if canImport(Sentry)
 import Sentry
@@ -419,14 +420,14 @@ private enum SocketPasswordResolver {
     private static let service = "com.cmuxterm.app.socket-control"
     private static let account = "local-socket-password"
 
-    static func resolve(explicit: String?) -> String? {
+    static func resolve(explicit: String?, socketPath: String) -> String? {
         if let explicit = normalized(explicit), !explicit.isEmpty {
             return explicit
         }
         if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]), !env.isEmpty {
             return env
         }
-        return loadFromKeychain()
+        return loadFromKeychain(socketPath: socketPath)
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -435,23 +436,81 @@ private enum SocketPasswordResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func loadFromKeychain() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else {
-            return nil
+    private static func keychainServices(socketPath: String) -> [String] {
+        guard let scope = keychainScope(socketPath: socketPath) else {
+            return [service]
         }
-        guard let data = result as? Data else {
-            return nil
+        return ["\(service).\(scope)"]
+    }
+
+    private static func keychainScope(socketPath: String) -> String? {
+        if let tag = normalized(ProcessInfo.processInfo.environment["CMUX_TAG"]) {
+            let scoped = sanitizeScope(tag)
+            if !scoped.isEmpty {
+                return scoped
+            }
         }
-        return String(data: data, encoding: .utf8)
+
+        let candidate = URL(fileURLWithPath: socketPath).lastPathComponent
+        let prefixes = ["cmux-debug-", "cmux-"]
+        for prefix in prefixes {
+            guard candidate.hasPrefix(prefix), candidate.hasSuffix(".sock") else { continue }
+            let start = candidate.index(candidate.startIndex, offsetBy: prefix.count)
+            let end = candidate.index(candidate.endIndex, offsetBy: -".sock".count)
+            guard start < end else { continue }
+            let rawScope = String(candidate[start..<end])
+            let scoped = sanitizeScope(rawScope)
+            if !scoped.isEmpty {
+                return scoped
+            }
+        }
+        return nil
+    }
+
+    private static func sanitizeScope(_ raw: String) -> String {
+        let lowered = raw.lowercased()
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        let mappedScalars = lowered.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "."
+        }
+        var normalizedScope = String(mappedScalars)
+        normalizedScope = normalizedScope.replacingOccurrences(
+            of: "\\.+",
+            with: ".",
+            options: .regularExpression
+        )
+        normalizedScope = normalizedScope.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return normalizedScope
+    }
+
+    private static func loadFromKeychain(socketPath: String) -> String? {
+        for service in keychainServices(socketPath: socketPath) {
+            let authContext = LAContext()
+            authContext.interactionNotAllowed = true
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecReturnData as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+                // Never trigger keychain UI from CLI commands; fail fast instead.
+                kSecUseAuthenticationContext as String: authContext,
+            ]
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            if status == errSecItemNotFound || status == errSecInteractionNotAllowed || status == errSecAuthFailed {
+                continue
+            }
+            guard status == errSecSuccess else {
+                continue
+            }
+            guard let data = result as? Data,
+                  let password = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            return password
+        }
+        return nil
     }
 }
 
@@ -769,7 +828,7 @@ struct CMUXCLI {
         }
         defer { client.close() }
 
-        if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
+        if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg, socketPath: socketPath) {
             let authResponse = try client.send(command: "auth \(socketPassword)")
             if authResponse.hasPrefix("ERROR:"),
                !authResponse.contains("Unknown command 'auth'") {
