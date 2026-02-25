@@ -479,7 +479,9 @@ struct TitlebarControlsView: View {
             .background(ShortcutHintPillBackground())
     }
 
-    private var iconForegroundColor: Color {
+    private var iconForegroundColor: Color? {
+        let sidebarVisible = AppDelegate.shared?.sidebarState?.isVisible ?? false
+        guard !sidebarVisible else { return nil }
         let bg = GhosttyApp.shared.defaultBackgroundColor
         return bg.isLightColor
             ? Color.black.opacity(0.55)
@@ -488,10 +490,16 @@ struct TitlebarControlsView: View {
 
     @ViewBuilder
     private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
-        let icon = Image(systemName: systemName)
+        let baseIcon = Image(systemName: systemName)
             .font(.system(size: config.iconSize, weight: .semibold))
-            .foregroundColor(iconForegroundColor)
             .frame(width: config.buttonSize, height: config.buttonSize)
+        let icon = Group {
+            if let color = iconForegroundColor {
+                baseIcon.foregroundColor(color)
+            } else {
+                baseIcon
+            }
+        }
 
         if config.buttonBackground {
             icon
