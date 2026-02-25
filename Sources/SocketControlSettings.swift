@@ -163,6 +163,8 @@ struct SocketControlSettings {
     static let legacyEnabledKey = "socketControlEnabled"
     static let allowSocketPathOverrideKey = "CMUX_ALLOW_SOCKET_OVERRIDE"
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
+    static let launchTagEnvKey = "CMUX_TAG"
+    static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
 
     private static func normalizeMode(_ raw: String) -> String {
         raw
@@ -209,6 +211,53 @@ struct SocketControlSettings {
 #else
         false
 #endif
+    }
+
+    static func launchTag(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        guard let raw = environment[launchTagEnvKey] else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func shouldBlockUntaggedDebugLaunch(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild
+    ) -> Bool {
+        guard isDebugBuild else { return false }
+        if isRunningUnderXCTest(environment: environment) {
+            return false
+        }
+
+        guard let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bundleIdentifier.isEmpty else {
+            return false
+        }
+
+        if bundleIdentifier.hasPrefix("\(baseDebugBundleIdentifier).") {
+            return false
+        }
+
+        guard bundleIdentifier == baseDebugBundleIdentifier else {
+            return false
+        }
+
+        return launchTag(environment: environment) == nil
+    }
+
+    static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
+        let indicators = [
+            "XCTestConfigurationFilePath",
+            "XCTestBundlePath",
+            "XCTestSessionIdentifier",
+            "XCInjectBundleInto",
+        ]
+        return indicators.contains { key in
+            guard let value = environment[key] else { return false }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     static func socketPath(
