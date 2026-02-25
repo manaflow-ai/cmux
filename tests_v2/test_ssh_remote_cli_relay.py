@@ -204,10 +204,19 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            remote_relay_port = payload.get("remote_relay_port")
+            _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
+            remote_relay_port = int(remote_relay_port)
+            _must(49152 <= remote_relay_port <= 65535, f"remote_relay_port should be in ephemeral range: {remote_relay_port}")
+            remote_socket_addr = f"127.0.0.1:{remote_relay_port}"
             startup_cmd = str(payload.get("ssh_startup_command") or "")
             _must(
                 'PATH="$HOME/.cmux/bin:$PATH"' in startup_cmd,
                 f"ssh startup command should prepend ~/.cmux/bin for remote cmux CLI: {startup_cmd!r}",
+            )
+            _must(
+                f"CMUX_SOCKET_PATH={remote_socket_addr}" in startup_cmd,
+                f"ssh startup command should pin CMUX_SOCKET_PATH to workspace relay: {startup_cmd!r}",
             )
             workspace_window_id = payload.get("window_id")
             current_params = {"window_id": workspace_window_id} if isinstance(workspace_window_id, str) and workspace_window_id else {}
@@ -217,12 +226,6 @@ def main() -> int:
                 current_workspace_id == workspace_id,
                 f"cmux ssh should focus created workspace: current={current_workspace_id!r} created={workspace_id!r}",
             )
-
-            remote_relay_port = payload.get("remote_relay_port")
-            _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
-            remote_relay_port = int(remote_relay_port)
-            _must(49152 <= remote_relay_port <= 65535, f"remote_relay_port should be in ephemeral range: {remote_relay_port}")
-            remote_socket_addr = f"127.0.0.1:{remote_relay_port}"
 
             # Wait for daemon to be ready
             first_status = _wait_for_remote_ready(client, workspace_id)
@@ -238,15 +241,24 @@ def main() -> int:
                 f"expected no forwarded ports when none are eligible: {first_status}",
             )
 
-            # Verify the cmux symlink exists on the remote
-            symlink_check = _ssh_run(
-                host, host_ssh_port, key_path,
-                "test -L \"$HOME/.cmux/bin/cmux\" && echo symlink-ok",
-                check=False,
-            )
+            # Verify remote cmux wrapper + relay-specific daemon mapping were installed.
+            wrapper_check = None
+            wrapper_deadline = time.time() + 10.0
+            while time.time() < wrapper_deadline:
+                wrapper_check = _ssh_run(
+                    host, host_ssh_port, key_path,
+                    f"test -x \"$HOME/.cmux/bin/cmux\" && test -f \"$HOME/.cmux/bin/cmux\" && "
+                    f"map=\"$HOME/.cmux/relay/{remote_relay_port}.daemon_path\" && "
+                    "daemon=\"$(cat \"$map\" 2>/dev/null || true)\" && "
+                    "test -n \"$daemon\" && test -x \"$daemon\" && echo wrapper-ok",
+                    check=False,
+                )
+                if "wrapper-ok" in (wrapper_check.stdout or ""):
+                    break
+                time.sleep(0.4)
             _must(
-                "symlink-ok" in symlink_check.stdout,
-                f"Expected cmux symlink at ~/.cmux/bin/cmux on remote: {symlink_check.stdout} {symlink_check.stderr}",
+                wrapper_check is not None and "wrapper-ok" in (wrapper_check.stdout or ""),
+                f"Expected remote cmux wrapper+relay mapping to exist: {wrapper_check.stdout if wrapper_check else ''} {wrapper_check.stderr if wrapper_check else ''}",
             )
 
             # Start a second SSH workspace to the same destination and verify both
@@ -282,6 +294,11 @@ def main() -> int:
                 f"relay ports should differ per workspace: {remote_relay_port_2} vs {remote_relay_port}",
             )
             remote_socket_addr_2 = f"127.0.0.1:{remote_relay_port_2}"
+            startup_cmd_2 = str(payload_2.get("ssh_startup_command") or "")
+            _must(
+                f"CMUX_SOCKET_PATH={remote_socket_addr_2}" in startup_cmd_2,
+                f"second ssh startup command should pin CMUX_SOCKET_PATH to second relay: {startup_cmd_2!r}",
+            )
             _ = _wait_for_remote_ready(client, workspace_id_2)
 
             stability_deadline = time.time() + 8.0

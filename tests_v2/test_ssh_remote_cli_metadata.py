@@ -95,6 +95,9 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            remote_relay_port = payload.get("remote_relay_port")
+            _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
+            remote_socket_addr = f"127.0.0.1:{int(remote_relay_port)}"
             ssh_command = str(payload.get("ssh_command") or "")
             _must(bool(ssh_command), f"cmux ssh output missing ssh_command: {payload}")
             _must(
@@ -117,8 +120,12 @@ def main() -> int:
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
             _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
             _must(
-                "RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l" in ssh_command,
-                f"cmux ssh should use -o RemoteCommand for PATH bootstrap (not positional command): {ssh_command!r}",
+                (
+                    f"RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; "
+                    f"export CMUX_SOCKET_PATH={remote_socket_addr}; "
+                    "exec \"${SHELL:-/bin/zsh}\" -l"
+                ) in ssh_command,
+                f"cmux ssh should use -o RemoteCommand for PATH/bootstrap env pinning (not positional command): {ssh_command!r}",
             )
 
             listed_row = None

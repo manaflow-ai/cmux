@@ -2128,9 +2128,19 @@ struct CMUXCLI {
                 parts.append("-tt")
             }
             if !hasSSHOptionKey(options.sshOptions, key: "RemoteCommand") {
+                var startupExports = [
+                    "export PATH=\"$HOME/.cmux/bin:$PATH\"",
+                ]
+                if options.remoteRelayPort > 0 {
+                    // Pin this shell to the relay allocated for this workspace so parallel
+                    // SSH sessions (including from different cmux versions) don't race on
+                    // shared ~/.cmux/socket_addr.
+                    startupExports.append("export CMUX_SOCKET_PATH=127.0.0.1:\(options.remoteRelayPort)")
+                }
+                startupExports.append("exec \"${SHELL:-/bin/zsh}\" -l")
                 parts += [
                     "-o",
-                    "RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l",
+                    "RemoteCommand=\(startupExports.joined(separator: "; "))",
                 ]
             }
             parts.append(options.destination)
