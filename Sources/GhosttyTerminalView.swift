@@ -321,7 +321,11 @@ class GhosttyApp {
     private var scrollLagSampleCount = 0
     private var scrollLagTotalMs: Double = 0
     private var scrollLagMaxMs: Double = 0
-    private let scrollLagThresholdMs: Double = 25  // Alert if tick takes >25ms during scroll
+    private let scrollLagThresholdMs: Double = 40
+    private let scrollLagMinimumSamples = 8
+    private let scrollLagMinimumAverageMs: Double = 12
+    private let scrollLagReportCooldownSeconds: TimeInterval = 300
+    private var lastScrollLagReportUptime: TimeInterval?
     private var scrollEndTimer: DispatchWorkItem?
 
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
@@ -356,7 +360,18 @@ class GhosttyApp {
             let maxLag = scrollLagMaxMs
             let samples = scrollLagSampleCount
             let threshold = scrollLagThresholdMs
-            if maxLag > threshold {
+            let nowUptime = ProcessInfo.processInfo.systemUptime
+            if Self.shouldCaptureScrollLagEvent(
+                samples: samples,
+                averageMs: avgLag,
+                maxMs: maxLag,
+                thresholdMs: threshold,
+                minimumSamples: scrollLagMinimumSamples,
+                minimumAverageMs: scrollLagMinimumAverageMs,
+                nowUptime: nowUptime,
+                lastReportedUptime: lastScrollLagReportUptime,
+                cooldown: scrollLagReportCooldownSeconds
+            ) {
                 SentrySDK.capture(message: "Scroll lag detected") { scope in
                     scope.setLevel(.warning)
                     scope.setContext(value: [
@@ -366,6 +381,7 @@ class GhosttyApp {
                         "threshold_ms": threshold
                     ], key: "scroll_lag")
                 }
+                lastScrollLagReportUptime = nowUptime
             }
             // Reset stats
             scrollLagSampleCount = 0
@@ -622,6 +638,29 @@ class GhosttyApp {
         currentColorScheme: GhosttyConfig.ColorSchemePreference
     ) -> Bool {
         previousColorScheme != currentColorScheme
+    }
+
+    static func shouldCaptureScrollLagEvent(
+        samples: Int,
+        averageMs: Double,
+        maxMs: Double,
+        thresholdMs: Double,
+        minimumSamples: Int = 8,
+        minimumAverageMs: Double = 12,
+        nowUptime: TimeInterval,
+        lastReportedUptime: TimeInterval?,
+        cooldown: TimeInterval = 300
+    ) -> Bool {
+        guard samples >= minimumSamples else { return false }
+        guard averageMs.isFinite, maxMs.isFinite, thresholdMs.isFinite, nowUptime.isFinite, cooldown.isFinite else {
+            return false
+        }
+        guard averageMs >= minimumAverageMs else { return false }
+        guard maxMs > thresholdMs else { return false }
+        if let lastReportedUptime, nowUptime - lastReportedUptime < cooldown {
+            return false
+        }
+        return true
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {

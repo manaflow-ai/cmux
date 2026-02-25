@@ -113,6 +113,39 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class DelegateProbeTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+    }
+
+    private final class FieldEditorProbeTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+
+        override var isFieldEditor: Bool {
+            get { true }
+            set {}
+        }
+    }
+
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -375,6 +408,96 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         AppDelegate.clearWindowFirstResponderGuardTesting()
         _ = window.makeFirstResponder(nil)
         XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAvoidsTextViewDelegateLookupForWebViewResolution() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let textView = DelegateProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        container.addSubview(textView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        _ = window.makeFirstResponder(nil)
+        _ = window.makeFirstResponder(textView)
+
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "WebView ownership resolution should not touch NSTextView.delegate (unsafe-unretained in AppKit)"
+        )
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardResolvesTrackedWebViewForFieldEditorResponder() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let descendant = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        webView.addSubview(descendant)
+
+        let fieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            window.orderOut(nil)
+        }
+
+        webView.allowsFirstResponderAcquisition = true
+        XCTAssertTrue(window.makeFirstResponder(descendant))
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let pointerDownEvent = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 5, y: 5),
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1.0
+        )
+        XCTAssertNotNil(pointerDownEvent)
+
+        AppDelegate.setWindowFirstResponderGuardTesting(currentEvent: pointerDownEvent, hitView: descendant)
+        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+        AppDelegate.clearWindowFirstResponderGuardTesting()
+        _ = window.makeFirstResponder(nil)
+        webView.allowsFirstResponderAcquisition = false
+        XCTAssertFalse(window.makeFirstResponder(fieldEditor))
+        XCTAssertEqual(
+            fieldEditor.delegateReadCount,
+            0,
+            "Field-editor webview ownership should come from tracked associations, not NSTextView.delegate"
+        )
     }
 
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
