@@ -641,6 +641,40 @@ final class CmuxWebViewContextMenuTests: XCTestCase {
 
         XCTAssertFalse(menu.items.contains { $0.title == "Open Link in Default Browser" })
     }
+
+    func testWillOpenMenuHooksDownloadImageToDiskMenuVariant() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let menu = NSMenu()
+        let originalTarget = NSObject()
+        let originalAction = NSSelectorFromString("downloadImageToDisk:")
+        let downloadItem = NSMenuItem(title: "Download Image As...", action: originalAction, keyEquivalent: "")
+        downloadItem.identifier = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierDownloadImageToDisk")
+        downloadItem.target = originalTarget
+        menu.addItem(downloadItem)
+
+        webView.willOpenMenu(menu, with: makeRightMouseDownEvent())
+
+        XCTAssertTrue(downloadItem.target === webView)
+        XCTAssertNotNil(downloadItem.action)
+        XCTAssertNotEqual(downloadItem.action, originalAction)
+    }
+
+    func testWillOpenMenuHooksDownloadLinkedFileToDiskMenuVariant() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let menu = NSMenu()
+        let originalTarget = NSObject()
+        let originalAction = NSSelectorFromString("downloadLinkToDisk:")
+        let downloadItem = NSMenuItem(title: "Download Linked File As...", action: originalAction, keyEquivalent: "")
+        downloadItem.identifier = NSUserInterfaceItemIdentifier("WKMenuItemIdentifierDownloadLinkToDisk")
+        downloadItem.target = originalTarget
+        menu.addItem(downloadItem)
+
+        webView.willOpenMenu(menu, with: makeRightMouseDownEvent())
+
+        XCTAssertTrue(downloadItem.target === webView)
+        XCTAssertNotNil(downloadItem.action)
+        XCTAssertNotEqual(downloadItem.action, originalAction)
+    }
 }
 
 final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
