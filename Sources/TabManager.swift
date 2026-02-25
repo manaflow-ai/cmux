@@ -1954,6 +1954,17 @@ class TabManager: ObservableObject {
         }
 
         if preferSplitRight {
+            if let targetPaneId = workspace.topRightBrowserReusePane(),
+               let browserPanel = workspace.newBrowserSurface(
+                   inPane: targetPaneId,
+                   url: url,
+                   focus: true,
+                   insertAtEnd: insertAtEnd
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+
             let splitSourcePanelId: UUID? = {
                 if let focusedPanelId = workspace.focusedPanelId,
                    workspace.panels[focusedPanelId] != nil {

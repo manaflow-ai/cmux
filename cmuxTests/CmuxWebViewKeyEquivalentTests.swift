@@ -2916,6 +2916,53 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             "Expected created panel to be a browser panel"
         )
     }
+
+    func testOpenBrowserInWorkspaceSplitRightReusesTopRightPaneWhenAlreadySplit() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let topRightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) != nil,
+              let topRightPaneId = workspace.paneId(forPanelId: topRightPanel.id),
+              let url = URL(string: "https://example.com/pull/456") else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+
+        let initialPaneCount = workspace.bonsplitController.allPaneIds.count
+
+        guard let browserPanelId = manager.openBrowser(
+            inWorkspace: workspace.id,
+            url: url,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.bonsplitController.allPaneIds.count,
+            initialPaneCount,
+            "Expected split-right browser open to reuse existing panes"
+        )
+        XCTAssertEqual(
+            workspace.paneId(forPanelId: browserPanelId),
+            topRightPaneId,
+            "Expected browser to open in the top-right pane when multiple splits already exist"
+        )
+
+        let targetPaneTabs = workspace.bonsplitController.tabs(inPane: topRightPaneId)
+        guard let lastSurfaceId = targetPaneTabs.last?.id else {
+            XCTFail("Expected top-right pane to contain tabs")
+            return
+        }
+        XCTAssertEqual(
+            workspace.panelIdFromSurfaceId(lastSurfaceId),
+            browserPanelId,
+            "Expected browser surface to be appended at end in the reused top-right pane"
+        )
+    }
 }
 
 @MainActor

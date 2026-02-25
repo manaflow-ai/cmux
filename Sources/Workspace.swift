@@ -2184,6 +2184,49 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    /// Returns the top-right pane in the current split tree.
+    /// When a workspace is already split, sidebar PR opens should reuse an existing pane
+    /// instead of creating additional right splits.
+    func topRightBrowserReusePane() -> PaneID? {
+        let paneIds = bonsplitController.allPaneIds
+        guard paneIds.count > 1 else { return nil }
+
+        let paneById = Dictionary(uniqueKeysWithValues: paneIds.map { ($0.id.uuidString, $0) })
+        var paneBounds: [String: CGRect] = [:]
+        browserCollectNormalizedPaneBounds(
+            node: bonsplitController.treeSnapshot(),
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &paneBounds
+        )
+
+        guard !paneBounds.isEmpty else {
+            return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
+        }
+
+        let epsilon = 0.000_1
+        let rightMostX = paneBounds.values.map(\.maxX).max() ?? 0
+
+        let sortedCandidates = paneBounds
+            .filter { _, rect in abs(rect.maxX - rightMostX) <= epsilon }
+            .sorted { lhs, rhs in
+                if abs(lhs.value.minY - rhs.value.minY) > epsilon {
+                    return lhs.value.minY < rhs.value.minY
+                }
+                if abs(lhs.value.minX - rhs.value.minX) > epsilon {
+                    return lhs.value.minX > rhs.value.minX
+                }
+                return lhs.key < rhs.key
+            }
+
+        for candidate in sortedCandidates {
+            if let pane = paneById[candidate.key] {
+                return pane
+            }
+        }
+
+        return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
+    }
+
     private enum BrowserPaneBranch {
         case first
         case second
@@ -2218,6 +2261,54 @@ final class Workspace: Identifiable, ObservableObject {
         case .split(let splitNode):
             browserCollectPaneNodes(node: splitNode.first, into: &output)
             browserCollectPaneNodes(node: splitNode.second, into: &output)
+        }
+    }
+
+    private func browserCollectNormalizedPaneBounds(
+        node: ExternalTreeNode,
+        availableRect: CGRect,
+        into output: inout [String: CGRect]
+    ) {
+        switch node {
+        case .pane(let paneNode):
+            output[paneNode.id] = availableRect
+        case .split(let splitNode):
+            let divider = min(max(splitNode.dividerPosition, 0), 1)
+            let firstRect: CGRect
+            let secondRect: CGRect
+
+            if splitNode.orientation.lowercased() == "vertical" {
+                // Stacked split: first = top, second = bottom
+                firstRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY,
+                    width: availableRect.width,
+                    height: availableRect.height * divider
+                )
+                secondRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY + (availableRect.height * divider),
+                    width: availableRect.width,
+                    height: availableRect.height * (1 - divider)
+                )
+            } else {
+                // Side-by-side split: first = left, second = right
+                firstRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY,
+                    width: availableRect.width * divider,
+                    height: availableRect.height
+                )
+                secondRect = CGRect(
+                    x: availableRect.minX + (availableRect.width * divider),
+                    y: availableRect.minY,
+                    width: availableRect.width * (1 - divider),
+                    height: availableRect.height
+                )
+            }
+
+            browserCollectNormalizedPaneBounds(node: splitNode.first, availableRect: firstRect, into: &output)
+            browserCollectNormalizedPaneBounds(node: splitNode.second, availableRect: secondRect, into: &output)
         }
     }
 
