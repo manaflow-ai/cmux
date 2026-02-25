@@ -204,6 +204,11 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            startup_cmd = str(payload.get("ssh_startup_command") or "")
+            _must(
+                'PATH="$HOME/.cmux/bin:$PATH"' in startup_cmd,
+                f"ssh startup command should prepend ~/.cmux/bin for remote cmux CLI: {startup_cmd!r}",
+            )
             workspace_window_id = payload.get("window_id")
             current_params = {"window_id": workspace_window_id} if isinstance(workspace_window_id, str) and workspace_window_id else {}
             current = client._call("workspace.current", current_params) or {}
