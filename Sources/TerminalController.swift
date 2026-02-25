@@ -180,6 +180,16 @@ class TerminalController {
             current.format != format
     }
 
+    nonisolated static func shouldReplaceMetadataBlock(
+        current: SidebarMetadataBlock?,
+        key: String,
+        markdown: String,
+        priority: Int
+    ) -> Bool {
+        guard let current else { return true }
+        return current.key != key || current.markdown != markdown || current.priority != priority
+    }
+
     nonisolated static func shouldReplaceProgress(
         current: SidebarProgressState?,
         value: Double,
@@ -201,11 +211,12 @@ class TerminalController {
     nonisolated static func shouldReplacePullRequest(
         current: SidebarPullRequestState?,
         number: Int,
+        label: String,
         url: URL,
         status: SidebarPullRequestStatus
     ) -> Bool {
         guard let current else { return true }
-        return current.number != number || current.url != url || current.status != status
+        return current.number != number || current.label != label || current.url != url || current.status != status
     }
 
     nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
@@ -728,17 +739,26 @@ class TerminalController {
         case "report_meta":
             return reportMeta(args)
 
+        case "report_meta_block":
+            return reportMetaBlock(args)
+
         case "clear_status":
             return clearStatus(args)
 
         case "clear_meta":
             return clearMeta(args)
 
+        case "clear_meta_block":
+            return clearMetaBlock(args)
+
         case "list_status":
             return listStatus(args)
 
         case "list_meta":
             return listMeta(args)
+
+        case "list_meta_blocks":
+            return listMetaBlocks(args)
 
         case "log":
             return appendLog(args)
@@ -762,6 +782,9 @@ class TerminalController {
             return clearGitBranch(args)
 
         case "report_pr":
+            return reportPullRequest(args)
+
+        case "report_review":
             return reportPullRequest(args)
 
         case "clear_pr":
@@ -7905,10 +7928,13 @@ class TerminalController {
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
+          report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
           clear_meta <key> [--tab=X] - Remove sidebar metadata entry
+          clear_meta_block <key> [--tab=X] - Remove sidebar markdown block
           list_status [--tab=X]   - List all status entries
           list_meta [--tab=X]     - List sidebar metadata entries
+          list_meta_blocks [--tab=X] - List sidebar markdown blocks
           log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
           clear_log [--tab=X]     - Clear log entries
           list_log [--limit=N] [--tab=X] - List log entries
@@ -7916,7 +7942,8 @@ class TerminalController {
           clear_progress [--tab=X] - Clear progress bar
           report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
-          report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request
+          report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request / review item
+          report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
           clear_pr [--tab=X] [--panel=Y] - Clear pull request
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
@@ -10847,6 +10874,33 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
+    private func resolveTabIdForSidebarMutation(
+        reportArgs: String,
+        options: [String: String]
+    ) -> (tabId: UUID?, error: String?) {
+        var tabId: UUID?
+        DispatchQueue.main.sync {
+            if let tab = resolveTabForReport(reportArgs) {
+                tabId = tab.id
+            }
+        }
+        if let tabId {
+            return (tabId, nil)
+        }
+        let error = options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        return (nil, error)
+    }
+
+    private func tabForSidebarMutation(id: UUID) -> Tab? {
+        if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
+            return tab
+        }
+        if let otherManager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+            return otherManager.tabs.first(where: { $0.id == id })
+        }
+        return nil
+    }
+
     private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
         switch raw.lowercased() {
         case "plain":
@@ -10901,12 +10955,13 @@ class TerminalController {
             parsedURL = nil
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -10930,7 +10985,7 @@ class TerminalController {
                 timestamp: Date()
             )
         }
-        return result
+        return "OK"
     }
 
     private func clearSidebarMetadata(_ args: String, usage: String) -> String {
@@ -11007,6 +11062,115 @@ class TerminalController {
 
     private func listMeta(_ args: String) -> String {
         listSidebarMetadata(args, emptyMessage: "No metadata entries")
+    }
+
+    private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
+        guard let separatorRange = args.range(of: " -- ") else {
+            return (args, nil)
+        }
+        let optionsPart = String(args[..<separatorRange.lowerBound])
+        let markdownPart = String(args[separatorRange.upperBound...])
+        return (optionsPart, markdownPart)
+    }
+
+    private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
+        var line = "\(block.key)=\(block.markdown.replacingOccurrences(of: "\n", with: "\\n"))"
+        if block.priority != 0 { line += " priority=\(block.priority)" }
+        return line
+    }
+
+    private func reportMetaBlock(_ args: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+
+        let parts = splitMetadataBlockArgs(args)
+        let parsed = parseOptionsNoStop(parts.optionsPart)
+        guard let key = parsed.positional.first, !key.isEmpty else {
+            return "ERROR: Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let markdown: String
+        if let raw = parts.markdownPart {
+            markdown = raw
+        } else if parsed.positional.count >= 2 {
+            markdown = parsed.positional.dropFirst().joined(separator: " ")
+        } else {
+            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let trimmedMarkdown = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedMarkdown.isEmpty else {
+            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let priority: Int
+        if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
+            guard let parsedPriority = Int(rawPriority) else {
+                return "ERROR: Invalid metadata block priority '\(rawPriority)' — must be an integer"
+            }
+            priority = max(-9999, min(9999, parsedPriority))
+        } else {
+            priority = 0
+        }
+
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: parts.optionsPart, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            guard Self.shouldReplaceMetadataBlock(
+                current: tab.metadataBlocks[key],
+                key: key,
+                markdown: markdown,
+                priority: priority
+            ) else {
+                return
+            }
+            tab.metadataBlocks[key] = SidebarMetadataBlock(
+                key: key,
+                markdown: markdown,
+                priority: priority,
+                timestamp: Date()
+            )
+        }
+        return "OK"
+    }
+
+    private func clearMetaBlock(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let key = parsed.positional.first, parsed.positional.count == 1 else {
+            return "ERROR: Missing metadata block key — usage: clear_meta_block <key> [--tab=X]"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            if tab.metadataBlocks.removeValue(forKey: key) == nil {
+                result = "OK (key not found)"
+            }
+        }
+        return result
+    }
+
+    private func listMetaBlocks(_ args: String) -> String {
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            let blocks = tab.sidebarMetadataBlocksInDisplayOrder()
+            if blocks.isEmpty {
+                result = "No metadata blocks"
+                return
+            }
+            result = blocks.map(sidebarMetadataBlockLine).joined(separator: "\n")
+        }
+        return result
     }
 
     private func appendLog(_ args: String) -> String {
@@ -11218,7 +11382,7 @@ class TerminalController {
     private func reportPullRequest(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard parsed.positional.count >= 2 else {
-            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
         }
 
         let rawNumber = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11239,6 +11403,12 @@ class TerminalController {
             return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
         }
 
+        let labelRaw = normalizedOptionValue(parsed.options["label"]) ?? "PR"
+        guard !labelRaw.isEmpty else {
+            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+        }
+        let label = String(labelRaw.prefix(16))
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -11252,7 +11422,7 @@ class TerminalController {
             let surfaceId: UUID
             if let panelArg {
                 if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
                     return
                 }
                 guard let parsedId = UUID(uuidString: panelArg) else {
@@ -11276,13 +11446,20 @@ class TerminalController {
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
+                label: label,
                 url: url,
                 status: status
             ) else {
                 return
             }
 
-            tab.updatePanelPullRequest(panelId: surfaceId, number: number, url: url, status: status)
+            tab.updatePanelPullRequest(
+                panelId: surfaceId,
+                number: number,
+                label: label,
+                url: url,
+                status: status
+            )
         }
         return result
     }
@@ -11621,8 +11798,10 @@ class TerminalController {
 
             if let pr = tab.pullRequest {
                 lines.append("pr=#\(pr.number) \(pr.status.rawValue) \(pr.url.absoluteString)")
+                lines.append("pr_label=\(pr.label)")
             } else {
                 lines.append("pr=none")
+                lines.append("pr_label=none")
             }
 
             if tab.listeningPorts.isEmpty {
@@ -11642,6 +11821,12 @@ class TerminalController {
             lines.append("status_count=\(statusEntries.count)")
             for entry in statusEntries {
                 lines.append("  \(sidebarMetadataLine(entry))")
+            }
+
+            let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
+            lines.append("meta_block_count=\(metadataBlocks.count)")
+            for block in metadataBlocks {
+                lines.append("  \(sidebarMetadataBlockLine(block))")
             }
 
             lines.append("log_count=\(tab.logEntries.count)")
@@ -11670,6 +11855,7 @@ class TerminalController {
             tab.panelPullRequests.removeAll()
             tab.surfaceListeningPorts.removeAll()
             tab.listeningPorts.removeAll()
+            tab.metadataBlocks.removeAll()
         }
         return result
     }

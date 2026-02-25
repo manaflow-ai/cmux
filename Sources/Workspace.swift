@@ -15,6 +15,13 @@ struct SidebarStatusEntry {
     let timestamp: Date
 }
 
+struct SidebarMetadataBlock {
+    let key: String
+    let markdown: String
+    let priority: Int
+    let timestamp: Date
+}
+
 enum SidebarMetadataFormat: String {
     case plain
     case markdown
@@ -53,6 +60,7 @@ enum SidebarPullRequestStatus: String {
 
 struct SidebarPullRequestState: Equatable {
     let number: Int
+    let label: String
     let url: URL
     let status: SidebarPullRequestStatus
 }
@@ -150,28 +158,32 @@ enum SidebarBranchOrdering {
             }
         }
 
-        var orderedNumbers: [Int] = []
-        var pullRequestsByNumber: [Int: SidebarPullRequestState] = [:]
+        func reviewKey(for state: SidebarPullRequestState) -> String {
+            "\(state.label.lowercased())#\(state.number)"
+        }
+
+        var orderedKeys: [String] = []
+        var pullRequestsByKey: [String: SidebarPullRequestState] = [:]
 
         for panelId in orderedPanelIds {
             guard let state = panelPullRequests[panelId] else { continue }
-            let number = state.number
-            if pullRequestsByNumber[number] == nil {
-                orderedNumbers.append(number)
-                pullRequestsByNumber[number] = state
+            let key = reviewKey(for: state)
+            if pullRequestsByKey[key] == nil {
+                orderedKeys.append(key)
+                pullRequestsByKey[key] = state
                 continue
             }
-            guard let existing = pullRequestsByNumber[number] else { continue }
+            guard let existing = pullRequestsByKey[key] else { continue }
             if statusPriority(state.status) > statusPriority(existing.status) {
-                pullRequestsByNumber[number] = state
+                pullRequestsByKey[key] = state
             }
         }
 
-        if orderedNumbers.isEmpty, let fallbackPullRequest {
+        if orderedKeys.isEmpty, let fallbackPullRequest {
             return [fallbackPullRequest]
         }
 
-        return orderedNumbers.compactMap { pullRequestsByNumber[$0] }
+        return orderedKeys.compactMap { pullRequestsByKey[$0] }
     }
 
     static func orderedUniqueBranchDirectoryEntries(
@@ -353,6 +365,7 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
+    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
@@ -862,8 +875,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    func updatePanelPullRequest(panelId: UUID, number: Int, url: URL, status: SidebarPullRequestStatus) {
-        let state = SidebarPullRequestState(number: number, url: url, status: status)
+    func updatePanelPullRequest(
+        panelId: UUID,
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus
+    ) {
+        let state = SidebarPullRequestState(number: number, label: label, url: url, status: status)
         let existing = panelPullRequests[panelId]
         if existing != state {
             panelPullRequests[panelId] = state
@@ -989,6 +1008,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
         statusEntries.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
+    }
+
+    func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
+        metadataBlocks.values.sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key

@@ -2480,6 +2480,7 @@ private struct TabItemView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
@@ -2667,9 +2668,18 @@ private struct TabItemView: View {
 
             if sidebarShowMetadata {
                 let metadataEntries = tab.sidebarStatusEntriesInDisplayOrder()
+                let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        isActive: usesInvertedActiveForeground,
+                        onFocus: { updateSelection() }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                if !metadataBlocks.isEmpty {
+                    SidebarMetadataMarkdownBlocks(
+                        blocks: metadataBlocks,
                         isActive: usesInvertedActiveForeground,
                         onFocus: { updateSelection() }
                     )
@@ -2717,54 +2727,56 @@ private struct TabItemView: View {
             }
 
             // Branch + directory row
-            if sidebarBranchVerticalLayout {
-                if !verticalBranchDirectoryLines.isEmpty {
-                    HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                HStack(spacing: 3) {
-                                    if let branch = line.branch {
-                                        Text(branch)
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(activeSecondaryColor(0.75))
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                    }
-                                    if line.branch != nil, line.directory != nil {
-                                        Image(systemName: "circle.fill")
-                                            .font(.system(size: 3))
-                                            .foregroundColor(activeSecondaryColor(0.6))
-                                            .padding(.horizontal, 1)
-                                    }
-                                    if let directory = line.directory {
-                                        Text(directory)
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(activeSecondaryColor(0.75))
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
+            if sidebarShowBranchDirectory {
+                if sidebarBranchVerticalLayout {
+                    if !verticalBranchDirectoryLines.isEmpty {
+                        HStack(alignment: .top, spacing: 3) {
+                            if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(activeSecondaryColor(0.6))
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                    HStack(spacing: 3) {
+                                        if let branch = line.branch {
+                                            Text(branch)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(activeSecondaryColor(0.75))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        if line.branch != nil, line.directory != nil {
+                                            Image(systemName: "circle.fill")
+                                                .font(.system(size: 3))
+                                                .foregroundColor(activeSecondaryColor(0.6))
+                                                .padding(.horizontal, 1)
+                                        }
+                                        if let directory = line.directory {
+                                            Text(directory)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(activeSecondaryColor(0.75))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            } else if let dirRow = branchDirectoryRow {
-                HStack(spacing: 3) {
-                    if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 9))
-                            .foregroundColor(activeSecondaryColor(0.6))
+                } else if let dirRow = branchDirectoryRow {
+                    HStack(spacing: 3) {
+                        if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundColor(activeSecondaryColor(0.6))
+                        }
+                        Text(dirRow)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(activeSecondaryColor(0.75))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-                    Text(dirRow)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(activeSecondaryColor(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
             }
 
@@ -2779,7 +2791,7 @@ private struct TabItemView: View {
                             status: pullRequest.status,
                             color: pullRequestForegroundColor
                         )
-                        Text("PR #\(pullRequest.number)")
+                        Text("\(pullRequest.label) #\(pullRequest.number)")
                             .underline()
                         Text(pullRequestStatusLabel(pullRequest.status))
                         if pullRequest.extraCount > 0 {
@@ -2792,7 +2804,7 @@ private struct TabItemView: View {
                     .foregroundColor(pullRequestForegroundColor)
                 }
                 .buttonStyle(.plain)
-                .help("Open Pull Request #\(pullRequest.number)")
+                .help("Open \(pullRequest.label) #\(pullRequest.number)")
             }
 
             // Ports row
@@ -2806,6 +2818,7 @@ private struct TabItemView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
+        .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -3300,6 +3313,7 @@ private struct TabItemView: View {
 
     private struct PullRequestDisplay {
         let number: Int
+        let label: String
         let url: URL
         let status: SidebarPullRequestStatus
         let extraCount: Int
@@ -3310,6 +3324,7 @@ private struct TabItemView: View {
         guard let first = pullRequests.first else { return nil }
         return PullRequestDisplay(
             number: first.number,
+            label: first.label,
             url: first.url,
             status: first.status,
             extraCount: max(0, pullRequests.count - 1)
@@ -3672,6 +3687,89 @@ private struct SidebarMetadataEntryRow: View {
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
         }
+    }
+}
+
+private struct SidebarMetadataMarkdownBlocks: View {
+    let blocks: [SidebarMetadataBlock]
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedBlockLimit = 1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(visibleBlocks, id: \.key) { block in
+                SidebarMetadataMarkdownBlockRow(
+                    block: block,
+                    isActive: isActive,
+                    onFocus: onFocus
+                )
+            }
+
+            if shouldShowToggle {
+                Button(isExpanded ? "Show less details" : "Show more details") {
+                    onFocus()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var visibleBlocks: [SidebarMetadataBlock] {
+        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
+        return Array(blocks.prefix(collapsedBlockLimit))
+    }
+
+    private var shouldShowToggle: Bool {
+        blocks.count > collapsedBlockLimit
+    }
+}
+
+private struct SidebarMetadataMarkdownBlockRow: View {
+    let block: SidebarMetadataBlock
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    @State private var renderedMarkdown: AttributedString?
+
+    var body: some View {
+        Group {
+            if let renderedMarkdown {
+                Text(renderedMarkdown)
+                    .foregroundColor(foregroundColor)
+            } else {
+                Text(block.markdown)
+                    .foregroundColor(foregroundColor)
+            }
+        }
+        .font(.system(size: 10))
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .onTapGesture { onFocus() }
+        .onAppear(perform: renderMarkdown)
+        .onChange(of: block.markdown) { _ in
+            renderMarkdown()
+        }
+    }
+
+    private var foregroundColor: Color {
+        isActive ? .white.opacity(0.8) : .secondary
+    }
+
+    private func renderMarkdown() {
+        renderedMarkdown = try? AttributedString(
+            markdown: block.markdown,
+            options: .init(interpretedSyntax: .full)
+        )
     }
 }
 

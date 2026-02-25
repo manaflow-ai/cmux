@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-End-to-end test for sidebar pull-request metadata.
+End-to-end test for sidebar markdown metadata block commands.
 
 Validates:
-1) report_pr writes sidebar PR state
-2) state transition open -> merged is reflected
-3) provider labels can be set via report_review/report_pr --label
-4) clear_pr removes PR metadata
+1) report_meta_block stores markdown payload and priority
+2) metadata block list ordering follows priority
+3) clear_meta_block removes block metadata
 """
 
 from __future__ import annotations
@@ -55,9 +54,6 @@ def main() -> int:
     if not tag:
         print("Tip: set CMUX_TAG=<tag> when running this test to avoid socket conflicts.")
 
-    pr_number = 123
-    pr_url = f"https://github.com/manaflow-ai/cmux/pull/{pr_number}"
-
     try:
         with cmux() as client:
             new_tab_id = client.new_tab()
@@ -65,36 +61,38 @@ def main() -> int:
             time.sleep(0.6)
 
             tab_id = client.current_workspace()
-            surfaces = client.list_surfaces()
-            if not surfaces:
-                raise AssertionError("No surfaces found in selected workspace")
-            panel_id = surfaces[0][1]
 
-            client.report_pr(pr_number, pr_url, state="open", tab=tab_id, panel=panel_id)
-            _wait_for_state_field(client, "pr", f"#{pr_number} open {pr_url}")
-            _wait_for_state_field(client, "pr_label", "PR")
+            summary_md = "### Agent\\n- status: in progress\\n- pr: #337"
+            footer_md = "_last update: now_"
 
-            client.report_review(pr_number, pr_url, label="MR", state="open", tab=tab_id, panel=panel_id)
-            _wait_for_state_field(client, "pr", f"#{pr_number} open {pr_url}")
-            _wait_for_state_field(client, "pr_label", "MR")
+            client.report_meta_block("summary", summary_md, priority=50, tab=tab_id)
+            client.report_meta_block("footer", footer_md, priority=10, tab=tab_id)
+            _wait_for_state_field(client, "meta_block_count", "2")
 
-            client.report_pr(pr_number, pr_url, state="merged", tab=tab_id, panel=panel_id)
-            _wait_for_state_field(client, "pr", f"#{pr_number} merged {pr_url}")
-            _wait_for_state_field(client, "pr_label", "PR")
+            listed = client.list_meta_blocks(tab=tab_id).splitlines()
+            if len(listed) != 2:
+                raise AssertionError(f"Expected 2 metadata blocks, got {len(listed)}: {listed}")
+            if not listed[0].startswith("summary="):
+                raise AssertionError(f"Expected highest-priority block first. Got: {listed[0]}")
+            if "priority=50" not in listed[0]:
+                raise AssertionError(f"Expected summary block priority in listing. Got: {listed[0]}")
 
-            client.clear_pr(tab=tab_id, panel=panel_id)
-            _wait_for_state_field(client, "pr", "none")
-            _wait_for_state_field(client, "pr_label", "none")
+            client.clear_meta_block("summary", tab=tab_id)
+            _wait_for_state_field(client, "meta_block_count", "1")
+
+            listed = client.list_meta_blocks(tab=tab_id).splitlines()
+            if any(line.startswith("summary=") for line in listed):
+                raise AssertionError(f"Summary block should be cleared. Got: {listed}")
 
             try:
                 client.close_tab(new_tab_id)
             except Exception:
                 pass
 
-        print("Sidebar PR metadata test passed.")
+        print("Sidebar markdown metadata block test passed.")
         return 0
     except (cmuxError, AssertionError) as e:
-        print(f"Sidebar PR metadata test failed: {e}")
+        print(f"Sidebar markdown metadata block test failed: {e}")
         return 1
 
 

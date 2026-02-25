@@ -589,6 +589,37 @@ class cmux:
             raise cmuxError(response)
         return response
 
+    def report_meta_block(self, key: str, markdown: str, priority: int = None, tab: str = None) -> None:
+        """Report a freeform sidebar markdown metadata block."""
+        cmd = f"report_meta_block {key}"
+        if priority is not None:
+            cmd += f" --priority={priority}"
+        if tab:
+            cmd += f" --tab={tab}"
+        cmd += f" -- {_quote_option_value(markdown)}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_meta_block(self, key: str, tab: str = None) -> None:
+        """Remove a sidebar markdown metadata block."""
+        cmd = f"clear_meta_block {key}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def list_meta_blocks(self, tab: str = None) -> str:
+        """List sidebar markdown metadata blocks."""
+        cmd = "list_meta_blocks"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if response.startswith("ERROR"):
+            raise cmuxError(response)
+        return response
+
     def log(self, message: str, level: str = None, source: str = None, tab: str = None) -> None:
         """Append a sidebar log entry."""
         # TerminalController.parseOptions treats any --* token as an option until
@@ -641,12 +672,38 @@ class cmux:
         self,
         number: int,
         url: str,
+        label: str = None,
         state: str = None,
         tab: str = None,
         panel: str = None,
     ) -> None:
         """Report pull-request metadata for sidebar display."""
         cmd = f"report_pr {number} {url}"
+        if label:
+            cmd += f" --label={_quote_option_value(label)}"
+        if state:
+            cmd += f" --state={state}"
+        if tab:
+            cmd += f" --tab={tab}"
+        if panel:
+            cmd += f" --panel={panel}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def report_review(
+        self,
+        number: int,
+        url: str,
+        label: str = None,
+        state: str = None,
+        tab: str = None,
+        panel: str = None,
+    ) -> None:
+        """Report provider-specific review metadata (GitLab MR, Bitbucket PR, etc.)."""
+        cmd = f"report_review {number} {url}"
+        if label:
+            cmd += f" --label={_quote_option_value(label)}"
         if state:
             cmd += f" --state={state}"
         if tab:
