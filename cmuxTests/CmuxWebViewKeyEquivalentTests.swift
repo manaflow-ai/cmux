@@ -5541,6 +5541,20 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 
     private final class HostContainerView: NSView {}
+    private final class BlockingTopHitContainerView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+    private final class PassThroughProbeView: NSView {
+        var onHitTest: (() -> Void)?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            onHitTest?()
+            return nil
+        }
+    }
     private final class PassiveHostContainerView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
@@ -5626,6 +5640,67 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
             "Interactive controls inside passive host wrappers should still receive hits"
+        )
+    }
+
+    func testTopHitResolutionStateIsScopedPerWindow() {
+        let point = NSPoint(x: 100, y: 18)
+
+        let outerWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { outerWindow.orderOut(nil) }
+        guard let outerContentView = outerWindow.contentView else {
+            XCTFail("Expected outer content view")
+            return
+        }
+        let outerContainer = NSView(frame: outerContentView.bounds)
+        outerContainer.autoresizingMask = [.width, .height]
+        outerContentView.addSubview(outerContainer)
+        let outerDragHandle = NSView(frame: outerContainer.bounds)
+        outerDragHandle.autoresizingMask = [.width, .height]
+        outerContainer.addSubview(outerDragHandle)
+
+        let nestedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { nestedWindow.orderOut(nil) }
+        guard let nestedContentView = nestedWindow.contentView else {
+            XCTFail("Expected nested content view")
+            return
+        }
+        let nestedContainer = BlockingTopHitContainerView(frame: nestedContentView.bounds)
+        nestedContainer.autoresizingMask = [.width, .height]
+        nestedContentView.addSubview(nestedContainer)
+        let nestedDragHandle = NSView(frame: nestedContainer.bounds)
+        nestedDragHandle.autoresizingMask = [.width, .height]
+        nestedContainer.addSubview(nestedDragHandle)
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle),
+            "Nested window drag handle should be blocked by top-hit titlebar container"
+        )
+
+        var nestedCaptureResult: Bool?
+        let probe = PassThroughProbeView(frame: outerContainer.bounds)
+        probe.autoresizingMask = [.width, .height]
+        probe.onHitTest = {
+            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle)
+        }
+        outerContainer.addSubview(probe)
+
+        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle)
+
+        XCTAssertEqual(
+            nestedCaptureResult,
+            false,
+            "Top-hit recursion in one window must not disable top-hit resolution in another window"
         )
     }
 }

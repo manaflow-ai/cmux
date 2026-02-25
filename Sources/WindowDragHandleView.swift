@@ -41,6 +41,7 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
 }
 
 private var windowDragSuppressionDepthKey: UInt8 = 0
+private var windowDragTopHitResolutionDepthKey: UInt8 = 0
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
     guard let window else { return nil }
@@ -119,7 +120,51 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 }
 
 private enum WindowDragHandleHitTestState {
-    static var isResolvingTopHit = false
+    static func depth(window: NSWindow?) -> Int {
+        guard let window,
+              let value = objc_getAssociatedObject(window, &windowDragTopHitResolutionDepthKey) as? NSNumber else {
+            return 0
+        }
+        return value.intValue
+    }
+
+    static func begin(window: NSWindow?) {
+        guard let window else { return }
+        let next = depth(window: window) + 1
+        objc_setAssociatedObject(
+            window,
+            &windowDragTopHitResolutionDepthKey,
+            NSNumber(value: next),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    @discardableResult
+    static func end(window: NSWindow?) -> Int {
+        guard let window else { return 0 }
+        let current = depth(window: window)
+        let next = max(0, current - 1)
+        if next == 0 {
+            objc_setAssociatedObject(
+                window,
+                &windowDragTopHitResolutionDepthKey,
+                nil,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        } else {
+            objc_setAssociatedObject(
+                window,
+                &windowDragTopHitResolutionDepthKey,
+                NSNumber(value: next),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+        return next
+    }
+
+    static func isResolvingTopHit(window: NSWindow?) -> Bool {
+        depth(window: window) > 0
+    }
 }
 
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
@@ -178,13 +223,15 @@ func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSVie
 
     if let window = dragHandleView.window,
        let contentView = window.contentView,
-       !WindowDragHandleHitTestState.isResolvingTopHit {
+       !WindowDragHandleHitTestState.isResolvingTopHit(window: window) {
         let pointInWindow = dragHandleView.convert(point, to: nil)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
 
-        WindowDragHandleHitTestState.isResolvingTopHit = true
+        WindowDragHandleHitTestState.begin(window: window)
+        defer {
+            WindowDragHandleHitTestState.end(window: window)
+        }
         let topHit = contentView.hitTest(pointInContent)
-        WindowDragHandleHitTestState.isResolvingTopHit = false
 
         if let topHit {
             let ownsTopHit = topHit === dragHandleView || topHit.isDescendant(of: dragHandleView)
