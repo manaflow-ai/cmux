@@ -61,10 +61,80 @@ enum SocketControlPasswordStore {
     static let service = "com.cmuxterm.app.socket-control"
     static let account = "local-socket-password"
 
-    private static var baseQuery: [String: Any] {
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func sanitizeScope(_ raw: String) -> String {
+        let lowered = raw.lowercased()
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: ".-"))
+        let mappedScalars = lowered.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "."
+        }
+        var normalizedScope = String(mappedScalars)
+        normalizedScope = normalizedScope.replacingOccurrences(
+            of: "\\.+",
+            with: ".",
+            options: .regularExpression
+        )
+        normalizedScope = normalizedScope.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return normalizedScope
+    }
+
+    private static func scopeFromSocketPath(_ socketPath: String?) -> String? {
+        guard let socketPath = normalized(socketPath) else {
+            return nil
+        }
+
+        let candidate = URL(fileURLWithPath: socketPath).lastPathComponent
+        let prefixes = ["cmux-debug-", "cmux-"]
+        for prefix in prefixes {
+            guard candidate.hasPrefix(prefix), candidate.hasSuffix(".sock") else { continue }
+            let start = candidate.index(candidate.startIndex, offsetBy: prefix.count)
+            let end = candidate.index(candidate.endIndex, offsetBy: -".sock".count)
+            guard start < end else { continue }
+            let rawScope = String(candidate[start..<end])
+            let scoped = sanitizeScope(rawScope)
+            if !scoped.isEmpty {
+                return scoped
+            }
+        }
+        return nil
+    }
+
+    private static func keychainScope(environment: [String: String]) -> String? {
+        if let tag = normalized(environment[SocketControlSettings.launchTagEnvKey]) {
+            let scoped = sanitizeScope(tag)
+            if !scoped.isEmpty {
+                return scoped
+            }
+        }
+
+        if let scope = scopeFromSocketPath(environment["CMUX_SOCKET_PATH"]) {
+            return scope
+        }
+
+        return scopeFromSocketPath(
+            SocketControlSettings.socketPath(
+                environment: environment,
+                bundleIdentifier: Bundle.main.bundleIdentifier
+            )
+        )
+    }
+
+    private static func keychainService(environment: [String: String]) -> String {
+        guard let scope = keychainScope(environment: environment) else {
+            return service
+        }
+        return "\(service).\(scope)"
+    }
+
+    private static func baseQuery(environment: [String: String]) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: keychainService(environment: environment),
             kSecAttrAccount as String: account,
         ]
     }
@@ -75,7 +145,7 @@ enum SocketControlPasswordStore {
         if let envPassword = environment[SocketControlSettings.socketPasswordEnvKey], !envPassword.isEmpty {
             return envPassword
         }
-        return try? loadPassword()
+        return try? loadPassword(environment: environment)
     }
 
     static func hasConfiguredPassword(
@@ -95,8 +165,10 @@ enum SocketControlPasswordStore {
         return expected == candidate
     }
 
-    static func loadPassword() throws -> String? {
-        var query = baseQuery
+    static func loadPassword(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> String? {
+        var query = baseQuery(environment: environment)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -114,15 +186,19 @@ enum SocketControlPasswordStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func savePassword(_ password: String) throws {
+    static func savePassword(
+        _ password: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
         let normalized = password.trimmingCharacters(in: .newlines)
         if normalized.isEmpty {
-            try clearPassword()
+            try clearPassword(environment: environment)
             return
         }
 
         let data = Data(normalized.utf8)
-        var lookup = baseQuery
+        let scopedQuery = baseQuery(environment: environment)
+        var lookup = scopedQuery
         lookup[kSecReturnData as String] = true
         lookup[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -133,12 +209,12 @@ enum SocketControlPasswordStore {
             let attrsToUpdate: [String: Any] = [
                 kSecValueData as String: data
             ]
-            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attrsToUpdate as CFDictionary)
+            let updateStatus = SecItemUpdate(scopedQuery as CFDictionary, attrsToUpdate as CFDictionary)
             guard updateStatus == errSecSuccess else {
                 throw NSError(domain: NSOSStatusErrorDomain, code: Int(updateStatus))
             }
         case errSecItemNotFound:
-            var add = baseQuery
+            var add = scopedQuery
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let addStatus = SecItemAdd(add as CFDictionary, nil)
@@ -150,8 +226,10 @@ enum SocketControlPasswordStore {
         }
     }
 
-    static func clearPassword() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
+    static func clearPassword(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws {
+        let status = SecItemDelete(baseQuery(environment: environment) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
         }
