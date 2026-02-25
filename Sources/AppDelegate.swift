@@ -4661,9 +4661,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Open browser: Cmd+Shift+L
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
-            if let panelId = tabManager?.openBrowser(insertAtEnd: true) {
-                focusBrowserAddressBar(panelId: panelId)
-            }
+            _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }
 
@@ -4712,8 +4710,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            if let panelId = tabManager?.openBrowser(insertAtEnd: true) {
-                focusBrowserAddressBar(panelId: panelId)
+            if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
                 return true
             }
         }
@@ -4847,6 +4844,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         workspace.focusPanel(panel.id)
         focusBrowserAddressBar(in: panel)
         return true
+    }
+
+    @discardableResult
+    func openBrowserAndFocusAddressBar(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
+        guard let panelId = tabManager?.openBrowser(url: url, insertAtEnd: insertAtEnd) else {
+            return nil
+        }
+        _ = focusBrowserAddressBar(panelId: panelId)
+        return panelId
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {

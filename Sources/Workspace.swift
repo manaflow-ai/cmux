@@ -2520,6 +2520,44 @@ final class Workspace: Identifiable, ObservableObject {
         if let targetPaneId, !shouldSuppressReentrantRefocus {
             applyTabSelection(tabId: tabId, inPane: targetPaneId)
         }
+
+        if let browserPanel = panels[panelId] as? BrowserPanel {
+            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: trigger)
+        }
+    }
+
+    private func maybeAutoFocusBrowserAddressBarOnPanelFocus(
+        _ browserPanel: BrowserPanel,
+        trigger: FocusPanelTrigger
+    ) {
+        guard trigger == .standard else { return }
+        guard !isCommandPaletteVisibleForWorkspaceWindow() else { return }
+        guard !browserPanel.shouldSuppressOmnibarAutofocus() else { return }
+        guard browserPanel.isShowingNewTabPage || browserPanel.preferredURLStringForOmnibar() == nil else { return }
+
+        _ = browserPanel.requestAddressBarFocus()
+        NotificationCenter.default.post(name: .browserFocusAddressBar, object: browserPanel.id)
+    }
+
+    private func isCommandPaletteVisibleForWorkspaceWindow() -> Bool {
+        guard let app = AppDelegate.shared else {
+            return false
+        }
+
+        if let manager = app.tabManagerFor(tabId: id),
+           let windowId = app.windowId(for: manager),
+           let window = app.mainWindow(for: windowId),
+           app.isCommandPaletteVisible(for: window) {
+            return true
+        }
+
+        if let keyWindow = NSApp.keyWindow, app.isCommandPaletteVisible(for: keyWindow) {
+            return true
+        }
+        if let mainWindow = NSApp.mainWindow, app.isCommandPaletteVisible(for: mainWindow) {
+            return true
+        }
+        return false
     }
 
     func moveFocus(direction: NavigationDirection) {
@@ -3116,6 +3154,13 @@ extension Workspace: BonsplitDelegate {
         }
 
         panel.focus()
+        let focusIntentAllowsBrowserOmnibarAutofocus =
+            shouldTreatCurrentEventAsExplicitFocusIntent() ||
+            TerminalController.socketCommandAllowsInAppFocusMutations()
+        if let browserPanel = panel as? BrowserPanel,
+           previousFocusedPanelId != panelId || focusIntentAllowsBrowserOmnibarAutofocus {
+            maybeAutoFocusBrowserAddressBarOnPanelFocus(browserPanel, trigger: .standard)
+        }
         if let terminalPanel = panel as? TerminalPanel {
             rememberTerminalConfigInheritanceSource(terminalPanel)
         }

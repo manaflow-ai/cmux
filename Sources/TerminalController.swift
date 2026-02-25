@@ -1298,6 +1298,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelection(params: params))
         case "debug.command_palette.rename_input.select_all":
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
+        case "debug.browser.address_bar_focused":
+            return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.sidebar.visible":
             return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
@@ -1505,6 +1507,7 @@ class TerminalController {
             "debug.command_palette.rename_input.delete_backward",
             "debug.command_palette.rename_input.selection",
             "debug.command_palette.rename_input.select_all",
+            "debug.browser.address_bar_focused",
             "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
@@ -7981,6 +7984,32 @@ class TerminalController {
         return .ok([
             "enabled": enabled
         ])
+    }
+
+    private func v2DebugBrowserAddressBarFocused(params: [String: Any]) -> V2CallResult {
+        let requestedSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
+        var focusedSurfaceId: UUID?
+        DispatchQueue.main.sync {
+            focusedSurfaceId = AppDelegate.shared?.focusedBrowserAddressBarPanelId()
+        }
+
+        var payload: [String: Any] = [
+            "focused_surface_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_surface_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused_panel_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_panel_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused": focusedSurfaceId != nil
+        ]
+
+        if let requestedSurfaceId {
+            payload["surface_id"] = requestedSurfaceId.uuidString
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["panel_id"] = requestedSurfaceId.uuidString
+            payload["panel_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["focused"] = (focusedSurfaceId == requestedSurfaceId)
+        }
+
+        return .ok(payload)
     }
 
     private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
