@@ -86,6 +86,24 @@ final class TerminalNotificationStore: ObservableObject {
     private var hasRequestedAuthorization = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
+    private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
+    private let settingsPromptWindowRetryLimit = 20
+    private var notificationSettingsWindowProvider: () -> NSWindow? = {
+        NSApp.keyWindow ?? NSApp.mainWindow
+    }
+    private var notificationSettingsAlertFactory: () -> NSAlert = {
+        NSAlert()
+    }
+    private var notificationSettingsScheduler: (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void = {
+        delay,
+        block in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            block()
+        }
+    }
+    private var notificationSettingsURLOpener: (URL) -> Void = { url in
+        NSWorkspace.shared.open(url)
+    }
 
     private init() {
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -336,19 +354,70 @@ final class TerminalNotificationStore: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.hasPromptedForSettings else { return }
             self.hasPromptedForSettings = true
-
-            let alert = NSAlert()
-            alert.messageText = "Enable Notifications for cmux"
-            alert.informativeText = "Notifications are disabled for cmux. Enable them in System Settings to see alerts."
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Not Now")
-            let response = alert.runModal()
-            guard response == .alertFirstButtonReturn else { return }
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-                NSWorkspace.shared.open(url)
-            }
+            self.presentNotificationSettingsPrompt(attempt: 0)
         }
     }
+
+    private func presentNotificationSettingsPrompt(attempt: Int) {
+        guard let window = notificationSettingsWindowProvider() else {
+            guard attempt < settingsPromptWindowRetryLimit else {
+                // If no window is available after retries, allow a future denied callback
+                // to prompt again when the app has a key/main window.
+                hasPromptedForSettings = false
+                return
+            }
+            notificationSettingsScheduler(settingsPromptWindowRetryDelay) { [weak self] in
+                self?.presentNotificationSettingsPrompt(attempt: attempt + 1)
+            }
+            return
+        }
+
+        let alert = notificationSettingsAlertFactory()
+        alert.messageText = "Enable Notifications for cmux"
+        alert.informativeText = "Notifications are disabled for cmux. Enable them in System Settings to see alerts."
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Not Now")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn,
+                  let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+                return
+            }
+            self?.notificationSettingsURLOpener(url)
+        }
+    }
+
+#if DEBUG
+    func configureNotificationSettingsPromptHooksForTesting(
+        windowProvider: @escaping () -> NSWindow?,
+        alertFactory: @escaping () -> NSAlert,
+        scheduler: @escaping (_ delay: TimeInterval, _ block: @escaping () -> Void) -> Void,
+        urlOpener: @escaping (URL) -> Void
+    ) {
+        notificationSettingsWindowProvider = windowProvider
+        notificationSettingsAlertFactory = alertFactory
+        notificationSettingsScheduler = scheduler
+        notificationSettingsURLOpener = urlOpener
+        hasPromptedForSettings = false
+    }
+
+    func resetNotificationSettingsPromptHooksForTesting() {
+        notificationSettingsWindowProvider = { NSApp.keyWindow ?? NSApp.mainWindow }
+        notificationSettingsAlertFactory = { NSAlert() }
+        notificationSettingsScheduler = { delay, block in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                block()
+            }
+        }
+        notificationSettingsURLOpener = { url in
+            NSWorkspace.shared.open(url)
+        }
+        hasPromptedForSettings = false
+    }
+
+    func promptToEnableNotificationsForTesting() {
+        promptToEnableNotifications()
+    }
+#endif
 
     private func refreshDockBadge() {
         let label = Self.dockBadgeLabel(
