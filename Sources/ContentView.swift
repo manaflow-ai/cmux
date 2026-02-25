@@ -3923,7 +3923,7 @@ struct ContentView: View {
             AppDelegate.shared?.jumpToLatestUnread()
         }
         registry.register(commandId: "palette.openSettings") {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            AppDelegate.presentPreferencesWindow()
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)

@@ -417,6 +417,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
+    func testPresentPreferencesWindowUsesFallbackWhenResponderChainDoesNotHandleSettingsAction() {
+        var sendShowSettingsActionCallCount = 0
+        var showFallbackSettingsWindowCallCount = 0
+        var activateApplicationCallCount = 0
+
+        AppDelegate.presentPreferencesWindow(
+            sendShowSettingsAction: {
+                sendShowSettingsActionCallCount += 1
+                return false
+            },
+            showFallbackSettingsWindow: {
+                showFallbackSettingsWindowCallCount += 1
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        XCTAssertEqual(sendShowSettingsActionCallCount, 1)
+        XCTAssertEqual(showFallbackSettingsWindowCallCount, 1)
+        XCTAssertEqual(activateApplicationCallCount, 1)
+    }
+
+    func testPresentPreferencesWindowSkipsFallbackWhenResponderChainHandlesSettingsAction() {
+        var sendShowSettingsActionCallCount = 0
+        var showFallbackSettingsWindowCallCount = 0
+        var activateApplicationCallCount = 0
+
+        AppDelegate.presentPreferencesWindow(
+            sendShowSettingsAction: {
+                sendShowSettingsActionCallCount += 1
+                return true
+            },
+            showFallbackSettingsWindow: {
+                showFallbackSettingsWindowCallCount += 1
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        XCTAssertEqual(sendShowSettingsActionCallCount, 1)
+        XCTAssertEqual(showFallbackSettingsWindowCallCount, 0)
+        XCTAssertEqual(activateApplicationCallCount, 1)
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,

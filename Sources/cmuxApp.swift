@@ -1701,7 +1701,7 @@ private struct AcknowledgmentsView: View {
     }
 }
 
-private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
     private init() {

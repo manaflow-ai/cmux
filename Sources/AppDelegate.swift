@@ -3258,9 +3258,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
+    static func presentPreferencesWindow(
+        sendShowSettingsAction: @MainActor () -> Bool = {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        },
+        showFallbackSettingsWindow: @MainActor () -> Void = {
+            SettingsWindowController.shared.show()
+        },
+        activateApplication: @MainActor () -> Void = {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
+        let handledByResponderChain = sendShowSettingsAction()
+        if !handledByResponderChain {
+            showFallbackSettingsWindow()
+        }
+        activateApplication()
+    }
+
     @objc func openPreferencesWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        Self.presentPreferencesWindow()
     }
 
     func refreshMenuBarExtraForDebug() {
