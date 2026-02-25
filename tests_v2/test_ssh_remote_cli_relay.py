@@ -63,7 +63,7 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
 
-    proc = _run([cli, "--socket", SOCKET_PATH, "--json", *args], env=env)
+    proc = _run([cli, "--socket", SOCKET_PATH, "--json", "--id-format", "both", *args], env=env)
     try:
         return json.loads(proc.stdout or "{}")
     except Exception as exc:  # noqa: BLE001
@@ -204,6 +204,14 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            workspace_window_id = payload.get("window_id")
+            current_params = {"window_id": workspace_window_id} if isinstance(workspace_window_id, str) and workspace_window_id else {}
+            current = client._call("workspace.current", current_params) or {}
+            current_workspace_id = str(current.get("workspace_id") or "")
+            _must(
+                current_workspace_id == workspace_id,
+                f"cmux ssh should focus created workspace: current={current_workspace_id!r} created={workspace_id!r}",
+            )
 
             remote_relay_port = payload.get("remote_relay_port")
             _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
