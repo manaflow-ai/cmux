@@ -6617,9 +6617,23 @@ private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
 private var cmuxFirstResponderGuardHitViewOverride: NSView?
 #endif
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+private final class CmuxFieldEditorOwningWebViewBox: NSObject {
+    weak var webView: CmuxWebView?
+
+    init(webView: CmuxWebView?) {
+        self.webView = webView
+    }
+}
 
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        let currentEvent = Self.cmuxCurrentEvent(for: self)
+        let responderWebView = responder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
+        }
+
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
             responder: responder
@@ -6634,9 +6648,8 @@ private extension NSWindow {
         }
 
         if let responder,
-           let webView = Self.cmuxOwningWebView(for: responder),
+           let webView = responderWebView,
            !webView.allowsFirstResponderAcquisitionEffective {
-            let currentEvent = Self.cmuxCurrentEvent(for: self)
             let pointerInitiatedFocus = Self.cmuxShouldAllowPointerInitiatedWebViewFocus(
                 window: self,
                 webView: webView,
@@ -6669,7 +6682,7 @@ private extension NSWindow {
         }
 #if DEBUG
         if let responder,
-           let webView = Self.cmuxOwningWebView(for: responder) {
+           let webView = responderWebView {
             dlog(
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
@@ -6679,7 +6692,15 @@ private extension NSWindow {
             )
         }
 #endif
-        return cmux_makeFirstResponder(responder)
+        let result = cmux_makeFirstResponder(responder)
+        if result {
+            if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
+                Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
+            } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
+                Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
+            }
+        }
+        return result
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
@@ -6734,7 +6755,9 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
-        let firstResponderWebView = self.firstResponder.flatMap { Self.cmuxOwningWebView(for: $0) }
+        let firstResponderWebView = self.firstResponder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: event)
+        }
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing, don't intercept key events — let them flow
             // through normal AppKit event dispatch so the input method can process them.
@@ -6875,6 +6898,28 @@ private extension NSWindow {
         return nil
     }
 
+    private static func cmuxOwningWebView(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        if let webView = cmuxOwningWebView(for: responder) {
+            return webView
+        }
+
+        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
+            return nil
+        }
+
+        if let event,
+           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
+            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
+            return hitWebView
+        }
+
+        return cmuxTrackedOwningWebView(for: textView)
+    }
+
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
         if let webView = view as? CmuxWebView {
             return webView
@@ -6909,28 +6954,68 @@ private extension NSWindow {
         return window.contentView?.hitTest(event.locationInWindow)
     }
 
+    private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {
+        if let webView {
+            objc_setAssociatedObject(
+                fieldEditor,
+                &cmuxFieldEditorOwningWebViewAssociationKey,
+                CmuxFieldEditorOwningWebViewBox(webView: webView),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        } else {
+            objc_setAssociatedObject(
+                fieldEditor,
+                &cmuxFieldEditorOwningWebViewAssociationKey,
+                nil,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    private static func cmuxTrackedOwningWebView(for fieldEditor: NSTextView) -> CmuxWebView? {
+        guard let box = objc_getAssociatedObject(
+            fieldEditor,
+            &cmuxFieldEditorOwningWebViewAssociationKey
+        ) as? CmuxFieldEditorOwningWebViewBox else {
+            return nil
+        }
+        guard let webView = box.webView else {
+            cmuxTrackFieldEditor(fieldEditor, owningWebView: nil)
+            return nil
+        }
+        return webView
+    }
+
+    private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
+        guard cmuxIsPointerDownEvent(event) else { return nil }
+        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+            return nil
+        }
+        if let eventWindow = event.window, eventWindow !== window {
+            return nil
+        }
+        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
+            return nil
+        }
+        return cmuxOwningWebView(for: hitView)
+    }
+
     private static func cmuxShouldAllowPointerInitiatedWebViewFocus(
         window: NSWindow,
         webView: CmuxWebView,
         event: NSEvent?
     ) -> Bool {
-        guard let event else { return false }
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            break
-        default:
-            return false
-        }
-
-        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
-            return false
-        }
-        if let eventWindow = event.window, eventWindow !== window {
-            return false
-        }
-
-        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event),
-              let hitWebView = cmuxOwningWebView(for: hitView) else {
+        guard let event,
+              let hitWebView = cmuxPointerHitWebView(in: window, event: event) else {
             return false
         }
         return hitWebView === webView
