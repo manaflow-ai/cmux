@@ -538,6 +538,9 @@ final class WindowTerminalPortal: NSObject {
     private static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
+    private static let sidebarLeadingEdgeEpsilon: CGFloat = 1
+    private static let minimumVisibleLeadingContentWidth: CGFloat = 24
+    private static let sidebarOcclusionSafetyPixels: CGFloat = 1
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -714,6 +717,70 @@ final class WindowTerminalPortal: NSObject {
         dividerOverlayView.needsDisplay = true
     }
 
+    private func visibleHostedViewsForSidebarOcclusion() -> [GhosttySurfaceScrollView] {
+        hostView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+            .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
+    }
+
+    private func sidebarDividerXForOcclusion() -> CGFloat? {
+        let visibleHostedViews = visibleHostedViewsForSidebarOcclusion()
+        guard !visibleHostedViews.isEmpty else { return nil }
+
+        let hasLeadingContent = visibleHostedViews.contains {
+            $0.frame.minX <= Self.sidebarLeadingEdgeEpsilon &&
+                $0.frame.maxX > Self.minimumVisibleLeadingContentWidth
+        }
+        guard !hasLeadingContent else { return nil }
+
+        return visibleHostedViews
+            .map(\.frame.minX)
+            .filter { $0 > Self.sidebarLeadingEdgeEpsilon }
+            .min()
+    }
+
+    private func updateSidebarOcclusionMask() {
+        guard let hostLayer = hostView.layer else { return }
+        guard let dividerX = sidebarDividerXForOcclusion() else {
+            hostLayer.mask = nil
+            return
+        }
+
+        let hostBounds = hostView.bounds
+        let hasFiniteHostBounds =
+            hostBounds.origin.x.isFinite &&
+            hostBounds.origin.y.isFinite &&
+            hostBounds.size.width.isFinite &&
+            hostBounds.size.height.isFinite
+        guard hasFiniteHostBounds, hostBounds.width > 1, hostBounds.height > 1 else {
+            hostLayer.mask = nil
+            return
+        }
+
+        let scale = max(1.0, hostView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
+        let safetyInset = Self.sidebarOcclusionSafetyPixels / scale
+        let maskStartX = min(hostBounds.width, max(0, dividerX + safetyInset))
+        let maskWidth = hostBounds.width - maskStartX
+        guard maskWidth > 0 else {
+            hostLayer.mask = nil
+            return
+        }
+
+        let maskLayer: CAShapeLayer
+        if let existingMask = hostLayer.mask as? CAShapeLayer {
+            maskLayer = existingMask
+        } else {
+            let created = CAShapeLayer()
+            created.fillColor = NSColor.black.cgColor
+            maskLayer = created
+        }
+        maskLayer.frame = hostBounds
+        maskLayer.path = CGPath(
+            rect: CGRect(x: maskStartX, y: 0, width: maskWidth, height: hostBounds.height),
+            transform: nil
+        )
+        hostLayer.mask = maskLayer
+    }
+
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window else { return false }
@@ -750,6 +817,7 @@ final class WindowTerminalPortal: NSObject {
 
         synchronizeLayoutHierarchy()
         _ = synchronizeHostFrameToReference()
+        updateSidebarOcclusionMask()
         ensureDividerOverlayOnTop()
 
         return true
@@ -909,6 +977,7 @@ final class WindowTerminalPortal: NSObject {
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
         }
+        updateSidebarOcclusionMask()
     }
 
     /// Hide a portal entry without detaching it. Updates visibleInUI to false and
@@ -1082,6 +1151,7 @@ final class WindowTerminalPortal: NSObject {
             if hostedId == hostedIdToSkip { continue }
             synchronizeHostedView(withId: hostedId)
         }
+        updateSidebarOcclusionMask()
     }
 
     private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
@@ -1268,6 +1338,7 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
 
+        updateSidebarOcclusionMask()
         ensureDividerOverlayOnTop()
     }
 
@@ -1307,6 +1378,7 @@ final class WindowTerminalPortal: NSObject {
         }
         NSLayoutConstraint.deactivate(installConstraints)
         installConstraints.removeAll()
+        hostView.layer?.mask = nil
         hostView.removeFromSuperview()
         installedContainerView = nil
         installedReferenceView = nil
