@@ -125,7 +125,7 @@ enum KeyboardShortcutSettings {
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
-                return StoredShortcut(key: "r", command: true, shift: false, option: false, control: true)
+                return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .focusLeft:
