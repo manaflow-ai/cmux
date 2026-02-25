@@ -691,6 +691,56 @@ final class SocketControlSettingsTests: XCTestCase {
             "/tmp/cmux-staging.sock"
         )
     }
+
+    func testUntaggedDebugBundleBlockedWithoutLaunchTag() {
+        XCTAssertTrue(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: [:],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
+
+    func testUntaggedDebugBundleAllowedWithLaunchTag() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["CMUX_TAG": "tests-v1"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
+
+    func testTaggedDebugBundleAllowedWithoutLaunchTag() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: [:],
+                bundleIdentifier: "com.cmuxterm.app.debug.tests-v1",
+                isDebugBuild: true
+            )
+        )
+    }
+
+    func testReleaseBuildIgnoresLaunchTagGate() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: [:],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: false
+            )
+        )
+    }
+
+    func testXCTestLaunchIgnoresLaunchTagGate() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["XCTestConfigurationFilePath": "/tmp/fake.xctestconfiguration"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
 }
 
 final class PostHogAnalyticsPropertiesTests: XCTestCase {

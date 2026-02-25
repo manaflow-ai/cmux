@@ -35,6 +35,10 @@ struct cmuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
+            Self.terminateForMissingLaunchTag()
+        }
+
         Self.configureGhosttyEnvironment()
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -56,6 +60,14 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+    }
+
+    private static func terminateForMissingLaunchTag() -> Never {
+        let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+        NSLog("%@", message)
+        Darwin.exit(64)
     }
 
     private static func configureGhosttyEnvironment() {
