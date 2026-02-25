@@ -4027,26 +4027,17 @@ final class GhosttySurfaceScrollView: NSView {
         } else {
             guard !dropZoneOverlayView.isHidden else { return }
             dropZoneOverlayAnimationGeneration &+= 1
-            let animationGeneration = dropZoneOverlayAnimationGeneration
             dropZoneOverlayView.layer?.removeAllAnimations()
 #if DEBUG
             logDropZoneOverlay(event: "hide", zone: nil, frame: nil)
 #endif
-
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.14
-                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                dropZoneOverlayView.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
-                guard let self else { return }
-                guard self.dropZoneOverlayAnimationGeneration == animationGeneration else { return }
-                guard self.activeDropZone == nil else { return }
-                self.dropZoneOverlayView.isHidden = true
-                self.dropZoneOverlayView.alphaValue = 1
+            // Clear immediately when the drop zone is removed so stale drag callbacks
+            // cannot leave a visible blue overlay during tab/pane handoff.
+            dropZoneOverlayView.isHidden = true
+            dropZoneOverlayView.alphaValue = 1
 #if DEBUG
-                self.logDropZoneOverlay(event: "hideComplete", zone: nil, frame: nil)
+            logDropZoneOverlay(event: "hideComplete", zone: nil, frame: nil)
 #endif
-            }
         }
     }
 

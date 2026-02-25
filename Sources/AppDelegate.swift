@@ -1016,6 +1016,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    private func locateBonsplitSurface(tabId: UUID) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
+        let surfaceId = TabID(uuid: tabId)
+        for ctx in mainWindowContexts.values {
+            for ws in ctx.tabManager.tabs {
+                if let panelId = ws.panelIdFromSurfaceId(surfaceId) {
+                    return (ctx.windowId, ws.id, panelId, ctx.tabManager)
+                }
+            }
+        }
+        return nil
+    }
+
+    @discardableResult
+    func moveBonsplitTab(
+        tabId: UUID,
+        toWorkspace targetWorkspaceId: UUID,
+        targetPane: PaneID? = nil,
+        targetIndex: Int? = nil,
+        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil,
+        focus: Bool = true,
+        focusWindow: Bool = true
+    ) -> Bool {
+        guard let source = locateBonsplitSurface(tabId: tabId),
+              let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }) else {
+            return false
+        }
+        let sourcePanelId = source.panelId
+        let sourcePaneId = sourceWorkspace.paneId(forPanelId: sourcePanelId)
+        let sourceIndex = sourceWorkspace.indexInPane(forPanelId: sourcePanelId)
+
+        guard let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
+              let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
+            return false
+        }
+
+        var destinationPane = targetPane
+        if let pane = destinationPane, !destinationWorkspace.bonsplitController.allPaneIds.contains(pane) {
+            destinationPane = nil
+        }
+        if destinationPane == nil {
+            destinationPane =
+                destinationWorkspace.bonsplitController.focusedPaneId ??
+                destinationWorkspace.bonsplitController.allPaneIds.first
+        }
+        guard let destinationPane else { return false }
+
+        if sourceWorkspace.id == destinationWorkspace.id {
+            if let splitTarget {
+                guard let movingTabId = sourceWorkspace.surfaceIdFromPanelId(sourcePanelId),
+                      let newPane = sourceWorkspace.bonsplitController.splitPane(
+                          destinationPane,
+                          orientation: splitTarget.orientation,
+                          movingTab: movingTabId,
+                          insertFirst: splitTarget.insertFirst
+                      ) else {
+                    return false
+                }
+                if focus {
+                    sourceWorkspace.bonsplitController.focusPane(newPane)
+                    sourceWorkspace.bonsplitController.selectTab(movingTabId)
+                    sourceWorkspace.focusPanel(sourcePanelId)
+                }
+            } else {
+                guard sourceWorkspace.moveSurface(
+                    panelId: sourcePanelId,
+                    toPane: destinationPane,
+                    atIndex: targetIndex,
+                    focus: focus
+                ) else {
+                    return false
+                }
+            }
+
+            if focus {
+                if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
+                    _ = focusMainWindow(windowId: destinationWindowId)
+                }
+                destinationManager.focusTab(targetWorkspaceId, surfaceId: sourcePanelId, suppressFlash: true)
+            }
+            return true
+        }
+
+        guard let transfer = sourceWorkspace.detachSurface(panelId: sourcePanelId) else {
+            return false
+        }
+
+        guard destinationWorkspace.attachDetachedSurface(
+            transfer,
+            inPane: destinationPane,
+            atIndex: targetIndex,
+            focus: focus
+        ) != nil else {
+            // Best-effort rollback to avoid losing the surface if destination attach fails.
+            let rollbackPane = sourcePaneId.flatMap { pane in
+                sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
+            } ?? sourceWorkspace.bonsplitController.focusedPaneId
+                ?? sourceWorkspace.bonsplitController.allPaneIds.first
+            if let rollbackPane {
+                _ = sourceWorkspace.attachDetachedSurface(
+                    transfer,
+                    inPane: rollbackPane,
+                    atIndex: sourceIndex,
+                    focus: focus
+                )
+            }
+            return false
+        }
+
+        if let splitTarget,
+           let movedTabId = destinationWorkspace.surfaceIdFromPanelId(sourcePanelId) {
+            _ = destinationWorkspace.bonsplitController.splitPane(
+                destinationPane,
+                orientation: splitTarget.orientation,
+                movingTab: movedTabId,
+                insertFirst: splitTarget.insertFirst
+            )
+        }
+
+        if focus {
+            if focusWindow, let destinationWindowId = windowId(for: destinationManager) {
+                _ = focusMainWindow(windowId: destinationWindowId)
+            }
+            destinationManager.focusTab(targetWorkspaceId, surfaceId: sourcePanelId, suppressFlash: true)
+        }
+
+        return true
+    }
+
     func locateGhosttySurface(_ surface: ghostty_surface_t?) -> (windowId: UUID, workspaceId: UUID, panelId: UUID, tabManager: TabManager)? {
         guard let surface else { return nil }
         for ctx in mainWindowContexts.values {

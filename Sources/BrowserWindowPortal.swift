@@ -322,6 +322,7 @@ final class WindowBrowserSlotView: NSView {
 @MainActor
 final class WindowBrowserPortal: NSObject {
     private static let replacementOverlapThreshold: CGFloat = 0.55
+    private static let visibleOrphanPruneGracePasses: UInt64 = 2
 
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
@@ -342,6 +343,7 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private var visibleOrphanFirstPrunePassByWebViewId: [ObjectIdentifier: UInt64] = [:]
 
     private enum AnchorLiveness: String {
         case alive
@@ -623,6 +625,7 @@ final class WindowBrowserPortal: NSObject {
 
     func detachWebView(withId webViewId: ObjectIdentifier) {
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
+        visibleOrphanFirstPrunePassByWebViewId.removeValue(forKey: webViewId)
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -1121,10 +1124,12 @@ final class WindowBrowserPortal: NSObject {
 
             let liveness = anchorLiveness(for: entry, currentWindow: currentWindow)
             if liveness == .alive {
+                visibleOrphanFirstPrunePassByWebViewId.removeValue(forKey: webViewId)
                 continue
             }
 
             if !entry.visibleInUI {
+                visibleOrphanFirstPrunePassByWebViewId.removeValue(forKey: webViewId)
 #if DEBUG
                 dlog(
                     "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
@@ -1141,6 +1146,7 @@ final class WindowBrowserPortal: NSObject {
                 orphanEntry: entry,
                 currentWindow: currentWindow
             ) {
+                visibleOrphanFirstPrunePassByWebViewId.removeValue(forKey: webViewId)
 #if DEBUG
                 dlog(
                     "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
@@ -1153,11 +1159,28 @@ final class WindowBrowserPortal: NSObject {
                 continue
             }
 
+            let firstPrunePass = visibleOrphanFirstPrunePassByWebViewId[webViewId] ?? prunePass
+            visibleOrphanFirstPrunePassByWebViewId[webViewId] = firstPrunePass
+            let deferredPasses = prunePass >= firstPrunePass ? (prunePass - firstPrunePass) : 0
+
+            if deferredPasses >= Self.visibleOrphanPruneGracePasses {
+#if DEBUG
+                dlog(
+                    "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
+                    "reason=\(liveness.rawValue)+graceExpired visible=1 pass=\(prunePass) " +
+                    "deferredPasses=\(deferredPasses)"
+                )
+#endif
+                visibleOrphanFirstPrunePassByWebViewId.removeValue(forKey: webViewId)
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+
 #if DEBUG
             dlog(
                 "browser.portal.prune.defer web=\(browserPortalDebugToken(entry.webView)) " +
                 "reason=\(liveness.rawValue) visible=1 pass=\(prunePass) " +
-                "replacement=none"
+                "replacement=none deferredPasses=\(deferredPasses)"
             )
 #endif
         }
@@ -1170,6 +1193,7 @@ final class WindowBrowserPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         webViewByAnchorId = webViewByAnchorId.filter { validAnchorIds.contains($0.key) }
+        visibleOrphanFirstPrunePassByWebViewId = visibleOrphanFirstPrunePassByWebViewId.filter { entriesByWebViewId[$0.key] != nil }
     }
 
     func webViewIds() -> Set<ObjectIdentifier> {
@@ -1199,14 +1223,16 @@ final class WindowBrowserPortal: NSObject {
     func webViewAtWindowPoint(_ windowPoint: NSPoint) -> WKWebView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
+        let currentWindow = window
         for subview in hostView.subviews.reversed() {
             guard let container = subview as? WindowBrowserSlotView else { continue }
             guard !container.isHidden else { continue }
             guard container.frame.contains(point) else { continue }
-            guard let webView = entriesByWebViewId
-                .first(where: { _, entry in entry.containerView === container })?
-                .value
-                .webView else { continue }
+            guard let match = entriesByWebViewId.first(where: { _, entry in entry.containerView === container }) else {
+                continue
+            }
+            guard anchorLiveness(for: match.value, currentWindow: currentWindow) == .alive else { continue }
+            guard let webView = match.value.webView else { continue }
             return webView
         }
         return nil

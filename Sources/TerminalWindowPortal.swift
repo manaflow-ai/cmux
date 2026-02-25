@@ -539,6 +539,7 @@ final class WindowTerminalPortal: NSObject {
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
     private static let replacementOverlapThreshold: CGFloat = 0.55
+    private static let visibleOrphanPruneGracePasses: UInt64 = 2
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -563,6 +564,7 @@ final class WindowTerminalPortal: NSObject {
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+    private var visibleOrphanFirstPrunePassByHostedId: [ObjectIdentifier: UInt64] = [:]
 
     private enum AnchorLiveness: String {
         case alive
@@ -699,7 +701,7 @@ final class WindowTerminalPortal: NSObject {
     private func synchronizeAllEntriesFromExternalGeometryChange() {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
-        synchronizeAllHostedViews(excluding: nil)
+        synchronizeAllHostedViews(excluding: nil, reason: "externalGeometry")
 
         // During live resize, AppKit can deliver frame churn where host/container geometry
         // settles a tick before the terminal's own scroll/surface hierarchy. Force a final
@@ -919,6 +921,7 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        visibleOrphanFirstPrunePassByHostedId.removeValue(forKey: hostedId)
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -1058,7 +1061,7 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        synchronizeHostedView(withId: hostedId)
+        synchronizeHostedView(withId: hostedId, reason: "bind")
         scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
@@ -1070,13 +1073,13 @@ final class WindowTerminalPortal: NSObject {
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
         if let primaryHostedId {
-            synchronizeHostedView(withId: primaryHostedId)
+            synchronizeHostedView(withId: primaryHostedId, reason: "anchorPrimary")
         }
 
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId)
+        synchronizeAllHostedViews(excluding: primaryHostedId, reason: "anchorSweep")
         scheduleDeferredFullSynchronizeAll()
     }
 
@@ -1086,27 +1089,48 @@ final class WindowTerminalPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredFullSyncScheduled = false
-            self.synchronizeAllHostedViews(excluding: nil)
+            self.synchronizeAllHostedViews(excluding: nil, reason: "deferred")
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) {
+    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, reason: String) {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
+        let batchStart = ProcessInfo.processInfo.systemUptime
+        var synchronizedCount = 0
+        var changedCount = 0
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
-            synchronizeHostedView(withId: hostedId)
+            synchronizedCount += 1
+            if synchronizeHostedView(withId: hostedId, reason: reason) {
+                changedCount += 1
+            }
         }
+#if DEBUG
+        if synchronizedCount > 0 {
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - batchStart) * 1000
+            if elapsedMs >= 8 || changedCount > 0 {
+                let severity = elapsedMs >= 16 ? "jank" : (elapsedMs >= 8 ? "slow" : "normal")
+                dlog(
+                    "portal.sync.batch.\(severity) reason=\(reason) total=\(entriesByHostedId.count) " +
+                    "synced=\(synchronizedCount) changed=\(changedCount) " +
+                    "skip=\(hostedIdToSkip != nil ? 1 : 0) elapsedMs=\(String(format: "%.1f", elapsedMs))"
+                )
+            }
+        }
+#endif
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
-        guard ensureInstalled() else { return }
-        guard let entry = entriesByHostedId[hostedId] else { return }
+    @discardableResult
+    private func synchronizeHostedView(withId hostedId: ObjectIdentifier, reason: String) -> Bool {
+        guard ensureInstalled() else { return false }
+        guard let entry = entriesByHostedId[hostedId] else { return false }
+        var changed = false
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
-            return
+            return true
         }
         guard let anchorView = entry.anchorView, let window else {
             // Only hide if the entry is not marked visibleInUI. When a workspace is
@@ -1118,6 +1142,7 @@ final class WindowTerminalPortal: NSObject {
                     dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
                 }
 #endif
+                changed = changed || !hostedView.isHidden
                 hostedView.isHidden = true
             } else {
 #if DEBUG
@@ -1127,7 +1152,7 @@ final class WindowTerminalPortal: NSObject {
                 )
 #endif
             }
-            return
+            return changed
         }
         guard anchorView.window === window else {
             if !entry.visibleInUI {
@@ -1139,6 +1164,7 @@ final class WindowTerminalPortal: NSObject {
                     )
                 }
 #endif
+                changed = changed || !hostedView.isHidden
                 hostedView.isHidden = true
             } else {
 #if DEBUG
@@ -1149,7 +1175,7 @@ final class WindowTerminalPortal: NSObject {
                 )
 #endif
             }
-            return
+            return changed
         }
 
         _ = synchronizeHostFrameToReference()
@@ -1175,10 +1201,11 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             if !entry.visibleInUI {
+                changed = changed || !hostedView.isHidden
                 hostedView.isHidden = true
             }
             scheduleDeferredFullSynchronizeAll()
-            return
+            return changed
         }
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
@@ -1246,6 +1273,7 @@ final class WindowTerminalPortal: NSObject {
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
+            changed = true
             hostedView.isHidden = true
         }
 
@@ -1256,6 +1284,7 @@ final class WindowTerminalPortal: NSObject {
             CATransaction.commit()
             hostedView.reconcileGeometryNow()
             hostedView.refreshSurfaceNow()
+            changed = true
         }
 
         if hasFiniteFrame {
@@ -1265,6 +1294,7 @@ final class WindowTerminalPortal: NSObject {
                 CATransaction.setDisableActions(true)
                 hostedView.bounds = expectedBounds
                 CATransaction.commit()
+                changed = true
             }
         }
 
@@ -1290,11 +1320,13 @@ final class WindowTerminalPortal: NSObject {
             )
 #endif
             hostedView.isHidden = false
+            changed = true
         }
 
 #if DEBUG
         dlog(
             "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
+            "reason=\(reason) " +
             "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
             "hostWin=\(hostView.window?.windowNumber ?? -1) " +
             "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
@@ -1305,6 +1337,7 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
         ensureDividerOverlayOnTop()
+        return changed
     }
 
     private static func overlapRatio(of lhs: NSRect, with rhs: NSRect) -> CGFloat {
@@ -1363,10 +1396,12 @@ final class WindowTerminalPortal: NSObject {
 
             let liveness = anchorLiveness(for: entry, currentWindow: currentWindow)
             if liveness == .alive {
+                visibleOrphanFirstPrunePassByHostedId.removeValue(forKey: hostedId)
                 continue
             }
 
             if !entry.visibleInUI {
+                visibleOrphanFirstPrunePassByHostedId.removeValue(forKey: hostedId)
 #if DEBUG
                 dlog(
                     "portal.prune.detach hosted=\(portalDebugToken(entry.hostedView)) " +
@@ -1383,6 +1418,7 @@ final class WindowTerminalPortal: NSObject {
                 orphanEntry: entry,
                 currentWindow: currentWindow
             ) {
+                visibleOrphanFirstPrunePassByHostedId.removeValue(forKey: hostedId)
 #if DEBUG
                 dlog(
                     "portal.prune.detach hosted=\(portalDebugToken(entry.hostedView)) " +
@@ -1395,11 +1431,28 @@ final class WindowTerminalPortal: NSObject {
                 continue
             }
 
+            let firstPrunePass = visibleOrphanFirstPrunePassByHostedId[hostedId] ?? prunePass
+            visibleOrphanFirstPrunePassByHostedId[hostedId] = firstPrunePass
+            let deferredPasses = prunePass >= firstPrunePass ? (prunePass - firstPrunePass) : 0
+
+            if deferredPasses >= Self.visibleOrphanPruneGracePasses {
+#if DEBUG
+                dlog(
+                    "portal.prune.detach hosted=\(portalDebugToken(entry.hostedView)) " +
+                    "reason=\(liveness.rawValue)+graceExpired visible=1 pass=\(prunePass) " +
+                    "deferredPasses=\(deferredPasses)"
+                )
+#endif
+                visibleOrphanFirstPrunePassByHostedId.removeValue(forKey: hostedId)
+                deadHostedIds.append(hostedId)
+                continue
+            }
+
 #if DEBUG
             dlog(
                 "portal.prune.defer hosted=\(portalDebugToken(entry.hostedView)) " +
                 "reason=\(liveness.rawValue) visible=1 pass=\(prunePass) " +
-                "replacement=none"
+                "replacement=none deferredPasses=\(deferredPasses)"
             )
 #endif
         }
@@ -1412,6 +1465,7 @@ final class WindowTerminalPortal: NSObject {
             entry.anchorView.map { ObjectIdentifier($0) }
         })
         hostedByAnchorId = hostedByAnchorId.filter { validAnchorIds.contains($0.key) }
+        visibleOrphanFirstPrunePassByHostedId = visibleOrphanFirstPrunePassByHostedId.filter { entriesByHostedId[$0.key] != nil }
     }
 
     func hostedIds() -> Set<ObjectIdentifier> {
@@ -1443,13 +1497,15 @@ final class WindowTerminalPortal: NSObject {
     func viewAtWindowPoint(_ windowPoint: NSPoint) -> NSView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
+        let currentWindow = window
 
         // Restrict hit-testing to currently mapped entries so stale detached views
         // can't steal file-drop/mouse routing.
         for subview in hostView.subviews.reversed() {
             guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
             let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
+            guard let entry = entriesByHostedId[hostedId] else { continue }
+            guard anchorLiveness(for: entry, currentWindow: currentWindow) == .alive else { continue }
             guard !hostedView.isHidden else { continue }
             guard hostedView.frame.contains(point) else { continue }
             let localPoint = hostedView.convert(point, from: hostView)
@@ -1462,11 +1518,13 @@ final class WindowTerminalPortal: NSObject {
     func terminalViewAtWindowPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         guard ensureInstalled() else { return nil }
         let point = hostView.convert(windowPoint, from: nil)
+        let currentWindow = window
 
         for subview in hostView.subviews.reversed() {
             guard let hostedView = subview as? GhosttySurfaceScrollView else { continue }
             let hostedId = ObjectIdentifier(hostedView)
-            guard entriesByHostedId[hostedId] != nil else { continue }
+            guard let entry = entriesByHostedId[hostedId] else { continue }
+            guard anchorLiveness(for: entry, currentWindow: currentWindow) == .alive else { continue }
             guard !hostedView.isHidden else { continue }
             guard hostedView.frame.contains(point) else { continue }
             let localPoint = hostedView.convert(point, from: hostView)

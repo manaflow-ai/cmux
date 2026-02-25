@@ -469,6 +469,7 @@ final class Workspace: Identifiable, ObservableObject {
             autoCloseEmptyPanes: true,
             contentViewLifecycle: .keepAllAlive,
             newTabPosition: .current,
+            contentManagedDropOverlayTabKinds: [SurfaceKind.terminal],
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
@@ -504,6 +505,10 @@ final class Workspace: Identifiable, ObservableObject {
         // Close the default Welcome tab(s)
         for welcomeTabId in welcomeTabIds {
             bonsplitController.closeTab(welcomeTabId)
+        }
+
+        bonsplitController.onExternalTabDrop = { [weak self] request in
+            self?.handleExternalTabDrop(request) ?? false
         }
 
         // Set ourselves as delegate
@@ -2222,6 +2227,35 @@ final class Workspace: Identifiable, ObservableObject {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         setPanelCustomTitle(panelId: panelId, title: input.stringValue)
+    }
+
+    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
+        guard let app = AppDelegate.shared else { return false }
+
+        let targetPane: PaneID
+        let targetIndex: Int?
+        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
+
+        switch request.destination {
+        case .insert(let paneId, let index):
+            targetPane = paneId
+            targetIndex = index
+            splitTarget = nil
+        case .split(let paneId, let orientation, let insertFirst):
+            targetPane = paneId
+            targetIndex = nil
+            splitTarget = (orientation, insertFirst)
+        }
+
+        return app.moveBonsplitTab(
+            tabId: request.tabId.uuid,
+            toWorkspace: id,
+            targetPane: targetPane,
+            targetIndex: targetIndex,
+            splitTarget: splitTarget,
+            focus: true,
+            focusWindow: true
+        )
     }
 
 }
