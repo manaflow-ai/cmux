@@ -3530,6 +3530,14 @@ struct ContentView: View {
                 keywords: ["attempt", "check", "update", "upgrade", "release"]
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.restartSocketListener",
+                title: constant("Restart CLI Listener"),
+                subtitle: constant("Global"),
+                keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
+            )
+        )
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -3933,6 +3941,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.attemptUpdate") {
             AppDelegate.shared?.attemptUpdate(nil)
+        }
+        registry.register(commandId: "palette.restartSocketListener") {
+            AppDelegate.shared?.restartSocketListener(nil)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {

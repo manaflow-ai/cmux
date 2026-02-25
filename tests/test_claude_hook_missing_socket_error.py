@@ -47,6 +47,7 @@ def main() -> int:
         pass
 
     env = os.environ.copy()
+    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     env.pop("CMUX_SOCKET_PATH", None)
 

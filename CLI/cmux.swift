@@ -11,8 +11,8 @@ struct CLIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
-private final class ClaudeHookSentryTelemetry {
-    private let enabled: Bool
+private final class CLISocketSentryTelemetry {
+    private let command: String
     private let subcommand: String
     private let socketPath: String
     private let envSocketPath: String?
@@ -27,13 +27,15 @@ private final class ClaudeHookSentryTelemetry {
 #endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
-        self.enabled = command == "claude-hook"
+        self.command = command.lowercased()
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
         self.envSocketPath = processEnv["CMUX_SOCKET_PATH"]
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
-        self.disabledByEnv = processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
+        self.disabledByEnv =
+            processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
+            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -44,7 +46,7 @@ private final class ClaudeHookSentryTelemetry {
         for (key, value) in data {
             payload[key] = value
         }
-        let crumb = Breadcrumb(level: .info, category: "claude-hook.cli")
+        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
         crumb.message = message
         crumb.data = payload
         SentrySDK.addBreadcrumb(crumb)
@@ -62,22 +64,25 @@ private final class ClaudeHookSentryTelemetry {
             context[key] = value
         }
         let subcommand = self.subcommand
+        let command = self.command
         _ = SentrySDK.capture(error: error) { scope in
             scope.setLevel(.error)
             scope.setTag(value: "cmux-cli", key: "component")
-            scope.setTag(value: subcommand, key: "claude_hook_subcommand")
-            scope.setContext(value: context, key: "claude_hook")
+            scope.setTag(value: command, key: "cli_command")
+            scope.setTag(value: subcommand, key: "cli_subcommand")
+            scope.setContext(value: context, key: "cli_socket")
         }
         SentrySDK.flush(timeout: 2.0)
 #endif
     }
 
     private var shouldEmit: Bool {
-        enabled && !disabledByEnv
+        !disabledByEnv
     }
 
     private func baseContext() -> [String: Any] {
         var context: [String: Any] = [
+            "command": command,
             "subcommand": subcommand,
             "requested_socket_path": socketPath,
             "env_socket_path": envSocketPath ?? "<unset>"
@@ -677,7 +682,7 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
-        let hookTelemetry = ClaudeHookSentryTelemetry(
+        let cliTelemetry = CLISocketSentryTelemetry(
             command: command,
             commandArgs: commandArgs,
             socketPath: socketPath,
@@ -698,16 +703,16 @@ struct CMUXCLI {
         }
 
         let client = SocketClient(path: socketPath)
-        hookTelemetry.breadcrumb(
+        cliTelemetry.breadcrumb(
             "socket.connect.attempt",
             data: ["command": command]
         )
         do {
             try client.connect()
-            hookTelemetry.breadcrumb("socket.connect.success")
+            cliTelemetry.breadcrumb("socket.connect.success")
         } catch {
-            hookTelemetry.breadcrumb("socket.connect.failure")
-            hookTelemetry.captureError(stage: "socket_connect", error: error)
+            cliTelemetry.breadcrumb("socket.connect.failure")
+            cliTelemetry.captureError(stage: "socket_connect", error: error)
             throw error
         }
         defer { client.close() }
@@ -1294,13 +1299,13 @@ struct CMUXCLI {
             print(response)
 
         case "claude-hook":
-            hookTelemetry.breadcrumb("claude-hook.dispatch")
+            cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
-                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: hookTelemetry)
-                hookTelemetry.breadcrumb("claude-hook.completed")
+                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("claude-hook.completed")
             } catch {
-                hookTelemetry.breadcrumb("claude-hook.failure")
-                hookTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
+                cliTelemetry.breadcrumb("claude-hook.failure")
+                cliTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
                 throw error
             }
 
@@ -4534,7 +4539,7 @@ struct CMUXCLI {
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
-        telemetry: ClaudeHookSentryTelemetry
+        telemetry: CLISocketSentryTelemetry
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
@@ -5319,6 +5324,8 @@ struct CMUXCLI {
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
+          CMUX_CLI_SENTRY_DISABLED
+                              Set to 1 to disable CLI Sentry socket diagnostics.
         """
     }
 }
