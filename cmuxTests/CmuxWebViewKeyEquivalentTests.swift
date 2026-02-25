@@ -3646,6 +3646,117 @@ final class SidebarBranchOrderingTests: XCTestCase {
             [SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/default")]
         )
     }
+
+    func testOrderedUniquePullRequestsFollowsPanelOrderAcrossSplitsAndTabs() {
+        let first = UUID()
+        let second = UUID()
+        let third = UUID()
+        let fourth = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second, third, fourth],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 337,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/337",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 18,
+                    label: "MR",
+                    url: "https://gitlab.com/manaflow/cmux/-/merge_requests/18",
+                    status: .open
+                ),
+                third: pullRequestState(
+                    number: 337,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/337",
+                    status: .merged
+                ),
+                fourth: pullRequestState(
+                    number: 92,
+                    label: "PR",
+                    url: "https://bitbucket.org/manaflow/cmux/pull-requests/92",
+                    status: .closed
+                )
+            ],
+            fallbackPullRequest: pullRequestState(
+                number: 1,
+                label: "PR",
+                url: "https://example.invalid/fallback/1",
+                status: .open
+            )
+        )
+
+        XCTAssertEqual(
+            pullRequests.map { "\($0.label)#\($0.number)" },
+            ["PR#337", "MR#18", "PR#92"]
+        )
+        XCTAssertEqual(
+            pullRequests.map(\.status),
+            [.merged, .open, .closed]
+        )
+    }
+
+    func testOrderedUniquePullRequestsTreatsSameNumberDifferentLabelsAsDistinct() {
+        let first = UUID()
+        let second = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 42,
+                    label: "MR",
+                    url: "https://gitlab.com/manaflow/cmux/-/merge_requests/42",
+                    status: .open
+                )
+            ],
+            fallbackPullRequest: nil
+        )
+
+        XCTAssertEqual(
+            pullRequests.map { "\($0.label)#\($0.number)" },
+            ["PR#42", "MR#42"]
+        )
+    }
+
+    func testOrderedUniquePullRequestsUsesFallbackWhenNoPanelPullRequestsExist() {
+        let fallback = pullRequestState(
+            number: 11,
+            label: "PR",
+            url: "https://github.com/manaflow-ai/cmux/pull/11",
+            status: .open
+        )
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [],
+            panelPullRequests: [:],
+            fallbackPullRequest: fallback
+        )
+
+        XCTAssertEqual(pullRequests, [fallback])
+    }
+
+    private func pullRequestState(
+        number: Int,
+        label: String,
+        url: String,
+        status: SidebarPullRequestStatus
+    ) -> SidebarPullRequestState {
+        SidebarPullRequestState(
+            number: number,
+            label: label,
+            url: URL(string: url)!,
+            status: status
+        )
+    }
 }
 
 @MainActor
@@ -6479,7 +6590,10 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 key: "agent",
                 value: "idle",
                 icon: "bolt",
-                color: "#ffffff"
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain
             )
         )
     }
@@ -6498,7 +6612,10 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
                 key: "agent",
                 value: "running",
                 icon: "bolt",
-                color: "#ffffff"
+                color: "#ffffff",
+                url: nil,
+                priority: 0,
+                format: .plain
             )
         )
     }

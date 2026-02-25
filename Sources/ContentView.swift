@@ -6317,31 +6317,34 @@ private struct TabItemView: View {
                 }
             }
 
-            // Pull request row
-            if sidebarShowPullRequest, let pullRequest = primaryPullRequestDisplay {
-                Button(action: {
-                    updateSelection()
-                    NSWorkspace.shared.open(pullRequest.url)
-                }) {
-                    HStack(spacing: 4) {
-                        PullRequestStatusIcon(
-                            status: pullRequest.status,
-                            color: pullRequestForegroundColor
-                        )
-                        Text("\(pullRequest.label) #\(pullRequest.number)")
-                            .underline()
-                        Text(pullRequestStatusLabel(pullRequest.status))
-                        if pullRequest.extraCount > 0 {
-                            Text("+\(pullRequest.extraCount)")
-                                .opacity(0.75)
+            // Pull request rows
+            if sidebarShowPullRequest, !pullRequestDisplays.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(pullRequestDisplays) { pullRequest in
+                        Button(action: {
+                            updateSelection()
+                            NSWorkspace.shared.open(pullRequest.url)
+                        }) {
+                            HStack(spacing: 4) {
+                                PullRequestStatusIcon(
+                                    status: pullRequest.status,
+                                    color: pullRequestForegroundColor
+                                )
+                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                    .underline()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
                         }
-                        Spacer(minLength: 0)
+                        .buttonStyle(.plain)
+                        .help("Open \(pullRequest.label) #\(pullRequest.number)")
                     }
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(pullRequestForegroundColor)
                 }
-                .buttonStyle(.plain)
-                .help("Open \(pullRequest.label) #\(pullRequest.number)")
             }
 
             // Ports row
@@ -6912,24 +6915,24 @@ private struct TabItemView: View {
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
     }
 
-    private struct PullRequestDisplay {
+    private struct PullRequestDisplay: Identifiable {
+        let id: String
         let number: Int
         let label: String
         let url: URL
         let status: SidebarPullRequestStatus
-        let extraCount: Int
     }
 
-    private var primaryPullRequestDisplay: PullRequestDisplay? {
-        let pullRequests = tab.sidebarPullRequestsInDisplayOrder()
-        guard let first = pullRequests.first else { return nil }
-        return PullRequestDisplay(
-            number: first.number,
-            label: first.label,
-            url: first.url,
-            status: first.status,
-            extraCount: max(0, pullRequests.count - 1)
-        )
+    private var pullRequestDisplays: [PullRequestDisplay] {
+        tab.sidebarPullRequestsInDisplayOrder().map { pullRequest in
+            PullRequestDisplay(
+                id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
+                number: pullRequest.number,
+                label: pullRequest.label,
+                url: pullRequest.url,
+                status: pullRequest.status
+            )
+        }
     }
 
     private var pullRequestForegroundColor: Color {
