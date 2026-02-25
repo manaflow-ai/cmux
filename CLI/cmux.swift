@@ -4988,39 +4988,63 @@ struct CMUXCLI {
 
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
+        let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
+        let baseSummary: String
         if let version = info["CFBundleShortVersionString"], let build = info["CFBundleVersion"] {
-            return "cmux \(version) (\(build))"
+            baseSummary = "cmux \(version) (\(build))"
+        } else if let version = info["CFBundleShortVersionString"] {
+            baseSummary = "cmux \(version)"
+        } else if let build = info["CFBundleVersion"] {
+            baseSummary = "cmux build \(build)"
+        } else {
+            baseSummary = "cmux version unknown"
         }
-        if let version = info["CFBundleShortVersionString"] {
-            return "cmux \(version)"
-        }
-        if let build = info["CFBundleVersion"] {
-            return "cmux build \(build)"
-        }
-        return "cmux version unknown"
+        guard let commit else { return baseSummary }
+        return "\(baseSummary) [\(commit)]"
     }
 
     private func resolvedVersionInfo() -> [String: String] {
+        var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
-            return main
+            info.merge(main, uniquingKeysWith: { current, _ in current })
         }
 
-        for plistURL in candidateInfoPlistURLs() {
-            guard let data = try? Data(contentsOf: plistURL),
-                  let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-                  let dictionary = raw as? [String: Any],
-                  let parsed = versionInfo(from: dictionary)
-            else {
-                continue
+        let needsPlistFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsPlistFallback {
+            for plistURL in candidateInfoPlistURLs() {
+                guard let data = try? Data(contentsOf: plistURL),
+                      let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                      let dictionary = raw as? [String: Any],
+                      let parsed = versionInfo(from: dictionary)
+                else {
+                    continue
+                }
+                info.merge(parsed, uniquingKeysWith: { current, _ in current })
+                if info["CFBundleShortVersionString"] != nil,
+                   info["CFBundleVersion"] != nil,
+                   info["CMUXCommit"] != nil {
+                    break
+                }
             }
-            return parsed
         }
 
-        if let fromProject = versionInfoFromProjectFile() {
-            return fromProject
+        let needsProjectFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsProjectFallback, let fromProject = versionInfoFromProjectFile() {
+            info.merge(fromProject, uniquingKeysWith: { current, _ in current })
         }
 
-        return [:]
+        if info["CMUXCommit"] == nil,
+           let commit = normalizedCommitHash(ProcessInfo.processInfo.environment["CMUX_COMMIT"]) {
+            info["CMUXCommit"] = commit
+        }
+
+        return info
     }
 
     private func versionInfo(from dictionary: [String: Any]?) -> [String: String]? {
@@ -5038,6 +5062,10 @@ struct CMUXCLI {
             if !trimmed.isEmpty && !trimmed.contains("$(") {
                 info["CFBundleVersion"] = trimmed
             }
+        }
+        if let commit = dictionary["CMUXCommit"] as? String,
+           let normalizedCommit = normalizedCommitHash(commit) {
+            info["CMUXCommit"] = normalizedCommit
         }
         return info.isEmpty ? nil : info
     }
@@ -5063,6 +5091,9 @@ struct CMUXCLI {
                 }
                 if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
                     info["CFBundleVersion"] = build
+                }
+                if let commit = gitCommitHash(at: current) {
+                    info["CMUXCommit"] = commit
                 }
                 if !info.isEmpty {
                     return info
@@ -5098,6 +5129,45 @@ struct CMUXCLI {
             return nil
         }
         return value
+    }
+
+    private func gitCommitHash(at directory: URL) -> String? {
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path, "rev-parse", "--short=9", "HEAD"]
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedCommitHash(output)
+    }
+
+    private func normalizedCommitHash(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        let normalized = trimmed.lowercased()
+        let allowed = CharacterSet(charactersIn: "0123456789abcdef")
+        guard normalized.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return nil
+        }
+        return String(normalized.prefix(12))
     }
 
     private func candidateInfoPlistURLs() -> [URL] {
