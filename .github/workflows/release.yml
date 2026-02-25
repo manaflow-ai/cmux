@@ -119,17 +119,9 @@ jobs:
       - name: Clear SPM cache
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-
-      - name: Configure SwiftPM cache
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
           set -euo pipefail
-          CACHE_DIR="${RUNNER_TEMP}/swiftpm-cache/${GITHUB_RUN_ID}"
-          rm -rf "$CACHE_DIR"
-          mkdir -p "$CACHE_DIR"
-          echo "SWIFTPM_CACHE_PATH=$CACHE_DIR" >> "$GITHUB_ENV"
+          rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData/GhosttyTabs-*"
 
       - name: Derive Sparkle public key from private key
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -147,6 +139,7 @@ jobs:
       - name: Build app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/artifacts"
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 
       - name: Inject Sparkle keys into Info.plist
