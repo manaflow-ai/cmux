@@ -6994,7 +6994,12 @@ private struct TabItemView: View {
     private func openPullRequestLink(_ url: URL) {
         updateSelection()
         if openSidebarPullRequestLinksInCmuxBrowser {
-            if tabManager.openBrowser(url: url, insertAtEnd: true) == nil {
+            if tabManager.openBrowser(
+                inWorkspace: tab.id,
+                url: url,
+                preferSplitRight: true,
+                insertAtEnd: true
+            ) == nil {
                 NSWorkspace.shared.open(url)
             }
             return

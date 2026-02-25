@@ -2868,6 +2868,54 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         )
         XCTAssertEqual(workspace.focusedPanelId, browserPanelId, "Expected opened browser surface to be focused")
     }
+
+    func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
+        let manager = TabManager()
+        guard let initialWorkspace = manager.selectedWorkspace else {
+            XCTFail("Expected initial selected workspace")
+            return
+        }
+        guard let url = URL(string: "https://example.com/pull/123") else {
+            XCTFail("Expected test URL to be valid")
+            return
+        }
+
+        let targetWorkspace = manager.addWorkspace(select: false)
+        manager.selectWorkspace(initialWorkspace)
+        let initialPaneCount = targetWorkspace.bonsplitController.allPaneIds.count
+        let initialPanelCount = targetWorkspace.panels.count
+
+        guard let browserPanelId = manager.openBrowser(
+            inWorkspace: targetWorkspace.id,
+            url: url,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) else {
+            XCTFail("Expected browser panel to be created in target workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, targetWorkspace.id, "Expected target workspace to become selected")
+        XCTAssertEqual(
+            targetWorkspace.bonsplitController.allPaneIds.count,
+            initialPaneCount + 1,
+            "Expected split-right browser open to create a new pane"
+        )
+        XCTAssertEqual(
+            targetWorkspace.panels.count,
+            initialPanelCount + 1,
+            "Expected browser panel count to increase by one"
+        )
+        XCTAssertEqual(
+            targetWorkspace.focusedPanelId,
+            browserPanelId,
+            "Expected created browser panel to be focused in target workspace"
+        )
+        XCTAssertTrue(
+            targetWorkspace.panels[browserPanelId] is BrowserPanel,
+            "Expected created panel to be a browser panel"
+        )
+    }
 }
 
 @MainActor
