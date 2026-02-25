@@ -408,6 +408,15 @@ struct BrowserPanelView: View {
         }
         .onChange(of: addressBarFocused) { focused in
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
+#if DEBUG
+            let window = panel.webView.window
+            dlog(
+                "browser.focus.omnibar.binding panel=\(panel.id.uuidString.prefix(5)) " +
+                "focused=\(focused ? 1 : 0) panelFocused=\(isFocused ? 1 : 0) " +
+                "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "win=\(window?.windowNumber ?? -1) fr=\(browserFocusDebugResponderDescription(window: window))"
+            )
+#endif
             if focused {
                 panel.beginSuppressWebViewFocusForAddressBar()
                 NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panel.id)
@@ -658,6 +667,15 @@ struct BrowserPanelView: View {
                     handleOmnibarEscape()
                 },
                 onFieldLostFocus: {
+#if DEBUG
+                    let window = panel.webView.window
+                    dlog(
+                        "browser.focus.omnibar.fieldLost panel=\(panel.id.uuidString.prefix(5)) " +
+                        "addressFocused=\(addressBarFocused ? 1 : 0) " +
+                        "suppress=\(panel.shouldSuppressWebViewFocus() ? 1 : 0) " +
+                        "win=\(window?.windowNumber ?? -1) fr=\(browserFocusDebugResponderDescription(window: window))"
+                    )
+#endif
                     addressBarFocused = false
                 },
                 onMoveSelection: { delta in
@@ -2219,7 +2237,28 @@ func browserOmnibarShouldReacquireFocusAfterEndEditing(
     suppressWebViewFocus: Bool,
     nextResponderIsOtherTextField: Bool
 ) -> Bool {
-    suppressWebViewFocus && !nextResponderIsOtherTextField
+    let shouldReacquire = suppressWebViewFocus && !nextResponderIsOtherTextField
+#if DEBUG
+    dlog(
+        "browser.focus.omnibar.reacquireDecision suppress=\(suppressWebViewFocus ? 1 : 0) " +
+        "nextOtherTextField=\(nextResponderIsOtherTextField ? 1 : 0) " +
+        "result=\(shouldReacquire ? 1 : 0)"
+    )
+#endif
+    return shouldReacquire
+}
+
+private func browserFocusDebugResponderDescription(window: NSWindow?) -> String {
+    guard let window, let responder = window.firstResponder else { return "nil" }
+    if let view = responder as? NSView {
+        return "\(type(of: view))#\(ObjectIdentifier(view))"
+    }
+    return String(describing: type(of: responder))
+}
+
+private func browserFocusDebugFieldDescription(_ field: NSTextField?) -> String {
+    guard let field else { return "nil" }
+    return "\(type(of: field))#\(ObjectIdentifier(field))"
 }
 
 private final class OmnibarNativeTextField: NSTextField {
@@ -2350,14 +2389,16 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             return false
         }
 
-        private func shouldReacquireFocusAfterEndEditing(window: NSWindow?) -> Bool {
-            return browserOmnibarShouldReacquireFocusAfterEndEditing(
-                suppressWebViewFocus: parent.shouldSuppressWebViewFocus(),
-                nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
-            )
-        }
-
         func controlTextDidBeginEditing(_ obj: Notification) {
+#if DEBUG
+            let window = parentField?.window
+            dlog(
+                "browser.focus.omnibar.beginEditing field=\(browserFocusDebugFieldDescription(parentField)) " +
+                "parentFocused=\(parent.isFocused ? 1 : 0) suppress=\(parent.shouldSuppressWebViewFocus() ? 1 : 0) " +
+                "pending=\(pendingFocusRequest.map { $0 ? "focus" : "blur" } ?? "nil") " +
+                "win=\(window?.windowNumber ?? -1) fr=\(browserFocusDebugResponderDescription(window: window))"
+            )
+#endif
             if !parent.isFocused {
                 DispatchQueue.main.async {
                     self.parent.isFocused = true
@@ -2369,15 +2410,62 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 
         func controlTextDidEndEditing(_ obj: Notification) {
             if parent.isFocused {
-                if shouldReacquireFocusAfterEndEditing(window: parentField?.window) {
+                let window = parentField?.window
+                let suppressWebViewFocus = parent.shouldSuppressWebViewFocus()
+                let nextIsOtherTextField = nextResponderIsOtherTextField(window: window)
+                let shouldReacquire = browserOmnibarShouldReacquireFocusAfterEndEditing(
+                    suppressWebViewFocus: suppressWebViewFocus,
+                    nextResponderIsOtherTextField: nextIsOtherTextField
+                )
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.endEditing field=\(browserFocusDebugFieldDescription(parentField)) " +
+                    "parentFocused=\(parent.isFocused ? 1 : 0) suppress=\(suppressWebViewFocus ? 1 : 0) " +
+                    "nextOtherTextField=\(nextIsOtherTextField ? 1 : 0) reacquire=\(shouldReacquire ? 1 : 0) " +
+                    "pending=\(pendingFocusRequest.map { $0 ? "focus" : "blur" } ?? "nil") " +
+                    "win=\(window?.windowNumber ?? -1) fr=\(browserFocusDebugResponderDescription(window: window))"
+                )
+#endif
+                if shouldReacquire {
+#if DEBUG
+                    if pendingFocusRequest == true {
+                        dlog("browser.focus.omnibar.endEditing.skipAlreadyPending field=\(browserFocusDebugFieldDescription(parentField))")
+                    }
+#endif
                     guard pendingFocusRequest != true else { return }
                     pendingFocusRequest = true
+#if DEBUG
+                    dlog("browser.focus.omnibar.endEditing.scheduleReacquire field=\(browserFocusDebugFieldDescription(parentField))")
+#endif
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.pendingFocusRequest = nil
                         guard self.parent.isFocused else { return }
                         guard let field = self.parentField, let window = field.window else { return }
-                        guard self.shouldReacquireFocusAfterEndEditing(window: window) else {
+#if DEBUG
+                        dlog(
+                            "browser.focus.omnibar.endEditing.async field=\(browserFocusDebugFieldDescription(field)) " +
+                            "win=\(window.windowNumber) fr=\(browserFocusDebugResponderDescription(window: window)) " +
+                            "pending=\(self.pendingFocusRequest.map { $0 ? "focus" : "blur" } ?? "nil")"
+                        )
+#endif
+                        let suppressWebViewFocus = self.parent.shouldSuppressWebViewFocus()
+                        let nextIsOtherTextField = self.nextResponderIsOtherTextField(window: window)
+                        let shouldReacquire = browserOmnibarShouldReacquireFocusAfterEndEditing(
+                            suppressWebViewFocus: suppressWebViewFocus,
+                            nextResponderIsOtherTextField: nextIsOtherTextField
+                        )
+#if DEBUG
+                        dlog(
+                            "browser.focus.omnibar.endEditing.asyncDecision field=\(browserFocusDebugFieldDescription(field)) " +
+                            "suppress=\(suppressWebViewFocus ? 1 : 0) nextOtherTextField=\(nextIsOtherTextField ? 1 : 0) " +
+                            "reacquire=\(shouldReacquire ? 1 : 0) fr=\(browserFocusDebugResponderDescription(window: window))"
+                        )
+#endif
+                        guard shouldReacquire else {
+#if DEBUG
+                            dlog("browser.focus.omnibar.endEditing.asyncLost field=\(browserFocusDebugFieldDescription(field))")
+#endif
                             self.parent.onFieldLostFocus()
                             return
                         }
@@ -2388,11 +2476,27 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                             field.currentEditor() != nil ||
                             ((fr as? NSTextView)?.delegate as? NSTextField) === field
                         if !isAlreadyFocused {
+#if DEBUG
+                            dlog(
+                                "browser.focus.omnibar.endEditing.makeFirstResponder field=\(browserFocusDebugFieldDescription(field)) " +
+                                "from=\(browserFocusDebugResponderDescription(window: window))"
+                            )
+#endif
                             window.makeFirstResponder(field)
+                        } else {
+#if DEBUG
+                            dlog(
+                                "browser.focus.omnibar.endEditing.skipAlreadyFocused field=\(browserFocusDebugFieldDescription(field)) " +
+                                "fr=\(browserFocusDebugResponderDescription(window: window))"
+                            )
+#endif
                         }
                     }
                     return
                 }
+#if DEBUG
+                dlog("browser.focus.omnibar.endEditing.directLost field=\(browserFocusDebugFieldDescription(parentField))")
+#endif
                 parent.onFieldLostFocus()
             }
             detachSelectionObserver()
@@ -2621,28 +2725,78 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
                 nsView.currentEditor() != nil ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
             if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.update.scheduleFocus field=\(browserFocusDebugFieldDescription(nsView)) " +
+                    "bindingFocused=\(isFocused ? 1 : 0) isFirstResponder=\(isFirstResponder ? 1 : 0) " +
+                    "pending=\(context.coordinator.pendingFocusRequest.map { $0 ? "focus" : "blur" } ?? "nil") " +
+                    "win=\(window.windowNumber) fr=\(browserFocusDebugResponderDescription(window: window))"
+                )
+#endif
                 // Defer to avoid triggering input method XPC during layout pass,
                 // which can crash via re-entrant view hierarchy modification.
                 context.coordinator.pendingFocusRequest = true
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+#if DEBUG
+                    dlog(
+                        "browser.focus.omnibar.update.focusAsync field=\(browserFocusDebugFieldDescription(nsView)) " +
+                        "win=\(window.windowNumber) fr=\(browserFocusDebugResponderDescription(window: window))"
+                    )
+#endif
                     let fr = window.firstResponder
                     let alreadyFocused = fr === nsView ||
                         nsView.currentEditor() != nil ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard !alreadyFocused else { return }
+                    guard !alreadyFocused else {
+#if DEBUG
+                        dlog("browser.focus.omnibar.update.focusAsync.skipAlreadyFocused field=\(browserFocusDebugFieldDescription(nsView))")
+#endif
+                        return
+                    }
+#if DEBUG
+                    dlog(
+                        "browser.focus.omnibar.update.makeFirstResponder field=\(browserFocusDebugFieldDescription(nsView)) " +
+                        "from=\(browserFocusDebugResponderDescription(window: window))"
+                    )
+#endif
                     window.makeFirstResponder(nsView)
                 }
             } else if !isFocused, isFirstResponder, context.coordinator.pendingFocusRequest != false {
+#if DEBUG
+                dlog(
+                    "browser.focus.omnibar.update.scheduleBlur field=\(browserFocusDebugFieldDescription(nsView)) " +
+                    "bindingFocused=\(isFocused ? 1 : 0) isFirstResponder=\(isFirstResponder ? 1 : 0) " +
+                    "pending=\(context.coordinator.pendingFocusRequest.map { $0 ? "focus" : "blur" } ?? "nil") " +
+                    "win=\(window.windowNumber) fr=\(browserFocusDebugResponderDescription(window: window))"
+                )
+#endif
                 context.coordinator.pendingFocusRequest = false
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let nsView, let window = nsView.window else { return }
+#if DEBUG
+                    dlog(
+                        "browser.focus.omnibar.update.blurAsync field=\(browserFocusDebugFieldDescription(nsView)) " +
+                        "win=\(window.windowNumber) fr=\(browserFocusDebugResponderDescription(window: window))"
+                    )
+#endif
                     let fr = window.firstResponder
                     let stillFirst = fr === nsView ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
-                    guard stillFirst else { return }
+                    guard stillFirst else {
+#if DEBUG
+                        dlog("browser.focus.omnibar.update.blurAsync.skipNotFocused field=\(browserFocusDebugFieldDescription(nsView))")
+#endif
+                        return
+                    }
+#if DEBUG
+                    dlog(
+                        "browser.focus.omnibar.update.clearFirstResponder field=\(browserFocusDebugFieldDescription(nsView)) " +
+                        "from=\(browserFocusDebugResponderDescription(window: window))"
+                    )
+#endif
                     window.makeFirstResponder(nil)
                 }
             }
