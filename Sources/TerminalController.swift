@@ -45,6 +45,7 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
+        "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate"
     ]
@@ -1336,6 +1337,28 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugType(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.command_palette.toggle":
+            return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
+        case "debug.command_palette.rename_tab.open":
+            return v2Result(id: id, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
+        case "debug.command_palette.visible":
+            return v2Result(id: id, self.v2DebugCommandPaletteVisible(params: params))
+        case "debug.command_palette.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
+        case "debug.command_palette.results":
+            return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.rename_input.interact":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
+        case "debug.command_palette.rename_input.delete_backward":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputDeleteBackward(params: params))
+        case "debug.command_palette.rename_input.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelection(params: params))
+        case "debug.command_palette.rename_input.select_all":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
+        case "debug.browser.address_bar_focused":
+            return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
+        case "debug.sidebar.visible":
+            return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
         case "debug.terminal.read_text":
@@ -1532,6 +1555,17 @@ class TerminalController {
             "debug.shortcut.simulate",
             "debug.type",
             "debug.app.activate",
+            "debug.command_palette.toggle",
+            "debug.command_palette.rename_tab.open",
+            "debug.command_palette.visible",
+            "debug.command_palette.selection",
+            "debug.command_palette.results",
+            "debug.command_palette.rename_input.interact",
+            "debug.command_palette.rename_input.delete_backward",
+            "debug.command_palette.rename_input.selection",
+            "debug.command_palette.rename_input.select_all",
+            "debug.browser.address_bar_focused",
+            "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
@@ -3541,6 +3575,154 @@ class TerminalController {
 
         let base64 = output.data(using: .utf8)?.base64EncodedString() ?? ""
         return "OK \(base64)"
+    }
+
+    private struct PasteboardItemSnapshot {
+        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
+    nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed),
+           url.isFileURL,
+           !url.path.isEmpty {
+            return url.path
+        }
+        return trimmed.hasPrefix("/") ? trimmed : nil
+    }
+
+    nonisolated static func shouldRemoveExportedScreenFile(
+        fileURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Bool {
+        let standardizedFile = fileURL.standardizedFileURL
+        let temporary = temporaryDirectory.standardizedFileURL
+        return standardizedFile.path.hasPrefix(temporary.path + "/")
+    }
+
+    nonisolated static func shouldRemoveExportedScreenDirectory(
+        fileURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Bool {
+        let directory = fileURL.deletingLastPathComponent().standardizedFileURL
+        let temporary = temporaryDirectory.standardizedFileURL
+        return directory.path.hasPrefix(temporary.path + "/")
+    }
+
+    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.map { item in
+            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
+                guard let data = item.data(forType: type) else { return nil }
+                return (type: type, data: data)
+            }
+            return PasteboardItemSnapshot(representations: representations)
+        }
+    }
+
+    private func restorePasteboardItems(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        _ = pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+
+        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
+            guard !snapshot.representations.isEmpty else { return nil }
+            let item = NSPasteboardItem()
+            for representation in snapshot.representations {
+                item.setData(representation.data, forType: representation.type)
+            }
+            return item
+        }
+        guard !restoredItems.isEmpty else { return }
+        _ = pasteboard.writeObjects(restoredItems)
+    }
+
+    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let firstURL = urls.first,
+           firstURL.isFileURL {
+            return firstURL.path
+        }
+        if let value = pasteboard.string(forType: .string) {
+            return value
+        }
+        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
+    }
+
+    private func readTerminalTextFromVTExportForSnapshot(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int?
+    ) -> String? {
+        // read_text strips style state; VT export keeps ANSI escape sequences.
+        let pasteboard = NSPasteboard.general
+        let snapshot = snapshotPasteboardItems(pasteboard)
+        defer {
+            restorePasteboardItems(snapshot, to: pasteboard)
+        }
+
+        let initialChangeCount = pasteboard.changeCount
+        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+            return nil
+        }
+        guard pasteboard.changeCount != initialChangeCount else {
+            return nil
+        }
+        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
+            return nil
+        }
+
+        let fileURL = URL(fileURLWithPath: exportedPath)
+        defer {
+            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
+                try? FileManager.default.removeItem(at: fileURL)
+                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
+                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+                }
+            }
+        }
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        if let lineLimit {
+            output = tailTerminalLines(output, maxLines: lineLimit)
+        }
+        return output
+    }
+
+    func readTerminalTextForSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil
+    ) -> String? {
+        if includeScrollback,
+           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               lineLimit: lineLimit
+           ) {
+            return vtOutput
+        }
+
+        let response = readTerminalTextBase64(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
+        guard response.hasPrefix("OK ") else { return nil }
+        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if base64.isEmpty {
+            return ""
+        }
+        guard let data = Data(base64Encoded: base64),
+              let decoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return decoded
     }
 
     private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
@@ -7621,6 +7803,294 @@ class TerminalController {
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
     }
 
+    private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: ["window_id": requestedWindowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugOpenCommandPaletteRenameTabInput(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
+    private func v2DebugCommandPaletteSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        var selectedIndex = 0
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex)
+        ])
+    }
+
+    private func v2DebugCommandPaletteResults(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let requestedLimit = params["limit"] as? Int
+        let limit = max(1, min(100, requestedLimit ?? 20))
+
+        var visible = false
+        var selectedIndex = 0
+        var snapshot = CommandPaletteDebugSnapshot.empty
+
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+            snapshot = AppDelegate.shared?.commandPaletteSnapshot(windowId: windowId) ?? .empty
+        }
+
+        let rows = Array(snapshot.results.prefix(limit)).map { row in
+            [
+                "command_id": row.commandId,
+                "title": row.title,
+                "shortcut_hint": v2OrNull(row.shortcutHint),
+                "trailing_label": v2OrNull(row.trailingLabel),
+                "score": row.score
+            ] as [String: Any]
+        }
+
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex),
+            "query": snapshot.query,
+            "mode": snapshot.mode,
+            "results": rows
+        ])
+    }
+
+    private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputInteractionRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputDeleteBackward(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputDeleteBackwardRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "focused": false,
+            "selection_location": 0,
+            "selection_length": 0,
+            "text_length": 0
+        ])
+
+        DispatchQueue.main.sync {
+            guard let window = AppDelegate.shared?.mainWindow(for: windowId) else {
+                result = .err(
+                    code: "not_found",
+                    message: "Window not found",
+                    data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+                )
+                return
+            }
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+                return
+            }
+            let selectedRange = editor.selectedRange()
+            let textLength = (editor.string as NSString).length
+            result = .ok([
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "focused": true,
+                "selection_location": max(0, selectedRange.location),
+                "selection_length": max(0, selectedRange.length),
+                "text_length": max(0, textLength)
+            ])
+        }
+
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelectAll(params: [String: Any]) -> V2CallResult {
+        if let rawEnabled = params["enabled"] {
+            guard let enabled = rawEnabled as? Bool else {
+                return .err(
+                    code: "invalid_params",
+                    message: "enabled must be a bool",
+                    data: ["enabled": rawEnabled]
+                )
+            }
+            DispatchQueue.main.sync {
+                UserDefaults.standard.set(
+                    enabled,
+                    forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+                )
+            }
+        }
+
+        var enabled = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        DispatchQueue.main.sync {
+            enabled = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
+        }
+
+        return .ok([
+            "enabled": enabled
+        ])
+    }
+
+    private func v2DebugBrowserAddressBarFocused(params: [String: Any]) -> V2CallResult {
+        let requestedSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
+        var focusedSurfaceId: UUID?
+        DispatchQueue.main.sync {
+            focusedSurfaceId = AppDelegate.shared?.focusedBrowserAddressBarPanelId()
+        }
+
+        var payload: [String: Any] = [
+            "focused_surface_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_surface_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused_panel_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_panel_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused": focusedSurfaceId != nil
+        ]
+
+        if let requestedSurfaceId {
+            payload["surface_id"] = requestedSurfaceId.uuidString
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["panel_id"] = requestedSurfaceId.uuidString
+            payload["panel_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["focused"] = (focusedSurfaceId == requestedSurfaceId)
+        }
+
+        return .ok(payload)
+    }
+
+    private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visibility: Bool?
+        DispatchQueue.main.sync {
+            visibility = AppDelegate.shared?.sidebarVisibility(windowId: windowId)
+        }
+        guard let visible = visibility else {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+            )
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
     private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
         guard let surfaceId = v2String(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
@@ -8003,6 +8473,37 @@ class TerminalController {
     }
 
 #if DEBUG
+    private func debugShortcutName(for action: KeyboardShortcutSettings.Action) -> String {
+        let snakeCase = action.rawValue.replacingOccurrences(
+            of: "([a-z0-9])([A-Z])",
+            with: "$1_$2",
+            options: .regularExpression
+        )
+        return snakeCase.lowercased()
+    }
+
+    private func debugShortcutAction(named rawName: String) -> KeyboardShortcutSettings.Action? {
+        let normalized = rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let snakeCaseName = debugShortcutName(for: action)
+            if normalized == snakeCaseName || normalized == snakeCaseName.replacingOccurrences(of: "_", with: "") {
+                return action
+            }
+        }
+        return nil
+    }
+
+    private func debugShortcutSupportedNames() -> String {
+        KeyboardShortcutSettings.Action.allCases
+            .map(debugShortcutName(for:))
+            .sorted()
+            .joined(separator: ", ")
+    }
+
     private func setShortcut(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -8010,29 +8511,15 @@ class TerminalController {
             return "ERROR: Usage: set_shortcut <name> <combo|clear>"
         }
 
-        let name = parts[0].lowercased()
+        let name = parts[0]
         let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaultsKey: String?
-        switch name {
-        case "focus_left", "focusleft":
-            defaultsKey = KeyboardShortcutSettings.focusLeftKey
-        case "focus_right", "focusright":
-            defaultsKey = KeyboardShortcutSettings.focusRightKey
-        case "focus_up", "focusup":
-            defaultsKey = KeyboardShortcutSettings.focusUpKey
-        case "focus_down", "focusdown":
-            defaultsKey = KeyboardShortcutSettings.focusDownKey
-        default:
-            defaultsKey = nil
-        }
-
-        guard let defaultsKey else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down"
+        guard let action = debugShortcutAction(named: name) else {
+            return "ERROR: Unknown shortcut name. Supported: \(debugShortcutSupportedNames())"
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             return "OK"
         }
 
@@ -8050,7 +8537,7 @@ class TerminalController {
         guard let data = try? JSONEncoder().encode(shortcut) else {
             return "ERROR: Failed to encode shortcut"
         }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.standard.set(data, forKey: action.defaultsKey)
         return "OK"
     }
 
@@ -8069,17 +8556,24 @@ class TerminalController {
 	
 	        var result = "ERROR: Failed to create event"
 	        DispatchQueue.main.sync {
-	            // Tests can run while the app is activating (no keyWindow yet). Prefer a visible
-	            // window to keep input simulation deterministic in debug builds.
-	            let targetWindow = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first
+	            // Prefer the current active-tab-manager window so shortcut simulation stays
+	            // scoped to the intended window even when NSApp.keyWindow is stale.
+	            let targetWindow: NSWindow? = {
+	                if let activeTabManager = self.tabManager,
+	                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
+	                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+	                    return window
+	                }
+	                return NSApp.keyWindow
+	                    ?? NSApp.mainWindow
+	                    ?? NSApp.windows.first(where: { $0.isVisible })
+	                    ?? NSApp.windows.first
+	            }()
 	            if let targetWindow {
 	                NSApp.activate(ignoringOtherApps: true)
 	                targetWindow.makeKeyAndOrderFront(nil)
 	            }
-	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
+	            let windowNumber = targetWindow?.windowNumber ?? 0
 	            guard let keyDownEvent = NSEvent.keyEvent(
 	                with: .keyDown,
 	                location: .zero,
@@ -8158,20 +8652,20 @@ class TerminalController {
         // Socket commands are line-based; allow callers to express control chars with backslash escapes.
         let text = unescapeSocketText(raw)
 
-	        var result = "ERROR: No window"
-	        DispatchQueue.main.sync {
-	            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
-	            // fail during key window transitions.
-	            guard let window = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first else { return }
-	            NSApp.activate(ignoringOtherApps: true)
-	            window.makeKeyAndOrderFront(nil)
-	            guard let fr = window.firstResponder else {
-	                result = "ERROR: No first responder"
-	                return
-	            }
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
+            // fail during key window transitions.
+            guard let window = NSApp.keyWindow
+                ?? NSApp.mainWindow
+                ?? NSApp.windows.first(where: { $0.isVisible })
+                ?? NSApp.windows.first else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            guard let fr = window.firstResponder else {
+                result = "ERROR: No first responder"
+                return
+            }
 
             if let client = fr as? NSTextInputClient {
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -8179,7 +8673,22 @@ class TerminalController {
                 return
             }
 
-            // Fall back to the responder chain insertText action.
+            // If workspace handoff temporarily leaves a non-terminal first responder,
+            // route debug typing to the selected terminal's focused panel directly.
+            if let tabManager,
+               let tabId = tabManager.selectedTabId,
+               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+               let panelId = tab.focusedPanelId,
+               let terminalPanel = tab.terminalPanel(for: panelId),
+               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                // Match Enter semantics expected by tests/debug tooling when bypassing AppKit.
+                let directText = text.replacingOccurrences(of: "\n", with: "\r")
+                terminalPanel.surface.sendText(directText)
+                result = "OK"
+                return
+            }
+
+            // Fall back to the responder-chain insertText action.
             (fr as? NSResponder)?.insertText(text)
             result = "OK"
         }
@@ -8772,6 +9281,10 @@ class TerminalController {
         let charactersIgnoringModifiers: String
 
         switch keyToken.lowercased() {
+        case "esc", "escape":
+            storedKey = "\u{1b}"
+            keyCode = UInt16(kVK_Escape)
+            charactersIgnoringModifiers = storedKey
         case "left":
             storedKey = "←"
             keyCode = 123
@@ -8791,6 +9304,10 @@ class TerminalController {
         case "enter", "return":
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
+            charactersIgnoringModifiers = storedKey
+        case "backspace", "delete", "del":
+            storedKey = "\u{7f}"
+            keyCode = UInt16(kVK_Delete)
             charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()

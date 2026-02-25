@@ -225,6 +225,9 @@ export default function Home() {
                     <span className="text-muted group-hover:text-foreground transition-colors">
                       &quot;{t.text}&quot;
                     </span>
+                    {"translation" in t && t.translation && (
+                      <span className="text-muted/60 text-xs italic"> — {t.translation}</span>
+                    )}
                   </a>
                   {" "}
                   <a
@@ -255,6 +258,14 @@ export default function Home() {
         <div className="flex flex-wrap items-center justify-center gap-3 mt-12">
           <DownloadButton location="bottom" />
           <GitHubButton />
+        </div>
+        <div className="flex justify-center mt-6">
+          <a
+            href="/docs"
+            className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
+          >
+            Read the Docs
+          </a>
         </div>
 
       </main>

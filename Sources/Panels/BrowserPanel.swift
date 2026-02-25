@@ -127,6 +127,9 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
+    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
+
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
 
@@ -135,6 +138,23 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
+        }
+
+        // Migrate existing behavior for users who only had the link-click toggle.
+        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+        }
+
+        return defaultInterceptTerminalOpenCommandInCmuxBrowser
+    }
+
+    static func initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: UserDefaults = .standard) -> Bool {
+        interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
     }
 
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
@@ -358,6 +378,21 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     // Match browser behavior for ordinary loads while preserving method/body/headers.
     preparedRequest.cachePolicy = .useProtocolCachePolicy
     return preparedRequest
+}
+
+private let browserEmbeddedNavigationSchemes: Set<String> = [
+    "about",
+    "applewebdata",
+    "blob",
+    "data",
+    "http",
+    "https",
+    "javascript",
+]
+
+func browserShouldOpenURLExternally(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
+    return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
 enum BrowserUserAgentSettings {
@@ -1151,6 +1186,13 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published can go forward state
     @Published private(set) var canGoForward: Bool = false
 
+    private var nativeCanGoBack: Bool = false
+    private var nativeCanGoForward: Bool = false
+    private var usesRestoredSessionHistory: Bool = false
+    private var restoredBackHistoryStack: [URL] = []
+    private var restoredForwardHistoryStack: [URL] = []
+    private var restoredHistoryCurrentURL: URL?
+
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
 
@@ -1353,6 +1395,43 @@ final class BrowserPanel: Panel, ObservableObject {
         focusFlashToken &+= 1
     }
 
+    func sessionNavigationHistorySnapshot() -> (
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String]
+    ) {
+        if usesRestoredSessionHistory {
+            let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
+            // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
+            let forward = restoredForwardHistoryStack.reversed().compactMap { Self.serializableSessionHistoryURLString($0) }
+            return (back, forward)
+        }
+
+        let back = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        let forward = webView.backForwardList.forwardList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        return (back, forward)
+    }
+
+    func restoreSessionNavigationHistory(
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String],
+        currentURLString: String?
+    ) {
+        let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
+        let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
+        guard !restoredBack.isEmpty || !restoredForward.isEmpty else { return }
+
+        usesRestoredSessionHistory = true
+        restoredBackHistoryStack = restoredBack
+        // Store nearest-forward entries at the end to make stack pop operations trivial.
+        restoredForwardHistoryStack = Array(restoredForward.reversed())
+        restoredHistoryCurrentURL = Self.sanitizedSessionHistoryURL(currentURLString)
+        refreshNavigationAvailability()
+    }
+
     private func setupObservers() {
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
@@ -1386,7 +1465,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go back
         let backObserver = webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoBack = webView.canGoBack
+                guard let self else { return }
+                self.nativeCanGoBack = webView.canGoBack
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(backObserver)
@@ -1394,7 +1475,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go forward
         let forwardObserver = webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoForward = webView.canGoForward
+                guard let self else { return }
+                self.nativeCanGoForward = webView.canGoForward
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(forwardObserver)
@@ -1612,6 +1695,9 @@ final class BrowserPanel: Panel, ObservableObject {
             faviconTask?.cancel()
             faviconTask = nil
             lastFaviconURLString = nil
+            // Clear the previous page's favicon so it never persists across navigations.
+            // The loading spinner covers this gap; didFinish will fetch the new favicon.
+            faviconPNGData = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -1657,13 +1743,28 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        to url: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         let request = URLRequest(url: url)
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(request: URLRequest, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         guard let url = request.url else { return }
+        if !preserveRestoredSessionHistory {
+            abandonRestoredSessionHistoryIfNeeded()
+        }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
@@ -1808,26 +1909,90 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredBackHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredForwardHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goBack()
     }
 
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredForwardHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredBackHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goForward()
     }
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let paneId = workspace.paneId(forPanelId: id) else { return }
+#if DEBUG
+        dlog(
+            "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(url.absoluteString) " +
+            "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
+        )
+#endif
+        guard let tabManager = AppDelegate.shared?.tabManager else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingTabManager")
+#endif
+            return
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+            return
+        }
+        guard let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
+#endif
+            return
+        }
         workspace.newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
+#if DEBUG
+        dlog(
+            "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
     }
 
     /// Reload the current page
@@ -2097,10 +2262,20 @@ extension BrowserPanel {
     }
 
     func beginSuppressWebViewFocusForAddressBar() {
+        if !suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = true
     }
 
     func endSuppressWebViewFocusForAddressBar() {
+        if suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = false
     }
 
@@ -2138,6 +2313,64 @@ extension BrowserPanel {
         }
 
         return nil
+    }
+
+    private func resolvedCurrentSessionHistoryURL() -> URL? {
+        if let webViewURL = webView.url,
+           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+            return webViewURL
+        }
+        if let currentURL,
+           Self.serializableSessionHistoryURLString(currentURL) != nil {
+            return currentURL
+        }
+        return restoredHistoryCurrentURL
+    }
+
+    private func refreshNavigationAvailability() {
+        let resolvedCanGoBack: Bool
+        let resolvedCanGoForward: Bool
+        if usesRestoredSessionHistory {
+            resolvedCanGoBack = !restoredBackHistoryStack.isEmpty
+            resolvedCanGoForward = !restoredForwardHistoryStack.isEmpty
+        } else {
+            resolvedCanGoBack = nativeCanGoBack
+            resolvedCanGoForward = nativeCanGoForward
+        }
+
+        if canGoBack != resolvedCanGoBack {
+            canGoBack = resolvedCanGoBack
+        }
+        if canGoForward != resolvedCanGoForward {
+            canGoForward = resolvedCanGoForward
+        }
+    }
+
+    private func abandonRestoredSessionHistoryIfNeeded() {
+        guard usesRestoredSessionHistory else { return }
+        usesRestoredSessionHistory = false
+        restoredBackHistoryStack.removeAll(keepingCapacity: false)
+        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
+        restoredHistoryCurrentURL = nil
+        refreshNavigationAvailability()
+    }
+
+    private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
+        guard let url else { return nil }
+        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != "about:blank" else { return nil }
+        return value
+    }
+
+    private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
+        return URL(string: trimmed)
+    }
+
+    private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
+        values.compactMap { sanitizedSessionHistoryURL($0) }
     }
 
 }
@@ -2459,6 +2692,39 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - Navigation Delegate
 
+func browserNavigationShouldOpenInNewTab(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    guard navigationType == .linkActivated || navigationType == .other else {
+        return false
+    }
+
+    if modifierFlags.contains(.command) {
+        return true
+    }
+    if buttonNumber == 2 {
+        return true
+    }
+    // In some WebKit paths, middle-click arrives as buttonNumber=4.
+    // Recover intent when we just observed a local middle-click.
+    if buttonNumber == 4, hasRecentMiddleClickIntent {
+        return true
+    }
+
+    // WebKit can omit buttonNumber for middle-click link activations.
+    if let currentEventType,
+       (currentEventType == .otherMouseDown || currentEventType == .otherMouseUp),
+       currentEventButtonNumber == 2 {
+        return true
+    }
+    return false
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -2481,6 +2747,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+        // Treat committed-navigation failures the same as provisional ones so
+        // stale favicon/title state from the prior page gets cleared.
+        let failedURL = webView.url?.absoluteString ?? ""
+        didFailNavigation?(webView, failedURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -2593,38 +2863,89 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+        )
+#endif
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if navigationAction.navigationType == .linkActivated,
-               navigationAction.modifierFlags.contains(.command) {
+            if shouldOpenInNewTab {
                 intent = .newTab
             } else {
                 intent = .currentTab
             }
+#if DEBUG
+            dlog(
+                "browser.nav.decidePolicy.action kind=blockedInsecure intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                "url=\(url.absoluteString)"
+            )
+#endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
             decisionHandler(.cancel)
             return
         }
 
-        // target=_blank or window.open() — navigate in the current webview
-        if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
-            webView.load(navigationAction.request)
+        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
+        // Hand these off to macOS so the owning app can handle them.
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           browserShouldOpenURLExternally(url) {
+            let opened = NSWorkspace.shared.open(url)
+            if !opened {
+                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+            }
+            #if DEBUG
+            dlog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
             decisionHandler(.cancel)
             return
         }
 
-        // Cmd+click on a regular link — open in a new tab
-        if navigationAction.navigationType == .linkActivated,
-           navigationAction.modifierFlags.contains(.command),
+        // Cmd+click and middle-click on regular links should always open in a new tab.
+        if shouldOpenInNewTab,
            let url = navigationAction.request.url {
+#if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
             openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
 
+        // target=_blank or window.open() without explicit new-tab intent — navigate in-place.
+        if navigationAction.targetFrame == nil,
+           navigationAction.request.url != nil {
+#if DEBUG
+            let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+            dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
+#endif
+            webView.load(navigationAction.request)
+            decisionHandler(.cancel)
+            return
+        }
+
+#if DEBUG
+        let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+        dlog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
+#endif
         decisionHandler(.allow)
     }
 
@@ -2723,21 +3044,62 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
+    /// Cmd+click and middle-click open in a new tab; regular target=_blank navigates in-place.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+        )
+#endif
         if let url = navigationAction.request.url {
+            if browserShouldOpenURLExternally(url) {
+                let opened = NSWorkspace.shared.open(url)
+                if !opened {
+                    NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+                }
+                #if DEBUG
+                dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+                #endif
+                return nil
+            }
             if let requestNavigation {
                 let intent: BrowserInsecureHTTPNavigationIntent =
-                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                    shouldOpenInNewTab ? .newTab : .currentTab
+#if DEBUG
+                dlog(
+                    "browser.nav.createWebView.action kind=requestNavigation intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                    "url=\(url.absoluteString)"
+                )
+#endif
                 requestNavigation(navigationAction.request, intent)
-            } else if navigationAction.modifierFlags.contains(.command) {
+            } else if shouldOpenInNewTab {
+#if DEBUG
+                dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
                 openInNewTab?(url)
             } else {
+#if DEBUG
+                dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
+#endif
                 webView.load(navigationAction.request)
             }
         }

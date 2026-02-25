@@ -35,6 +35,10 @@ struct cmuxApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
+            Self.terminateForMissingLaunchTag()
+        }
+
         Self.configureGhosttyEnvironment()
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -56,6 +60,14 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+    }
+
+    private static func terminateForMissingLaunchTag() -> Never {
+        let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+        NSLog("%@", message)
+        Darwin.exit(64)
     }
 
     private static func configureGhosttyEnvironment() {
@@ -211,7 +223,7 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 Button("Reload Configuration") {
-                    GhosttyApp.shared.reloadConfiguration()
+                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
                 Divider()
@@ -357,12 +369,37 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: "New Workspace", shortcut: newWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
+                    if let appDelegate = AppDelegate.shared {
+                        if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
+#if DEBUG
+                            FocusLogStore.shared.append(
+                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
+                            )
+#endif
+                            appDelegate.openNewMainWindow(nil)
+                        }
+                    } else {
+                        activeTabManager.addTab()
+                    }
                 }
             }
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
+                Button("Go to Workspace or Tab…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+
+                Button("Command Palette…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Divider()
+
                 // Terminal semantics:
                 // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
                 // tab in the last workspace, it closes the window.
@@ -378,7 +415,7 @@ struct cmuxApp: App {
                 }
 
                 Button("Reopen Closed Browser Panel") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).reopenMostRecentlyClosedBrowserPanel()
+                    _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
                 }
                 .keyboardShortcut("t", modifiers: [.command, .shift])
             }
@@ -387,95 +424,97 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).startSearch()
+                        activeTabManager.startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
 
                     Button("Find Next") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findNext()
+                        activeTabManager.findNext()
                     }
                     .keyboardShortcut("g", modifiers: .command)
 
                     Button("Find Previous") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findPrevious()
+                        activeTabManager.findPrevious()
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Hide Find Bar") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).hideFind()
+                        activeTabManager.hideFind()
                     }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).isFindVisible))
+                    .disabled(!(activeTabManager.isFindVisible))
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).searchSelection()
+                        activeTabManager.searchSelection()
                     }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).canUseSelectionForFind))
+                    .disabled(!(activeTabManager.canUseSelectionForFind))
                 }
             }
 
             // Tab navigation
             CommandGroup(after: .toolbar) {
                 splitCommandButton(title: "Toggle Sidebar", shortcut: toggleSidebarMenuShortcut) {
-                    sidebarState.toggle()
+                    if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
+                        sidebarState.toggle()
+                    }
                 }
 
                 Divider()
 
                 splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
+                    activeTabManager.selectNextSurface()
                 }
 
                 splitCommandButton(title: "Previous Surface", shortcut: prevSurfaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
+                    activeTabManager.selectPreviousSurface()
                 }
 
                 Button("Back") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goBack()
+                    activeTabManager.focusedBrowserPanel?.goBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goForward()
+                    activeTabManager.focusedBrowserPanel?.goForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
                 Button("Reload Page") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
+                    activeTabManager.focusedBrowserPanel?.reload()
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
                 splitCommandButton(title: "Toggle Developer Tools", shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.toggleDeveloperToolsFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 splitCommandButton(title: "Show JavaScript Console", shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.showJavaScriptConsoleFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 Button("Zoom In") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
+                    _ = activeTabManager.zoomInFocusedBrowser()
                 }
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button("Zoom Out") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomOutFocusedBrowser()
+                    _ = activeTabManager.zoomOutFocusedBrowser()
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
                 Button("Actual Size") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).resetZoomFocusedBrowser()
+                    _ = activeTabManager.resetZoomFocusedBrowser()
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
@@ -484,11 +523,11 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: "Next Workspace", shortcut: nextWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
+                    activeTabManager.selectNextTab()
                 }
 
                 splitCommandButton(title: "Previous Workspace", shortcut: prevWorkspaceMenuShortcut) {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
+                    activeTabManager.selectPreviousTab()
                 }
 
                 splitCommandButton(title: "Rename Workspace…", shortcut: renameWorkspaceMenuShortcut) {
@@ -518,7 +557,7 @@ struct cmuxApp: App {
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button("Workspace \(number)") {
-                        let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                        let manager = activeTabManager
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
                         }
@@ -689,6 +728,12 @@ struct cmuxApp: App {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
     }
 
+    private var activeTabManager: TabManager {
+        AppDelegate.shared?.synchronizeActiveMainWindowContext(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) ?? tabManager
+    }
+
     private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
         guard !data.isEmpty,
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
@@ -740,11 +785,11 @@ struct cmuxApp: App {
             window.performClose(nil)
             return
         }
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentPanelWithConfirmation()
+        activeTabManager.closeCurrentPanelWithConfirmation()
     }
 
     private func closeTabOrWindow() {
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentTabWithConfirmation()
+        activeTabManager.closeCurrentTabWithConfirmation()
     }
 
     private func showNotificationsPopover() {
@@ -2533,6 +2578,18 @@ enum QuitWarningSettings {
     }
 }
 
+enum CommandPaletteRenameSelectionSettings {
+    static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
+    static let defaultSelectAllOnFocus = true
+
+    static func selectAllOnFocusEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: selectAllOnFocusKey) == nil {
+            return defaultSelectAllOnFocus
+        }
+        return defaults.bool(forKey: selectAllOnFocusKey)
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
@@ -2559,10 +2616,14 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+    private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -2759,6 +2820,19 @@ struct SettingsView: View {
                                 : "Cmd+Q quits immediately without confirmation."
                         ) {
                             Toggle("", isOn: $warnBeforeQuitShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Rename Selects Existing Name",
+                            subtitle: commandPaletteRenameSelectAllOnFocus
+                                ? "Command Palette rename starts with all text selected."
+                                : "Command Palette rename keeps the caret at the end."
+                        ) {
+                            Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -3094,13 +3168,24 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
 
-                        if openTerminalLinksInCmuxBrowser {
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Intercept open http(s) in Terminal",
+                            subtitle: "When off, `open https://...` and `open http://...` always use your default browser."
+                        ) {
+                            Toggle("", isOn: $interceptTerminalOpenCommandInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsCardDivider()
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
                                     "Hosts to Open in Embedded Browser",
-                                    subtitle: "When you click links in terminal output, only these hosts open in cmux. Other hosts open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all links in cmux."
+                                    subtitle: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux."
                                 ) {
                                     EmptyView()
                                 }
@@ -3362,11 +3447,13 @@ struct SettingsView: View {
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
