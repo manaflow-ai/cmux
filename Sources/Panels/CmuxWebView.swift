@@ -826,7 +826,6 @@ final class CmuxWebView: WKWebView {
         if target === self,
            action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:)) {
-            NSLog("CmuxWebView context fallback skipped (recursive self action)")
             debugContextDownload(
                 "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(Self.selectorName(action))"
             )
@@ -1085,7 +1084,6 @@ final class CmuxWebView: WKWebView {
         fallbackTarget: AnyObject?,
         traceID: String
     ) {
-        NSLog("CmuxWebView context download start: %@", url.absoluteString)
         debugContextDownload("browser.ctxdl.start trace=\(traceID) url=\(url.absoluteString)")
         downloadURLViaSession(
             url,
@@ -1154,7 +1152,6 @@ final class CmuxWebView: WKWebView {
             }
 
             if isDownloadImageMenuItem(item) {
-                NSLog("CmuxWebView context menu hook: download image")
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -1172,7 +1169,6 @@ final class CmuxWebView: WKWebView {
             }
 
             if isDownloadLinkedFileMenuItem(item) {
-                NSLog("CmuxWebView context menu hook: download linked file")
                 debugContextDownload(
                     "browser.ctxdl.menu hook kind=linked index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
                 )
@@ -1230,6 +1226,7 @@ final class CmuxWebView: WKWebView {
                 "browser.ctxdl.resolve trace=\(traceID) kind=image imageURL=\(url?.absoluteString ?? "nil")"
             )
             var dataImageURL: URL?
+            var weakImageURL: URL?
             if let url {
                 let scheme = url.scheme?.lowercased() ?? ""
                 if scheme == "data" {
@@ -1242,16 +1239,27 @@ final class CmuxWebView: WKWebView {
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image normalizedImageURL=\(normalized.absoluteString)"
                     )
-                    if !self.isLikelyFaviconURL(normalized) && self.isLikelyImageURL(normalized) {
-                        NSLog("CmuxWebView context download image URL: %@ (normalized=%@)", url.absoluteString, normalized.absoluteString)
-                        self.startContextMenuDownload(
-                            normalized,
-                            sender: sender,
-                            fallbackAction: fallback.action,
-                            fallbackTarget: fallback.target,
-                            traceID: traceID
+                    if self.isLikelyImageURL(normalized) {
+                        if !self.isLikelyFaviconURL(normalized) {
+                            self.startContextMenuDownload(
+                                normalized,
+                                sender: sender,
+                                fallbackAction: fallback.action,
+                                fallbackTarget: fallback.target,
+                                traceID: traceID
+                            )
+                            return
+                        }
+                        weakImageURL = normalized
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=favicon_or_low_confidence"
                         )
-                        return
+                    } else if self.isDownloadableScheme(normalized), !self.isLikelyFaviconURL(normalized) {
+                        // Some image CDNs use extensionless URLs; keep as last-resort candidate.
+                        weakImageURL = normalized
+                        self.debugContextDownload(
+                            "browser.ctxdl.resolve trace=\(traceID) kind=image weakCandidateURL=\(normalized.absoluteString) reason=unclassified_direct_image_src"
+                        )
                     }
                     self.debugContextDownload(
                         "browser.ctxdl.resolve trace=\(traceID) kind=image rejectedPrimaryImageURL=\(normalized.absoluteString)"
@@ -1273,7 +1281,6 @@ final class CmuxWebView: WKWebView {
                     if self.isDownloadableScheme(normalizedLink),
                        self.isLikelyImageURL(normalizedLink),
                        !self.isLikelyFaviconURL(normalizedLink) {
-                        NSLog("CmuxWebView context download image fallback to link URL: %@ (normalized=%@)", linkURL.absoluteString, normalizedLink.absoluteString)
                         self.startContextMenuDownload(
                             normalizedLink,
                             sender: sender,
@@ -1299,8 +1306,21 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
+                if let weakImageURL {
+                    self.debugContextDownload(
+                        "browser.ctxdl.resolve trace=\(traceID) kind=image fallbackToWeakCandidate=1"
+                    )
+                    self.startContextMenuDownload(
+                        weakImageURL,
+                        sender: sender,
+                        fallbackAction: fallback.action,
+                        fallbackTarget: fallback.target,
+                        traceID: traceID
+                    )
+                    return
+                }
+
                 if let linkURL {
-                    NSLog("CmuxWebView context download image: link URL not image-like (%@), using fallback action", linkURL.absoluteString)
                     self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
                     self.runContextMenuFallback(
                         action: fallback.action,
@@ -1312,7 +1332,6 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                NSLog("CmuxWebView context download image: no downloadable image/link URL, using fallback action")
                 self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
                 self.runContextMenuFallback(
                     action: fallback.action,
@@ -1350,7 +1369,6 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked normalizedLinkURL=\(normalized.absoluteString)"
                 )
                 if self.isDownloadSupportedScheme(normalized) {
-                    NSLog("CmuxWebView context download linked file URL: %@ (normalized=%@)", url.absoluteString, normalized.absoluteString)
                     self.startContextMenuDownload(
                         normalized,
                         sender: sender,
@@ -1369,7 +1387,6 @@ final class CmuxWebView: WKWebView {
                 )
                 var dataImageURL: URL?
                 if let imageURL, self.isDownloadableScheme(imageURL) {
-                    NSLog("CmuxWebView context download linked file fallback image URL: %@", imageURL.absoluteString)
                     self.startContextMenuDownload(
                         imageURL,
                         sender: sender,
@@ -1405,7 +1422,6 @@ final class CmuxWebView: WKWebView {
                             )
                             return
                         }
-                        NSLog("CmuxWebView context download linked file: URL nil, using fallback action")
                         self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
                         self.runContextMenuFallback(
                             action: fallback.action,
@@ -1434,7 +1450,6 @@ final class CmuxWebView: WKWebView {
                             )
                             return
                         }
-                        NSLog("CmuxWebView context download linked file: unsupported URL %@, using fallback action", fallbackURL.absoluteString)
                         self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "linked")
                         self.runContextMenuFallback(
                             action: fallback.action,
@@ -1445,7 +1460,6 @@ final class CmuxWebView: WKWebView {
                         )
                         return
                     }
-                    NSLog("CmuxWebView context download linked file fallback URL: %@ (normalized=%@)", fallbackURL.absoluteString, normalized.absoluteString)
                     self.startContextMenuDownload(
                         normalized,
                         sender: sender,
