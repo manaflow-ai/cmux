@@ -90,25 +90,12 @@ jobs:
           # Remove stale build cache to avoid incremental build errors
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
-      - name: Build for testing
-        run: |
-          set -euo pipefail
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build-for-testing
-
-      - name: Allow ad-hoc signed app to launch
-        run: |
-          # The runner has no development certificates, so the app is ad-hoc signed.
-          # Gatekeeper blocks ad-hoc apps, causing XCUITest to hang on launch.
-          # Remove the signature so macOS treats it as unsigned (launchable) instead.
-          APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*/Build/Products/Debug -name 'cmux DEV.app' -print -quit)"
-          if [ -z "$APP_PATH" ]; then
-            echo "Built app not found in DerivedData" >&2
-            exit 1
-          fi
-          codesign --remove-signature "$APP_PATH"
-          echo "Removed ad-hoc signature from: $APP_PATH"
-
       - name: Run UI tests
+        env:
+          # Debug builds require CMUX_TAG to prevent accidental untagged launches.
+          # XCUITest launches the app as a separate process without XCTest env vars,
+          # so the app's isRunningUnderXCTest() check fails. Provide a tag explicitly.
+          CMUX_TAG: ci
         run: |
           set -euo pipefail
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test-without-building
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
