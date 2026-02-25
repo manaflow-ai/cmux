@@ -5231,6 +5231,8 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
+    }
+
     func testNotificationIndexesTrackUnreadCountsByTabAndSurface() {
         let tabA = UUID()
         let tabB = UUID()
