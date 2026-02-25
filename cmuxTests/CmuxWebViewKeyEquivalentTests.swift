@@ -6223,6 +6223,42 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 }
 
 @MainActor
+final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
+    func testShouldPromoteWhenBecomingVisible() {
+        XCTAssertTrue(
+            CommandPaletteOverlayPromotionPolicy.shouldPromote(
+                previouslyVisible: false,
+                isVisible: true
+            )
+        )
+    }
+
+    func testShouldNotPromoteWhenAlreadyVisible() {
+        XCTAssertFalse(
+            CommandPaletteOverlayPromotionPolicy.shouldPromote(
+                previouslyVisible: true,
+                isVisible: true
+            )
+        )
+    }
+
+    func testShouldNotPromoteWhenHidden() {
+        XCTAssertFalse(
+            CommandPaletteOverlayPromotionPolicy.shouldPromote(
+                previouslyVisible: true,
+                isVisible: false
+            )
+        )
+        XCTAssertFalse(
+            CommandPaletteOverlayPromotionPolicy.shouldPromote(
+                previouslyVisible: false,
+                isVisible: false
+            )
+        )
+    }
+}
+
+@MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
