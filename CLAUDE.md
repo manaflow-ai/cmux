@@ -195,3 +195,32 @@ Notes:
 - README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
 - Changelog: always update both `CHANGELOG.md` and the docs-site version.
+
+## Cursor Cloud specific instructions
+
+This is a **macOS-native** application (Swift/AppKit/Xcode). The main app **cannot be built or run** on Linux Cloud Agent VMs -- it requires macOS, Xcode, and Zig with macOS SDK.
+
+### What works on Linux Cloud Agent VMs
+
+- **Web/docs site** (`web/`): A Next.js 16 + React 19 + Tailwind CSS 4 marketing/docs site. Uses **Bun** as its package manager (matching `bun.lock` and CI config).
+  - Install: `cd web && bun install --frozen-lockfile`
+  - Dev server: `cd web && bun run dev` (port 3777)
+  - Build: `cd web && bun run build`
+  - Lint: `cd web && bun run lint` (ESLint)
+  - Typecheck: `cd web && bun tsc --noEmit` (matches CI job `web-typecheck`)
+- **Git submodules**: `git submodule update --init --recursive` works on Linux.
+- **Python lint tests**: `python3 tests/test_lint_swiftui_patterns.py` and `python3 tests_v2/test_lint_swiftui_patterns.py` perform static analysis of Swift files and run on Linux without the macOS app.
+
+### What does NOT work on Linux Cloud Agent VMs
+
+- Building the macOS app (`xcodebuild`, Zig xcframework build)
+- Running the app or any socket-based integration tests (`tests/test_ctrl_socket.py`, etc.)
+- Code signing, notarization, DMG packaging
+- UI tests (require macOS + Xcode + running app)
+- `./scripts/setup.sh` will fail at the Zig build step (no macOS SDK)
+
+### Notes
+
+- The `web/` directory has both `bun.lock` and `package-lock.json`. The CI and primary workflow use **Bun**; prefer Bun for consistency.
+- No git hooks, SwiftLint, or SwiftFormat are configured in this repo.
+- ESLint in `web/` has pre-existing warnings (img elements, setState in effect); these are not regressions.
