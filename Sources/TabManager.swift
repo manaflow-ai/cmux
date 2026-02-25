@@ -1160,10 +1160,28 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
+            partial + tab.bonsplitController.tabs(inPane: paneId).count
+        }
+        let panelKind: String = {
+            guard let panel = tab.panels[panelId] else { return "missing" }
+            if panel is TerminalPanel { return "terminal" }
+            if panel is BrowserPanel { return "browser" }
+            return String(describing: type(of: panel))
+        }()
+#if DEBUG
+        dlog(
+            "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+        )
+#endif
+
         // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
         // a single tab left, closing it should close the workspace (and possibly the window),
         // rather than creating a replacement terminal.
-        let isLastTabInWorkspace = tab.panels.count <= 1
+        let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
+        let isLastTabInWorkspace = effectiveSurfaceCount <= 1
         if isLastTabInWorkspace {
             let willCloseWindow = tabs.count <= 1
             let needsConfirm = workspaceNeedsConfirmClose(tab)
@@ -1171,11 +1189,25 @@ class TabManager: ObservableObject {
                 let message = willCloseWindow
                     ? "This will close the last tab and close the window."
                     : "This will close the last tab and close its workspace."
+#if DEBUG
+                dlog(
+                    "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) reason=lastTab"
+                )
+#endif
                 guard confirmClose(
                     title: "Close tab?",
                     message: message,
                     acceptCmdD: willCloseWindow
-                ) else { return }
+                ) else {
+#if DEBUG
+                    dlog(
+                        "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) reason=lastTabConfirmDismissed"
+                    )
+#endif
+                    return
+                }
             }
 
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -1189,15 +1221,36 @@ class TabManager: ObservableObject {
 
         if let terminalPanel = tab.terminalPanel(for: panelId),
            terminalPanel.needsConfirmClose() {
+#if DEBUG
+            dlog(
+                "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=terminalNeedsConfirm"
+            )
+#endif
             guard confirmClose(
                 title: "Close tab?",
                 message: "This will close the current tab.",
                 acceptCmdD: false
-            ) else { return }
+            ) else {
+#if DEBUG
+                dlog(
+                    "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) reason=terminalConfirmDismissed"
+                )
+#endif
+                return
+            }
         }
 
         // We already confirmed (if needed); bypass Bonsplit's delegate gating.
-        tab.closePanel(panelId, force: true)
+        let closed = tab.closePanel(panelId, force: true)
+#if DEBUG
+        dlog(
+            "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) " +
+            "panelsAfterCall=\(tab.panels.count)"
+        )
+#endif
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
@@ -1931,19 +1984,81 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
+    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
+    @discardableResult
+    func openBrowser(
+        inWorkspace tabId: UUID,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+
+        if preferSplitRight {
+            if let targetPaneId = workspace.topRightBrowserReusePane(),
+               let browserPanel = workspace.newBrowserSurface(
+                   inPane: targetPaneId,
+                   url: url,
+                   focus: true,
+                   insertAtEnd: insertAtEnd
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+
+            let splitSourcePanelId: UUID? = {
+                if let focusedPanelId = workspace.focusedPanelId,
+                   workspace.panels[focusedPanelId] != nil {
+                    return focusedPanelId
+                }
+                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
+                   workspace.panels[rememberedPanelId] != nil {
+                    return rememberedPanelId
+                }
+                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
+                    return orderedPanelId
+                }
+                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+            }()
+
+            if let splitSourcePanelId,
+               let browserPanel = workspace.newBrowserSplit(
+                   from: splitSourcePanelId,
+                   orientation: .horizontal,
+                   url: url,
+                   focus: true
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+        }
+
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(
+                  inPane: paneId,
+                  url: url,
+                  focus: true,
+                  insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+        return browserPanel.id
+    }
+
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
     func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
-        guard let tabId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let focusedPaneId = tab.bonsplitController.focusedPaneId else { return nil }
-        let panel = tab.newBrowserSurface(
-            inPane: focusedPaneId,
+        guard let tabId = selectedTabId else { return nil }
+        return openBrowser(
+            inWorkspace: tabId,
             url: url,
-            focus: true,
+            preferSplitRight: false,
             insertAtEnd: insertAtEnd
         )
-        return panel?.id
     }
 
     @discardableResult

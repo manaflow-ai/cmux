@@ -65,7 +65,7 @@ jobs:
           echo "DMG SHA256: $SHA256"
 
       - name: Checkout homebrew-cmux
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: manaflow-ai/homebrew-cmux
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

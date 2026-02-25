@@ -3229,6 +3229,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.attemptUpdate()
     }
 
+    @objc func restartSocketListener(_ sender: Any?) {
+        guard let tabManager else {
+            NSSound.beep()
+            return
+        }
+
+        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let userMode = SocketControlSettings.migrateMode(raw)
+        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
+        guard mode != .off else {
+            TerminalController.shared.stop()
+            NSSound.beep()
+            return
+        }
+
+        let socketPath = SocketControlSettings.socketPath()
+        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
+            "mode": mode.rawValue,
+            "path": socketPath
+        ])
+        TerminalController.shared.stop()
+        TerminalController.shared.start(tabManager: tabManager, socketPath: socketPath, accessMode: mode)
+    }
+
     private func setupMenuBarExtra() {
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(
@@ -3250,7 +3275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.checkForUpdates(nil)
             },
             onOpenPreferences: { [weak self] in
-                self?.openPreferencesWindow()
+                self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
                 NSApp.terminate(nil)
@@ -3258,9 +3283,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
+    static func presentPreferencesWindow(
+        showFallbackSettingsWindow: @MainActor () -> Void = {
+            SettingsWindowController.shared.show()
+        },
+        activateApplication: @MainActor () -> Void = {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
+#if DEBUG
+        dlog("settings.open.present path=customWindowDirect")
+#endif
+        showFallbackSettingsWindow()
+        activateApplication()
+#if DEBUG
+        dlog("settings.open.present activate=1")
+#endif
+    }
+
+    @MainActor
+    func openPreferencesWindow(debugSource: String) {
+#if DEBUG
+        dlog("settings.open.request source=\(debugSource)")
+#endif
+        Self.presentPreferencesWindow()
+    }
+
     @objc func openPreferencesWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        openPreferencesWindow(debugSource: "appDelegate")
     }
 
     func refreshMenuBarExtraForDebug() {
@@ -4509,6 +4560,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
             _ = promptRenameSelectedWorkspace()
+            return true
+        }
+
+        // Cmd+W must close the focused panel even if first-responder momentarily lags on a
+        // browser NSTextView during split focus transitions.
+        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.settings" {
+                targetWindow.performClose(nil)
+            } else {
+                let responder = event.window?.firstResponder
+                    ?? NSApp.keyWindow?.firstResponder
+                    ?? NSApp.mainWindow?.firstResponder
+                if let ghosttyView = cmuxOwningGhosttyView(for: responder),
+                   let workspaceId = ghosttyView.tabId,
+                   let panelId = ghosttyView.terminalSurface?.id,
+                   let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
+#if DEBUG
+                    dlog(
+                        "shortcut.cmdW route=ghostty workspace=\(workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) selected=\(manager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
+                    )
+#endif
+                    manager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: panelId)
+                } else {
+#if DEBUG
+                    dlog("shortcut.cmdW route=focusedPanelFallback")
+#endif
+                    tabManager?.closeCurrentPanelWithConfirmation()
+                }
+            }
             return true
         }
 
