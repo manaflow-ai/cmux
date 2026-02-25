@@ -116,6 +116,10 @@ def main() -> int:
             _must("-o ControlMaster=auto" in ssh_command, f"ssh command should opt into connection reuse: {ssh_command!r}")
             _must("-o ControlPersist=600" in ssh_command, f"ssh command should keep master alive for reuse: {ssh_command!r}")
             _must("ControlPath=/tmp/cmux-ssh-" in ssh_command, f"ssh command should use shared control path template: {ssh_command!r}")
+            _must(
+                "RemoteCommand=export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l" in ssh_command,
+                f"cmux ssh should use -o RemoteCommand for PATH bootstrap (not positional command): {ssh_command!r}",
+            )
 
             listed_row = None
             deadline = time.time() + 8.0
