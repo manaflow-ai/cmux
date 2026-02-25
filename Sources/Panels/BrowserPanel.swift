@@ -2150,7 +2150,12 @@ extension BrowserPanel {
             dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
         }
         #endif
-        inspector.cmuxCallVoid(selector: selector)
+        // WebKit inspector "show" can trigger transient first-responder churn while
+        // panel attachment is still stabilizing. Keep this auto-restore path from
+        // mutating first responder so AppKit doesn't walk tearing-down responder chains.
+        cmuxWithWindowFirstResponderBypass {
+            inspector.cmuxCallVoid(selector: selector)
+        }
         preferredDeveloperToolsVisible = true
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {

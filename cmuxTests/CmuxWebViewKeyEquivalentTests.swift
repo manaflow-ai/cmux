@@ -500,6 +500,36 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testWindowFirstResponderBypassBlocksSwizzledMakeFirstResponder() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 80, height: 40))
+        container.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        _ = window.makeFirstResponder(nil)
+        cmuxWithWindowFirstResponderBypass {
+            XCTAssertFalse(
+                window.makeFirstResponder(responder),
+                "Bypass scope should block transient first-responder changes during devtools auto-restore"
+            )
+        }
+        XCTAssertTrue(window.makeFirstResponder(responder))
+    }
+
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
