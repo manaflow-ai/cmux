@@ -46,6 +46,10 @@ typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
 typeset -g _CMUX_GIT_HEAD_MTIME=0
 typeset -g _CMUX_HAVE_ZSTAT=0
+typeset -g _CMUX_PR_LAST_PWD=""
+typeset -g _CMUX_PR_LAST_RUN=0
+typeset -g _CMUX_PR_JOB_PID=""
+typeset -g _CMUX_PR_FORCE=0
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
@@ -155,7 +159,8 @@ _cmux_preexec() {
     local cmd="${1## }"
     case "$cmd" in
         git\ *|git|gh\ *|lazygit|lazygit\ *|tig|tig\ *|gitui|gitui\ *|stg\ *|jj\ *)
-            _CMUX_GIT_FORCE=1 ;;
+            _CMUX_GIT_FORCE=1
+            _CMUX_PR_FORCE=1 ;;
     esac
 
     # Register TTY + kick batched port scan for foreground commands (servers).
@@ -212,6 +217,7 @@ _cmux_precmd() {
             # Treat HEAD file change like a git command — force-replace any
             # running probe so the sidebar picks up the new branch immediately.
             _CMUX_GIT_FORCE=1
+            _CMUX_PR_FORCE=1
             should_git=1
         fi
     fi
@@ -258,6 +264,63 @@ _cmux_precmd() {
                 fi
             } >/dev/null 2>&1 &!
             _CMUX_GIT_JOB_PID=$!
+        fi
+    fi
+
+    # Pull request metadata (number/state/url):
+    # - refresh on cwd change, explicit git/gh commands, and occasionally for status drift
+    # - keep this independent from the git probe cadence to avoid hitting GitHub too often
+    local should_pr=0
+    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
+        should_pr=1
+    elif (( _CMUX_PR_FORCE )); then
+        should_pr=1
+    elif (( now - _CMUX_PR_LAST_RUN >= 60 )); then
+        should_pr=1
+    fi
+
+    if (( should_pr )); then
+        local can_launch_pr=1
+        if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+            if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( _CMUX_PR_FORCE )); then
+                kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
+                _CMUX_PR_JOB_PID=""
+            else
+                can_launch_pr=0
+            fi
+        fi
+
+        if (( can_launch_pr )); then
+            _CMUX_PR_FORCE=0
+            _CMUX_PR_LAST_PWD="$pwd"
+            _CMUX_PR_LAST_RUN=$now
+            {
+                local branch pr_tsv number state url status_opt=""
+                branch=$(git branch --show-current 2>/dev/null)
+                if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
+                    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                else
+                    pr_tsv="$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv' 2>/dev/null || true)"
+                    if [[ -z "$pr_tsv" ]]; then
+                        _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                    else
+                        local IFS=$'\t'
+                        read -r number state url <<< "$pr_tsv"
+                        if [[ -z "$number" ]] || [[ -z "$url" ]]; then
+                            _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        else
+                            case "$state" in
+                                MERGED) status_opt="--state=merged" ;;
+                                OPEN) status_opt="--state=open" ;;
+                                CLOSED) status_opt="--state=closed" ;;
+                                *) status_opt="" ;;
+                            esac
+                            _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        fi
+                    fi
+                fi
+            } >/dev/null 2>&1 &!
+            _CMUX_PR_JOB_PID=$!
         fi
     fi
 

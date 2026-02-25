@@ -40,6 +40,9 @@ _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
 _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
 _CMUX_GIT_LAST_RUN="${_CMUX_GIT_LAST_RUN:-0}"
 _CMUX_GIT_JOB_PID="${_CMUX_GIT_JOB_PID:-}"
+_CMUX_PR_LAST_PWD="${_CMUX_PR_LAST_PWD:-}"
+_CMUX_PR_LAST_RUN="${_CMUX_PR_LAST_RUN:-0}"
+_CMUX_PR_JOB_PID="${_CMUX_PR_JOB_PID:-}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
@@ -125,6 +128,48 @@ _cmux_prompt_command() {
             fi
         } >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
+    fi
+
+    # Pull request metadata (number/state/url):
+    # refresh on cwd change and periodically to avoid stale status.
+    if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
+            kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
+            _CMUX_PR_JOB_PID=""
+        fi
+    fi
+
+    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
+        if [[ -z "$_CMUX_PR_JOB_PID" ]] || ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+            _CMUX_PR_LAST_PWD="$pwd"
+            _CMUX_PR_LAST_RUN=$now
+            {
+                local branch pr_tsv number state url status_opt=""
+                branch=$(git branch --show-current 2>/dev/null)
+                if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
+                    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                else
+                    pr_tsv="$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv' 2>/dev/null || true)"
+                    if [[ -z "$pr_tsv" ]]; then
+                        _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                    else
+                        IFS=$'\t' read -r number state url <<< "$pr_tsv"
+                        if [[ -z "$number" || -z "$url" ]]; then
+                            _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        else
+                            case "$state" in
+                                MERGED) status_opt="--state=merged" ;;
+                                OPEN) status_opt="--state=open" ;;
+                                CLOSED) status_opt="--state=closed" ;;
+                                *) status_opt="" ;;
+                            esac
+                            _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        fi
+                    fi
+                fi
+            } >/dev/null 2>&1 &
+            _CMUX_PR_JOB_PID=$!
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.

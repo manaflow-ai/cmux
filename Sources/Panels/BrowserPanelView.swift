@@ -156,13 +156,10 @@ private struct OmnibarAddressButtonStyleBody: View {
 }
 
 private extension View {
-    @ViewBuilder
     func cmuxFlatSymbolColorRendering() -> some View {
-        if #available(macOS 26.0, *) {
-            self.symbolColorRenderingMode(.flat)
-        } else {
-            self
-        }
+        // `symbolColorRenderingMode(.flat)` is not available in the current SDK
+        // used by CI/local builds. Keep this modifier as a compatibility no-op.
+        self
     }
 }
 
