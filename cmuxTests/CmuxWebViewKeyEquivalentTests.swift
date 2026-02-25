@@ -3776,6 +3776,38 @@ final class SidebarBranchOrderingTests: XCTestCase {
         )
     }
 
+    func testOrderedUniquePullRequestsTreatsSameNumberAndLabelDifferentUrlsAsDistinct() {
+        let first = UUID()
+        let second = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/other-repo/pull/42",
+                    status: .open
+                )
+            ],
+            fallbackPullRequest: nil
+        )
+
+        XCTAssertEqual(
+            pullRequests.map(\.url.absoluteString),
+            [
+                "https://github.com/manaflow-ai/cmux/pull/42",
+                "https://github.com/manaflow-ai/other-repo/pull/42"
+            ]
+        )
+    }
+
     func testOrderedUniquePullRequestsUsesFallbackWhenNoPanelPullRequestsExist() {
         let fallback = pullRequestState(
             number: 11,

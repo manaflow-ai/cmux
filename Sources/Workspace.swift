@@ -722,8 +722,26 @@ enum SidebarBranchOrdering {
             }
         }
 
+        func normalizedReviewURLKey(for url: URL) -> String {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return url.absoluteString
+            }
+
+            // Treat URL variants that differ only by query/fragment as the same review item.
+            components.query = nil
+            components.fragment = nil
+            let scheme = components.scheme?.lowercased() ?? ""
+            let host = components.host?.lowercased() ?? ""
+            let port = components.port.map { ":\($0)" } ?? ""
+            var path = components.path
+            if path.hasSuffix("/"), path.count > 1 {
+                path.removeLast()
+            }
+            return "\(scheme)://\(host)\(port)\(path)"
+        }
+
         func reviewKey(for state: SidebarPullRequestState) -> String {
-            "\(state.label.lowercased())#\(state.number)"
+            "\(state.label.lowercased())#\(state.number)|\(normalizedReviewURLKey(for: state.url))"
         }
 
         var orderedKeys: [String] = []
