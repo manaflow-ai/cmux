@@ -2,6 +2,40 @@
 
 All notable changes to cmux are documented here.
 
+## [0.61.0] - 2026-02-25
+
+### Added
+- Command palette (Cmd+Shift+P) with update actions and all-window switcher results ([#358](https://github.com/manaflow-ai/cmux/pull/358), [#361](https://github.com/manaflow-ai/cmux/pull/361))
+- Split actions and shortcut hints in terminal context menus
+- Cross-window tab and workspace move UI with improved destination focus behavior
+- Sidebar pull request metadata rows and workspace PR open actions
+- Workspace color schemes and left-rail workspace indicator settings ([#324](https://github.com/manaflow-ai/cmux/pull/324), [#329](https://github.com/manaflow-ai/cmux/pull/329), [#332](https://github.com/manaflow-ai/cmux/pull/332))
+- URL open-wrapper routing into the embedded browser ([#332](https://github.com/manaflow-ai/cmux/pull/332))
+- Cmd+Q quit warning with suppression toggle ([#295](https://github.com/manaflow-ai/cmux/pull/295))
+- `cmux --version` output now includes commit metadata
+
+### Changed
+- Added light mode and unified theme refresh across app surfaces ([#258](https://github.com/manaflow-ai/cmux/pull/258)) — thanks @ijpatricio for the report!
+- Browser link middle-click handling now uses native WebKit behavior ([#416](https://github.com/manaflow-ai/cmux/pull/416))
+- Settings-window actions now route through a single command-palette/settings flow
+- Sentry upgraded with tracing, breadcrumbs, and dSYM upload support ([#366](https://github.com/manaflow-ai/cmux/pull/366))
+
+### Fixed
+- Startup split hang when pressing Cmd+D then Ctrl+D early after launch ([#364](https://github.com/manaflow-ai/cmux/pull/364))
+- Browser focus handoff and click-to-focus regressions in mixed terminal/browser workspaces ([#381](https://github.com/manaflow-ai/cmux/pull/381), [#355](https://github.com/manaflow-ai/cmux/pull/355))
+- Caps Lock handling in browser omnibar keyboard paths ([#382](https://github.com/manaflow-ai/cmux/pull/382))
+- Embedded browser deeplink URL scheme handling ([#392](https://github.com/manaflow-ai/cmux/pull/392))
+- Sidebar resize cap regression ([#393](https://github.com/manaflow-ai/cmux/pull/393))
+- Terminal zoom inheritance for new splits, surfaces, and workspaces ([#384](https://github.com/manaflow-ai/cmux/pull/384))
+- Terminal find overlay layering across split and portal-hosted layouts
+- Titlebar drag and double-click zoom handling on browser-side panes
+- Stale browser favicon and window-title updates after navigation
+
+### Thanks to 3 contributors!
+- [@austinywang](https://github.com/austinywang)
+- [@ijpatricio](https://github.com/ijpatricio)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+
 ## [0.60.0] - 2026-02-21
 
 ### Added

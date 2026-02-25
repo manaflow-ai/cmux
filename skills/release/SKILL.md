@@ -25,7 +25,7 @@ Run this workflow to prepare and publish a cmux release.
 
 4. Update changelogs:
 - Update `CHANGELOG.md`.
-- Update `docs-site/content/docs/changelog.mdx`.
+- Do not edit a separate docs changelog file; `web/app/docs/changelog/page.tsx` renders from `CHANGELOG.md`.
 - Use categories `Added`, `Changed`, `Fixed`, `Removed`.
 - **Credit contributors inline** (see Contributor Credits below).
 - If no user-facing changes exist, confirm with the user before continuing.

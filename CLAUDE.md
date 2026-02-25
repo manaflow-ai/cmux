@@ -165,7 +165,7 @@ git commit -m "Update ghostty submodule"
 Use the `/release` command to prepare a new release. This will:
 1. Determine the new version (bumps minor by default)
 2. Gather commits since the last tag and update the changelog
-3. Update `CHANGELOG.md` and `docs-site/content/docs/changelog.mdx`
+3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
 5. Commit, tag, and push
 
@@ -194,4 +194,4 @@ Notes:
 - The release asset is `cmux-macos.dmg` attached to the tag.
 - README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
-- Changelog: always update both `CHANGELOG.md` and the docs-site version.
+- Changelog: update `CHANGELOG.md`; docs changelog is rendered from it.
