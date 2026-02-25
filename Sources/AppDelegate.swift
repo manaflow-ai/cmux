@@ -826,12 +826,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             // Performance tracing (10% of transactions)
             options.tracesSampleRate = 0.1
-            // App hang timeout (default is 2s, be explicit)
-            options.appHangTimeoutInterval = 2.0
+            // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
+            // as hangs in normal user interaction flows.
+            options.appHangTimeoutInterval = 8.0
             // Attach stack traces to all events
             options.attachStacktrace = true
-            // Capture failed HTTP requests
-            options.enableCaptureFailedRequests = true
+            // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
+            options.enableCaptureFailedRequests = false
         }
 
         if !isRunningUnderXCTest {
@@ -6857,12 +6858,8 @@ private extension NSWindow {
             return webView
         }
 
-        if let textView = responder as? NSTextView,
-           let delegateView = textView.delegate as? NSView,
-           let webView = cmuxOwningWebView(for: delegateView) {
-            return webView
-        }
-
+        // NSTextView.delegate is unsafe-unretained in AppKit. Reading it here while
+        // a responder chain is tearing down can trap with "unowned reference".
         var current = responder.nextResponder
         while let next = current {
             if let webView = next as? CmuxWebView {

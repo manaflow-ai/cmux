@@ -225,6 +225,74 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testScrollLagCaptureRequiresSustainedLag() {
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 4,
+                averageMs: 18,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 6,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 18,
+                maxMs: 35,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 18,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+    }
+
+    func testScrollLagCaptureRespectsCooldownWindow() {
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1200,
+                lastReportedUptime: 1005,
+                cooldown: 300
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1406,
+                lastReportedUptime: 1005,
+                cooldown: 300
+            )
+        )
+    }
+
     func testClaudeCodeIntegrationDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.claude-hooks.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

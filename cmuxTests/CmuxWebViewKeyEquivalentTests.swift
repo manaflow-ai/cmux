@@ -113,6 +113,20 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
+    private final class DelegateProbeTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+    }
+
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -375,6 +389,36 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         AppDelegate.clearWindowFirstResponderGuardTesting()
         _ = window.makeFirstResponder(nil)
         XCTAssertFalse(window.makeFirstResponder(descendant), "Expected pointer bypass to be limited to click context")
+    }
+
+    @MainActor
+    func testWindowFirstResponderGuardAvoidsTextViewDelegateLookupForWebViewResolution() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let textView = DelegateProbeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 40))
+        container.addSubview(textView)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        _ = window.makeFirstResponder(nil)
+        _ = window.makeFirstResponder(textView)
+
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "WebView ownership resolution should not touch NSTextView.delegate (unsafe-unretained in AppKit)"
+        )
     }
 
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
