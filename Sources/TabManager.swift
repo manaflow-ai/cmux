@@ -1050,6 +1050,27 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
+    func canCloseOtherTabsInFocusedPane() -> Bool {
+        closeOtherTabsInFocusedPanePlan() != nil
+    }
+
+    func closeOtherTabsInFocusedPaneWithConfirmation() {
+        guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
+
+        let count = plan.panelIds.count
+        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
+        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        guard confirmClose(
+            title: "Close other tabs?",
+            message: message,
+            acceptCmdD: false
+        ) else { return }
+
+        for panelId in plan.panelIds {
+            _ = plan.workspace.closePanel(panelId, force: true)
+        }
+    }
+
     func closeCurrentWorkspaceWithConfirmation() {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
@@ -1095,6 +1116,54 @@ class TabManager: ObservableObject {
         }
 
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private struct CloseOtherTabsInFocusedPanePlan {
+        let workspace: Workspace
+        let panelIds: [UUID]
+        let titles: [String]
+    }
+
+    private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
+        guard let workspace = selectedWorkspace else { return nil }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+
+        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        guard !tabsInPane.isEmpty else { return nil }
+        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+            return nil
+        }
+
+        var targetPanelIds: [UUID] = []
+        var targetTitles: [String] = []
+        for tab in tabsInPane where tab.id != selectedTabId {
+            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+            if workspace.isPanelPinned(panelId) {
+                continue
+            }
+            targetPanelIds.append(panelId)
+            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
+        }
+
+        guard !targetPanelIds.isEmpty else { return nil }
+        return CloseOtherTabsInFocusedPanePlan(
+            workspace: workspace,
+            panelIds: targetPanelIds,
+            titles: targetTitles
+        )
+    }
+
+    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
+        let collapsed = title?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let collapsed, !collapsed.isEmpty {
+            return collapsed
+        }
+        return "Untitled Tab"
     }
 
     private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
