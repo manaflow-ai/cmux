@@ -11097,7 +11097,12 @@ class TerminalController {
             return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
         }
 
-        let trimmedMarkdown = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedMarkdown = markdown
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\t", with: "\t")
+
+        let trimmedMarkdown = normalizedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedMarkdown.isEmpty else {
             return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
         }
@@ -11122,14 +11127,14 @@ class TerminalController {
             guard Self.shouldReplaceMetadataBlock(
                 current: tab.metadataBlocks[key],
                 key: key,
-                markdown: markdown,
+                markdown: normalizedMarkdown,
                 priority: priority
             ) else {
                 return
             }
             tab.metadataBlocks[key] = SidebarMetadataBlock(
                 key: key,
-                markdown: markdown,
+                markdown: normalizedMarkdown,
                 priority: priority,
                 timestamp: Date()
             )
