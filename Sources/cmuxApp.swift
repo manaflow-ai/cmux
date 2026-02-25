@@ -409,6 +409,12 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
+                Button("Close Other Tabs in Pane") {
+                    closeOtherTabsInFocusedPane()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
+
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
                 // is the last workspace, it closes the window.
                 splitCommandButton(title: "Close Workspace", shortcut: closeWorkspaceMenuShortcut) {
@@ -782,6 +788,10 @@ struct cmuxApp: App {
             return
         }
         activeTabManager.closeCurrentPanelWithConfirmation()
+    }
+
+    private func closeOtherTabsInFocusedPane() {
+        activeTabManager.closeOtherTabsInFocusedPaneWithConfirmation()
     }
 
     private func closeTabOrWindow() {

@@ -4301,6 +4301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard panel.isVisible, let root = panel.contentView else { return false }
                 return findStaticText(in: root, equals: "Close workspace?")
                     || findStaticText(in: root, equals: "Close tab?")
+                    || findStaticText(in: root, equals: "Close other tabs?")
             }
         if let closeConfirmationPanel {
             // Special-case: Cmd+D should confirm destructive close on alerts.
@@ -4560,6 +4561,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
             _ = promptRenameSelectedWorkspace()
+            return true
+        }
+
+        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
+            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.settings" {
+                targetWindow.performClose(nil)
+            } else {
+                let responder = event.window?.firstResponder
+                    ?? NSApp.keyWindow?.firstResponder
+                    ?? NSApp.mainWindow?.firstResponder
+                if let ghosttyView = cmuxOwningGhosttyView(for: responder),
+                   let workspaceId = ghosttyView.tabId,
+                   let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
+                    manager.closeOtherTabsInFocusedPaneWithConfirmation()
+                } else {
+                    tabManager?.closeOtherTabsInFocusedPaneWithConfirmation()
+                }
+            }
             return true
         }
 
