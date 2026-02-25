@@ -810,6 +810,7 @@
 					"$(inherited)",
 					"@executable_path",
 					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = cmux;
@@ -828,6 +829,7 @@
 					"$(inherited)",
 					"@executable_path",
 					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_NAME = cmux;
