@@ -1955,6 +1955,8 @@ struct CMUXCLI {
         guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
             throw CLIError(message: "workspace.create did not return workspace_id")
         }
+        let workspaceWindowId = (workspaceCreate["window_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !workspaceName.isEmpty {
@@ -1985,6 +1987,11 @@ struct CMUXCLI {
         }
 
         var payload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        var selectParams: [String: Any] = ["workspace_id": workspaceId]
+        if let workspaceWindowId, !workspaceWindowId.isEmpty {
+            selectParams["window_id"] = workspaceWindowId
+        }
+        _ = try client.sendV2(method: "workspace.select", params: selectParams)
 
         payload["ssh_command"] = sshCommand
         payload["ssh_startup_command"] = sshStartupCommand
