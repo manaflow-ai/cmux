@@ -538,7 +538,7 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: "Rename Workspace…", shortcut: renameWorkspaceMenuShortcut) {
-                    _ = AppDelegate.shared?.promptRenameSelectedWorkspace()
+                    _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
                 Divider()
