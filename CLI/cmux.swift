@@ -1991,6 +1991,8 @@ struct CMUXCLI {
         if let workspaceWindowId, !workspaceWindowId.isEmpty {
             selectParams["window_id"] = workspaceWindowId
         }
+        // `cmux ssh` is a focus-intent command: after provisioning/configuring the remote
+        // workspace, switch UI focus to that newly created workspace so the user lands there.
         _ = try client.sendV2(method: "workspace.select", params: selectParams)
 
         payload["ssh_command"] = sshCommand
