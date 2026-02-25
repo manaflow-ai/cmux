@@ -741,6 +741,18 @@ final class SocketControlSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testXCUITestLaunchEnvironmentIgnoresLaunchTagGate() {
+        // XCUITest launches the app as a separate process without XCTest env vars.
+        // The app receives CMUX_UI_TEST_* vars via XCUIApplication.launchEnvironment.
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["CMUX_UI_TEST_MODE": "1"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
 }
 
 final class PostHogAnalyticsPropertiesTests: XCTestCase {

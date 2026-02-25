@@ -91,11 +91,7 @@ jobs:
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Run UI tests
-        env:
-          # Debug builds require CMUX_TAG to prevent accidental untagged launches.
-          # XCUITest launches the app as a separate process without XCTest env vars,
-          # so the app's isRunningUnderXCTest() check fails. Provide a tag explicitly.
-          CMUX_TAG: ci
         run: |
           set -euo pipefail
+          # Run directly on the self-hosted macOS runner.
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
