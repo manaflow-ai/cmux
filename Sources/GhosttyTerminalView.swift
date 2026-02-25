@@ -124,6 +124,79 @@ enum TerminalOpenURLTarget: Equatable {
     }
 }
 
+enum GhosttyDefaultBackgroundUpdateScope: Int {
+    case unscoped = 0
+    case app = 1
+    case surface = 2
+
+    var logLabel: String {
+        switch self {
+        case .unscoped: return "unscoped"
+        case .app: return "app"
+        case .surface: return "surface"
+        }
+    }
+}
+
+/// Coalesces Ghostty background notifications so consumers observe the latest
+/// runtime background after a short burst window.
+final class GhosttyDefaultBackgroundNotificationDispatcher {
+    private let coalescer: NotificationBurstCoalescer
+    private let postNotification: ([AnyHashable: Any]) -> Void
+    private var pendingUserInfo: [AnyHashable: Any]?
+    private var pendingEventId: UInt64 = 0
+    private var pendingSource: String = "unspecified"
+    private let logEvent: ((String) -> Void)?
+
+    init(
+        delay: TimeInterval = 1.0 / 30.0,
+        logEvent: ((String) -> Void)? = nil,
+        postNotification: @escaping ([AnyHashable: Any]) -> Void = { userInfo in
+            NotificationCenter.default.post(
+                name: .ghosttyDefaultBackgroundDidChange,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+    ) {
+        coalescer = NotificationBurstCoalescer(delay: delay)
+        self.logEvent = logEvent
+        self.postNotification = postNotification
+    }
+
+    func signal(backgroundColor: NSColor, opacity: Double, eventId: UInt64, source: String) {
+        let signalOnMain = { [self] in
+            pendingEventId = eventId
+            pendingSource = source
+            pendingUserInfo = [
+                GhosttyNotificationKey.backgroundColor: backgroundColor,
+                GhosttyNotificationKey.backgroundOpacity: opacity,
+                GhosttyNotificationKey.backgroundEventId: NSNumber(value: eventId),
+                GhosttyNotificationKey.backgroundSource: source,
+            ]
+            logEvent?(
+                "bg notify queued id=\(eventId) source=\(source) color=\(backgroundColor.hexString()) opacity=\(String(format: "%.3f", opacity))"
+            )
+            coalescer.signal { [self] in
+                guard let userInfo = pendingUserInfo else { return }
+                let eventId = pendingEventId
+                let source = pendingSource
+                pendingUserInfo = nil
+                logEvent?("bg notify flushed id=\(eventId) source=\(source)")
+                logEvent?("bg notify posting id=\(eventId) source=\(source)")
+                postNotification(userInfo)
+                logEvent?("bg notify posted id=\(eventId) source=\(source)")
+            }
+        }
+
+        if Thread.isMainThread {
+            signalOnMain()
+        } else {
+            DispatchQueue.main.async(execute: signalOnMain)
+        }
+    }
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -477,6 +550,20 @@ class GhosttyApp {
         return true
     }
 
+    static func shouldApplyDefaultBackgroundUpdate(
+        currentScope: GhosttyDefaultBackgroundUpdateScope,
+        incomingScope: GhosttyDefaultBackgroundUpdateScope
+    ) -> Bool {
+        incomingScope.rawValue >= currentScope.rawValue
+    }
+
+    static func shouldReloadConfigurationForAppearanceChange(
+        previousColorScheme: GhosttyConfig.ColorSchemePreference?,
+        currentColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> Bool {
+        previousColorScheme != currentColorScheme
+    }
+
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
         #if os(macOS)
         // Ghostty 1.3+ prefers `config.ghostty`, but some users still have their real
@@ -524,7 +611,7 @@ class GhosttyApp {
         }
     }
 
-    func reloadConfiguration(soft: Bool = false) {
+    func reloadConfiguration(soft: Bool = false, source _: String = "unspecified") {
         guard let app else { return }
         if soft, let config {
             ghostty_app_update_config(app, config)
@@ -2146,6 +2233,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
     }
+
+    // Test-only IME point override so firstRect behavior can be regression tested.
+    private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
+
+    func setIMEPointForTesting(x: Double, y: Double, width: Double, height: Double) {
+        imePointOverrideForTesting = (x, y, width, height)
+    }
+
+    func clearIMEPointForTesting() {
+        imePointOverrideForTesting = nil
+    }
 #endif
 
 #if DEBUG
@@ -2916,6 +3014,8 @@ enum GhosttyNotificationKey {
     static let title = "ghostty.title"
     static let backgroundColor = "ghostty.backgroundColor"
     static let backgroundOpacity = "ghostty.backgroundOpacity"
+    static let backgroundEventId = "ghostty.backgroundEventId"
+    static let backgroundSource = "ghostty.backgroundSource"
 }
 
 extension Notification.Name {
@@ -2970,6 +3070,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var hasSearchOverlay = false
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
 	    private var isLiveScrolling = false
@@ -3353,6 +3454,16 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.commit()
     }
 
+    func setSearchOverlay(searchState: TerminalSurface.SearchState?) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setSearchOverlay(searchState: searchState)
+            }
+            return
+        }
+        hasSearchOverlay = (searchState != nil)
+    }
+
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
         let padding: CGFloat = 4
         switch zone {
@@ -3554,6 +3665,10 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    func refreshSurfaceNow() {
+        surfaceView.forceRefreshSurface()
+    }
+
     func setActive(_ active: Bool) {
         let wasActive = isActive
         isActive = active
@@ -3631,6 +3746,10 @@ final class GhosttySurfaceScrollView: NSView {
             notificationRingOverlayView.isHidden,
             notificationRingLayer.opacity
         )
+    }
+
+    func debugHasSearchOverlay() -> Bool {
+        hasSearchOverlay
     }
 
 #endif
@@ -4237,15 +4356,26 @@ extension GhosttyNSView: NSTextInputClient {
         var y: Double = 0
         var w: Double = 0
         var h: Double = 0
+#if DEBUG
+        if let override = imePointOverrideForTesting {
+            x = override.x
+            y = override.y
+            w = override.width
+            h = override.height
+        } else if let surface = surface {
+            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        }
+#else
         if let surface = surface {
             ghostty_surface_ime_point(surface, &x, &y, &w, &h)
         }
+#endif
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
         let viewRect = NSRect(
             x: x,
             y: frame.size.height - y,
-            width: 0,
+            width: max(w, cellSize.width),
             height: max(h, cellSize.height)
         )
         let winRect = convert(viewRect, to: nil)
@@ -4291,6 +4421,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var portalZPriority: Int = 0
     var showsInactiveOverlay: Bool = false
     var showsUnreadNotificationRing: Bool = false
+    var searchState: TerminalSurface.SearchState? = nil
     var inactiveOverlayColor: NSColor = .clear
     var inactiveOverlayOpacity: Double = 0
     var reattachToken: UInt64 = 0
@@ -4344,6 +4475,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
         Coordinator()
     }
 
+    static func shouldApplyImmediateHostedStateUpdate(
+        hostWindowAttached: Bool,
+        hostedViewHasSuperview: Bool,
+        isBoundToCurrentHost: Bool
+    ) -> Bool {
+        if !hostWindowAttached { return true }
+        if isBoundToCurrentHost { return true }
+        return !hostedViewHasSuperview
+    }
+
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
@@ -4394,6 +4535,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             visible: showsInactiveOverlay
         )
         hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
+        hostedView.setSearchOverlay(searchState: searchState)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil

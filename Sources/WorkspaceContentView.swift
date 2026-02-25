@@ -53,51 +53,12 @@ struct WorkspaceContentView: View {
         }()
 
         BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
-            // Content for each tab in bonsplit
-            let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
-            if let panel = workspace.panel(for: tab.id) {
-                let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
-                let isVisibleInUI = Self.panelVisibleInUI(
-                    isWorkspaceVisible: isWorkspaceVisible,
-                    isSelectedInPane: isSelectedInPane,
-                    isFocused: isFocused
-                )
-                let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
-                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
-                )
-                PanelContentView(
-                    panel: panel,
-                    isFocused: isFocused,
-                    isSelectedInPane: isSelectedInPane,
-                    isVisibleInUI: isVisibleInUI,
-                    portalPriority: workspacePortalPriority,
-                    isSplit: isSplit,
-                    appearance: appearance,
-                    hasUnreadNotification: hasUnreadNotification,
-                    onFocus: {
-                        // Keep bonsplit focus in sync with the AppKit first responder for the
-                        // active workspace. This prevents divergence between the blue focused-tab
-                        // indicator and where keyboard input/flash-focus actually lands.
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
-                    },
-                    onRequestPanelFocus: {
-                        guard isWorkspaceInputActive else { return }
-                        guard workspace.panels[panel.id] != nil else { return }
-                        workspace.focusPanel(panel.id)
-                    },
-                    onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
-                )
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
-            } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
-                EmptyPanelView(workspace: workspace, paneId: paneId)
-            }
+            panelView(
+                tab: tab,
+                paneId: paneId,
+                isSplit: isSplit,
+                appearance: appearance
+            )
         } emptyPane: { paneId in
             // Empty pane content
             EmptyPanelView(workspace: workspace, paneId: paneId)
@@ -139,6 +100,55 @@ struct WorkspaceContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
+        }
+    }
+
+    @ViewBuilder
+    private func panelView(
+        tab: Bonsplit.Tab,
+        paneId: PaneID,
+        isSplit: Bool,
+        appearance: PanelAppearance
+    ) -> some View {
+        let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
+        if let panel = workspace.panel(for: tab.id) {
+            let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+            let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+            let isVisibleInUI = Self.panelVisibleInUI(
+                isWorkspaceVisible: isWorkspaceVisible,
+                isSelectedInPane: isSelectedInPane,
+                isFocused: isFocused
+            )
+            let hasUnreadNotification = Workspace.shouldShowUnreadIndicator(
+                hasUnreadNotification: notificationStore.hasUnreadNotification(forTabId: workspace.id, surfaceId: panel.id),
+                isManuallyUnread: workspace.manualUnreadPanelIds.contains(panel.id)
+            )
+            PanelContentView(
+                panel: panel,
+                isFocused: isFocused,
+                isSelectedInPane: isSelectedInPane,
+                isVisibleInUI: isVisibleInUI,
+                portalPriority: workspacePortalPriority,
+                isSplit: isSplit,
+                appearance: appearance,
+                hasUnreadNotification: hasUnreadNotification,
+                onFocus: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    workspace.focusPanel(panel.id)
+                },
+                onRequestPanelFocus: {
+                    guard isWorkspaceInputActive else { return }
+                    guard workspace.panels[panel.id] != nil else { return }
+                    workspace.focusPanel(panel.id)
+                },
+                onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
+            )
+            .onTapGesture {
+                workspace.bonsplitController.focusPane(paneId)
+            }
+        } else {
+            EmptyPanelView(workspace: workspace, paneId: paneId)
         }
     }
 
@@ -242,7 +252,8 @@ struct WorkspaceContentView: View {
         )
         let chromeReason =
             "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
-        workspace.applyGhosttyChrome(from: next, reason: chromeReason)
+        _ = chromeReason
+        workspace.applyGhosttyChrome(from: next)
         if let terminalPanel = workspace.focusedTerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
             logTheme(

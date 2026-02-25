@@ -19,7 +19,9 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
-REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_REMOTE_HTTP_PORT", "43173"))
+# Keep the fixture's extra HTTP server below 1024 so there are no eligible
+# (>1023) ports to auto-forward. This guards the "connecting forever" regression.
+REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_REMOTE_HTTP_PORT", "81"))
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -55,6 +57,8 @@ def _run(cmd: list[str], *, env: dict[str, str] | None = None, check: bool = Tru
 
 def _run_cli_json(cli: str, args: list[str]) -> dict:
     env = dict(os.environ)
+    # Ensure --socket is what drives the relay path during tests.
+    env.pop("CMUX_SOCKET_PATH", None)
     env.pop("CMUX_WORKSPACE_ID", None)
     env.pop("CMUX_SURFACE_ID", None)
     env.pop("CMUX_TAB_ID", None)
@@ -111,6 +115,33 @@ def _wait_for_ssh(host: str, host_port: int, key_path: Path, timeout: float = 20
     raise cmuxError("Timed out waiting for SSH server in docker fixture to become ready")
 
 
+def _wait_for_remote_ready(client, workspace_id: str, timeout: float = 45.0) -> dict:
+    deadline = time.time() + timeout
+    last_status = {}
+    while time.time() < deadline:
+        last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+        remote = last_status.get("remote") or {}
+        daemon = remote.get("daemon") or {}
+        state = str(remote.get("state") or "")
+        daemon_state = str(daemon.get("state") or "")
+        if state == "connected" and daemon_state == "ready":
+            return last_status
+        time.sleep(0.5)
+    raise cmuxError(f"Remote daemon did not become ready: {last_status}")
+
+
+def _assert_remote_ping(host: str, host_port: int, key_path: Path, remote_socket_addr: str, *, label: str) -> None:
+    ping_result = _ssh_run(
+        host, host_port, key_path,
+        f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux ping",
+        check=False,
+    )
+    _must(
+        ping_result.returncode == 0 and "pong" in ping_result.stdout.lower(),
+        f"{label} cmux ping failed: rc={ping_result.returncode} stdout={ping_result.stdout!r} stderr={ping_result.stderr!r}",
+    )
+
+
 def main() -> int:
     if not _docker_available():
         print("SKIP: docker is not available")
@@ -125,6 +156,7 @@ def main() -> int:
     image_tag = f"cmux-ssh-test:{secrets.token_hex(4)}"
     container_name = f"cmux-ssh-cli-relay-{secrets.token_hex(4)}"
     workspace_id = ""
+    workspace_id_2 = ""
 
     try:
         # Generate SSH key pair
@@ -180,19 +212,18 @@ def main() -> int:
             remote_socket_addr = f"127.0.0.1:{remote_relay_port}"
 
             # Wait for daemon to be ready
-            deadline = time.time() + 45.0
-            last_status = {}
-            while time.time() < deadline:
-                last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
-                remote = last_status.get("remote") or {}
-                daemon = remote.get("daemon") or {}
-                state = str(remote.get("state") or "")
-                daemon_state = str(daemon.get("state") or "")
-                if state == "connected" and daemon_state == "ready":
-                    break
-                time.sleep(0.5)
-            else:
-                raise cmuxError(f"Remote daemon did not become ready: {last_status}")
+            first_status = _wait_for_remote_ready(client, workspace_id)
+            first_remote = first_status.get("remote") or {}
+            # Regression: should transition to connected even with no eligible
+            # (>1023, non-ephemeral) remote ports.
+            _must(
+                not (first_remote.get("detected_ports") or []),
+                f"expected no eligible detected ports in fixture: {first_status}",
+            )
+            _must(
+                not (first_remote.get("forwarded_ports") or []),
+                f"expected no forwarded ports when none are eligible: {first_status}",
+            )
 
             # Verify the cmux symlink exists on the remote
             symlink_check = _ssh_run(
@@ -205,16 +236,49 @@ def main() -> int:
                 f"Expected cmux symlink at ~/.cmux/bin/cmux on remote: {symlink_check.stdout} {symlink_check.stderr}",
             )
 
-            # Test 1: cmux ping (v1)
-            ping_result = _ssh_run(
-                host, host_ssh_port, key_path,
-                f"CMUX_SOCKET_PATH={remote_socket_addr} $HOME/.cmux/bin/cmux ping",
-                check=False,
+            # Start a second SSH workspace to the same destination and verify both
+            # relays remain healthy (regression: same-host workspaces killed each other).
+            payload_2 = _run_cli_json(
+                cli,
+                [
+                    "ssh",
+                    host,
+                    "--name", "docker-cli-relay-2",
+                    "--port", str(host_ssh_port),
+                    "--identity", str(key_path),
+                    "--ssh-option", "UserKnownHostsFile=/dev/null",
+                    "--ssh-option", "StrictHostKeyChecking=no",
+                ],
             )
+            workspace_id_2 = str(payload_2.get("workspace_id") or "")
+            workspace_ref_2 = str(payload_2.get("workspace_ref") or "")
+            if not workspace_id_2 and workspace_ref_2.startswith("workspace:"):
+                listed_2 = client._call("workspace.list", {}) or {}
+                for row in listed_2.get("workspaces") or []:
+                    if str(row.get("ref") or "") == workspace_ref_2:
+                        workspace_id_2 = str(row.get("id") or "")
+                        break
+            _must(bool(workspace_id_2), f"second cmux ssh output missing workspace_id: {payload_2}")
+
+            remote_relay_port_2 = payload_2.get("remote_relay_port")
+            _must(remote_relay_port_2 is not None, f"second cmux ssh output missing remote_relay_port: {payload_2}")
+            remote_relay_port_2 = int(remote_relay_port_2)
+            _must(49152 <= remote_relay_port_2 <= 65535, f"second remote_relay_port out of range: {remote_relay_port_2}")
             _must(
-                ping_result.returncode == 0 and "pong" in ping_result.stdout.lower(),
-                f"cmux ping failed: rc={ping_result.returncode} stdout={ping_result.stdout!r} stderr={ping_result.stderr!r}",
+                remote_relay_port_2 != remote_relay_port,
+                f"relay ports should differ per workspace: {remote_relay_port_2} vs {remote_relay_port}",
             )
+            remote_socket_addr_2 = f"127.0.0.1:{remote_relay_port_2}"
+            _ = _wait_for_remote_ready(client, workspace_id_2)
+
+            stability_deadline = time.time() + 8.0
+            while time.time() < stability_deadline:
+                _assert_remote_ping(host, host_ssh_port, key_path, remote_socket_addr, label="first relay")
+                _assert_remote_ping(host, host_ssh_port, key_path, remote_socket_addr_2, label="second relay")
+                time.sleep(0.5)
+
+            # Test 1: cmux ping (v1)
+            _assert_remote_ping(host, host_ssh_port, key_path, remote_socket_addr, label="cmux")
 
             # Test 2: cmux list-workspaces --json (v2)
             list_ws_result = _ssh_run(
@@ -265,6 +329,12 @@ def main() -> int:
             except Exception:
                 pass
             workspace_id = ""
+            if workspace_id_2:
+                try:
+                    client.close_workspace(workspace_id_2)
+                except Exception:
+                    pass
+                workspace_id_2 = ""
 
         print("PASS: cmux CLI commands relay correctly over SSH reverse socket forwarding")
         return 0
@@ -274,6 +344,12 @@ def main() -> int:
             try:
                 with cmux(SOCKET_PATH) as cleanup_client:
                     cleanup_client.close_workspace(workspace_id)
+            except Exception:
+                pass
+        if workspace_id_2:
+            try:
+                with cmux(SOCKET_PATH) as cleanup_client:
+                    cleanup_client.close_workspace(workspace_id_2)
             except Exception:
                 pass
 

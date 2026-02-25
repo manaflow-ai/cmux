@@ -217,6 +217,18 @@ func TestCLINewWindowV1(t *testing.T) {
 	}
 }
 
+func TestSocketRoundTripReadsFullMultilineV1Response(t *testing.T) {
+	addr := startMockTCPSocket(t, "window:alpha\nwindow:beta\nwindow:gamma")
+	resp, err := socketRoundTrip(addr, "list_windows", nil)
+	if err != nil {
+		t.Fatalf("socketRoundTrip should succeed, got error: %v", err)
+	}
+	want := "window:alpha\nwindow:beta\nwindow:gamma"
+	if resp != want {
+		t.Fatalf("socketRoundTrip truncated v1 response: got %q want %q", resp, want)
+	}
+}
+
 func TestCLICloseWindowV1(t *testing.T) {
 	// Verify that the flag value is appended to the v1 command
 	dir := t.TempDir()
