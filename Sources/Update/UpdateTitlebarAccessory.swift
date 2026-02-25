@@ -483,6 +483,7 @@ struct TitlebarControlsView: View {
     private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
         let icon = Image(systemName: systemName)
             .font(.system(size: config.iconSize, weight: .semibold))
+            .foregroundStyle(.secondary)
             .frame(width: config.buttonSize, height: config.buttonSize)
 
         if config.buttonBackground {
