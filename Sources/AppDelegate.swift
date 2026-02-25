@@ -4326,7 +4326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isPlainEscape,
            commandPaletteVisibleInTargetWindow,
            let paletteWindow = commandPaletteTargetWindow {
-            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+            NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
             return true
         }
 

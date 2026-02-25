@@ -398,10 +398,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
 
-        let dismissExpectation = expectation(description: "Expected command palette toggle request on Escape")
+        let dismissExpectation = expectation(description: "Expected command palette dismiss request on Escape")
         var observedWindow: NSWindow?
         let token = NotificationCenter.default.addObserver(
-            forName: .commandPaletteToggleRequested,
+            forName: .commandPaletteDismissRequested,
             object: nil,
             queue: nil
         ) { notification in
@@ -409,6 +409,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             dismissExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(token) }
+
+        let toggleExpectation = expectation(description: "Escape should not route through toggle notification")
+        toggleExpectation.isInverted = true
+        let toggleToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteToggleRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            toggleExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(toggleToken) }
 
         guard let event = makeKeyDownEvent(
             key: "\u{1B}",
@@ -426,7 +437,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        wait(for: [dismissExpectation], timeout: 1.0)
+        wait(for: [dismissExpectation, toggleExpectation], timeout: 1.0)
         XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
     }
 
