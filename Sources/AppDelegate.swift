@@ -4559,6 +4559,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Alias Cmd+Shift+R to the same rename-tab command palette flow as Cmd+R.
+        if normalizedFlags == [.command, .shift], (chars == "r" || event.keyCode == 15) {
+            return handleRenameTabCommandPaletteShortcut(
+                event: event,
+                commandPaletteTargetWindow: commandPaletteTargetWindow
+            )
+        }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
             _ = promptRenameSelectedWorkspace()
             return true
@@ -4629,13 +4637,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameTab)) {
-            // Keep Cmd+R browser reload behavior when a browser panel is focused.
-            if tabManager?.focusedBrowserPanel != nil {
-                return false
-            }
-            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
-            return true
+            return handleRenameTabCommandPaletteShortcut(
+                event: event,
+                commandPaletteTargetWindow: commandPaletteTargetWindow
+            )
         }
 
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
@@ -4862,6 +4867,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func handleRenameTabCommandPaletteShortcut(
+        event: NSEvent,
+        commandPaletteTargetWindow: NSWindow?
+    ) -> Bool {
+        // Keep Cmd+R browser reload behavior when a browser panel is focused.
+        if tabManager?.focusedBrowserPanel != nil {
+            return false
+        }
+        let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+        return true
     }
 
     private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {

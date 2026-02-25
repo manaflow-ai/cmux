@@ -966,18 +966,18 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
         XCTAssertEqual(shortcut.key, "r")
         XCTAssertTrue(shortcut.command)
-        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.option)
-        XCTAssertFalse(shortcut.control)
+        XCTAssertTrue(shortcut.control)
     }
 
     func testRenameWorkspaceShortcutConvertsToMenuShortcut() {
         let shortcut = KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
         XCTAssertNotNil(shortcut.keyEquivalent)
         XCTAssertTrue(shortcut.eventModifiers.contains(.command))
-        XCTAssertTrue(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.shift))
         XCTAssertFalse(shortcut.eventModifiers.contains(.option))
-        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.control))
     }
 
     func testCloseWorkspaceShortcutDefaultsAndMetadata() {

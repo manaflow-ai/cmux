@@ -311,6 +311,60 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
     }
 
+    func testCmdShiftRAliasesToRenameTabCommandPaletteRequest() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+            KeyboardShortcutSettings.resetShortcut(for: .renameWorkspace)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "r", command: true, shift: false, option: true, control: false),
+            for: .renameWorkspace
+        )
+
+        let expectation = expectation(description: "Expected rename tab command palette notification")
+        var observedWindow: NSWindow?
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRenameTabRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedWindow = notification.object as? NSWindow
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = makeKeyDownEvent(
+            key: "r",
+            modifiers: [.command, .shift],
+            keyCode: 15, // kVK_ANSI_R
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+R event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+    }
+
     func testCmdDigitDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
