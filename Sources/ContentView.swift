@@ -781,6 +781,12 @@ var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 
+enum CommandPaletteOverlayPromotionPolicy {
+    static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
+        isVisible && !previouslyVisible
+    }
+}
+
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -850,11 +856,15 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             ]
             NSLayoutConstraint.activate(installConstraints)
             installedThemeFrame = themeFrame
-        } else if themeFrame.subviews.last !== containerView {
-            themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
         }
 
         return true
+    }
+
+    private func promoteOverlayAboveSiblingsIfNeeded() {
+        guard let themeFrame = installedThemeFrame,
+              containerView.superview === themeFrame else { return }
+        themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
     }
 
     private func isPaletteResponder(_ responder: NSResponder?) -> Bool {
@@ -1052,14 +1062,18 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(rootView: AnyView, isVisible: Bool) {
         guard ensureInstalled() else { return }
+        let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
+            previouslyVisible: isPaletteVisible,
+            isVisible: isVisible
+        )
         isPaletteVisible = isVisible
         if isVisible {
             hostingView.rootView = rootView
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
-            if let themeFrame = installedThemeFrame, themeFrame.subviews.last !== containerView {
-                themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
+            if shouldPromote {
+                promoteOverlayAboveSiblingsIfNeeded()
             }
             updateFocusLockForWindowState()
         } else {
