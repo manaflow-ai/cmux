@@ -31,9 +31,13 @@ All notable changes to cmux are documented here.
 - Titlebar drag and double-click zoom handling on browser-side panes
 - Stale browser favicon and window-title updates after navigation
 
-### Thanks to 3 contributors!
+### Thanks to 7 contributors!
 - [@austinywang](https://github.com/austinywang)
+- [@avisser](https://github.com/avisser)
+- [@gnguralnick](https://github.com/gnguralnick)
 - [@ijpatricio](https://github.com/ijpatricio)
+- [@jperkin](https://github.com/jperkin)
+- [@jungcome7](https://github.com/jungcome7)
 - [@lawrencecchen](https://github.com/lawrencecchen)
 
 ## [0.60.0] - 2026-02-21
