@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# cmux open wrapper - routes HTTP(S) URLs to cmux's in-app browser
+#
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# intercepts `open https://...` invocations and opens them in cmux's built-in
+# browser within the same workspace. All other arguments pass through to
+# /usr/bin/open unchanged.
+
+SYSTEM_OPEN_BIN="${CMUX_OPEN_WRAPPER_SYSTEM_OPEN:-/usr/bin/open}"
+DEFAULTS_BIN="${CMUX_OPEN_WRAPPER_DEFAULTS:-/usr/bin/defaults}"
+PYTHON3_BIN="${CMUX_OPEN_WRAPPER_PYTHON3:-}"
+
+if [[ ! -x "$SYSTEM_OPEN_BIN" ]]; then
+    SYSTEM_OPEN_BIN="/usr/bin/open"
+fi
+
+if [[ ! -x "$DEFAULTS_BIN" ]]; then
+    DEFAULTS_BIN="/usr/bin/defaults"
+fi
+
+if [[ -n "$PYTHON3_BIN" ]]; then
+    if [[ ! -x "$PYTHON3_BIN" ]]; then
+        PYTHON3_BIN=""
+    fi
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON3_BIN="$(command -v python3)"
+fi
+
+settings_domain="${CMUX_BUNDLE_ID:-}"
+whitelist_raw=""
+whitelist_patterns=()
+
+system_open() {
+    exec "$SYSTEM_OPEN_BIN" "$@"
+}
+
+trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+to_lower_ascii() {
+    # Bash 3.2-compatible lowercase conversion.
+    LC_ALL=C printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+normalize_boolean() {
+    to_lower_ascii "$(trim "$1")"
+}
+
+is_false_setting() {
+    local normalized
+    normalized="$(normalize_boolean "$1")"
+    case "$normalized" in
+        0|false|no|off)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+canonicalize_idn_host() {
+    local value="$1"
+    [[ -z "$PYTHON3_BIN" ]] && {
+        printf '%s' "$value"
+        return 0
+    }
+
+    local canonicalized
+    canonicalized="$("$PYTHON3_BIN" - "$value" <<'PY' 2>/dev/null || true
+import sys
+
+host = sys.argv[1].strip().rstrip(".")
+if not host:
+    raise SystemExit(1)
+
+labels = host.split(".")
+if any(not label for label in labels):
+    raise SystemExit(1)
+
+try:
+    canonical = ".".join(label.encode("idna").decode("ascii") for label in labels)
+except Exception:
+    raise SystemExit(1)
+
+sys.stdout.write(canonical.lower())
+PY
+)"
+    if [[ -n "$canonicalized" ]]; then
+        printf '%s' "$canonicalized"
+        return 0
+    fi
+    printf '%s' "$value"
+}
+
+is_http_url() {
+    local value="$1"
+    case "$value" in
+        [Hh][Tt][Tt][Pp]://*|[Hh][Tt][Tt][Pp][Ss]://*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+normalize_host() {
+    local value
+    value="$(trim "$1")"
+    value="$(to_lower_ascii "$value")"
+    [[ -z "$value" ]] && return 1
+
+    if [[ "$value" == *"://"* ]]; then
+        value="${value#*://}"
+    fi
+
+    value="${value%%/*}"
+    value="${value%%\?*}"
+    value="${value%%\#*}"
+
+    if [[ "$value" == *"@"* ]]; then
+        value="${value##*@}"
+    fi
+
+    if [[ "$value" == \[* ]]; then
+        value="${value#\[}"
+        value="${value%%\]*}"
+    elif [[ "$value" == *:* ]]; then
+        local colons="${value//[^:]}"
+        if [[ ${#colons} -eq 1 ]] && [[ "$value" =~ :[0-9]+$ ]]; then
+            value="${value%:*}"
+        fi
+    fi
+
+    while [[ "$value" == .* ]]; do
+        value="${value#.}"
+    done
+    while [[ "$value" == *. ]]; do
+        value="${value%.}"
+    done
+
+    [[ -z "$value" ]] && return 1
+    value="$(canonicalize_idn_host "$value")"
+    printf '%s' "$value"
+}
+
+normalize_whitelist_pattern() {
+    local value
+    value="$(trim "$1")"
+    value="$(to_lower_ascii "$value")"
+    [[ -z "$value" ]] && return 1
+
+    if [[ "$value" == \*.* ]]; then
+        local suffix
+        suffix="$(normalize_host "${value#*.}")" || return 1
+        printf '*.%s' "$suffix"
+        return 0
+    fi
+
+    normalize_host "$value"
+}
+
+host_matches_pattern() {
+    local host="$1"
+    local pattern="$2"
+
+    if [[ "$pattern" == \*.* ]]; then
+        local suffix="${pattern#*.}"
+        [[ "$host" == "$suffix" ]] && return 0
+        [[ "$host" == *".$suffix" ]] && return 0
+        return 1
+    fi
+
+    [[ "$host" == "$pattern" ]]
+}
+
+host_matches_whitelist() {
+    local url="$1"
+    if [[ ${#whitelist_patterns[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    local host
+    host="$(normalize_host "$url")" || return 1
+    for pattern in "${whitelist_patterns[@]}"; do
+        if host_matches_pattern "$host" "$pattern"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+load_whitelist_patterns() {
+    local raw="$1"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        local normalized
+        normalized="$(normalize_whitelist_pattern "$line")" || continue
+        whitelist_patterns+=("$normalized")
+    done <<< "$raw"
+}
+
+# Pass through immediately if not in a cmux terminal.
+if [[ -z "$CMUX_SOCKET_PATH" ]]; then
+    system_open "$@"
+fi
+
+# No arguments → pass through.
+if [[ $# -eq 0 ]]; then
+    system_open "$@"
+fi
+
+# Scan for flags that indicate explicit user intent → pass through.
+# Also collect non-flag arguments (potential URLs/files).
+passthrough=false
+urls=()
+for arg in "$@"; do
+    case "$arg" in
+        -a|-b|-R|-e|-t|-f|-W|-g|-n|-h|-s|-j|-u|--env|--stdin|--stdout|--stderr)
+            passthrough=true
+            break
+            ;;
+        -*)
+            # Unknown flag → be conservative, pass through
+            passthrough=true
+            break
+            ;;
+        *)
+            if is_http_url "$arg"; then
+                urls+=("$arg")
+            else
+                # Non-URL, non-flag argument (file path, etc.) → pass through all
+                passthrough=true
+                break
+            fi
+            ;;
+    esac
+done
+
+if [[ "$passthrough" == true ]] || [[ ${#urls[@]} -eq 0 ]]; then
+    system_open "$@"
+fi
+
+# Respect the same settings used for terminal link clicks.
+if [[ -n "$settings_domain" ]]; then
+    open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserInterceptTerminalOpenCommandInCmuxBrowser 2>/dev/null || true)"
+    if [[ -z "$open_in_cmux" ]]; then
+        # Backward compatibility for installs that predate the dedicated open-wrapper toggle.
+        open_in_cmux="$("$DEFAULTS_BIN" read "$settings_domain" browserOpenTerminalLinksInCmuxBrowser 2>/dev/null || true)"
+    fi
+    if is_false_setting "$open_in_cmux"; then
+        system_open "$@"
+    fi
+
+    whitelist_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserHostWhitelist 2>/dev/null || true)"
+    if [[ -n "$whitelist_raw" ]]; then
+        load_whitelist_patterns "$whitelist_raw"
+    fi
+fi
+
+# Find cmux CLI (same directory as this script).
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+CMUX_CLI="$SELF_DIR/cmux"
+
+if [[ ! -x "$CMUX_CLI" ]]; then
+    system_open "$@"
+fi
+
+# Open each URL in cmux's in-app browser; track failures individually.
+failed_urls=()
+for url in "${urls[@]}"; do
+    if ! host_matches_whitelist "$url"; then
+        failed_urls+=("$url")
+        continue
+    fi
+    "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
+done
+
+# Fall back to system open only for URLs that failed.
+if [[ ${#failed_urls[@]} -gt 0 ]]; then
+    system_open "${failed_urls[@]}"
+fi

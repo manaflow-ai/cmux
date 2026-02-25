@@ -52,7 +52,7 @@ Split a browser alongside your terminal with a scriptable API ported from <a hre
 <tr>
 <td width="40%" valign="middle">
 <h3>Vertical + horizontal tabs</h3>
-Sidebar shows git branch, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
 </td>
 <td width="60%">
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
@@ -96,7 +96,7 @@ I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty w
 
 I tried a few coding orchestrators but most of them were Electron/Tauri apps and the performance bugged me. I also just prefer the terminal since GUI orchestrators lock you into their workflow. So I built cmux as a native macOS app in Swift/AppKit. It uses libghostty for terminal rendering and reads your existing Ghostty config for themes, fonts, and colors.
 
-The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (`cmux notify`) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
+The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, linked PR status/number, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (`cmux notify`) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
 
 The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
 
@@ -114,6 +114,7 @@ Everything is scriptable through the CLI and socket API — create workspaces/ta
 | ⌃ ⌘ ] | Next workspace |
 | ⌃ ⌘ [ | Previous workspace |
 | ⌘ ⇧ W | Close workspace |
+| ⌘ ⇧ R | Rename workspace |
 | ⌘ B | Toggle sidebar |
 
 ### Surfaces
@@ -193,9 +194,19 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
+## Star History
+
+<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+ </picture>
+</a>
+
 ## Community
 
-- [Discord](https://discord.com/invite/QRxkhZgY)
+- [Discord](https://discord.gg/xsgFEVrWCZ)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)

@@ -546,6 +546,68 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
+    func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
+        let attempts = 12
+        for attempt in 1...attempts {
+            let app = XCUIApplication()
+            let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-ctrl-\(UUID().uuidString).json"
+            try? FileManager.default.removeItem(atPath: dataPath)
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"] = dataPath
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] = "lr"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_EXPECTED_PANELS_AFTER"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_AUTO_TRIGGER"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_TRIGGER_MODE"] = "early_ctrl_d"
+            app.launch()
+            app.activate()
+            defer { app.terminate() }
+
+            XCTAssertTrue(
+                waitForAnyJSON(atPath: dataPath, timeout: 12.0),
+                "Attempt \(attempt): expected early Ctrl+D setup data at \(dataPath)"
+            )
+            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
+                XCTFail("Attempt \(attempt): timed out waiting for done=1 after early Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                return
+            }
+
+            if let setupError = done["setupError"], !setupError.isEmpty {
+                XCTFail("Attempt \(attempt): setup failed: \(setupError)")
+                return
+            }
+
+            let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
+            let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
+            let closedWorkspace = (done["closedWorkspace"] ?? "") == "1"
+            let timedOut = (done["timedOut"] ?? "") == "1"
+            let triggerMode = done["autoTriggerMode"] ?? ""
+            let exitPanelId = done["exitPanelId"] ?? ""
+            let workspaceId = done["workspaceId"] ?? ""
+            let probeSurfaceId = done["probeShowChildExitedSurfaceId"] ?? ""
+            let probeTabId = done["probeShowChildExitedTabId"] ?? ""
+
+            XCTAssertFalse(timedOut, "Attempt \(attempt): early Ctrl+D timed out. data=\(done)")
+            XCTAssertEqual(triggerMode, "strict_early_ctrl_d", "Attempt \(attempt): expected strict early Ctrl+D trigger mode. data=\(done)")
+            XCTAssertFalse(closedWorkspace, "Attempt \(attempt): workspace/window should stay open after early Ctrl+D. data=\(done)")
+            XCTAssertEqual(workspaceCountAfter, 1, "Attempt \(attempt): workspace should remain open after early Ctrl+D. data=\(done)")
+            XCTAssertEqual(panelCountAfter, 1, "Attempt \(attempt): only focused pane should close after early Ctrl+D. data=\(done)")
+            if let showChildExitedCount = Int(done["probeShowChildExitedCount"] ?? "") {
+                XCTAssertEqual(showChildExitedCount, 1, "Attempt \(attempt): expected exactly one SHOW_CHILD_EXITED callback for one early Ctrl+D. data=\(done)")
+            }
+            if !exitPanelId.isEmpty, !probeSurfaceId.isEmpty {
+                XCTAssertEqual(probeSurfaceId, exitPanelId, "Attempt \(attempt): SHOW_CHILD_EXITED should target the split opened by Cmd+D. data=\(done)")
+            }
+            if !workspaceId.isEmpty, !probeTabId.isEmpty {
+                XCTAssertEqual(probeTabId, workspaceId, "Attempt \(attempt): SHOW_CHILD_EXITED should resolve to the active workspace. data=\(done)")
+            }
+            XCTAssertTrue(
+                waitForWindowCount(app: app, atLeast: 1, timeout: 2.0),
+                "Attempt \(attempt): app window should remain open after early Ctrl+D. data=\(done)"
+            )
+        }
+    }
+
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

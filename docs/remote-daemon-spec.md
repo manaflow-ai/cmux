@@ -1,8 +1,9 @@
 # Remote SSH Living Spec
 
-Last updated: February 21, 2026  
-Tracking issue: https://github.com/manaflow-ai/cmux/issues/151  
+Last updated: February 23, 2026
+Tracking issue: https://github.com/manaflow-ai/cmux/issues/151
 Primary PR: https://github.com/manaflow-ai/cmux/pull/239
+CLI relay PR: https://github.com/manaflow-ai/cmux/pull/374
 
 This document is the working source of truth for:
 1. what is implemented now
@@ -32,6 +33,20 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` local app probes remote platform, builds/uploads `cmuxd-remote`, and runs `serve --stdio`.
 - `DONE` daemon `hello` handshake is enforced.
 - `DONE` bootstrap/probe failures surface actionable details.
+- `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
+
+### 3.5 CLI Relay (Running cmux Commands From Remote)
+- `DONE` `cmuxd-remote` includes a table-driven CLI relay (`cli` subcommand) that maps CLI args to v1 text or v2 JSON-RPC messages.
+- `DONE` busybox-style argv[0] detection: when invoked as `cmux` via wrapper/symlink, auto-dispatches to CLI relay.
+- `DONE` background `ssh -N -R 127.0.0.1:PORT:/local/cmux.sock` process reverse-forwards a TCP port to the local cmux socket. Uses TCP instead of Unix socket forwarding because many servers have `AllowStreamLocalForwarding` disabled.
+- `DONE` relay process uses `ControlPath=none` (avoids ControlMaster multiplexing and inherited `RemoteForward` directives) and `ExitOnForwardFailure=no` (inherited forwards from user ssh config failing should not kill the relay).
+- `DONE` relay address written to `~/.cmux/socket_addr` on the remote with a 3s delay after the relay process starts, giving SSH time to establish the `-R` forward.
+- `DONE` Go CLI re-reads `~/.cmux/socket_addr` on each TCP retry to pick up updated relay ports when multiple workspaces overwrite the file.
+- `DONE` `cmux ssh` startup exports session-local `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` so parallel sessions pin to their own relay instead of racing on shared socket_addr.
+- `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
+- `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
+- `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
+- `DONE` orphaned relay SSH processes from previous app sessions are cleaned up before starting a new relay.
 
 ### 3.3 Error Surfacing
 - `DONE` remote errors are surfaced in sidebar status + logs + notifications.
@@ -99,6 +114,7 @@ Recompute effective size on:
 | M-002 | Remote bootstrap/upload/start + hello handshake | DONE | Current `cmuxd-remote` is minimal (`hello`, `ping`) |
 | M-003 | Reconnect/disconnect UX + API + improved error surfacing | DONE | Includes retry count in surfaced errors |
 | M-004 | Docker e2e for bootstrap/reconnect shell niceties | DONE | Existing docker tests currently validate mirroring-era path |
+| M-004b | CLI relay: run cmux commands from within SSH sessions | DONE | Reverse TCP forward + Go CLI relay + bootstrap wrapper (PR #374) |
 | M-005 | Remove automatic remote port mirroring path | TODO | Delete probe/listen mirror loop from `WorkspaceRemoteSessionController` |
 | M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | TODO | Local component in app/daemon layer |
 | M-007 | Remote proxy stream RPC in `cmuxd-remote` | TODO | Add `proxy.open/close` and multiplexed stream handling |
@@ -118,7 +134,19 @@ Recompute effective size on:
 | T-004 | reconnect API success/error paths | DONE |
 | T-005 | retry count visible in daemon error detail | DONE |
 
-### 7.2 Browser Proxy (Target)
+### 7.2 CLI Relay
+
+| ID | Scenario | Status |
+|---|---|---|
+| C-001 | `cmux ping` from remote session | DONE |
+| C-002 | `cmux list-workspaces --json` from remote | DONE |
+| C-003 | `cmux new-workspace` from remote | DONE |
+| C-004 | `cmux rpc system.capabilities` passthrough | DONE |
+| C-005 | TCP retry handles relay not yet established | DONE |
+| C-006 | multi-workspace port conflict silent skip | DONE |
+| C-007 | ephemeral port filtering excludes relay ports | DONE |
+
+### 7.3 Browser Proxy (Target)
 
 | ID | Scenario | Status |
 |---|---|---|
@@ -128,7 +156,7 @@ Recompute effective size on:
 | W-004 | reconnect restores browser proxy path automatically | TODO |
 | W-005 | local proxy bind conflict yields structured `proxy_unavailable` | TODO |
 
-### 7.3 Resize
+### 7.4 Resize
 
 | ID | Scenario | Status |
 |---|---|---|
