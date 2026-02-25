@@ -322,6 +322,7 @@ if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
 elif [[ -n "${TAG_SLUG:-}" ]]; then
   "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" open "$APP_PATH"
 else
+  echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
   echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
   "${OPEN_CLEAN_ENV[@]}" open "$APP_PATH"
 fi

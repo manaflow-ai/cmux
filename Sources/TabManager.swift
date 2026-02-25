@@ -51,6 +51,267 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarBranchLayoutSettings {
+    static let key = "sidebarBranchVerticalLayout"
+    static let defaultVerticalLayout = true
+
+    static func usesVerticalLayout(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultVerticalLayout
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
+enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
+    case leftRail
+    case solidFill
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .leftRail:
+            return "Left Rail"
+        case .solidFill:
+            return "Solid Fill"
+        }
+    }
+}
+
+enum SidebarActiveTabIndicatorSettings {
+    static let styleKey = "sidebarActiveTabIndicatorStyle"
+    static let defaultStyle: SidebarActiveTabIndicatorStyle = .leftRail
+
+    static func resolvedStyle(rawValue: String?) -> SidebarActiveTabIndicatorStyle {
+        guard let rawValue else { return defaultStyle }
+        if let style = SidebarActiveTabIndicatorStyle(rawValue: rawValue) {
+            return style
+        }
+
+        // Legacy values from earlier iterations map to the closest modern option.
+        switch rawValue {
+        case "rail":
+            return .leftRail
+        case "border", "wash", "lift", "typography", "washRail", "blueWashColorRail":
+            return .solidFill
+        default:
+            return defaultStyle
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarActiveTabIndicatorStyle {
+        resolvedStyle(rawValue: defaults.string(forKey: styleKey))
+    }
+}
+
+struct WorkspaceTabColorEntry: Equatable, Identifiable {
+    let name: String
+    let hex: String
+
+    var id: String { "\(name)-\(hex)" }
+}
+
+enum WorkspaceTabColorSettings {
+    static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    static let customColorsKey = "workspaceTabColor.customColors"
+    static let maxCustomColors = 24
+
+    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
+        WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
+        WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
+        WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
+        WorkspaceTabColorEntry(name: "Amber", hex: "#7D6608"),
+        WorkspaceTabColorEntry(name: "Olive", hex: "#4A5C18"),
+        WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
+        WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B"),
+        WorkspaceTabColorEntry(name: "Aqua", hex: "#0E6B8C"),
+        WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
+        WorkspaceTabColorEntry(name: "Navy", hex: "#1A5276"),
+        WorkspaceTabColorEntry(name: "Indigo", hex: "#283593"),
+        WorkspaceTabColorEntry(name: "Purple", hex: "#6A1B9A"),
+        WorkspaceTabColorEntry(name: "Magenta", hex: "#AD1457"),
+        WorkspaceTabColorEntry(name: "Rose", hex: "#880E4F"),
+        WorkspaceTabColorEntry(name: "Brown", hex: "#7B3F00"),
+        WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
+    ]
+
+    static var defaultPalette: [WorkspaceTabColorEntry] {
+        originalPRPalette
+    }
+
+    static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        defaultPaletteWithOverrides(defaults: defaults) + customColorEntries(defaults: defaults)
+    }
+
+    static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        let palette = defaultPalette
+        let overrides = defaultOverrideMap(defaults: defaults)
+        return palette.map { entry in
+            WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
+        }
+    }
+
+    static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }) else {
+            return palette.first?.hex ?? "#1565C0"
+        }
+        return defaultOverrideMap(defaults: defaults)[name] ?? entry.hex
+    }
+
+    static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+        let palette = defaultPalette
+        guard let entry = palette.first(where: { $0.name == name }),
+              let normalized = normalizedHex(hex) else { return }
+
+        var overrides = defaultOverrideMap(defaults: defaults)
+        if normalized == entry.hex {
+            overrides.removeValue(forKey: name)
+        } else {
+            overrides[name] = normalized
+        }
+        saveDefaultOverrideMap(overrides, defaults: defaults)
+    }
+
+    static func customColors(defaults: UserDefaults = .standard) -> [String] {
+        guard let raw = defaults.array(forKey: customColorsKey) as? [String] else { return [] }
+        var result: [String] = []
+        var seen: Set<String> = []
+        for value in raw {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            result.append(normalized)
+            if result.count >= maxCustomColors { break }
+        }
+        return result
+    }
+
+    static func customColorEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        customColors(defaults: defaults).enumerated().map { index, hex in
+            WorkspaceTabColorEntry(name: "Custom \(index + 1)", hex: hex)
+        }
+    }
+
+    @discardableResult
+    static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
+        guard let normalized = normalizedHex(hex) else { return nil }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        colors.insert(normalized, at: 0)
+        setCustomColors(colors, defaults: defaults)
+        return normalized
+    }
+
+    static func removeCustomColor(_ hex: String, defaults: UserDefaults = .standard) {
+        guard let normalized = normalizedHex(hex) else { return }
+        var colors = customColors(defaults: defaults)
+        colors.removeAll { $0 == normalized }
+        setCustomColors(colors, defaults: defaults)
+    }
+
+    static func setCustomColors(_ hexes: [String], defaults: UserDefaults = .standard) {
+        var normalizedColors: [String] = []
+        var seen: Set<String> = []
+        for value in hexes {
+            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
+            normalizedColors.append(normalized)
+            if normalizedColors.count >= maxCustomColors { break }
+        }
+
+        if normalizedColors.isEmpty {
+            defaults.removeObject(forKey: customColorsKey)
+        } else {
+            defaults.set(normalizedColors, forKey: customColorsKey)
+        }
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultOverridesKey)
+        defaults.removeObject(forKey: customColorsKey)
+    }
+
+    static func normalizedHex(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard body.count == 6 else { return nil }
+        guard UInt64(body, radix: 16) != nil else { return nil }
+        return "#" + body.uppercased()
+    }
+
+    static func displayColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> Color? {
+        guard let color = displayNSColor(hex: hex, colorScheme: colorScheme, forceBright: forceBright) else {
+            return nil
+        }
+        return Color(nsColor: color)
+    }
+
+    static func displayNSColor(
+        hex: String,
+        colorScheme: ColorScheme,
+        forceBright: Bool = false
+    ) -> NSColor? {
+        guard let normalized = normalizedHex(hex),
+              let baseColor = NSColor(hex: normalized) else {
+            return nil
+        }
+
+        if forceBright || colorScheme == .dark {
+            return brightenedForDarkAppearance(baseColor)
+        }
+        return baseColor
+    }
+
+    private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
+        guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
+        let validNames = Set(defaultPalette.map(\.name))
+        var normalized: [String: String] = [:]
+        for (name, hex) in raw {
+            guard validNames.contains(name),
+                  let normalizedHex = normalizedHex(hex) else { continue }
+            normalized[name] = normalizedHex
+        }
+        return normalized
+    }
+
+    private static func saveDefaultOverrideMap(_ map: [String: String], defaults: UserDefaults) {
+        if map.isEmpty {
+            defaults.removeObject(forKey: defaultOverridesKey)
+        } else {
+            defaults.set(map, forKey: defaultOverridesKey)
+        }
+    }
+
+    private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {
+        let rgbColor = color.usingColorSpace(.sRGB) ?? color
+        var hue: CGFloat = 0
+        var saturation: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgbColor.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+
+        let boostedBrightness = min(1, max(brightness, 0.62) + ((1 - brightness) * 0.28))
+        // Preserve neutral grays when brightening to avoid introducing hue shifts.
+        let boostedSaturation: CGFloat
+        if saturation <= 0.08 {
+            boostedSaturation = saturation
+        } else {
+            boostedSaturation = min(1, saturation + ((1 - saturation) * 0.12))
+        }
+
+        return NSColor(
+            hue: hue,
+            saturation: boostedSaturation,
+            brightness: boostedBrightness,
+            alpha: alpha
+        )
+    }
+}
+
 enum WorkspacePlacementSettings {
     static let placementKey = "newWorkspacePlacement"
     static let defaultPlacement: NewWorkspacePlacement = .afterCurrent
@@ -126,6 +387,30 @@ final class NotificationBurstCoalescer {
         if pendingAction != nil {
             scheduleFlushIfNeeded()
         }
+    }
+}
+
+struct RecentlyClosedBrowserStack {
+    private(set) var entries: [ClosedBrowserPanelRestoreSnapshot] = []
+    let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    var isEmpty: Bool {
+        entries.isEmpty
+    }
+
+    mutating func push(_ snapshot: ClosedBrowserPanelRestoreSnapshot) {
+        entries.append(snapshot)
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+    }
+
+    mutating func pop() -> ClosedBrowserPanelRestoreSnapshot? {
+        entries.popLast()
     }
 }
 
@@ -275,6 +560,7 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 class TabManager: ObservableObject {
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
+    weak var window: NSWindow?
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -330,6 +616,7 @@ class TabManager: ObservableObject {
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -392,6 +679,16 @@ class TabManager: ObservableObject {
 
     deinit {
         workspaceCycleCooldownTask?.cancel()
+    }
+
+    private func wireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = { [weak self] snapshot in
+            self?.recentlyClosedBrowsers.push(snapshot)
+        }
+    }
+
+    private func unwireClosedBrowserTracking(for workspace: Workspace) {
+        workspace.onClosedBrowserPanel = nil
     }
 
     var selectedWorkspace: Workspace? {
@@ -458,7 +755,9 @@ class TabManager: ObservableObject {
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:]
+        initialTerminalEnvironment: [String: String] = [:],
+        placementOverride: NewWorkspacePlacement? = nil,
+        select: Bool = true
     ) -> Workspace {
         let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
         let ordinal = Self.nextPortOrdinal
@@ -470,23 +769,26 @@ class TabManager: ObservableObject {
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalEnvironment: initialTerminalEnvironment
         )
-        let insertIndex = newTabInsertIndex()
+        wireClosedBrowserTracking(for: newWorkspace)
+        let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
         if insertIndex >= 0 && insertIndex <= tabs.count {
             tabs.insert(newWorkspace, at: insertIndex)
         } else {
             tabs.append(newWorkspace)
         }
-        selectedTabId = newWorkspace.id
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusTab,
-            object: nil,
-            userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
-        )
+        if select {
+            selectedTabId = newWorkspace.id
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: newWorkspace.id]
+            )
+        }
 #if DEBUG
         UITestRecorder.incrementInt("addTabInvocations")
         UITestRecorder.record([
             "tabCount": String(tabs.count),
-            "selectedTabId": newWorkspace.id.uuidString
+            "selectedTabId": select ? newWorkspace.id.uuidString : (selectedTabId?.uuidString ?? "")
         ])
 #endif
         return newWorkspace
@@ -494,7 +796,86 @@ class TabManager: ObservableObject {
 
     // Keep addTab as convenience alias
     @discardableResult
-    func addTab() -> Workspace { addWorkspace() }
+    func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
+
+    func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
+        guard let workspace = selectedWorkspace else { return nil }
+        if let focusedTerminal = workspace.focusedTerminalPanel {
+            return focusedTerminal
+        }
+        if let focusedPaneId = workspace.bonsplitController.focusedPaneId,
+           let paneTerminal = workspace.terminalPanelForConfigInheritance(inPane: focusedPaneId) {
+            return paneTerminal
+        }
+        return workspace.terminalPanelForConfigInheritance()
+    }
+
+    func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
+        let workspaceSnapshots = tabs
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedId in
+            tabs.firstIndex(where: { $0.id == selectedId })
+        }
+        return SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: selectedWorkspaceIndex,
+            workspaces: workspaceSnapshots
+        )
+    }
+
+    func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
+        for tab in tabs {
+            unwireClosedBrowserTracking(for: tab)
+        }
+
+        tabs.removeAll(keepingCapacity: false)
+        lastFocusedPanelByTab.removeAll()
+        pendingPanelTitleUpdates.removeAll()
+        tabHistory.removeAll()
+        historyIndex = -1
+        isNavigatingHistory = false
+        pendingWorkspaceUnfocusTarget = nil
+        workspaceCycleCooldownTask?.cancel()
+        workspaceCycleCooldownTask = nil
+        isWorkspaceCycleHot = false
+        selectionSideEffectsGeneration &+= 1
+        recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+
+        let workspaceSnapshots = snapshot.workspaces
+            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        for workspaceSnapshot in workspaceSnapshots {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let workspace = Workspace(
+                title: workspaceSnapshot.processTitle,
+                workingDirectory: workspaceSnapshot.currentDirectory,
+                portOrdinal: ordinal
+            )
+            workspace.restoreSessionSnapshot(workspaceSnapshot)
+            wireClosedBrowserTracking(for: workspace)
+            tabs.append(workspace)
+        }
+
+        if tabs.isEmpty {
+            _ = addWorkspace(select: false)
+        }
+
+        selectedTabId = nil
+        if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
+           tabs.indices.contains(selectedWorkspaceIndex) {
+            selectedTabId = tabs[selectedWorkspaceIndex].id
+        } else {
+            selectedTabId = tabs.first?.id
+        }
+
+        if let selectedTabId {
+            NotificationCenter.default.post(
+                name: .ghosttyDidFocusTab,
+                object: nil,
+                userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
+            )
+        }
+    }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
         guard let directory else { return nil }
@@ -503,8 +884,8 @@ class TabManager: ObservableObject {
         return trimmed.isEmpty ? nil : normalized
     }
 
-    private func newTabInsertIndex() -> Int {
-        let placement = WorkspacePlacementSettings.current()
+    private func newTabInsertIndex(placementOverride: NewWorkspacePlacement? = nil) -> Int {
+        let placement = placementOverride ?? WorkspacePlacementSettings.current()
         let pinnedCount = tabs.filter { $0.isPinned }.count
         let selectedIndex = selectedTabId.flatMap { tabId in
             tabs.firstIndex(where: { $0.id == tabId })
@@ -604,6 +985,11 @@ class TabManager: ObservableObject {
         reorderTabForPinnedState(tab)
     }
 
+    func setTabColor(tabId: UUID, color: String?) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setCustomColor(color)
+    }
+
     private func reorderTabForPinnedState(_ tab: Workspace) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: index)
@@ -636,6 +1022,7 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownRemoteConnection()
+        unwireClosedBrowserTracking(for: workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
@@ -657,6 +1044,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
 
         let removed = tabs.remove(at: index)
+        unwireClosedBrowserTracking(for: removed)
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
 
         if tabs.isEmpty {
@@ -675,6 +1063,7 @@ class TabManager: ObservableObject {
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }
             return max(0, min(index, tabs.count))
@@ -1555,6 +1944,123 @@ class TabManager: ObservableObject {
             insertAtEnd: insertAtEnd
         )
         return panel?.id
+    }
+
+    @discardableResult
+    func reopenMostRecentlyClosedBrowserPanel() -> Bool {
+        while let snapshot = recentlyClosedBrowsers.pop() {
+            guard let targetWorkspace =
+                tabs.first(where: { $0.id == snapshot.workspaceId })
+                ?? selectedWorkspace
+                ?? tabs.first else {
+                return false
+            }
+            let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
+
+            if selectedTabId != targetWorkspace.id {
+                selectedTabId = targetWorkspace.id
+            }
+
+            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
+                enforceReopenedBrowserFocus(
+                    tabId: targetWorkspace.id,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func enforceReopenedBrowserFocus(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        // Keep workspace-switch restoration pinned to the reopened browser panel.
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+        enforceReopenedBrowserFocusIfNeeded(
+            tabId: tabId,
+            reopenedPanelId: reopenedPanelId,
+            preReopenFocusedPanelId: preReopenFocusedPanelId
+        )
+
+        // Some stale focus callbacks can land one runloop turn later. Re-assert focus in two
+        // consecutive turns, but only when focus drifted back to the pre-reopen panel.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.enforceReopenedBrowserFocusIfNeeded(
+                tabId: tabId,
+                reopenedPanelId: reopenedPanelId,
+                preReopenFocusedPanelId: preReopenFocusedPanelId
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.enforceReopenedBrowserFocusIfNeeded(
+                    tabId: tabId,
+                    reopenedPanelId: reopenedPanelId,
+                    preReopenFocusedPanelId: preReopenFocusedPanelId
+                )
+            }
+        }
+    }
+
+    private func enforceReopenedBrowserFocusIfNeeded(
+        tabId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        guard selectedTabId == tabId,
+              let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[reopenedPanelId] != nil else {
+            return
+        }
+
+        rememberFocusedSurface(tabId: tabId, surfaceId: reopenedPanelId)
+
+        guard tab.focusedPanelId != reopenedPanelId else { return }
+
+        if let focusedPanelId = tab.focusedPanelId,
+           let preReopenFocusedPanelId,
+           focusedPanelId != preReopenFocusedPanelId {
+            return
+        }
+
+        tab.focusPanel(reopenedPanelId)
+    }
+
+    private func reopenClosedBrowserPanel(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        in workspace: Workspace
+    ) -> UUID? {
+        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+           let browserPanel = workspace.newBrowserSurface(inPane: originalPane, url: snapshot.url, focus: true) {
+            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let maxIndex = max(0, tabCount - 1)
+            let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
+            _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
+            return browserPanel.id
+        }
+
+        if let orientation = snapshot.fallbackSplitOrientation,
+           let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
+           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
+           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
+           let browserPanelId = workspace.newBrowserSplit(
+               from: anchorPanelId,
+               orientation: orientation,
+               insertFirst: snapshot.fallbackSplitInsertFirst,
+               url: snapshot.url
+           )?.id {
+            return browserPanelId
+        }
+
+        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+        return workspace.newBrowserSurface(inPane: focusedPane, url: snapshot.url, focus: true)?.id
     }
 
     /// Flash the currently focused panel so the user can visually confirm focus.
@@ -2617,6 +3123,13 @@ enum ResizeDirection {
 }
 
 extension Notification.Name {
+    static let commandPaletteToggleRequested = Notification.Name("cmux.commandPaletteToggleRequested")
+    static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
+    static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
+    static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
+    static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
+    static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
+    static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
     static let ghosttyDidSetTitle = Notification.Name("ghosttyDidSetTitle")
     static let ghosttyDidFocusTab = Notification.Name("ghosttyDidFocusTab")
     static let ghosttyDidFocusSurface = Notification.Name("ghosttyDidFocusSurface")
@@ -2626,6 +3139,7 @@ extension Notification.Name {
     static let browserDidExitAddressBar = Notification.Name("browserDidExitAddressBar")
     static let browserDidFocusAddressBar = Notification.Name("browserDidFocusAddressBar")
     static let browserDidBlurAddressBar = Notification.Name("browserDidBlurAddressBar")
+    static let browserDidBecomeFirstResponderWebView = Notification.Name("browserDidBecomeFirstResponderWebView")
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let webViewMiddleClickedLink = Notification.Name("webViewMiddleClickedLink")
 }

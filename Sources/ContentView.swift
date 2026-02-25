@@ -5,6 +5,60 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+func sidebarActiveForegroundNSColor(
+    opacity: CGFloat,
+    appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let baseColor: NSColor = (bestMatch == .darkAqua) ? .white : .black
+    return baseColor.withAlphaComponent(clampedOpacity)
+}
+
+func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
+    switch colorScheme {
+    case .dark:
+        return NSColor(
+            srgbRed: 0,
+            green: 145.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    default:
+        return NSColor(
+            srgbRed: 0,
+            green: 136.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    }
+}
+
+func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {
+    let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+    let scheme: ColorScheme = (bestMatch == .darkAqua) ? .dark : .light
+    return cmuxAccentNSColor(for: scheme)
+}
+
+func cmuxAccentNSColor() -> NSColor {
+    NSColor(name: nil) { appearance in
+        cmuxAccentNSColor(for: appearance)
+    }
+}
+
+func cmuxAccentColor() -> Color {
+    Color(nsColor: cmuxAccentNSColor())
+}
+
+func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
+    cmuxAccentNSColor(for: colorScheme)
+}
+
+func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    return NSColor.white.withAlphaComponent(clampedOpacity)
+}
+
 struct ShortcutHintPillBackground: View {
     var emphasis: Double = 1.0
 
@@ -152,10 +206,26 @@ enum WindowGlassEffect {
 }
 
 final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool = true
+    @Published var isVisible: Bool
+    @Published var persistedWidth: CGFloat
+
+    init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
+        self.isVisible = isVisible
+        let sanitized = SessionPersistencePolicy.sanitizedSidebarWidth(Double(persistedWidth))
+        self.persistedWidth = CGFloat(sanitized)
+    }
 
     func toggle() {
         isVisible.toggle()
+    }
+}
+
+enum SidebarResizeInteraction {
+    static let handleWidth: CGFloat = 6
+    static let hitInset: CGFloat = 3
+
+    static var hitWidthPerSide: CGFloat {
+        hitInset + (handleWidth / 2)
     }
 }
 
@@ -615,6 +685,7 @@ final class FileDropOverlayView: NSView {
 }
 
 var fileDropOverlayKey: UInt8 = 0
+let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 
 enum WorkspaceMountPolicy {
     // Keep only the selected workspace mounted to minimize layer-tree traversal.
@@ -833,7 +904,8 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: isVisible,
                         isWorkspaceInputActive: isInputActive,
-                        workspacePortalPriority: portalPriority
+                        workspacePortalPriority: portalPriority,
+                        onThemeRefreshRequest: nil
                     )
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
@@ -2145,6 +2217,31 @@ private struct SidebarEmptyArea: View {
     }
 }
 
+struct SidebarRemoteErrorCopyEntry: Equatable {
+    let workspaceTitle: String
+    let target: String
+    let detail: String
+}
+
+enum SidebarRemoteErrorCopySupport {
+    static func menuLabel(for entries: [SidebarRemoteErrorCopyEntry]) -> String? {
+        guard !entries.isEmpty else { return nil }
+        return entries.count == 1 ? "Copy Error" : "Copy Errors"
+    }
+
+    static func clipboardText(for entries: [SidebarRemoteErrorCopyEntry]) -> String? {
+        guard !entries.isEmpty else { return nil }
+        if entries.count == 1 {
+            let entry = entries[0]
+            return "SSH error (\(entry.target)): \(entry.detail)"
+        }
+
+        return entries.enumerated().map { index, entry in
+            "\(index + 1). \(entry.workspaceTitle) (\(entry.target)): \(entry.detail)"
+        }.joined(separator: "\n")
+    }
+}
+
 private struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
@@ -2446,6 +2543,7 @@ private struct TabItemView: View {
             let targetIds = contextTargetIds()
             let targetWorkspaces = targetIds.compactMap { id in tabManager.tabs.first(where: { $0.id == id }) }
             let remoteTargetWorkspaces = targetWorkspaces.filter { $0.isRemoteWorkspace }
+            let remoteWorkspaceErrors = remoteErrorCopyEntries(in: remoteTargetWorkspaces)
             let reconnectLabel = remoteTargetWorkspaces.count > 1 ? "Reconnect Workspaces" : "Reconnect Workspace"
             let disconnectLabel = remoteTargetWorkspaces.count > 1 ? "Disconnect Workspaces" : "Disconnect Workspace"
             let shouldPin = !tab.isPinned
@@ -2490,6 +2588,13 @@ private struct TabItemView: View {
                     }
                 }
                 .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
+
+                if let copyErrorLabel = SidebarRemoteErrorCopySupport.menuLabel(for: remoteWorkspaceErrors),
+                   let copyErrorText = SidebarRemoteErrorCopySupport.clipboardText(for: remoteWorkspaceErrors) {
+                    Button(copyErrorLabel) {
+                        copyTextToPasteboard(copyErrorText)
+                    }
+                }
             }
 
             Divider()
@@ -2680,6 +2785,27 @@ private struct TabItemView: View {
     private func hasReadNotifications(in targetIds: [UUID]) -> Bool {
         let targetSet = Set(targetIds)
         return notificationStore.notifications.contains { targetSet.contains($0.tabId) && $0.isRead }
+    }
+
+    private func remoteErrorCopyEntries(in workspaces: [Tab]) -> [SidebarRemoteErrorCopyEntry] {
+        workspaces.compactMap { workspace in
+            guard workspace.remoteConnectionState == .error else { return nil }
+            guard let detail = workspace.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !detail.isEmpty else {
+                return nil
+            }
+            return SidebarRemoteErrorCopyEntry(
+                workspaceTitle: workspace.title,
+                target: workspace.remoteDisplayTarget ?? "remote host",
+                detail: detail
+            )
+        }
+    }
+
+    private func copyTextToPasteboard(_ text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     private func syncSelectionAfterMutation() {
@@ -3472,7 +3598,7 @@ private struct DraggableFolderIconRepresentable: NSViewRepresentable {
     }
 }
 
-private final class DraggableFolderNSView: NSView, NSDraggingSource {
+final class DraggableFolderNSView: NSView, NSDraggingSource {
     var directory: String
     private var imageView: NSImageView!
 
@@ -3598,6 +3724,20 @@ private final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 }
 
+func temporarilyDisableWindowDragging(window: NSWindow?) -> Bool? {
+    guard let window else { return nil }
+    let wasMovable = window.isMovable
+    if wasMovable {
+        window.isMovable = false
+    }
+    return wasMovable
+}
+
+func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
+    guard let window, let previousMovableState else { return }
+    window.isMovable = previousMovableState
+}
+
 /// Wrapper view that tries NSGlassEffectView (macOS 26+) when available or requested
 private struct SidebarVisualEffectBackground: NSViewRepresentable {
     let material: NSVisualEffectView.Material
@@ -3677,11 +3817,16 @@ private struct SidebarVisualEffectBackground: NSViewRepresentable {
 
 
 /// Reads the leading inset required to clear traffic lights + left titlebar accessories.
+final class TitlebarLeadingInsetPassthroughView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     @Binding var inset: CGFloat
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = TitlebarLeadingInsetPassthroughView()
         view.setFrameSize(.zero)
         return view
     }
@@ -3965,5 +4110,29 @@ extension NSColor {
             min(255, max(0, Int(green * 255))),
             min(255, max(0, Int(blue * 255)))
         )
+    }
+}
+
+extension ContentView {
+    static func commandPaletteScrollPositionAnchor(
+        selectedIndex: Int,
+        resultCount: Int
+    ) -> UnitPoint? {
+        guard resultCount > 0 else { return nil }
+        if selectedIndex <= 0 {
+            return UnitPoint.top
+        }
+        if selectedIndex >= resultCount - 1 {
+            return UnitPoint.bottom
+        }
+        return nil
+    }
+
+    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+        focusedPanelIsBrowser: Bool,
+        focusedBrowserAddressBarPanelId: UUID?,
+        focusedPanelId: UUID
+    ) -> Bool {
+        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
     }
 }

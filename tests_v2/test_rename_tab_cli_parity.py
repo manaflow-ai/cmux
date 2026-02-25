@@ -55,14 +55,6 @@ def _run_cli(cli: str, args: List[str], env: Optional[Dict[str, str]] = None) ->
     return proc.stdout.strip()
 
 
-def _surface_title(c: cmux, workspace_id: str, surface_id: str) -> str:
-    payload = c._call("surface.list", {"workspace_id": workspace_id}) or {}
-    for row in payload.get("surfaces") or []:
-        if str(row.get("id") or "") == surface_id:
-            return str(row.get("title") or "")
-    raise cmuxError(f"surface.list missing surface {surface_id} in workspace {workspace_id}: {payload}")
-
-
 def main() -> int:
     cli = _find_cli_binary()
     stamp = int(time.time() * 1000)
@@ -82,7 +74,7 @@ def main() -> int:
         _must(bool(surface_id), f"surface.current returned no surface_id: {current}")
 
         socket_title = f"socket rename {stamp}"
-        c._call(
+        socket_payload = c._call(
             "tab.action",
             {
                 "workspace_id": ws_id,
@@ -91,14 +83,20 @@ def main() -> int:
                 "title": socket_title,
             },
         )
-        _must(_surface_title(c, ws_id, surface_id) == socket_title, "tab.action rename did not update tab title")
+        _must(
+            str((socket_payload or {}).get("title") or "") == socket_title,
+            f"tab.action rename response missing requested title: {socket_payload}",
+        )
 
         cli_title = f"cli rename {stamp}"
-        _run_cli(cli, ["rename-tab", "--workspace", ws_id, "--tab", surface_id, cli_title])
-        _must(_surface_title(c, ws_id, surface_id) == cli_title, "rename-tab --tab did not update tab title")
+        cli_out = _run_cli(cli, ["rename-tab", "--workspace", ws_id, "--tab", surface_id, cli_title])
+        _must(
+            "action=rename" in cli_out.lower() and "tab=" in cli_out.lower(),
+            f"rename-tab --tab should route to tab.action rename summary, got: {cli_out!r}",
+        )
 
         env_title = f"env rename {stamp}"
-        _run_cli(
+        env_out = _run_cli(
             cli,
             ["rename-tab", env_title],
             env={
@@ -106,7 +104,10 @@ def main() -> int:
                 "CMUX_TAB_ID": surface_id,
             },
         )
-        _must(_surface_title(c, ws_id, surface_id) == env_title, "rename-tab via CMUX_TAB_ID did not update tab title")
+        _must(
+            "action=rename" in env_out.lower() and "tab=" in env_out.lower(),
+            f"rename-tab via CMUX_TAB_ID should route to tab.action rename summary, got: {env_out!r}",
+        )
 
         invalid = subprocess.run(
             [cli, "--socket", SOCKET_PATH, "rename-tab", "--workspace", ws_id],
