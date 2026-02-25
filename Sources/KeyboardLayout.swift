@@ -5,7 +5,7 @@ class KeyboardLayout {
     static var id: String? {
         if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
            let sourceIdPointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) {
-            let sourceId = unsafeBitCast(sourceIdPointer, to: CFString.self)
+            let sourceId = Unmanaged<CFString>.fromOpaque(sourceIdPointer).takeUnretainedValue()
             return sourceId as String
         }
 
