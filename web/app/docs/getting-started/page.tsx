@@ -68,6 +68,20 @@ cmux notify --title "Build Complete" --body "Your build finished"`}</CodeBlock>
         bar.
       </p>
 
+      <h2>Session restore (current behavior)</h2>
+      <p>After relaunch, cmux restores layout and metadata only:</p>
+      <ul>
+        <li>Window, workspace, and pane layout</li>
+        <li>Working directories</li>
+        <li>Terminal scrollback (best effort)</li>
+        <li>Browser URL and navigation history</li>
+      </ul>
+      <Callout>
+        cmux does not restore live process state yet. Active terminal app
+        sessions such as Claude Code, tmux, and vim are not resumed after app
+        restart.
+      </Callout>
+
       <h2>Requirements</h2>
       <ul>
         <li>macOS 14.0 or later</li>
