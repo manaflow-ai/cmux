@@ -381,6 +381,20 @@ func TestCLINoArgs(t *testing.T) {
 	}
 }
 
+func TestCLIHelpFlag(t *testing.T) {
+	code := runCLI([]string{"--help"})
+	if code != 0 {
+		t.Fatalf("--help should return 0, got %d", code)
+	}
+}
+
+func TestCLIHelpCommand(t *testing.T) {
+	code := runCLI([]string{"help"})
+	if code != 0 {
+		t.Fatalf("help should return 0, got %d", code)
+	}
+}
+
 func TestFlagToParamKey(t *testing.T) {
 	tests := []struct {
 		input, expected string

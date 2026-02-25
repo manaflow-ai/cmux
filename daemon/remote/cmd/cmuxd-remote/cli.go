@@ -93,6 +93,9 @@ func runCLI(args []string) int {
 			i++
 		case "--json":
 			jsonOutput = true
+		case "--help", "-h":
+			cliUsage()
+			return 0
 		default:
 			remaining = append(remaining, args[i:]...)
 			goto doneFlags
@@ -103,6 +106,12 @@ doneFlags:
 	if len(remaining) == 0 {
 		cliUsage()
 		return 2
+	}
+	cmdName := remaining[0]
+	cmdArgs := remaining[1:]
+	if cmdName == "help" {
+		cliUsage()
+		return 0
 	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
@@ -116,9 +125,6 @@ doneFlags:
 		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
 		return 1
 	}
-
-	cmdName := remaining[0]
-	cmdArgs := remaining[1:]
 
 	// Special case: "rpc" passthrough
 	if cmdName == "rpc" {

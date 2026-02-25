@@ -494,6 +494,7 @@ private final class WorkspaceRemoteSessionController {
                 guard let self, !self.isStopping else { return }
                 guard self.reverseRelayProcess?.isRunning == true else { return }
                 self.writeRemoteSocketAddrLocked()
+                self.writeRemoteRelayDaemonMappingLocked()
             }
 
             return true
@@ -704,15 +705,46 @@ private final class WorkspaceRemoteSessionController {
         return try helloRemoteDaemonLocked(remotePath: remotePath)
     }
 
-    /// Creates `cmux` symlinks pointing to the daemon binary.
+    /// Installs a stable `cmux` wrapper on the remote and updates the default daemon target.
+    /// The wrapper resolves daemon path using relay-port metadata, allowing multiple local
+    /// cmux versions to coexist on the same remote host without clobbering each other.
     /// Tries `/usr/local/bin` first (already in PATH, no rc changes needed), falls back to
     /// `~/.cmux/bin`. Non-fatal: logs on failure but does not throw.
     private func createRemoteCLISymlinkLocked(daemonRemotePath: String) {
         let script = """
-        mkdir -p "$HOME/.cmux/bin"
-        ln -sf "$HOME/\(daemonRemotePath)" "$HOME/.cmux/bin/cmux"
-        ln -sf "$HOME/\(daemonRemotePath)" /usr/local/bin/cmux 2>/dev/null \
-          || sudo -n ln -sf "$HOME/\(daemonRemotePath)" /usr/local/bin/cmux 2>/dev/null \
+        mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
+        ln -sf "$HOME/\(daemonRemotePath)" "$HOME/.cmux/bin/cmuxd-remote-current"
+        cat > "$HOME/.cmux/bin/cmux" <<'CMUX_REMOTE_WRAPPER'
+        #!/bin/sh
+        set -eu
+
+        if [ -n "${CMUX_SOCKET_PATH:-}" ]; then
+          _cmux_port="${CMUX_SOCKET_PATH##*:}"
+          case "$_cmux_port" in
+            ''|*[!0-9]*)
+              ;;
+            *)
+              _cmux_map="$HOME/.cmux/relay/${_cmux_port}.daemon_path"
+              if [ -r "$_cmux_map" ]; then
+                _cmux_daemon="$(cat "$_cmux_map" 2>/dev/null || true)"
+                if [ -n "$_cmux_daemon" ] && [ -x "$_cmux_daemon" ]; then
+                  exec "$_cmux_daemon" cli "$@"
+                fi
+              fi
+              ;;
+          esac
+        fi
+
+        if [ -x "$HOME/.cmux/bin/cmuxd-remote-current" ]; then
+          exec "$HOME/.cmux/bin/cmuxd-remote-current" cli "$@"
+        fi
+
+        echo "cmux: remote daemon not installed; reconnect from local cmux." >&2
+        exit 127
+        CMUX_REMOTE_WRAPPER
+        chmod 755 "$HOME/.cmux/bin/cmux"
+        ln -sf "$HOME/.cmux/bin/cmux" /usr/local/bin/cmux 2>/dev/null \
+          || sudo -n ln -sf "$HOME/.cmux/bin/cmux" /usr/local/bin/cmux 2>/dev/null \
           || true
         """
         let command = "sh -lc \(Self.shellSingleQuoted(script))"
@@ -744,6 +776,28 @@ private final class WorkspaceRemoteSessionController {
             }
         } catch {
             NSLog("[cmux] warning: failed to write remote socket_addr: %@", error.localizedDescription)
+        }
+    }
+
+    /// Writes relay-port -> daemon binary mapping used by the remote `cmux` wrapper.
+    /// This keeps CLI dispatch stable when multiple local cmux versions target the same host.
+    private func writeRemoteRelayDaemonMappingLocked() {
+        guard let relayPort = configuration.relayPort, relayPort > 0,
+              let daemonRemotePath, !daemonRemotePath.isEmpty else { return }
+        let script = """
+        mkdir -p "$HOME/.cmux/relay" && \
+        printf '%s' "$HOME/\(daemonRemotePath)" > "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        """
+        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        do {
+            let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+            if result.status != 0 {
+                NSLog("[cmux] warning: failed to write remote relay daemon mapping (exit %d): %@",
+                      result.status,
+                      Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "unknown error")
+            }
+        } catch {
+            NSLog("[cmux] warning: failed to write remote relay daemon mapping: %@", error.localizedDescription)
         }
     }
 
