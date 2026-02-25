@@ -412,7 +412,7 @@ struct cmuxApp: App {
                 Button("Close Other Tabs in Pane") {
                     closeOtherTabsInFocusedPane()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .option])
+                .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
 
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this

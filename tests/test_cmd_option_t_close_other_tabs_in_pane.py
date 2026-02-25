@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: Cmd+Option+W closes all other tabs in the focused pane
+Regression test: Cmd+Option+T closes all other tabs in the focused pane
 after an explicit confirmation.
 
 Run this against an app launched with CMUX_SOCKET_MODE=allowAll.
@@ -90,12 +90,12 @@ def main() -> int:
                 )
 
             # Trigger shortcut via real OS key event; this should open the confirmation dialog.
-            _send_shortcut_via_system_events("w", "command down, option down")
+            _send_shortcut_via_system_events("t", "command down, option down")
             time.sleep(0.25)
             after_trigger = _pane_state(client)
             if len(after_trigger) != len(before):
                 raise cmuxError(
-                    "Cmd+Option+W should require confirmation before closing.\n"
+                    "Cmd+Option+T should require confirmation before closing.\n"
                     f"before={before}\n"
                     f"after_trigger={after_trigger}"
                 )
@@ -105,7 +105,7 @@ def main() -> int:
             closed = _wait_until(lambda: len(_pane_state(client)) == 1, timeout_s=5.0, interval_s=0.05)
             if not closed:
                 raise cmuxError(
-                    "Timed out waiting for tabs to close after confirming Cmd+Option+W.\n"
+                    "Timed out waiting for tabs to close after confirming Cmd+Option+T.\n"
                     f"before={before}\n"
                     f"after_trigger={after_trigger}\n"
                     f"after_confirm={_pane_state(client)}"
@@ -125,7 +125,7 @@ def main() -> int:
                     f"before={before}"
                 )
 
-            print("PASS: Cmd+Option+W closed all other tabs in focused pane.")
+            print("PASS: Cmd+Option+T closed all other tabs in focused pane.")
             print(f"workspace={workspace_id}")
             print(f"selected_panel={selected_panel_id}")
             return 0

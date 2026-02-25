@@ -4564,7 +4564,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if normalizedFlags == [.command, .option], (chars == "w" || event.keyCode == 13) {
+        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
