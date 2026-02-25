@@ -2240,6 +2240,37 @@ enum SidebarRemoteErrorCopySupport {
             "\(index + 1). \(entry.workspaceTitle) (\(entry.target)): \(entry.detail)"
         }.joined(separator: "\n")
     }
+
+    static func parsedTargetAndDetail(from statusValue: String, fallbackTarget: String? = nil) -> (target: String, detail: String)? {
+        let trimmed = statusValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.hasPrefix("SSH error") else { return nil }
+
+        let normalizedFallbackTarget: String? = {
+            guard let fallbackTarget else { return nil }
+            let trimmedFallback = fallbackTarget.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedFallback.isEmpty ? nil : trimmedFallback
+        }()
+
+        if let separator = trimmed.range(of: ": ") {
+            let prefix = String(trimmed[..<separator.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = String(trimmed[separator.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !detail.isEmpty else { return nil }
+
+            var parsedTarget: String?
+            if prefix.hasPrefix("SSH error ("), prefix.hasSuffix(")") {
+                let start = prefix.index(prefix.startIndex, offsetBy: "SSH error (".count)
+                let end = prefix.index(before: prefix.endIndex)
+                let candidate = String(prefix[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.isEmpty {
+                    parsedTarget = candidate
+                }
+            }
+
+            return (parsedTarget ?? normalizedFallbackTarget ?? "remote host", detail)
+        }
+
+        return (normalizedFallbackTarget ?? "remote host", trimmed)
+    }
 }
 
 private struct TabItemView: View {
@@ -2543,7 +2574,7 @@ private struct TabItemView: View {
             let targetIds = contextTargetIds()
             let targetWorkspaces = targetIds.compactMap { id in tabManager.tabs.first(where: { $0.id == id }) }
             let remoteTargetWorkspaces = targetWorkspaces.filter { $0.isRemoteWorkspace }
-            let remoteWorkspaceErrors = remoteErrorCopyEntries(in: remoteTargetWorkspaces)
+            let remoteWorkspaceErrors = remoteErrorCopyEntries(in: targetWorkspaces)
             let reconnectLabel = remoteTargetWorkspaces.count > 1 ? "Reconnect Workspaces" : "Reconnect Workspace"
             let disconnectLabel = remoteTargetWorkspaces.count > 1 ? "Disconnect Workspaces" : "Disconnect Workspace"
             let shouldPin = !tab.isPinned
@@ -2572,22 +2603,24 @@ private struct TabItemView: View {
                 }
             }
 
-            if !remoteTargetWorkspaces.isEmpty {
+            if !remoteTargetWorkspaces.isEmpty || !remoteWorkspaceErrors.isEmpty {
                 Divider()
 
-                Button(reconnectLabel) {
-                    for workspace in remoteTargetWorkspaces {
-                        workspace.reconnectRemoteConnection()
+                if !remoteTargetWorkspaces.isEmpty {
+                    Button(reconnectLabel) {
+                        for workspace in remoteTargetWorkspaces {
+                            workspace.reconnectRemoteConnection()
+                        }
                     }
-                }
-                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .connecting })
+                    .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .connecting })
 
-                Button(disconnectLabel) {
-                    for workspace in remoteTargetWorkspaces {
-                        workspace.disconnectRemoteConnection(clearConfiguration: false)
+                    Button(disconnectLabel) {
+                        for workspace in remoteTargetWorkspaces {
+                            workspace.disconnectRemoteConnection(clearConfiguration: false)
+                        }
                     }
+                    .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
                 }
-                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
 
                 if let copyErrorLabel = SidebarRemoteErrorCopySupport.menuLabel(for: remoteWorkspaceErrors),
                    let copyErrorText = SidebarRemoteErrorCopySupport.clipboardText(for: remoteWorkspaceErrors) {
@@ -2789,15 +2822,28 @@ private struct TabItemView: View {
 
     private func remoteErrorCopyEntries(in workspaces: [Tab]) -> [SidebarRemoteErrorCopyEntry] {
         workspaces.compactMap { workspace in
-            guard workspace.remoteConnectionState == .error else { return nil }
-            guard let detail = workspace.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !detail.isEmpty else {
+            if workspace.remoteConnectionState == .error,
+               let detail = workspace.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !detail.isEmpty {
+                return SidebarRemoteErrorCopyEntry(
+                    workspaceTitle: workspace.title,
+                    target: workspace.remoteDisplayTarget ?? "remote host",
+                    detail: detail
+                )
+            }
+
+            guard let statusValue = workspace.statusEntries["remote.error"]?.value,
+                  let parsed = SidebarRemoteErrorCopySupport.parsedTargetAndDetail(
+                      from: statusValue,
+                      fallbackTarget: workspace.remoteDisplayTarget
+                  ) else {
                 return nil
             }
+
             return SidebarRemoteErrorCopyEntry(
                 workspaceTitle: workspace.title,
-                target: workspace.remoteDisplayTarget ?? "remote host",
-                detail: detail
+                target: parsed.target,
+                detail: parsed.detail
             )
         }
     }

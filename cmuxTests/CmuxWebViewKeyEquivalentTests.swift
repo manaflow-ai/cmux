@@ -2725,6 +2725,27 @@ final class SidebarRemoteErrorCopySupportTests: XCTestCase {
             """
         )
     }
+
+    func testParsedTargetAndDetailParsesCanonicalStatusValue() {
+        let parsed = SidebarRemoteErrorCopySupport.parsedTargetAndDetail(
+            from: "SSH error (devbox:22): failed to bootstrap daemon"
+        )
+        XCTAssertEqual(parsed?.target, "devbox:22")
+        XCTAssertEqual(parsed?.detail, "failed to bootstrap daemon")
+    }
+
+    func testParsedTargetAndDetailUsesFallbackTargetWhenStatusOmitsTarget() {
+        let parsed = SidebarRemoteErrorCopySupport.parsedTargetAndDetail(
+            from: "SSH error: connection refused",
+            fallbackTarget: "fallback-host"
+        )
+        XCTAssertEqual(parsed?.target, "fallback-host")
+        XCTAssertEqual(parsed?.detail, "connection refused")
+    }
+
+    func testParsedTargetAndDetailIgnoresNonSSHStatusValues() {
+        XCTAssertNil(SidebarRemoteErrorCopySupport.parsedTargetAndDetail(from: "All good"))
+    }
 }
 
 final class WorkspaceReorderTests: XCTestCase {
