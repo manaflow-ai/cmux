@@ -126,6 +126,64 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testLoadCachesPerColorScheme() {
+        GhosttyConfig.invalidateLoadCache()
+        defer { GhosttyConfig.invalidateLoadCache() }
+
+        var loadCount = 0
+        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { scheme in
+            loadCount += 1
+            var config = GhosttyConfig()
+            config.fontFamily = "\(scheme)-\(loadCount)"
+            return config
+        }
+
+        let lightFirst = GhosttyConfig.load(
+            preferredColorScheme: .light,
+            loadFromDisk: loadFromDisk
+        )
+        let lightSecond = GhosttyConfig.load(
+            preferredColorScheme: .light,
+            loadFromDisk: loadFromDisk
+        )
+        let darkFirst = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+
+        XCTAssertEqual(loadCount, 2)
+        XCTAssertEqual(lightFirst.fontFamily, "light-1")
+        XCTAssertEqual(lightSecond.fontFamily, "light-1")
+        XCTAssertEqual(darkFirst.fontFamily, "dark-2")
+    }
+
+    func testLoadCacheInvalidationForcesReload() {
+        GhosttyConfig.invalidateLoadCache()
+        defer { GhosttyConfig.invalidateLoadCache() }
+
+        var loadCount = 0
+        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { _ in
+            loadCount += 1
+            var config = GhosttyConfig()
+            config.fontFamily = "reload-\(loadCount)"
+            return config
+        }
+
+        let first = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+        GhosttyConfig.invalidateLoadCache()
+        let second = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+
+        XCTAssertEqual(loadCount, 2)
+        XCTAssertEqual(first.fontFamily, "reload-1")
+        XCTAssertEqual(second.fontFamily, "reload-2")
+    }
+
     func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
         XCTAssertTrue(
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
