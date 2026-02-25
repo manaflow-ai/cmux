@@ -1535,6 +1535,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
+
+        let didWakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+            }
+        }
+        lifecycleSnapshotObservers.append(didWakeObserver)
+    }
+
+    private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
+        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let userMode = SocketControlSettings.migrateMode(raw)
+        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
+        guard mode != .off else { return nil }
+        return (mode: mode, path: SocketControlSettings.socketPath())
+    }
+
+    private func restartSocketListenerIfEnabled(source: String) {
+        guard let tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
+            "mode": config.mode.rawValue,
+            "path": config.path,
+            "source": source
+        ])
+        TerminalController.shared.stop()
+        TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -3231,28 +3263,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func restartSocketListener(_ sender: Any?) {
-        guard let tabManager else {
+        guard tabManager != nil else {
             NSSound.beep()
             return
         }
 
-        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
-            ?? SocketControlSettings.defaultMode.rawValue
-        let userMode = SocketControlSettings.migrateMode(raw)
-        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
-        guard mode != .off else {
+        guard socketListenerConfigurationIfEnabled() != nil else {
             TerminalController.shared.stop()
             NSSound.beep()
             return
         }
-
-        let socketPath = SocketControlSettings.socketPath()
-        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
-            "mode": mode.rawValue,
-            "path": socketPath
-        ])
-        TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: socketPath, accessMode: mode)
+        restartSocketListenerIfEnabled(source: "menu.command")
     }
 
     private func setupMenuBarExtra() {
