@@ -417,16 +417,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
-    func testPresentPreferencesWindowUsesFallbackWhenResponderChainDoesNotHandleSettingsAction() {
-        var sendShowSettingsActionCallCount = 0
+    func testPresentPreferencesWindowShowsCustomSettingsWindowAndActivates() {
         var showFallbackSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
 
         AppDelegate.presentPreferencesWindow(
-            sendShowSettingsAction: {
-                sendShowSettingsActionCallCount += 1
-                return false
-            },
             showFallbackSettingsWindow: {
                 showFallbackSettingsWindowCallCount += 1
             },
@@ -435,21 +430,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(sendShowSettingsActionCallCount, 1)
         XCTAssertEqual(showFallbackSettingsWindowCallCount, 1)
         XCTAssertEqual(activateApplicationCallCount, 1)
     }
 
-    func testPresentPreferencesWindowSkipsFallbackWhenResponderChainHandlesSettingsAction() {
-        var sendShowSettingsActionCallCount = 0
+    func testPresentPreferencesWindowSupportsRepeatedCalls() {
         var showFallbackSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
 
         AppDelegate.presentPreferencesWindow(
-            sendShowSettingsAction: {
-                sendShowSettingsActionCallCount += 1
-                return true
-            },
             showFallbackSettingsWindow: {
                 showFallbackSettingsWindowCallCount += 1
             },
@@ -458,9 +447,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(sendShowSettingsActionCallCount, 1)
-        XCTAssertEqual(showFallbackSettingsWindowCallCount, 0)
-        XCTAssertEqual(activateApplicationCallCount, 1)
+        AppDelegate.presentPreferencesWindow(
+            showFallbackSettingsWindow: {
+                showFallbackSettingsWindowCallCount += 1
+            },
+            activateApplication: {
+                activateApplicationCallCount += 1
+            }
+        )
+
+        XCTAssertEqual(showFallbackSettingsWindowCallCount, 2)
+        XCTAssertEqual(activateApplicationCallCount, 2)
     }
 
     private func makeKeyDownEvent(

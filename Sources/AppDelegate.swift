@@ -3260,9 +3260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     static func presentPreferencesWindow(
-        sendShowSettingsAction: @MainActor () -> Bool = {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        },
         showFallbackSettingsWindow: @MainActor () -> Void = {
             SettingsWindowController.shared.show()
         },
@@ -3270,16 +3267,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSApp.activate(ignoringOtherApps: true)
         }
     ) {
-        let handledByResponderChain = sendShowSettingsAction()
 #if DEBUG
-        dlog("settings.open.present handledByResponderChain=\(handledByResponderChain ? 1 : 0)")
+        dlog("settings.open.present path=customWindowDirect")
 #endif
-        if !handledByResponderChain {
-#if DEBUG
-            dlog("settings.open.present fallback=1")
-#endif
-            showFallbackSettingsWindow()
-        }
+        showFallbackSettingsWindow()
         activateApplication()
 #if DEBUG
         dlog("settings.open.present activate=1")
