@@ -3250,7 +3250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.checkForUpdates(nil)
             },
             onOpenPreferences: { [weak self] in
-                self?.openPreferencesWindow()
+                self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
                 NSApp.terminate(nil)
@@ -3271,14 +3271,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     ) {
         let handledByResponderChain = sendShowSettingsAction()
+#if DEBUG
+        dlog("settings.open.present handledByResponderChain=\(handledByResponderChain ? 1 : 0)")
+#endif
         if !handledByResponderChain {
+#if DEBUG
+            dlog("settings.open.present fallback=1")
+#endif
             showFallbackSettingsWindow()
         }
         activateApplication()
+#if DEBUG
+        dlog("settings.open.present activate=1")
+#endif
+    }
+
+    @MainActor
+    func openPreferencesWindow(debugSource: String) {
+#if DEBUG
+        dlog("settings.open.request source=\(debugSource)")
+#endif
+        Self.presentPreferencesWindow()
     }
 
     @objc func openPreferencesWindow() {
-        Self.presentPreferencesWindow()
+        openPreferencesWindow(debugSource: "appDelegate")
     }
 
     func refreshMenuBarExtraForDebug() {

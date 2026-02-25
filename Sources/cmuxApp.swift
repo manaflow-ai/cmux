@@ -195,7 +195,7 @@ struct cmuxApp: App {
                     applyAppearance()
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
                         DispatchQueue.main.async {
-                            showSettingsPanel()
+                            appDelegate.openPreferencesWindow(debugSource: "uiTestShowSettings")
                         }
                     }
                 }
@@ -210,7 +210,7 @@ struct cmuxApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    showSettingsPanel()
+                    appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
@@ -580,11 +580,6 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private func showSettingsPanel() {
-        SettingsWindowController.shared.show()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -1728,11 +1723,25 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func show() {
         guard let window else { return }
+#if DEBUG
+        NSLog(
+            "settings.window.show requested isVisible=%d isKey=%d",
+            window.isVisible ? 1 : 0,
+            window.isKeyWindow ? 1 : 0
+        )
+#endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
             window.center()
         }
         window.makeKeyAndOrderFront(nil)
+#if DEBUG
+        NSLog(
+            "settings.window.show completed isVisible=%d isKey=%d",
+            window.isVisible ? 1 : 0,
+            window.isKeyWindow ? 1 : 0
+        )
+#endif
     }
 }
 
