@@ -26,7 +26,7 @@ export const metadata: Metadata = {
     url: "https://cmux.dev/blog/introducing-cmux",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Introducing cmux",
     description:
       "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side.",
