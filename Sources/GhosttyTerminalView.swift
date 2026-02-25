@@ -1825,6 +1825,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         flushPendingTextIfNeeded()
 
+        // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
+        // miss the first vsync callback and sit on a blank frame until another focus/visibility
+        // transition nudges the renderer.
+        view.forceRefreshSurface()
+        ghostty_surface_refresh(createdSurface)
+
 #if DEBUG
         let runtimeFontText = cmuxCurrentSurfaceFontSizePoints(createdSurface).map {
             String(format: "%.2f", $0)
@@ -1886,14 +1892,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Force a full size recalculation and surface redraw.
     func forceRefresh() {
+	        let hasSurface = surface != nil
 	        let viewState: String
 	        if let view = attachedView {
 	            let inWindow = view.window != nil
 	            let bounds = view.bounds
 	            let metalOK = (view.layer as? CAMetalLayer) != nil
-	            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK)"
+	            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
 	        } else {
-	            viewState = "NO_ATTACHED_VIEW"
+	            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
 	        }
         #if DEBUG
         let ts = ISO8601DateFormatter().string(from: Date())
@@ -1907,7 +1914,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
         }
 	        #endif
-        guard let view = attachedView,
+        guard let surface,
+              let view = attachedView,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
