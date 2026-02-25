@@ -6016,6 +6016,8 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -6322,8 +6324,7 @@ private struct TabItemView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(pullRequestDisplays) { pullRequest in
                         Button(action: {
-                            updateSelection()
-                            NSWorkspace.shared.open(pullRequest.url)
+                            openPullRequestLink(pullRequest.url)
                         }) {
                             HStack(spacing: 4) {
                                 PullRequestStatusIcon(
@@ -6937,6 +6938,17 @@ private struct TabItemView: View {
 
     private var pullRequestForegroundColor: Color {
         isActive ? .white.opacity(0.75) : .secondary
+    }
+
+    private func openPullRequestLink(_ url: URL) {
+        updateSelection()
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            if tabManager.openBrowser(url: url, insertAtEnd: true) == nil {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {

@@ -2631,6 +2631,8 @@ struct SettingsView: View {
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -2871,6 +2873,19 @@ struct SettingsView: View {
                             subtitle: "Display review items (PR/MR/etc.) with status, number, and clickable link."
                         ) {
                             Toggle("", isOn: $sidebarShowPullRequest)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Sidebar PR Links in cmux Browser",
+                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
+                                ? "Clicks open inside cmux browser."
+                                : "Clicks open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -3460,6 +3475,7 @@ struct SettingsView: View {
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
+        openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true
