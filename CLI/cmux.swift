@@ -2120,8 +2120,18 @@ struct CMUXCLI {
             parts += ["-o", trimmed]
         }
 
-        parts.append(options.destination)
-        parts.append(contentsOf: options.extraArguments)
+        if options.extraArguments.isEmpty {
+            // No explicit remote command provided: launch an interactive shell while prepending
+            // ~/.cmux/bin so `cmux` works in this SSH session without touching remote dotfiles.
+            if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
+                parts.append("-tt")
+            }
+            parts.append(options.destination)
+            parts.append("export PATH=\"$HOME/.cmux/bin:$PATH\"; exec \"${SHELL:-/bin/zsh}\" -l")
+        } else {
+            parts.append(options.destination)
+            parts.append(contentsOf: options.extraArguments)
+        }
         return parts.map(shellQuote).joined(separator: " ")
     }
 
