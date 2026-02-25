@@ -2606,6 +2606,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return ghostty_surface_has_selection(surface)
         case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+        case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
+            return canSplitCurrentSurface()
         default:
             return true
         }
@@ -3250,7 +3252,61 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
         pasteItem.target = self
+        menu.addItem(.separator())
+        let splitHorizontallyItem = menu.addItem(
+            withTitle: "Split Horizontally",
+            action: #selector(splitHorizontally(_:)),
+            keyEquivalent: "d"
+        )
+        splitHorizontallyItem.target = self
+        splitHorizontallyItem.keyEquivalentModifierMask = [.command, .shift]
+        splitHorizontallyItem.image = NSImage(
+            systemSymbolName: "rectangle.bottomhalf.inset.filled",
+            accessibilityDescription: nil
+        )
+
+        let splitVerticallyItem = menu.addItem(
+            withTitle: "Split Vertically",
+            action: #selector(splitVertically(_:)),
+            keyEquivalent: "d"
+        )
+        splitVerticallyItem.target = self
+        splitVerticallyItem.keyEquivalentModifierMask = [.command]
+        splitVerticallyItem.image = NSImage(
+            systemSymbolName: "rectangle.righthalf.inset.filled",
+            accessibilityDescription: nil
+        )
         return menu
+    }
+
+    private func canSplitCurrentSurface() -> Bool {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+              let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+            return false
+        }
+        return workspace.panels[surfaceId] != nil
+    }
+
+    @objc private func splitHorizontally(_ sender: Any?) {
+        _ = splitCurrentSurface(direction: .down)
+    }
+
+    @objc private func splitVertically(_ sender: Any?) {
+        _ = splitCurrentSurface(direction: .right)
+    }
+
+    @discardableResult
+    private func splitCurrentSurface(direction: SplitDirection) -> Bool {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
+            return false
+        }
+        return manager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
     }
 
     @objc private func triggerFlash(_ sender: Any?) {
