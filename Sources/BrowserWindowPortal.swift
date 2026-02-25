@@ -321,12 +321,15 @@ final class WindowBrowserSlotView: NSView {
 
 @MainActor
 final class WindowBrowserPortal: NSObject {
+    private static let replacementOverlapThreshold: CGFloat = 0.55
+
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
+    private var prunePassCounter: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 
     private struct Entry {
@@ -339,6 +342,15 @@ final class WindowBrowserPortal: NSObject {
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
     private var webViewByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    private enum AnchorLiveness: String {
+        case alive
+        case missingAnchor
+        case missingPortalWindow
+        case anchorWindowMismatch
+        case anchorDetached
+        case anchorOutsideReference
+    }
 
     init(window: NSWindow) {
         self.window = window
@@ -540,6 +552,18 @@ final class WindowBrowserPortal: NSObject {
             return false
         }
         return viewIndex > referenceIndex
+    }
+
+    private func anchorLiveness(for entry: Entry, currentWindow: NSWindow?) -> AnchorLiveness {
+        guard let anchor = entry.anchorView else { return .missingAnchor }
+        guard let currentWindow else { return .missingPortalWindow }
+        guard anchor.window === currentWindow else { return .anchorWindowMismatch }
+        guard anchor.superview != nil else { return .anchorDetached }
+        if let reference = installedReferenceView,
+           !anchor.isDescendant(of: reference) {
+            return .anchorOutsideReference
+        }
+        return .alive
     }
 
     private func ensureContainerView(for entry: Entry, webView: WKWebView) -> WindowBrowserSlotView {
@@ -789,28 +813,47 @@ final class WindowBrowserPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
+            if !entry.visibleInUI {
 #if DEBUG
-            if !containerView.isHidden {
-                dlog(
-                    "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                    "web=\(browserPortalDebugToken(webView)) value=1 reason=missingAnchorOrWindow"
-                )
-            }
+                if !containerView.isHidden {
+                    dlog(
+                        "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                        "web=\(browserPortalDebugToken(webView)) value=1 reason=missingAnchorOrWindow"
+                    )
+                }
 #endif
-            containerView.isHidden = true
+                containerView.isHidden = true
+            } else {
+#if DEBUG
+                dlog(
+                    "browser.portal.sync.defer container=\(browserPortalDebugToken(containerView)) " +
+                    "web=\(browserPortalDebugToken(webView)) reason=missingAnchorOrWindow keepVisible=1"
+                )
+#endif
+            }
             return
         }
         guard anchorView.window === window else {
+            if !entry.visibleInUI {
 #if DEBUG
-            if !containerView.isHidden {
-                dlog(
-                    "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
-                    "web=\(browserPortalDebugToken(webView)) value=1 " +
-                    "reason=anchorWindowMismatch anchorWindow=\(browserPortalDebugToken(anchorView.window?.contentView))"
-                )
-            }
+                if !containerView.isHidden {
+                    dlog(
+                        "browser.portal.hidden container=\(browserPortalDebugToken(containerView)) " +
+                        "web=\(browserPortalDebugToken(webView)) value=1 " +
+                        "reason=anchorWindowMismatch anchorWindow=\(browserPortalDebugToken(anchorView.window?.contentView))"
+                    )
+                }
 #endif
-            containerView.isHidden = true
+                containerView.isHidden = true
+            } else {
+#if DEBUG
+                dlog(
+                    "browser.portal.sync.defer container=\(browserPortalDebugToken(containerView)) " +
+                    "web=\(browserPortalDebugToken(webView)) reason=anchorWindowMismatch keepVisible=1 " +
+                    "anchorWindow=\(browserPortalDebugToken(anchorView.window?.contentView))"
+                )
+#endif
+            }
             return
         }
 
@@ -868,7 +911,9 @@ final class WindowBrowserPortal: NSObject {
                 "anchor=\(browserPortalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
             )
 #endif
-            containerView.isHidden = true
+            if !entry.visibleInUI {
+                containerView.isHidden = true
+            }
             scheduleDeferredFullSynchronizeAll()
             return
         }
@@ -1006,23 +1051,115 @@ final class WindowBrowserPortal: NSObject {
 #endif
     }
 
-    private func pruneDeadEntries() {
-        let currentWindow = window
-        let deadWebViewIds = entriesByWebViewId.compactMap { webViewId, entry -> ObjectIdentifier? in
-            guard entry.webView != nil else { return webViewId }
-            guard let container = entry.containerView else { return webViewId }
-            guard let anchor = entry.anchorView else { return webViewId }
-            if container.superview == nil || !container.isDescendant(of: hostView) {
-                return webViewId
-            }
-            if anchor.window !== currentWindow || anchor.superview == nil {
-                return webViewId
-            }
-            if let reference = installedReferenceView,
-               !anchor.isDescendant(of: reference) {
-                return webViewId
-            }
+    private static func overlapRatio(of lhs: NSRect, with rhs: NSRect) -> CGFloat {
+        let lhsArea = max(1, lhs.width * lhs.height)
+        let overlap = lhs.intersection(rhs)
+        guard !overlap.isNull else { return 0 }
+        let overlapArea = max(0, overlap.width * overlap.height)
+        return overlapArea / lhsArea
+    }
+
+    private func visibleReplacementForOrphan(
+        webViewId orphanWebViewId: ObjectIdentifier,
+        orphanEntry: Entry,
+        currentWindow: NSWindow?
+    ) -> (container: WindowBrowserSlotView, overlapRatio: CGFloat)? {
+        guard let orphanContainer = orphanEntry.containerView,
+              orphanContainer.superview === hostView,
+              !orphanContainer.isHidden else {
             return nil
+        }
+
+        let orphanFrame = orphanContainer.frame
+        guard orphanFrame.width > 1, orphanFrame.height > 1 else { return nil }
+
+        var bestMatch: (container: WindowBrowserSlotView, overlapRatio: CGFloat)?
+        for (candidateWebViewId, candidateEntry) in entriesByWebViewId {
+            if candidateWebViewId == orphanWebViewId { continue }
+            guard candidateEntry.visibleInUI else { continue }
+            guard candidateEntry.zPriority >= orphanEntry.zPriority else { continue }
+            guard anchorLiveness(for: candidateEntry, currentWindow: currentWindow) == .alive else { continue }
+            guard let candidateContainer = candidateEntry.containerView,
+                  candidateContainer.superview === hostView,
+                  !candidateContainer.isHidden else { continue }
+
+            let overlapRatio = Self.overlapRatio(of: orphanFrame, with: candidateContainer.frame)
+            guard overlapRatio >= Self.replacementOverlapThreshold else { continue }
+            if let existing = bestMatch, existing.overlapRatio >= overlapRatio { continue }
+            bestMatch = (candidateContainer, overlapRatio)
+        }
+
+        return bestMatch
+    }
+
+    private func pruneDeadEntries() {
+        prunePassCounter &+= 1
+        let prunePass = prunePassCounter
+        let currentWindow = window
+        var deadWebViewIds: [ObjectIdentifier] = []
+
+        for webViewId in Array(entriesByWebViewId.keys) {
+            guard let entry = entriesByWebViewId[webViewId] else { continue }
+            guard entry.webView != nil else {
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+            guard let container = entry.containerView else {
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+            guard container.superview != nil, container.isDescendant(of: hostView) else {
+#if DEBUG
+                dlog(
+                    "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
+                    "reason=containerDetached visible=\(entry.visibleInUI ? 1 : 0) pass=\(prunePass)"
+                )
+#endif
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+
+            let liveness = anchorLiveness(for: entry, currentWindow: currentWindow)
+            if liveness == .alive {
+                continue
+            }
+
+            if !entry.visibleInUI {
+#if DEBUG
+                dlog(
+                    "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
+                    "reason=\(liveness.rawValue) visible=0 " +
+                    "pass=\(prunePass)"
+                )
+#endif
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+
+            if let replacement = visibleReplacementForOrphan(
+                webViewId: webViewId,
+                orphanEntry: entry,
+                currentWindow: currentWindow
+            ) {
+#if DEBUG
+                dlog(
+                    "browser.portal.prune.detach web=\(browserPortalDebugToken(entry.webView)) " +
+                    "reason=\(liveness.rawValue)+replacement visible=1 pass=\(prunePass) " +
+                    "replacementContainer=\(browserPortalDebugToken(replacement.container)) " +
+                    "overlap=\(String(format: "%.3f", replacement.overlapRatio))"
+                )
+#endif
+                deadWebViewIds.append(webViewId)
+                continue
+            }
+
+#if DEBUG
+            dlog(
+                "browser.portal.prune.defer web=\(browserPortalDebugToken(entry.webView)) " +
+                "reason=\(liveness.rawValue) visible=1 pass=\(prunePass) " +
+                "replacement=none"
+            )
+#endif
         }
 
         for webViewId in deadWebViewIds {

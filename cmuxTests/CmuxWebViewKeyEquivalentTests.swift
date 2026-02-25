@@ -4813,7 +4813,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(TerminalWindowPortalRegistry.debugPortalCount(), baseline)
     }
 
-    func testPruneDeadEntriesDetachesAnchorlessHostedView() {
+    func testPruneDeadEntriesKeepsVisibleAnchorlessHostedViewWithoutReplacement() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
             styleMask: [.titled, .closable],
@@ -4844,8 +4844,115 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         contentView.addSubview(anchor2)
         portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
 
-        XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
-        XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+        XCTAssertEqual(
+            portal.debugEntryCount(),
+            2,
+            "Visible orphan should remain attached while waiting for an anchor replacement"
+        )
+        XCTAssertNotNil(hosted1.superview, "Visible orphan should remain attached while no replacement exists")
+
+        portal.synchronizeHostedViewForAnchor(anchor2)
+        XCTAssertEqual(portal.debugEntryCount(), 2, "Visible orphan should persist without overlap replacement")
+        XCTAssertNotNil(hosted1.superview, "Visible orphan should remain attached without replacement")
+    }
+
+    func testPruneDeadEntriesDetachesVisibleAnchorlessHostedViewWhenReplacementAppears() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hosted1 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor1!)
+        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: true)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let hosted2 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+        let anchor2 = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor2)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor2)
+
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Visible orphan should detach when a live overlapping replacement appears")
+        XCTAssertNil(hosted1.superview, "Orphaned hosted view should detach once replacement is alive")
+        XCTAssertNotNil(hosted2.superview, "Replacement hosted view should remain attached")
+    }
+
+    func testPruneDeadEntriesDetachesHiddenAnchorlessHostedViewImmediately() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let hosted1 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor1!)
+        portal.bind(hostedView: hosted1, to: anchor1!, visibleInUI: false)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let hosted2 = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+        )
+        let anchor2 = NSView(frame: NSRect(x: 180, y: 20, width: 120, height: 80))
+        contentView.addSubview(anchor2)
+        portal.bind(hostedView: hosted2, to: anchor2, visibleInUI: true)
+
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Hidden orphan should detach immediately on first prune pass")
+        XCTAssertNil(hosted1.superview, "Hidden orphan should not remain portal-hosted")
+    }
+
+    func testRegistryDetachRemovesPortalHostedTerminalView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
+        )
+
+        TerminalWindowPortalRegistry.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+        XCTAssertNotNil(hosted.superview)
+
+        TerminalWindowPortalRegistry.detach(hostedView: hosted)
+        XCTAssertNil(hosted.superview)
     }
 
     func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
@@ -5216,6 +5323,141 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
 
         BrowserWindowPortalRegistry.detach(webView: webView)
         XCTAssertNil(webView.superview)
+    }
+
+    func testBrowserPanelCloseDetachesPortalHostedWebViewImmediately() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor)
+        let panel = BrowserPanel(workspaceId: UUID())
+        let webView = panel.webView
+
+        BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
+        XCTAssertNotNil(webView.superview)
+
+        panel.close()
+        XCTAssertNil(
+            webView.superview,
+            "Explicit browser close should detach from portal immediately instead of waiting for orphan grace"
+        )
+    }
+
+    func testPruneDeadEntriesKeepsVisibleAnchorlessWebViewWithoutReplacement() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let webView1 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor1!)
+        portal.bind(webView: webView1, to: anchor1!, visibleInUI: true)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let webView2 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let anchor2 = NSView(frame: NSRect(x: 240, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor2)
+        portal.bind(webView: webView2, to: anchor2, visibleInUI: true)
+
+        XCTAssertEqual(
+            portal.debugEntryCount(),
+            2,
+            "Visible browser orphan should remain attached while waiting for an anchor replacement"
+        )
+        XCTAssertNotNil(webView1.superview, "Visible browser orphan should remain attached while no replacement exists")
+
+        portal.synchronizeWebViewForAnchor(anchor2)
+        XCTAssertEqual(portal.debugEntryCount(), 2, "Visible browser orphan should persist without overlap replacement")
+        XCTAssertNotNil(webView1.superview, "Visible browser orphan should remain attached without replacement")
+    }
+
+    func testPruneDeadEntriesDetachesVisibleAnchorlessWebViewWhenReplacementAppears() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let webView1 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor1!)
+        portal.bind(webView: webView1, to: anchor1!, visibleInUI: true)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let webView2 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let anchor2 = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor2)
+        portal.bind(webView: webView2, to: anchor2, visibleInUI: true)
+        portal.synchronizeWebViewForAnchor(anchor2)
+
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Visible browser orphan should detach when overlapping replacement is alive")
+        XCTAssertNil(webView1.superview, "Orphaned browser view should detach once replacement is alive")
+        XCTAssertNotNil(webView2.superview, "Replacement browser view should remain attached")
+    }
+
+    func testPruneDeadEntriesDetachesHiddenAnchorlessWebViewImmediately() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        let portal = WindowBrowserPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let webView1 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var anchor1: NSView? = NSView(frame: NSRect(x: 20, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor1!)
+        portal.bind(webView: webView1, to: anchor1!, visibleInUI: false)
+
+        anchor1?.removeFromSuperview()
+        anchor1 = nil
+
+        let webView2 = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let anchor2 = NSView(frame: NSRect(x: 240, y: 20, width: 180, height: 120))
+        contentView.addSubview(anchor2)
+        portal.bind(webView: webView2, to: anchor2, visibleInUI: true)
+
+        XCTAssertEqual(portal.debugEntryCount(), 1, "Hidden browser orphan should detach immediately")
+        XCTAssertNil(webView1.superview, "Hidden browser orphan should not remain portal-hosted")
     }
 }
 

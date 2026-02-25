@@ -135,8 +135,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         // The surface will be cleaned up by its deinit
-        // Just unfocus before closing
+        // Unfocus and explicitly detach from the window portal on real close.
+        // Transient split/layout churn does not call close().
         unfocus()
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
     }
 
     func requestViewReattach() {

@@ -546,6 +546,104 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
+    func testCmdDThenCmdShiftDThenCtrlDInSingleFlowKeepsWorkspaceOpen() {
+        let attempts = 8
+        for attempt in 1...attempts {
+            let app = XCUIApplication()
+            let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-seq-\(UUID().uuidString).json"
+            try? FileManager.default.removeItem(atPath: dataPath)
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_PATH"] = dataPath
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_LAYOUT"] = "lr"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_EXPECTED_PANELS_AFTER"] = "3"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_AUTO_TRIGGER"] = "0"
+            app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_STRICT"] = "1"
+            app.launch()
+            app.activate()
+            defer { app.terminate() }
+
+            XCTAssertTrue(
+                waitForAnyJSON(atPath: dataPath, timeout: 12.0),
+                "Attempt \(attempt): expected keyboard child-exit setup data at \(dataPath)"
+            )
+            guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: 12.0) else {
+                XCTFail("Attempt \(attempt): timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                return
+            }
+
+            if let setupError = ready["setupError"], !setupError.isEmpty {
+                XCTFail("Attempt \(attempt): setup failed: \(setupError)")
+                return
+            }
+
+            let panelCountBefore = Int(ready["panelCountBeforeCtrlD"] ?? "") ?? -1
+            XCTAssertEqual(
+                panelCountBefore,
+                2,
+                "Attempt \(attempt): expected two panels before shortcut sequence. data=\(ready)"
+            )
+
+            app.typeKey("d", modifierFlags: [.command])
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+            app.typeKey("d", modifierFlags: [.command, .shift])
+            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
+            app.typeKey("d", modifierFlags: [.control])
+
+            guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 12.0) else {
+                XCTFail("Attempt \(attempt): timed out waiting for done=1 after Cmd+D -> Cmd+Shift+D -> Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
+                return
+            }
+
+            let workspaceCountAfter = Int(done["workspaceCountAfter"] ?? "") ?? -1
+            let panelCountAfter = Int(done["panelCountAfter"] ?? "") ?? -1
+            let closedWorkspace = (done["closedWorkspace"] ?? "") == "1"
+            let timedOut = (done["timedOut"] ?? "") == "1"
+            let focusedPanelAfter = done["focusedPanelAfter"] ?? ""
+            let firstResponderPanelAfter = done["firstResponderPanelAfter"] ?? ""
+
+            XCTAssertFalse(
+                timedOut,
+                "Attempt \(attempt): shortcut sequence timed out. data=\(done)"
+            )
+            XCTAssertFalse(
+                closedWorkspace,
+                "Attempt \(attempt): workspace/window should stay open after Cmd+D -> Cmd+Shift+D -> Ctrl+D. data=\(done)"
+            )
+            XCTAssertEqual(
+                workspaceCountAfter,
+                1,
+                "Attempt \(attempt): workspace should remain open after shortcut sequence. data=\(done)"
+            )
+            XCTAssertEqual(
+                panelCountAfter,
+                3,
+                "Attempt \(attempt): expected net pane count 3 after Cmd+D -> Cmd+Shift+D -> Ctrl+D. data=\(done)"
+            )
+            guard let showChildExitedCount = Int(done["probeShowChildExitedCount"] ?? "") else {
+                XCTFail(
+                    "Attempt \(attempt): missing probeShowChildExitedCount, cannot prove Ctrl+D child-exit callback fired. data=\(done)"
+                )
+                return
+            }
+            XCTAssertEqual(
+                showChildExitedCount,
+                1,
+                "Attempt \(attempt): expected exactly one SHOW_CHILD_EXITED callback from one Ctrl+D in sequence. data=\(done)"
+            )
+            XCTAssertTrue(
+                waitForWindowCount(app: app, atLeast: 1, timeout: 2.0),
+                "Attempt \(attempt): app window should remain open after shortcut sequence. data=\(done)"
+            )
+            if !focusedPanelAfter.isEmpty || !firstResponderPanelAfter.isEmpty {
+                XCTAssertEqual(
+                    firstResponderPanelAfter,
+                    focusedPanelAfter,
+                    "Attempt \(attempt): expected focus indicator and first responder to converge after shortcut sequence. data=\(done)"
+                )
+            }
+        }
+    }
+
     func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {

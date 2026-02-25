@@ -538,6 +538,7 @@ final class WindowTerminalPortal: NSObject {
     private static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
+    private static let replacementOverlapThreshold: CGFloat = 0.55
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -547,6 +548,7 @@ final class WindowTerminalPortal: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
+    private var prunePassCounter: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
@@ -561,6 +563,15 @@ final class WindowTerminalPortal: NSObject {
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    private enum AnchorLiveness: String {
+        case alive
+        case missingAnchor
+        case missingPortalWindow
+        case anchorWindowMismatch
+        case anchorDetached
+        case anchorOutsideReference
+    }
 
     init(window: NSWindow) {
         self.window = window
@@ -811,6 +822,18 @@ final class WindowTerminalPortal: NSObject {
             return false
         }
         return viewIndex > referenceIndex
+    }
+
+    private func anchorLiveness(for entry: Entry, currentWindow: NSWindow?) -> AnchorLiveness {
+        guard let anchor = entry.anchorView else { return .missingAnchor }
+        guard let currentWindow else { return .missingPortalWindow }
+        guard anchor.window === currentWindow else { return .anchorWindowMismatch }
+        guard anchor.superview != nil else { return .anchorDetached }
+        if let reference = installedReferenceView,
+           !anchor.isDescendant(of: reference) {
+            return .anchorOutsideReference
+        }
+        return .alive
     }
 
 #if DEBUG
@@ -1096,19 +1119,36 @@ final class WindowTerminalPortal: NSObject {
                 }
 #endif
                 hostedView.isHidden = true
+            } else {
+#if DEBUG
+                dlog(
+                    "portal.sync.defer hosted=\(portalDebugToken(hostedView)) " +
+                    "reason=missingAnchorOrWindow keepVisible=1"
+                )
+#endif
             }
             return
         }
         guard anchorView.window === window else {
+            if !entry.visibleInUI {
 #if DEBUG
-            if !hostedView.isHidden {
-                dlog(
-                    "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
-                    "reason=anchorWindowMismatch anchorWindow=\(portalDebugToken(anchorView.window?.contentView))"
-                )
-            }
+                if !hostedView.isHidden {
+                    dlog(
+                        "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
+                        "reason=anchorWindowMismatch anchorWindow=\(portalDebugToken(anchorView.window?.contentView))"
+                    )
+                }
 #endif
-            hostedView.isHidden = true
+                hostedView.isHidden = true
+            } else {
+#if DEBUG
+                dlog(
+                    "portal.sync.defer hosted=\(portalDebugToken(hostedView)) " +
+                    "reason=anchorWindowMismatch keepVisible=1 " +
+                    "anchorWindow=\(portalDebugToken(anchorView.window?.contentView))"
+                )
+#endif
+            }
             return
         }
 
@@ -1134,7 +1174,9 @@ final class WindowTerminalPortal: NSObject {
                 "anchor=\(portalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
             )
 #endif
-            hostedView.isHidden = true
+            if !entry.visibleInUI {
+                hostedView.isHidden = true
+            }
             scheduleDeferredFullSynchronizeAll()
             return
         }
@@ -1265,19 +1307,101 @@ final class WindowTerminalPortal: NSObject {
         ensureDividerOverlayOnTop()
     }
 
-    private func pruneDeadEntries() {
-        let currentWindow = window
-        let deadHostedIds = entriesByHostedId.compactMap { hostedId, entry -> ObjectIdentifier? in
-            guard entry.hostedView != nil else { return hostedId }
-            guard let anchor = entry.anchorView else { return hostedId }
-            if anchor.window !== currentWindow || anchor.superview == nil {
-                return hostedId
-            }
-            if let reference = installedReferenceView,
-               !anchor.isDescendant(of: reference) {
-                return hostedId
-            }
+    private static func overlapRatio(of lhs: NSRect, with rhs: NSRect) -> CGFloat {
+        let lhsArea = max(1, lhs.width * lhs.height)
+        let overlap = lhs.intersection(rhs)
+        guard !overlap.isNull else { return 0 }
+        let overlapArea = max(0, overlap.width * overlap.height)
+        return overlapArea / lhsArea
+    }
+
+    private func visibleReplacementForOrphan(
+        hostedId orphanHostedId: ObjectIdentifier,
+        orphanEntry: Entry,
+        currentWindow: NSWindow?
+    ) -> (view: GhosttySurfaceScrollView, overlapRatio: CGFloat)? {
+        guard let orphanHostedView = orphanEntry.hostedView,
+              orphanHostedView.superview === hostView,
+              !orphanHostedView.isHidden else {
             return nil
+        }
+
+        let orphanFrame = orphanHostedView.frame
+        guard orphanFrame.width > 1, orphanFrame.height > 1 else { return nil }
+
+        var bestMatch: (view: GhosttySurfaceScrollView, overlapRatio: CGFloat)?
+        for (candidateHostedId, candidateEntry) in entriesByHostedId {
+            if candidateHostedId == orphanHostedId { continue }
+            guard candidateEntry.visibleInUI else { continue }
+            guard candidateEntry.zPriority >= orphanEntry.zPriority else { continue }
+            guard anchorLiveness(for: candidateEntry, currentWindow: currentWindow) == .alive else { continue }
+            guard let candidateView = candidateEntry.hostedView,
+                  candidateView.superview === hostView,
+                  !candidateView.isHidden else { continue }
+
+            let overlapRatio = Self.overlapRatio(of: orphanFrame, with: candidateView.frame)
+            guard overlapRatio >= Self.replacementOverlapThreshold else { continue }
+            if let existing = bestMatch, existing.overlapRatio >= overlapRatio { continue }
+            bestMatch = (candidateView, overlapRatio)
+        }
+
+        return bestMatch
+    }
+
+    private func pruneDeadEntries() {
+        prunePassCounter &+= 1
+        let prunePass = prunePassCounter
+        let currentWindow = window
+        var deadHostedIds: [ObjectIdentifier] = []
+
+        for hostedId in Array(entriesByHostedId.keys) {
+            guard let entry = entriesByHostedId[hostedId] else { continue }
+            guard entry.hostedView != nil else {
+                deadHostedIds.append(hostedId)
+                continue
+            }
+
+            let liveness = anchorLiveness(for: entry, currentWindow: currentWindow)
+            if liveness == .alive {
+                continue
+            }
+
+            if !entry.visibleInUI {
+#if DEBUG
+                dlog(
+                    "portal.prune.detach hosted=\(portalDebugToken(entry.hostedView)) " +
+                    "reason=\(liveness.rawValue) visible=0 " +
+                    "pass=\(prunePass)"
+                )
+#endif
+                deadHostedIds.append(hostedId)
+                continue
+            }
+
+            if let replacement = visibleReplacementForOrphan(
+                hostedId: hostedId,
+                orphanEntry: entry,
+                currentWindow: currentWindow
+            ) {
+#if DEBUG
+                dlog(
+                    "portal.prune.detach hosted=\(portalDebugToken(entry.hostedView)) " +
+                    "reason=\(liveness.rawValue)+replacement visible=1 pass=\(prunePass) " +
+                    "replacement=\(portalDebugToken(replacement.view)) " +
+                    "overlap=\(String(format: "%.3f", replacement.overlapRatio))"
+                )
+#endif
+                deadHostedIds.append(hostedId)
+                continue
+            }
+
+#if DEBUG
+            dlog(
+                "portal.prune.defer hosted=\(portalDebugToken(entry.hostedView)) " +
+                "reason=\(liveness.rawValue) visible=1 pass=\(prunePass) " +
+                "replacement=none"
+            )
+#endif
         }
 
         for hostedId in deadHostedIds {
@@ -1450,6 +1574,12 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
+    }
+
+    static func detach(hostedView: GhosttySurfaceScrollView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId.removeValue(forKey: hostedId) else { return }
+        portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
     }
 
     /// Update the visibleInUI flag on an existing portal entry without rebinding.

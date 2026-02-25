@@ -2822,6 +2822,17 @@ class TabManager: ObservableObject {
             guard let self else { return }
             try? await Task.sleep(nanoseconds: 200_000_000)
 
+            @MainActor
+            func firstResponderTerminalPanelUUIDString(in workspace: Workspace) -> String {
+                for (panelId, panel) in workspace.panels {
+                    guard let terminal = panel as? TerminalPanel else { continue }
+                    if terminal.hostedView.isSurfaceViewFirstResponder() {
+                        return panelId.uuidString
+                    }
+                }
+                return ""
+            }
+
             guard let tab = self.selectedWorkspace else {
                 write(["setupError": "Missing selected workspace", "done": "1"])
                 return
@@ -2938,11 +2949,22 @@ class TabManager: ObservableObject {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
 
+            if !useEarlyTrigger {
+                // Stabilize setup: rapid split churn can leave first responder transiently nil
+                // even after focusPanel(exitPanelId). Wait briefly for focus+responder convergence.
+                let responderDeadline = Date().addingTimeInterval(1.0)
+                while Date() < responderDeadline {
+                    let firstResponderPanelBefore = firstResponderTerminalPanelUUIDString(in: tab)
+                    if tab.focusedPanelId == exitPanelId &&
+                        firstResponderPanelBefore == exitPanelId.uuidString {
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                }
+            }
+
             let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
-            let firstResponderPanelBefore = tab.panels.compactMap { (panelId, panel) -> UUID? in
-                guard let terminal = panel as? TerminalPanel else { return nil }
-                return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
-            }.first?.uuidString ?? ""
+            let firstResponderPanelBefore = firstResponderTerminalPanelUUIDString(in: tab)
 
             write([
                 "workspaceId": tab.id.uuidString,
@@ -2985,10 +3007,7 @@ class TabManager: ObservableObject {
                             try? await Task.sleep(nanoseconds: 1_200_000_000)
                             guard tab.panels.count == expectedPanelsAfter else { return }
 
-                            let firstResponderPanelAfter = tab.panels.compactMap { (panelId, panel) -> UUID? in
-                                guard let terminal = panel as? TerminalPanel else { return nil }
-                                return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
-                            }.first?.uuidString ?? ""
+                            let firstResponderPanelAfter = firstResponderTerminalPanelUUIDString(in: tab)
 
                             finish([
                                 "workspaceCountAfter": String(self.tabs.count),

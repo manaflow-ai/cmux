@@ -2042,8 +2042,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     deinit {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        let hostedView = hostedView
 
         guard let surface else {
+            Task { @MainActor in
+                TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+            }
             callbackContext?.release()
             return
         }
@@ -2052,6 +2056,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // callback userdata until surface free completes so callbacks never dereference
         // a deallocated view pointer.
         Task { @MainActor in
+            TerminalWindowPortalRegistry.detach(hostedView: hostedView)
             ghostty_surface_free(surface)
             callbackContext?.release()
         }
