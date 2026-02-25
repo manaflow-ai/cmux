@@ -1,11 +1,190 @@
 import Foundation
 import Darwin
 import Security
+#if canImport(Sentry)
+import Sentry
+#endif
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
 
     var description: String { message }
+}
+
+private final class CLISocketSentryTelemetry {
+    private let command: String
+    private let subcommand: String
+    private let socketPath: String
+    private let envSocketPath: String?
+    private let workspaceId: String?
+    private let surfaceId: String?
+    private let disabledByEnv: Bool
+
+#if canImport(Sentry)
+    private static let startupLock = NSLock()
+    private static var started = false
+    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+#endif
+
+    init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
+        self.command = command.lowercased()
+        self.subcommand = commandArgs.first?.lowercased() ?? "help"
+        self.socketPath = socketPath
+        self.envSocketPath = processEnv["CMUX_SOCKET_PATH"]
+        self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
+        self.surfaceId = processEnv["CMUX_SURFACE_ID"]
+        self.disabledByEnv =
+            processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
+            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
+    }
+
+    func breadcrumb(_ message: String, data: [String: Any] = [:]) {
+        guard shouldEmit else { return }
+#if canImport(Sentry)
+        Self.ensureStarted()
+        var payload = baseContext()
+        for (key, value) in data {
+            payload[key] = value
+        }
+        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
+        crumb.message = message
+        crumb.data = payload
+        SentrySDK.addBreadcrumb(crumb)
+#endif
+    }
+
+    func captureError(stage: String, error: Error) {
+        guard shouldEmit else { return }
+#if canImport(Sentry)
+        Self.ensureStarted()
+        var context = baseContext()
+        context["stage"] = stage
+        context["error"] = String(describing: error)
+        for (key, value) in socketDiagnostics() {
+            context[key] = value
+        }
+        let subcommand = self.subcommand
+        let command = self.command
+        _ = SentrySDK.capture(error: error) { scope in
+            scope.setLevel(.error)
+            scope.setTag(value: "cmux-cli", key: "component")
+            scope.setTag(value: command, key: "cli_command")
+            scope.setTag(value: subcommand, key: "cli_subcommand")
+            scope.setContext(value: context, key: "cli_socket")
+        }
+        SentrySDK.flush(timeout: 2.0)
+#endif
+    }
+
+    private var shouldEmit: Bool {
+        !disabledByEnv
+    }
+
+    private func baseContext() -> [String: Any] {
+        var context: [String: Any] = [
+            "command": command,
+            "subcommand": subcommand,
+            "requested_socket_path": socketPath,
+            "env_socket_path": envSocketPath ?? "<unset>"
+        ]
+        if let workspaceId {
+            context["workspace_id"] = workspaceId
+        }
+        if let surfaceId {
+            context["surface_id"] = surfaceId
+        }
+        return context
+    }
+
+    private func socketDiagnostics() -> [String: Any] {
+        var context: [String: Any] = [
+            "cwd": FileManager.default.currentDirectoryPath,
+            "uid": Int(getuid()),
+            "euid": Int(geteuid())
+        ]
+
+        var st = stat()
+        if lstat(socketPath, &st) == 0 {
+            context["socket_exists"] = true
+            context["socket_mode"] = String(format: "%o", Int(st.st_mode & 0o7777))
+            context["socket_owner_uid"] = Int(st.st_uid)
+            context["socket_owner_gid"] = Int(st.st_gid)
+            context["socket_file_type"] = Self.fileTypeDescription(mode: st.st_mode)
+        } else {
+            let code = errno
+            context["socket_exists"] = false
+            context["socket_errno"] = Int(code)
+            context["socket_errno_description"] = String(cString: strerror(code))
+        }
+
+        let tmpSockets = Self.discoverTmpCmuxSockets(limit: 10)
+        if !tmpSockets.isEmpty {
+            context["tmp_cmux_sockets"] = tmpSockets
+        }
+        let taggedSockets = tmpSockets.filter { $0 != "/tmp/cmux.sock" }
+        if socketPath == "/tmp/cmux.sock",
+           (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           !taggedSockets.isEmpty {
+            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
+        }
+
+        return context
+    }
+
+    private static func fileTypeDescription(mode: mode_t) -> String {
+        switch mode & mode_t(S_IFMT) {
+        case mode_t(S_IFSOCK):
+            return "socket"
+        case mode_t(S_IFREG):
+            return "regular"
+        case mode_t(S_IFDIR):
+            return "directory"
+        case mode_t(S_IFLNK):
+            return "symlink"
+        default:
+            return "other"
+        }
+    }
+
+    private static func discoverTmpCmuxSockets(limit: Int) -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else {
+            return []
+        }
+        var sockets: [String] = []
+        for name in entries.sorted() {
+            guard name.hasPrefix("cmux"), name.hasSuffix(".sock") else { continue }
+            let fullPath = "/tmp/\(name)"
+            var st = stat()
+            guard lstat(fullPath, &st) == 0 else { continue }
+            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
+            sockets.append(fullPath)
+            if sockets.count >= limit {
+                break
+            }
+        }
+        return sockets
+    }
+
+#if canImport(Sentry)
+    private static func ensureStarted() {
+        startupLock.lock()
+        defer { startupLock.unlock() }
+        guard !started else { return }
+        SentrySDK.start { options in
+            options.dsn = dsn
+#if DEBUG
+            options.environment = "development-cli"
+#else
+            options.environment = "production-cli"
+#endif
+            options.debug = false
+            options.sendDefaultPii = true
+            options.attachStacktrace = true
+            options.tracesSampleRate = 0.0
+        }
+        started = true
+    }
+#endif
 }
 
 struct WindowInfo {
@@ -503,6 +682,12 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
+        let cliTelemetry = CLISocketSentryTelemetry(
+            command: command,
+            commandArgs: commandArgs,
+            socketPath: socketPath,
+            processEnv: ProcessInfo.processInfo.environment
+        )
 
         if command == "version" {
             print(versionSummary())
@@ -518,7 +703,18 @@ struct CMUXCLI {
         }
 
         let client = SocketClient(path: socketPath)
-        try client.connect()
+        cliTelemetry.breadcrumb(
+            "socket.connect.attempt",
+            data: ["command": command]
+        )
+        do {
+            try client.connect()
+            cliTelemetry.breadcrumb("socket.connect.success")
+        } catch {
+            cliTelemetry.breadcrumb("socket.connect.failure")
+            cliTelemetry.captureError(stage: "socket_connect", error: error)
+            throw error
+        }
         defer { client.close() }
 
         if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
@@ -1103,7 +1299,15 @@ struct CMUXCLI {
             print(response)
 
         case "claude-hook":
-            try runClaudeHook(commandArgs: commandArgs, client: client)
+            cliTelemetry.breadcrumb("claude-hook.dispatch")
+            do {
+                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("claude-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("claude-hook.failure")
+                cliTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
+                throw error
+            }
 
         case "set-status":
             let (icon, r1) = parseOption(commandArgs, name: "--icon")
@@ -4332,7 +4536,11 @@ struct CMUXCLI {
         }
     }
 
-    private func runClaudeHook(commandArgs: [String], client: SocketClient) throws {
+    private func runClaudeHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
@@ -4341,11 +4549,21 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        telemetry.breadcrumb(
+            "claude-hook.input",
+            data: [
+                "subcommand": subcommand,
+                "has_session_id": parsedInput.sessionId != nil,
+                "has_workspace_flag": hookWsFlag != nil,
+                "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
+            ]
+        )
         let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
         let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
 
         switch subcommand {
         case "session-start", "active":
+            telemetry.breadcrumb("claude-hook.session-start")
             let workspaceId = fallbackWorkspaceId
             let surfaceId = try resolveSurfaceIdForClaudeHook(
                 surfaceArg,
@@ -4370,6 +4588,7 @@ struct CMUXCLI {
             print("OK")
 
         case "stop", "idle":
+            telemetry.breadcrumb("claude-hook.stop")
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
@@ -4398,6 +4617,7 @@ struct CMUXCLI {
             }
 
         case "notification", "notify":
+            telemetry.breadcrumb("claude-hook.notification")
             let summary = summarizeClaudeHookNotification(rawInput: rawInput)
 
             var workspaceId = fallbackWorkspaceId
@@ -4442,6 +4662,7 @@ struct CMUXCLI {
             print(response)
 
         case "help", "--help", "-h":
+            telemetry.breadcrumb("claude-hook.help")
             print(
                 """
                 cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
@@ -4767,39 +4988,63 @@ struct CMUXCLI {
 
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
+        let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
+        let baseSummary: String
         if let version = info["CFBundleShortVersionString"], let build = info["CFBundleVersion"] {
-            return "cmux \(version) (\(build))"
+            baseSummary = "cmux \(version) (\(build))"
+        } else if let version = info["CFBundleShortVersionString"] {
+            baseSummary = "cmux \(version)"
+        } else if let build = info["CFBundleVersion"] {
+            baseSummary = "cmux build \(build)"
+        } else {
+            baseSummary = "cmux version unknown"
         }
-        if let version = info["CFBundleShortVersionString"] {
-            return "cmux \(version)"
-        }
-        if let build = info["CFBundleVersion"] {
-            return "cmux build \(build)"
-        }
-        return "cmux version unknown"
+        guard let commit else { return baseSummary }
+        return "\(baseSummary) [\(commit)]"
     }
 
     private func resolvedVersionInfo() -> [String: String] {
+        var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
-            return main
+            info.merge(main, uniquingKeysWith: { current, _ in current })
         }
 
-        for plistURL in candidateInfoPlistURLs() {
-            guard let data = try? Data(contentsOf: plistURL),
-                  let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-                  let dictionary = raw as? [String: Any],
-                  let parsed = versionInfo(from: dictionary)
-            else {
-                continue
+        let needsPlistFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsPlistFallback {
+            for plistURL in candidateInfoPlistURLs() {
+                guard let data = try? Data(contentsOf: plistURL),
+                      let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                      let dictionary = raw as? [String: Any],
+                      let parsed = versionInfo(from: dictionary)
+                else {
+                    continue
+                }
+                info.merge(parsed, uniquingKeysWith: { current, _ in current })
+                if info["CFBundleShortVersionString"] != nil,
+                   info["CFBundleVersion"] != nil,
+                   info["CMUXCommit"] != nil {
+                    break
+                }
             }
-            return parsed
         }
 
-        if let fromProject = versionInfoFromProjectFile() {
-            return fromProject
+        let needsProjectFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsProjectFallback, let fromProject = versionInfoFromProjectFile() {
+            info.merge(fromProject, uniquingKeysWith: { current, _ in current })
         }
 
-        return [:]
+        if info["CMUXCommit"] == nil,
+           let commit = normalizedCommitHash(ProcessInfo.processInfo.environment["CMUX_COMMIT"]) {
+            info["CMUXCommit"] = commit
+        }
+
+        return info
     }
 
     private func versionInfo(from dictionary: [String: Any]?) -> [String: String]? {
@@ -4817,6 +5062,10 @@ struct CMUXCLI {
             if !trimmed.isEmpty && !trimmed.contains("$(") {
                 info["CFBundleVersion"] = trimmed
             }
+        }
+        if let commit = dictionary["CMUXCommit"] as? String,
+           let normalizedCommit = normalizedCommitHash(commit) {
+            info["CMUXCommit"] = normalizedCommit
         }
         return info.isEmpty ? nil : info
     }
@@ -4842,6 +5091,9 @@ struct CMUXCLI {
                 }
                 if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
                     info["CFBundleVersion"] = build
+                }
+                if let commit = gitCommitHash(at: current) {
+                    info["CMUXCommit"] = commit
                 }
                 if !info.isEmpty {
                     return info
@@ -4877,6 +5129,45 @@ struct CMUXCLI {
             return nil
         }
         return value
+    }
+
+    private func gitCommitHash(at directory: URL) -> String? {
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path, "rev-parse", "--short=9", "HEAD"]
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedCommitHash(output)
+    }
+
+    private func normalizedCommitHash(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        let normalized = trimmed.lowercased()
+        let allowed = CharacterSet(charactersIn: "0123456789abcdef")
+        guard normalized.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return nil
+        }
+        return String(normalized.prefix(12))
     }
 
     private func candidateInfoPlistURLs() -> [URL] {
@@ -5103,6 +5394,8 @@ struct CMUXCLI {
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
+          CMUX_CLI_SENTRY_DISABLED
+                              Set to 1 to disable CLI Sentry socket diagnostics.
         """
     }
 }

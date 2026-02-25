@@ -3229,6 +3229,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.attemptUpdate()
     }
 
+    @objc func restartSocketListener(_ sender: Any?) {
+        guard let tabManager else {
+            NSSound.beep()
+            return
+        }
+
+        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let userMode = SocketControlSettings.migrateMode(raw)
+        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
+        guard mode != .off else {
+            TerminalController.shared.stop()
+            NSSound.beep()
+            return
+        }
+
+        let socketPath = SocketControlSettings.socketPath()
+        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
+            "mode": mode.rawValue,
+            "path": socketPath
+        ])
+        TerminalController.shared.stop()
+        TerminalController.shared.start(tabManager: tabManager, socketPath: socketPath, accessMode: mode)
+    }
+
     private func setupMenuBarExtra() {
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(
