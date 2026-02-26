@@ -5399,6 +5399,8 @@ struct CMUXCLI {
 @main
 struct CMUXTermMain {
     static func main() {
+        // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
+        _ = signal(SIGPIPE, SIG_IGN)
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
             try cli.run()
