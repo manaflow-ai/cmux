@@ -2231,6 +2231,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
+    static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -3123,6 +3124,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Rendering is driven by Ghostty's wakeups/renderer.
     }
 
+    @discardableResult
+    private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
+#if DEBUG
+        Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
+#endif
+        return ghostty_surface_key(surface, keyEvent)
+    }
+
     override func keyUp(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
@@ -3136,7 +3145,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.action = GHOSTTY_ACTION_RELEASE
         keyEvent.text = nil
         keyEvent.composing = false
-        _ = ghostty_surface_key(surface, keyEvent)
+        _ = sendGhosttyKey(surface, keyEvent)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -4541,11 +4550,16 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #if DEBUG
-    /// Sends a synthetic Ctrl+D key press directly to the surface view.
+    /// Sends a synthetic key press/release pair directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
-    /// unlike `sendText`, which bypasses key translation.
+    /// unlike sendText, which bypasses key translation.
     @discardableResult
-    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
+    func debugSendSyntheticKeyPressAndReleaseForUITest(
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> Bool {
         guard let window else { return false }
         window.makeFirstResponder(surfaceView)
 
@@ -4557,10 +4571,10 @@ final class GhosttySurfaceScrollView: NSView {
             timestamp: timestamp,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "\u{04}",
-            charactersIgnoringModifiers: "d",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
-            keyCode: 2
+            keyCode: keyCode
         ) else { return false }
 
         guard let keyUp = NSEvent.keyEvent(
@@ -4570,15 +4584,28 @@ final class GhosttySurfaceScrollView: NSView {
             timestamp: timestamp + 0.001,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "\u{04}",
-            charactersIgnoringModifiers: "d",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
-            keyCode: 2
+            keyCode: keyCode
         ) else { return false }
 
         surfaceView.keyDown(with: keyDown)
         surfaceView.keyUp(with: keyUp)
         return true
+    }
+
+    /// Sends a synthetic Ctrl+D key press directly to the surface view.
+    /// This exercises the same key path as real keyboard input (ghostty_surface_key),
+    /// unlike `sendText`, which bypasses key translation.
+    @discardableResult
+    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
+        debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: "\u{04}",
+            charactersIgnoringModifiers: "d",
+            keyCode: 2,
+            modifierFlags: modifierFlags
+        )
     }
     #endif
 
