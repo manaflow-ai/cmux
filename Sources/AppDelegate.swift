@@ -312,7 +312,7 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
         .subtracting([.numericPad, .function, .capsLock])
     guard normalizedFlags == [.command, .control] else { return false }
     let normalizedChars = chars.lowercased()
-    return normalizedChars == "f" || keyCode == 3
+    return normalizedChars == "f" || KeyboardLayout.character(forKeyCode: keyCode) == "f"
 }
 
 func commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -335,10 +335,12 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 
     if normalizedFlags == [.control] {
         // Control modifiers can surface as either printable chars or ASCII control chars.
-        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
-        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
-        if keyCode == 38 || normalizedChars == "j" || normalizedChars == "\u{0a}" { return 1 }    // Ctrl+J
-        if keyCode == 40 || normalizedChars == "k" || normalizedChars == "\u{0b}" { return -1 }   // Ctrl+K
+        // Use layout-aware keyCode translation as a fallback instead of hardcoded ANSI keyCodes.
+        let layoutChar = KeyboardLayout.character(forKeyCode: keyCode)
+        if normalizedChars == "n" || normalizedChars == "\u{0e}" || layoutChar == "n" { return 1 }    // Ctrl+N
+        if normalizedChars == "p" || normalizedChars == "\u{10}" || layoutChar == "p" { return -1 }   // Ctrl+P
+        if normalizedChars == "j" || normalizedChars == "\u{0a}" || layoutChar == "j" { return 1 }    // Ctrl+J
+        if normalizedChars == "k" || normalizedChars == "\u{0b}" || layoutChar == "k" { return -1 }   // Ctrl+K
     }
 
     return nil
@@ -416,15 +418,16 @@ func browserZoomShortcutAction(
 
     guard hasOnlyCommandAndOptionalShift else { return nil }
 
-    if key == "=" || key == "+" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    let layoutChar = KeyboardLayout.character(forKeyCode: keyCode)
+    if key == "=" || key == "+" || layoutChar == "=" || keyCode == 69 { // kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if key == "-" || key == "_" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if key == "-" || key == "_" || layoutChar == "-" || keyCode == 78 { // kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if key == "0" || layoutChar == "0" || keyCode == 82 { // kVK_ANSI_Keypad0
         return .reset
     }
 
@@ -4493,7 +4496,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasOption = flags.contains(.option)
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
-        let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
+            || KeyboardLayout.character(forKeyCode: event.keyCode) == "d"
+        let isControlD = isControlOnly && controlDChar
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -4556,14 +4560,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
+        let isCommandP = normalizedFlags == [.command] && chars == "p"
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
             return true
         }
 
-        let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
+        let isCommandShiftP = normalizedFlags == [.command, .shift] && chars == "p"
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
@@ -4583,7 +4587,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handleQuitShortcutWarning()
         }
         if normalizedFlags == [.command, .shift],
-           (chars == "," || chars == "<" || event.keyCode == 43) {
+           (chars == "," || chars == "<") {
             GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
             return true
         }
@@ -4795,7 +4799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
+        if normalizedFlags == [.command, .option], chars == "t" {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -4816,7 +4820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Cmd+W must close the focused panel even if first-responder momentarily lags on a
         // browser NSTextView during split focus transitions.
-        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+        if normalizedFlags == [.command], chars == "w" {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -5331,10 +5335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == [.command, .option] {
-            if chars == "i" || event.keyCode == 34 {
+            if chars == "i" {
                 return "toggle.literal"
             }
-            if chars == "c" || event.keyCode == 8 {
+            if chars == "c" {
                 return "console.literal"
             }
         }
@@ -5555,84 +5559,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function])
         guard flags == shortcut.modifierFlags else { return false }
 
-        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
-        // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
+
+        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
+        // (e.g. Shift+] can yield "}" instead of "]"), so for bracket shortcuts also
+        // accept the shifted variant.
         if shortcutKey == "[" || shortcutKey == "]" {
-            switch event.keyCode {
-            case 33: // kVK_ANSI_LeftBracket
-                return shortcutKey == "["
-            case 30: // kVK_ANSI_RightBracket
-                return shortcutKey == "]"
-            default:
-                return false
+            if let chars = event.charactersIgnoringModifiers?.lowercased() {
+                if chars == shortcutKey { return true }
+                // Accept shifted variants: "{" for "[", "}" for "]"
+                if shortcutKey == "[" && chars == "{" { return true }
+                if shortcutKey == "]" && chars == "}" { return true }
             }
+            // Fall through to layout-aware keyCode translation below.
         }
 
-        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
-        // so fall back to keyCode matching for common printable keys.
         if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
-            return event.keyCode == expectedKeyCode
+        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace)
+        // instead of the base letter. Fall back to a layout-aware keyCode translation
+        // so this works correctly on non-QWERTY layouts (Dvorak, Colemak, etc.).
+        if let translated = KeyboardLayout.character(forKeyCode: event.keyCode), translated == shortcutKey {
+            return true
         }
         return false
     }
 
-    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        // Matches macOS ANSI key codes. This is intentionally limited to keys we
-        // support in StoredShortcut/ghostty trigger translation.
-        switch key {
-        case "a": return 0   // kVK_ANSI_A
-        case "s": return 1   // kVK_ANSI_S
-        case "d": return 2   // kVK_ANSI_D
-        case "f": return 3   // kVK_ANSI_F
-        case "h": return 4   // kVK_ANSI_H
-        case "g": return 5   // kVK_ANSI_G
-        case "z": return 6   // kVK_ANSI_Z
-        case "x": return 7   // kVK_ANSI_X
-        case "c": return 8   // kVK_ANSI_C
-        case "v": return 9   // kVK_ANSI_V
-        case "b": return 11  // kVK_ANSI_B
-        case "q": return 12  // kVK_ANSI_Q
-        case "w": return 13  // kVK_ANSI_W
-        case "e": return 14  // kVK_ANSI_E
-        case "r": return 15  // kVK_ANSI_R
-        case "y": return 16  // kVK_ANSI_Y
-        case "t": return 17  // kVK_ANSI_T
-        case "1": return 18  // kVK_ANSI_1
-        case "2": return 19  // kVK_ANSI_2
-        case "3": return 20  // kVK_ANSI_3
-        case "4": return 21  // kVK_ANSI_4
-        case "6": return 22  // kVK_ANSI_6
-        case "5": return 23  // kVK_ANSI_5
-        case "=": return 24  // kVK_ANSI_Equal
-        case "9": return 25  // kVK_ANSI_9
-        case "7": return 26  // kVK_ANSI_7
-        case "-": return 27  // kVK_ANSI_Minus
-        case "8": return 28  // kVK_ANSI_8
-        case "0": return 29  // kVK_ANSI_0
-        case "o": return 31  // kVK_ANSI_O
-        case "u": return 32  // kVK_ANSI_U
-        case "i": return 34  // kVK_ANSI_I
-        case "p": return 35  // kVK_ANSI_P
-        case "l": return 37  // kVK_ANSI_L
-        case "j": return 38  // kVK_ANSI_J
-        case "'": return 39  // kVK_ANSI_Quote
-        case "k": return 40  // kVK_ANSI_K
-        case ";": return 41  // kVK_ANSI_Semicolon
-        case "\\": return 42 // kVK_ANSI_Backslash
-        case ",": return 43  // kVK_ANSI_Comma
-        case "/": return 44  // kVK_ANSI_Slash
-        case "n": return 45  // kVK_ANSI_N
-        case "m": return 46  // kVK_ANSI_M
-        case ".": return 47  // kVK_ANSI_Period
-        case "`": return 50  // kVK_ANSI_Grave
-        default:
-            return nil
-        }
-    }
+    // keyCodeForShortcutKey was removed — it mapped logical characters to physical
+    // ANSI keyCodes, which only works on QWERTY. Use KeyboardLayout.character(forKeyCode:)
+    // for layout-aware translation instead.
 
     /// Match arrow key shortcuts using keyCode
     /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
