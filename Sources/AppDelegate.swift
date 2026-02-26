@@ -6691,7 +6691,21 @@ private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
 private var cmuxFirstResponderGuardHitViewOverride: NSView?
 #endif
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+@discardableResult
+func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
+    cmuxWindowFirstResponderBypassDepth += 1
+    defer {
+        cmuxWindowFirstResponderBypassDepth = max(0, cmuxWindowFirstResponderBypassDepth - 1)
+    }
+    return body()
+}
+
+func cmuxIsWindowFirstResponderBypassActive() -> Bool {
+    cmuxWindowFirstResponderBypassDepth > 0
+}
 
 private final class CmuxFieldEditorOwningWebViewBox: NSObject {
     weak var webView: CmuxWebView?
@@ -6703,6 +6717,16 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
 
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if cmuxIsWindowFirstResponderBypassActive() {
+#if DEBUG
+            dlog(
+                "focus.guard bypassFirstResponder responder=\(String(describing: responder.map { type(of: $0) })) " +
+                "window=\(ObjectIdentifier(self))"
+            )
+#endif
+            return false
+        }
+
         let currentEvent = Self.cmuxCurrentEvent(for: self)
         let responderWebView = responder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
