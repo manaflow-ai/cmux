@@ -133,6 +133,7 @@ def main() -> int:
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "surface.last",
             "pane.swap",
             "pane.break",
             "pane.join",
@@ -196,6 +197,16 @@ def main() -> int:
         _run_cli(cli, ["previous-window"])
         _must(c.current_workspace() == ws, f"previous-window should move back to ws={ws}")
         c.select_workspace(ws)
+
+        # last-tab should toggle to the previously selected surface in the focused pane.
+        c.focus_pane(p1)
+        s_last_from = _pane_selected_surface(c, p1)
+        s_last_to = c.new_surface(pane=p1)
+        _wait_for(lambda: _pane_selected_surface(c, p1) == s_last_to)
+        _run_cli(cli, ["last-tab", "--workspace", ws])
+        _must(_pane_selected_surface(c, p1) == s_last_from, f"last-tab should select previous surface {s_last_from}")
+        _run_cli(cli, ["last-tab", "--workspace", ws])
+        _must(_pane_selected_surface(c, p1) == s_last_to, f"last-tab should toggle back to {s_last_to}")
 
         pre_p1 = _pane_selected_surface(c, p1)
         pre_p2 = _pane_selected_surface(c, p2)

@@ -4645,13 +4645,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Surface navigation (legacy Ctrl+Tab support)
+        // Surface quick switch (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
-            tabManager?.selectNextSurface()
+            tabManager?.selectLastVisitedSurface()
             return true
         }
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: true, option: false, control: true)) {
-            tabManager?.selectPreviousSurface()
+            tabManager?.selectLastVisitedSurface()
             return true
         }
 

@@ -1224,6 +1224,7 @@ struct CMUXCLI {
              "swap-pane",
              "break-pane",
              "join-pane",
+             "last-tab",
              "last-window",
              "last-pane",
              "next-window",
@@ -3518,7 +3519,7 @@ struct CMUXCLI {
 
             Wait for or signal a named synchronization token.
             """
-        case "swap-pane", "break-pane", "join-pane", "next-window", "previous-window", "last-window", "last-pane", "find-window", "clear-history", "set-hook", "popup", "bind-key", "unbind-key", "copy-mode", "set-buffer", "paste-buffer", "list-buffers", "respawn-pane", "display-message":
+        case "swap-pane", "break-pane", "join-pane", "last-tab", "next-window", "previous-window", "last-window", "last-pane", "find-window", "clear-history", "set-hook", "popup", "bind-key", "unbind-key", "copy-mode", "set-buffer", "paste-buffer", "list-buffers", "respawn-pane", "display-message":
             return """
             Usage: cmux \(command) --help
 
@@ -4136,6 +4137,14 @@ struct CMUXCLI {
             if let surfaceId { params["surface_id"] = surfaceId }
             let payload = try client.sendV2(method: "pane.join", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
+
+        case "last-tab":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            let payload = try client.sendV2(method: "surface.last", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
         case "last-window":
             let payload = try client.sendV2(method: "workspace.last")
@@ -5041,6 +5050,7 @@ struct CMUXCLI {
           swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
           break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
           join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          last-tab [--workspace <id|ref>]
           next-window | previous-window | last-window
           last-pane [--workspace <id|ref>]
           find-window [--content] [--select] <query>

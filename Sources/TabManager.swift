@@ -1730,6 +1730,11 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectLastSurface()
     }
 
+    /// Select the previously visited surface in the currently focused pane of the selected workspace.
+    func selectLastVisitedSurface() {
+        selectedWorkspace?.selectLastVisitedSurface()
+    }
+
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.

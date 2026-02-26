@@ -40,6 +40,7 @@ class TerminalController {
         "workspace.previous",
         "workspace.last",
         "surface.focus",
+        "surface.last",
         "pane.focus",
         "pane.last",
         "browser.focus_webview",
@@ -1030,6 +1031,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceCurrent(params: params))
         case "surface.focus":
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
+        case "surface.last":
+            return v2Result(id: id, self.v2SurfaceLast(params: params))
         case "surface.split":
             return v2Result(id: id, self.v2SurfaceSplit(params: params))
         case "surface.create":
@@ -1376,6 +1379,7 @@ class TerminalController {
             "surface.list",
             "surface.current",
             "surface.focus",
+            "surface.last",
             "surface.split",
             "surface.create",
             "surface.close",
@@ -2799,6 +2803,41 @@ class TerminalController {
 
             ws.focusPanel(surfaceId)
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+        }
+        return result
+    }
+
+    private func v2SurfaceLast(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "No previously visited surface in pane", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let before = ws.focusedPanelId
+            ws.selectLastVisitedSurface()
+            guard let after = ws.focusedPanelId, after != before else { return }
+
+            let paneId = ws.paneId(forPanelId: after)?.id
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": v2OrNull(paneId?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId),
+                "surface_id": after.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: after)
+            ])
         }
         return result
     }
