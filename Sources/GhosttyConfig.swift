@@ -246,17 +246,19 @@ struct GhosttyConfig {
         }
 
         let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
-        sentryBreadcrumb(
-            "ghostty.theme.load.miss",
-            category: "config",
-            data: [
-                "requested_theme": name,
-                "resolved_theme": resolvedThemeName,
-                "candidate_count": candidateNames.count,
-                "path_count": pathCount,
-                "duration_ms": durationMs
-            ]
-        )
+        if durationMs >= 150 {
+            sentryBreadcrumb(
+                "ghostty.theme.load.miss",
+                category: "config",
+                data: [
+                    "requested_theme": name,
+                    "resolved_theme": resolvedThemeName,
+                    "candidate_count": candidateNames.count,
+                    "path_count": pathCount,
+                    "duration_ms": durationMs
+                ]
+            )
+        }
     }
 
     static func currentColorSchemePreference(
@@ -400,7 +402,9 @@ struct GhosttyConfig {
             let expanded = NSString(string: resourcesRoot).expandingTildeInPath
             guard !expanded.isEmpty else { return }
             appendUniquePath(
-                appendPathComponents(expanded, ["themes", themeName])
+                URL(fileURLWithPath: expanded)
+                    .appendingPathComponent("themes/\(themeName)")
+                    .path
             )
         }
 
@@ -408,18 +412,20 @@ struct GhosttyConfig {
         appendThemePath(in: environment["GHOSTTY_RESOURCES_DIR"])
 
         // 2) App bundle resources.
-        if let bundlePath = bundleResourceURL?.path {
-            appendUniquePath(
-                appendPathComponents(bundlePath, ["ghostty", "themes", themeName])
-            )
-        }
+        appendUniquePath(
+            bundleResourceURL?
+                .appendingPathComponent("ghostty/themes/\(themeName)")
+                .path
+        )
 
         // 3) Data dirs (Ghostty installs themes under share/ghostty/themes).
         if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
             for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
                 guard !dataDir.isEmpty else { continue }
                 appendUniquePath(
-                    appendPathComponents(dataDir, ["ghostty", "themes", themeName])
+                    URL(fileURLWithPath: dataDir)
+                        .appendingPathComponent("ghostty/themes/\(themeName)")
+                        .path
                 )
             }
         }
@@ -430,14 +436,6 @@ struct GhosttyConfig {
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
-    }
-
-    private static func appendPathComponents(_ basePath: String, _ components: [String]) -> String {
-        var path = NSString(string: basePath).expandingTildeInPath
-        for component in components {
-            path = (path as NSString).appendingPathComponent(component)
-        }
-        return path
     }
 
     private static func readConfigFile(at path: String) -> String? {
