@@ -989,3 +989,77 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertNil(dailyProperties["app_build"])
     }
 }
+
+final class GhosttyMouseFocusTests: XCTestCase {
+    func testShouldRequestFirstResponderForMouseFocusWhenEnabledAndWindowIsActive() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false,
+                visibleInUI: true,
+                hasUsableGeometry: true,
+                hiddenInHierarchy: false
+            )
+        )
+    }
+
+    func testShouldNotRequestFirstResponderWhenFocusFollowsMouseDisabled() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+                focusFollowsMouseEnabled: false,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false,
+                visibleInUI: true,
+                hasUsableGeometry: true,
+                hiddenInHierarchy: false
+            )
+        )
+    }
+
+    func testShouldNotRequestFirstResponderDuringMouseDrag() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 1,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false,
+                visibleInUI: true,
+                hasUsableGeometry: true,
+                hiddenInHierarchy: false
+            )
+        )
+    }
+
+    func testShouldNotRequestFirstResponderWhenViewCannotSafelyReceiveFocus() {
+        XCTAssertFalse(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false,
+                visibleInUI: true,
+                hasUsableGeometry: false,
+                hiddenInHierarchy: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.shouldRequestFirstResponderForMouseFocus(
+                focusFollowsMouseEnabled: true,
+                pressedMouseButtons: 0,
+                appIsActive: true,
+                windowIsKey: true,
+                alreadyFirstResponder: false,
+                visibleInUI: true,
+                hasUsableGeometry: true,
+                hiddenInHierarchy: true
+            )
+        )
+    }
+}

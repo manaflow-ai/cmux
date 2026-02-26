@@ -837,6 +837,15 @@ class GhosttyApp {
         )
     }
 
+    func focusFollowsMouseEnabled() -> Bool {
+        guard let config else { return false }
+        var enabled = false
+        let key = "focus-follows-mouse"
+        let keyLength = UInt(key.lengthOfBytes(using: .utf8))
+        let found = ghostty_config_get(config, &enabled, key, keyLength)
+        return found && enabled
+    }
+
     private func applyDefaultBackground(
         color: NSColor,
         opacity: Double,
@@ -2237,6 +2246,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         bounds.width > 1 && bounds.height > 1
     }
 
+    static func shouldRequestFirstResponderForMouseFocus(
+        focusFollowsMouseEnabled: Bool,
+        pressedMouseButtons: Int,
+        appIsActive: Bool,
+        windowIsKey: Bool,
+        alreadyFirstResponder: Bool,
+        visibleInUI: Bool,
+        hasUsableGeometry: Bool,
+        hiddenInHierarchy: Bool
+    ) -> Bool {
+        guard focusFollowsMouseEnabled else { return false }
+        guard pressedMouseButtons == 0 else { return false }
+        guard appIsActive, windowIsKey else { return false }
+        guard !alreadyFirstResponder else { return false }
+        guard visibleInUI, hasUsableGeometry, !hiddenInHierarchy else { return false }
+        return true
+    }
+
         // Visibility is used for focus gating, not for libghostty occlusion.
         fileprivate var isVisibleInUI: Bool { visibleInUI }
         fileprivate func setVisibleInUI(_ visible: Bool) {
@@ -3394,6 +3421,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
@@ -3401,9 +3429,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+    }
+
+    private func maybeRequestFirstResponderForMouseFocus() {
+        guard let window else { return }
+        let alreadyFirstResponder = window.firstResponder === self
+        let shouldRequest = Self.shouldRequestFirstResponderForMouseFocus(
+            focusFollowsMouseEnabled: GhosttyApp.shared.focusFollowsMouseEnabled(),
+            pressedMouseButtons: NSEvent.pressedMouseButtons,
+            appIsActive: NSApp.isActive,
+            windowIsKey: window.isKeyWindow,
+            alreadyFirstResponder: alreadyFirstResponder,
+            visibleInUI: isVisibleInUI,
+            hasUsableGeometry: hasUsableFocusGeometry,
+            hiddenInHierarchy: isHiddenOrHasHiddenAncestor
+        )
+        guard shouldRequest else { return }
+        window.makeFirstResponder(self)
     }
 
     override func mouseExited(with event: NSEvent) {
