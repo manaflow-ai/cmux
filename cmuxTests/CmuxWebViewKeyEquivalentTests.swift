@@ -6075,7 +6075,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Empty titlebar space should drag the window"
         )
     }
@@ -6089,10 +6089,10 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(folderIconHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive titlebar controls should receive the mouse event"
         )
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
@@ -6104,7 +6104,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         hidden.isHidden = true
         container.addSubview(hidden)
 
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleDoesNotCaptureOutsideBounds() {
@@ -6112,7 +6112,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         let dragHandle = NSView(frame: container.bounds)
         container.addSubview(dragHandle)
 
-        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleSkipsCaptureForPassivePointerEvents() {
@@ -6141,7 +6141,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Passive host wrappers should not block titlebar drag capture"
         )
     }
@@ -6157,7 +6157,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive controls inside passive host wrappers should still receive hits"
         )
     }
@@ -6202,7 +6202,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         nestedContainer.addSubview(nestedDragHandle)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle),
+            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
 
@@ -6210,11 +6210,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
         probe.autoresizingMask = [.width, .height]
         probe.onHitTest = {
-            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle)
+            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown)
         }
         outerContainer.addSubview(probe)
 
-        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle)
+        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle, eventType: .leftMouseDown)
 
         XCTAssertEqual(
             nestedCaptureResult,
@@ -6233,7 +6233,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(mutatingSibling)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
         )
     }
