@@ -5912,6 +5912,13 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class ReentrantDragHandleView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown)
+            return shouldCapture ? self : nil
+        }
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -6077,6 +6084,34 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(
             windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
+        )
+    }
+
+    func testDragHandleTopHitResolutionSurvivesSameWindowReentrancy() {
+        let point = NSPoint(x: 180, y: 18)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+
+        let dragHandle = ReentrantDragHandleView(frame: container.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        container.addSubview(dragHandle)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown),
+            "Reentrant same-window top-hit resolution should not trigger exclusivity crashes"
         )
     }
 }
