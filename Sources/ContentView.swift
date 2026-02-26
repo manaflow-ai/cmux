@@ -3354,6 +3354,8 @@ struct ContentView: View {
             return "⌘⇧F"
         case "palette.terminalUseSelectionForFind":
             return "⌘E"
+        case "palette.toggleFullScreen":
+            return "\u{2303}\u{2318}F"
         default:
             return nil
         }
@@ -3493,6 +3495,14 @@ struct ContentView: View {
                 title: constant("Close Window"),
                 subtitle: constant("Window"),
                 keywords: ["close", "window"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleFullScreen",
+                title: constant("Toggle Full Screen"),
+                subtitle: constant("Window"),
+                keywords: ["fullscreen", "full", "screen", "window", "toggle"]
             )
         )
         contributions.append(
@@ -3961,6 +3971,13 @@ struct ContentView: View {
                 return
             }
             window.performClose(nil)
+        }
+        registry.register(commandId: "palette.toggleFullScreen") {
+            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+                NSSound.beep()
+                return
+            }
+            window.toggleFullScreen(nil)
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             _ = tabManager.reopenMostRecentlyClosedBrowserPanel()

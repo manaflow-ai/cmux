@@ -302,15 +302,17 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     return keyCode == 36 || keyCode == 76
 }
 
-func shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
+    chars: String,
     keyCode: UInt16
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
-    guard normalizedFlags == [.command] else { return false }
-    return keyCode == 36 || keyCode == 76
+    guard normalizedFlags == [.command, .control] else { return false }
+    let normalizedChars = chars.lowercased()
+    return normalizedChars == "f" || keyCode == 3
 }
 
 func commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -4586,8 +4588,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+        if shouldToggleMainWindowFullScreenForCommandControlFShortcut(
             flags: event.modifierFlags,
+            chars: chars,
             keyCode: event.keyCode
         ) {
             guard let targetWindow = mainWindowForShortcutEvent(event) else {
