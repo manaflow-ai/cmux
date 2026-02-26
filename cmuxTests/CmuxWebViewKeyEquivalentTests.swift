@@ -6122,7 +6122,11 @@ final class WindowDragHandleHitTests: XCTestCase {
 
         let point = NSPoint(x: 180, y: 18)
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .mouseMoved))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .mouseEntered))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .mouseExited))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .appKitDefined))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .systemDefined))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
     }
