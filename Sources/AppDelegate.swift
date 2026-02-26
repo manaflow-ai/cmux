@@ -734,6 +734,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private var lastSessionAutosaveFingerprint: Int?
+    private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -1508,7 +1510,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
                 return
             }
+            let now = Date()
+            let autosaveFingerprint = self.sessionAutosaveFingerprint(includeScrollback: false)
+            if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: self.isTerminatingApp,
+                includeScrollback: false,
+                previousFingerprint: self.lastSessionAutosaveFingerprint,
+                currentFingerprint: autosaveFingerprint,
+                lastPersistedAt: self.lastSessionAutosavePersistedAt,
+                now: now
+            ) {
+#if DEBUG
+                dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
+#endif
+                return
+            }
+
             _ = self.saveSessionSnapshot(includeScrollback: false)
+            self.updateSessionAutosaveSaveState(
+                includeScrollback: false,
+                persistedAt: now,
+                fingerprint: autosaveFingerprint
+            )
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -1564,6 +1587,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard didDisableSuddenTermination else { return }
         ProcessInfo.processInfo.enableSuddenTermination()
         didDisableSuddenTermination = false
+    }
+
+    private func sessionAutosaveFingerprint(includeScrollback: Bool) -> Int? {
+        guard !includeScrollback else { return nil }
+
+        var hasher = Hasher()
+        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
+            lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+        hasher.combine(contexts.count)
+
+        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            hasher.combine(context.windowId)
+            hasher.combine(context.tabManager.sessionAutosaveFingerprint())
+            hasher.combine(context.sidebarState.isVisible)
+            hasher.combine(
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
+            )
+
+            switch context.sidebarSelectionState.selection {
+            case .tabs:
+                hasher.combine(0)
+            case .notifications:
+                hasher.combine(1)
+            }
+
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                Self.hashFrame(window.frame, into: &hasher)
+            } else {
+                hasher.combine(-1)
+            }
+        }
+
+        return hasher.finalize()
     }
 
     @discardableResult
@@ -1638,6 +1695,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool
     ) -> Bool {
         isTerminatingApp && includeScrollback
+    }
+
+    nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool,
+        previousFingerprint: Int?,
+        currentFingerprint: Int?,
+        lastPersistedAt: Date,
+        now: Date,
+        maximumAutosaveSkippableInterval: TimeInterval = 60
+    ) -> Bool {
+        guard !isTerminatingApp,
+              !includeScrollback,
+              let previousFingerprint,
+              let currentFingerprint,
+              previousFingerprint == currentFingerprint else {
+            return false
+        }
+
+        return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
+    }
+
+    private func updateSessionAutosaveSaveState(
+        includeScrollback: Bool,
+        persistedAt: Date,
+        fingerprint: Int?
+    ) {
+        guard !isTerminatingApp, !includeScrollback else { return }
+        lastSessionAutosaveFingerprint = fingerprint
+        lastSessionAutosavePersistedAt = persistedAt
+    }
+
+    private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
+        let standardized = frame.standardized
+        let quantized = [
+            standardized.origin.x,
+            standardized.origin.y,
+            standardized.size.width,
+            standardized.size.height,
+        ].map { Int(($0 * 2).rounded()) }
+        quantized.forEach { hasher.combine($0) }
     }
 
     private func persistSessionSnapshot(
