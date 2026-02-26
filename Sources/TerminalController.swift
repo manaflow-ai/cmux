@@ -1999,7 +1999,9 @@ class TerminalController {
                     "index": index,
                     "title": ws.title,
                     "selected": ws.id == tabManager.selectedTabId,
-                    "pinned": ws.isPinned
+                    "pinned": ws.isPinned,
+                    "current_directory": v2OrNull(ws.currentDirectory),
+                    "custom_color": v2OrNull(ws.customColor)
                 ]
             }
         }
