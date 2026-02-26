@@ -657,12 +657,45 @@ private final class TitlebarCommandKeyMonitor: ObservableObject {
     }
 }
 
+struct TitlebarControlsLayoutSnapshot: Equatable {
+    let contentSize: NSSize
+    let containerHeight: CGFloat
+    let yOffset: CGFloat
+}
+
+func titlebarControlsShouldScheduleForViewSizeChange(
+    previous: NSSize,
+    current: NSSize,
+    tolerance: CGFloat = 0.5
+) -> Bool {
+    guard current.width > 0, current.height > 0 else { return false }
+    guard previous.width > 0, previous.height > 0 else { return true }
+    return abs(previous.width - current.width) > tolerance
+        || abs(previous.height - current.height) > tolerance
+}
+
+func titlebarControlsShouldApplyLayout(
+    previous: TitlebarControlsLayoutSnapshot?,
+    next: TitlebarControlsLayoutSnapshot,
+    tolerance: CGFloat = 0.5
+) -> Bool {
+    guard let previous else { return true }
+    return abs(previous.contentSize.width - next.contentSize.width) > tolerance
+        || abs(previous.contentSize.height - next.contentSize.height) > tolerance
+        || abs(previous.containerHeight - next.containerHeight) > tolerance
+        || abs(previous.yOffset - next.yOffset) > tolerance
+}
+
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
     private let containerView = NSView()
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var pendingSizeUpdate = false
+    private var fittingSizeNeedsRefresh = true
+    private var cachedFittingSize: NSSize?
+    private var lastObservedViewSize: NSSize = .zero
+    private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
@@ -696,10 +729,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleSizeUpdate()
+            self?.scheduleSizeUpdate(invalidateFittingSize: true)
         }
 
-        scheduleSizeUpdate()
+        scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
     required init?(coder: NSCoder) {
@@ -714,15 +747,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     override func viewDidAppear() {
         super.viewDidAppear()
-        scheduleSizeUpdate()
+        scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        scheduleSizeUpdate()
+        let currentViewSize = view.bounds.size
+        guard titlebarControlsShouldScheduleForViewSizeChange(
+            previous: lastObservedViewSize,
+            current: currentViewSize
+        ) else {
+            return
+        }
+        lastObservedViewSize = currentViewSize
+        scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
-    private func scheduleSizeUpdate() {
+    private func scheduleSizeUpdate(invalidateFittingSize: Bool = false) {
+        if invalidateFittingSize {
+            fittingSizeNeedsRefresh = true
+        }
         guard !pendingSizeUpdate else { return }
         pendingSizeUpdate = true
         DispatchQueue.main.async { [weak self] in
@@ -732,14 +776,33 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func updateSize() {
-        hostingView.invalidateIntrinsicContentSize()
-        hostingView.layoutSubtreeIfNeeded()
-        let contentSize = hostingView.fittingSize
+        let contentSize: NSSize
+        if fittingSizeNeedsRefresh || cachedFittingSize == nil {
+            hostingView.invalidateIntrinsicContentSize()
+            hostingView.layoutSubtreeIfNeeded()
+            cachedFittingSize = hostingView.fittingSize
+            fittingSizeNeedsRefresh = false
+        }
+        contentSize = cachedFittingSize ?? .zero
+
+        guard contentSize.width > 0, contentSize.height > 0 else { return }
         let titlebarHeight = view.window.map { window in
             window.frame.height - window.contentLayoutRect.height
         } ?? contentSize.height
         let containerHeight = max(contentSize.height, titlebarHeight)
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+        let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
+            contentSize: contentSize,
+            containerHeight: containerHeight,
+            yOffset: yOffset
+        )
+        guard titlebarControlsShouldApplyLayout(
+            previous: lastAppliedLayoutSnapshot,
+            next: nextLayoutSnapshot
+        ) else {
+            return
+        }
+        lastAppliedLayoutSnapshot = nextLayoutSnapshot
         preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
         containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
         hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
