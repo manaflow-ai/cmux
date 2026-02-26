@@ -240,11 +240,15 @@ _cmux_install_prompt_command() {
 # may prepend other dirs that push our wrapper behind the system claude binary.
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local bin_dir="${GHOSTTY_BIN_DIR%/MacOS}"
-        bin_dir="${bin_dir}/Resources/bin"
+        local base_dir="${GHOSTTY_BIN_DIR%/MacOS}"
+        local bin_dir="${base_dir}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
+            # Remove existing Resources/bin and Contents/MacOS entries,
+            # then prepend Resources/bin. Contents/MacOS contains the GUI
+            # app binary which must not shadow the CLI wrapper.
             local new_path=":${PATH}:"
             new_path="${new_path//:${bin_dir}:/:}"
+            new_path="${new_path//:${GHOSTTY_BIN_DIR}:/:}"
             new_path="${new_path#:}"
             new_path="${new_path%:}"
             PATH="${bin_dir}:${new_path}"

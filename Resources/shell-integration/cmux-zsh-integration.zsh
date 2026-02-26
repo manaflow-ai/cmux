@@ -373,12 +373,15 @@ _cmux_precmd() {
 # We fix this once on first prompt (after all init files have run).
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local bin_dir="${GHOSTTY_BIN_DIR%/MacOS}"
-        bin_dir="${bin_dir}/Resources/bin"
+        local base_dir="${GHOSTTY_BIN_DIR%/MacOS}"
+        local bin_dir="${base_dir}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
-            # Remove existing entry and re-prepend.
+            # Remove existing Resources/bin and Contents/MacOS entries,
+            # then prepend Resources/bin. Contents/MacOS contains the GUI
+            # app binary which must not shadow the CLI wrapper.
             local -a parts=("${(@s/:/)PATH}")
             parts=("${(@)parts:#$bin_dir}")
+            parts=("${(@)parts:#${GHOSTTY_BIN_DIR}}")
             PATH="${bin_dir}:${(j/:/)parts}"
         fi
     fi
