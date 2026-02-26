@@ -539,11 +539,9 @@ final class WindowTerminalPortal: NSObject {
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
     private static let transientRecoveryRetryBudget: Int = 12
-#if CMUX_ISSUE_483_PORTAL_RECOVERY
+    // Keep portal-hosted terminals visible through brief split/close reparent geometry churn.
+    // Hiding immediately on transient tiny/offscreen states causes one-frame blink/blackout.
     private static let transientRecoveryEnabled = true
-#else
-    private static let transientRecoveryEnabled = false
-#endif
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -1022,6 +1020,11 @@ final class WindowTerminalPortal: NSObject {
 
         _ = synchronizeHostFrameToReference()
 
+        let canPreserveExistingFrameOnSeedMiss =
+            previousEntry != nil &&
+            hostedView.superview === hostView &&
+            ((previousEntry?.visibleInUI ?? false) || visibleInUI)
+
         // Seed frame/bounds before entering the window so a freshly reparented
         // surface doesn't do a transient 800x600 size update on viewDidMoveToWindow.
         if let seededFrame = seededFrameInHost(for: anchorView),
@@ -1032,6 +1035,17 @@ final class WindowTerminalPortal: NSObject {
             hostedView.frame = seededFrame
             hostedView.bounds = NSRect(origin: .zero, size: seededFrame.size)
             CATransaction.commit()
+        } else if canPreserveExistingFrameOnSeedMiss {
+            // During split/close tree mutations, SwiftUI can temporarily report unsettled anchor
+            // geometry while the hosted terminal should remain visible. Preserve the current frame
+            // and hidden state; synchronizeHostedView will reconcile to the new geometry shortly.
+#if DEBUG
+            dlog(
+                "portal.bind.deferSeed hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) frame=\(portalDebugFrame(hostedView.frame)) " +
+                "hidden=\(hostedView.isHidden ? 1 : 0)"
+            )
+#endif
         } else {
             // If anchor geometry is still unsettled, keep this hidden/zero-sized until
             // synchronizeHostedView resolves a valid target frame on the next layout tick.
