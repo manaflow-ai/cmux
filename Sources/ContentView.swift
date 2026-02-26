@@ -7470,6 +7470,11 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
+        if isActive,
+           let raw = entry.color,
+           Color(hex: raw) != nil {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+        }
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
