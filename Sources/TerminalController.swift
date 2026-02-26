@@ -1032,6 +1032,8 @@ class TerminalController {
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
+        case "system.tree":
+            return v2Result(id: id, self.v2SystemTree(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -1412,6 +1414,7 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
+            "system.tree",
             "auth.login",
             "window.list",
             "window.current",
@@ -1675,6 +1678,203 @@ class TerminalController {
             "socket_path": socketPath,
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
+        ]
+    }
+
+    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let includeAllWindows = v2Bool(params, "all_windows") ?? false
+
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+        let identifyPayload = v2Identify(params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+
+        var windowNodes: [[String: Any]] = []
+        var workspaceFound = (workspaceFilter == nil)
+
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            let summaries = app.listMainWindowSummaries()
+            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+
+                if let workspaceFilter {
+                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
+                        continue
+                    }
+                    let workspace = manager.tabs[workspaceIndex]
+                    let workspaceNode = v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                    windowNodes = [
+                        v2TreeWindowNode(
+                            summary: summary,
+                            index: windowIndex,
+                            workspaceNodes: [workspaceNode]
+                        )
+                    ]
+                    workspaceFound = true
+                    break
+                }
+
+                if !includeAllWindows && summary.windowId != defaultWindowId {
+                    continue
+                }
+
+                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+
+                windowNodes.append(
+                    v2TreeWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodesForWindow
+                    )
+                )
+            }
+        }
+
+        if let workspaceFilter, !workspaceFound {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: [
+                    "workspace_id": workspaceFilter.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+
+        return .ok([
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "windows": windowNodes
+        ])
+    }
+
+    private func v2TreeWindowNode(
+        summary: AppDelegate.MainWindowSummary,
+        index: Int,
+        workspaceNodes: [[String: Any]]
+    ) -> [String: Any] {
+        return [
+            "id": summary.windowId.uuidString,
+            "ref": v2Ref(kind: .window, uuid: summary.windowId),
+            "index": index,
+            "key": summary.isKeyWindow,
+            "visible": summary.isVisible,
+            "workspace_count": workspaceNodes.count,
+            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "workspaces": workspaceNodes
+        ]
+    }
+
+    private func v2TreeWorkspaceNode(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        for paneId in paneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = tabIndex
+                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+            }
+        }
+
+        var surfacesByPane: [UUID: [[String: Any]]] = [:]
+        let focusedSurfaceId = workspace.focusedPanelId
+        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+            let paneUUID = paneByPanelId[panel.id]
+            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
+
+            var item: [String: Any] = [
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": surfaceIndex,
+                "type": panel.panelType.rawValue,
+                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                "focused": panel.id == focusedSurfaceId,
+                "selected": selectedInPane,
+                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
+                "pane_id": v2OrNull(paneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id])
+            ]
+
+            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+                item["url"] = browserPanel.currentURL?.absoluteString ?? ""
+            } else {
+                item["url"] = NSNull()
+            }
+            if let paneUUID {
+                surfacesByPane[paneUUID, default: []].append(item)
+            }
+        }
+
+        for paneUUID in surfacesByPane.keys {
+            surfacesByPane[paneUUID]?.sort {
+                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
+                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
+
+            return [
+                "id": paneId.id.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "index": paneIndex,
+                "focused": paneId == focusedPaneId,
+                "surface_ids": surfaceUUIDs.map { $0.uuidString },
+                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
+                "surface_count": surfaceUUIDs.count,
+                "surfaces": surfacesByPane[paneId.id] ?? []
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "panes": panes
         ]
     }
 
