@@ -751,7 +751,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
     )
-    private static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
+    nonisolated private static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
     }
     private var lastSessionAutosaveFingerprint: Int?
