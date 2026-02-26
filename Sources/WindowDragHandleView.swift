@@ -49,8 +49,13 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
     return true
 }
 
-private var windowDragSuppressionDepthKey: UInt8 = 0
-private var windowDragTopHitResolutionDepthKey: UInt8 = 0
+private enum WindowDragHandleAssociatedObjectKeys {
+    private static let suppressionDepthToken = NSObject()
+    private static let topHitResolutionDepthToken = NSObject()
+
+    static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
+    static let topHitResolutionDepth = UnsafeRawPointer(Unmanaged.passUnretained(topHitResolutionDepthToken).toOpaque())
+}
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
     guard let window else { return nil }
@@ -58,7 +63,7 @@ func beginWindowDragSuppression(window: NSWindow?) -> Int? {
     let next = current + 1
     objc_setAssociatedObject(
         window,
-        &windowDragSuppressionDepthKey,
+        WindowDragHandleAssociatedObjectKeys.suppressionDepth,
         NSNumber(value: next),
         .OBJC_ASSOCIATION_RETAIN_NONATOMIC
     )
@@ -71,11 +76,16 @@ func endWindowDragSuppression(window: NSWindow?) -> Int {
     let current = windowDragSuppressionDepth(window: window)
     let next = max(0, current - 1)
     if next == 0 {
-        objc_setAssociatedObject(window, &windowDragSuppressionDepthKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.suppressionDepth,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
     } else {
         objc_setAssociatedObject(
             window,
-            &windowDragSuppressionDepthKey,
+            WindowDragHandleAssociatedObjectKeys.suppressionDepth,
             NSNumber(value: next),
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
@@ -85,7 +95,7 @@ func endWindowDragSuppression(window: NSWindow?) -> Int {
 
 func windowDragSuppressionDepth(window: NSWindow?) -> Int {
     guard let window,
-          let value = objc_getAssociatedObject(window, &windowDragSuppressionDepthKey) as? NSNumber else {
+          let value = objc_getAssociatedObject(window, WindowDragHandleAssociatedObjectKeys.suppressionDepth) as? NSNumber else {
         return 0
     }
     return value.intValue
@@ -131,7 +141,10 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 private enum WindowDragHandleHitTestState {
     static func depth(window: NSWindow?) -> Int {
         guard let window,
-              let value = objc_getAssociatedObject(window, &windowDragTopHitResolutionDepthKey) as? NSNumber else {
+              let value = objc_getAssociatedObject(
+                window,
+                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth
+              ) as? NSNumber else {
             return 0
         }
         return value.intValue
@@ -142,7 +155,7 @@ private enum WindowDragHandleHitTestState {
         let next = depth(window: window) + 1
         objc_setAssociatedObject(
             window,
-            &windowDragTopHitResolutionDepthKey,
+            WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
             NSNumber(value: next),
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
@@ -156,14 +169,14 @@ private enum WindowDragHandleHitTestState {
         if next == 0 {
             objc_setAssociatedObject(
                 window,
-                &windowDragTopHitResolutionDepthKey,
+                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
                 nil,
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         } else {
             objc_setAssociatedObject(
                 window,
-                &windowDragTopHitResolutionDepthKey,
+                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
                 NSNumber(value: next),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
