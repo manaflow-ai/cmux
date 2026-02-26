@@ -227,6 +227,19 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 
+## Founder's Edition
+
+cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
+
+**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
+
+- **Prioritized feature requests/bug fixes**
+- **Early access: cmux AI that gives you context on every workspace, tab and panel**
+- **Early access: iOS app with terminals synced between desktop and phone**
+- **Early access: Cloud VMs**
+- **Early access: Voice mode**
+- **My personal iMessage/WhatsApp**
+
 ## License
 
 This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
