@@ -4,9 +4,9 @@
 _cmux_send() {
     local payload="$1"
     if command -v ncat >/dev/null 2>&1; then
-        print -r -- "$payload" | ncat -U "$CMUX_SOCKET_PATH" --send-only
+        print -r -- "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
-        print -r -- "$payload" | socat - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
+        print -r -- "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
     elif command -v nc >/dev/null 2>&1; then
         # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
         #
@@ -41,6 +41,7 @@ typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_RUN=0
 typeset -g _CMUX_GIT_JOB_PID=""
+typeset -g _CMUX_GIT_JOB_STARTED_AT=0
 typeset -g _CMUX_GIT_FORCE=0
 typeset -g _CMUX_GIT_HEAD_LAST_PWD=""
 typeset -g _CMUX_GIT_HEAD_PATH=""
@@ -49,7 +50,9 @@ typeset -g _CMUX_HAVE_ZSTAT=0
 typeset -g _CMUX_PR_LAST_PWD=""
 typeset -g _CMUX_PR_LAST_RUN=0
 typeset -g _CMUX_PR_JOB_PID=""
+typeset -g _CMUX_PR_JOB_STARTED_AT=0
 typeset -g _CMUX_PR_FORCE=0
+typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
@@ -188,6 +191,30 @@ _cmux_precmd() {
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
 
+    # Post-wake socket writes can occasionally leave a probe process wedged.
+    # If one probe is stale, clear the guard so fresh async probes can resume.
+    if [[ -n "$_CMUX_GIT_JOB_PID" ]]; then
+        if ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+            _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
+        elif (( _CMUX_GIT_JOB_STARTED_AT > 0 )) && (( now - _CMUX_GIT_JOB_STARTED_AT >= _CMUX_ASYNC_JOB_TIMEOUT )); then
+            _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
+            _CMUX_GIT_FORCE=1
+        fi
+    fi
+
+    if [[ -n "$_CMUX_PR_JOB_PID" ]]; then
+        if ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+            _CMUX_PR_JOB_PID=""
+            _CMUX_PR_JOB_STARTED_AT=0
+        elif (( _CMUX_PR_JOB_STARTED_AT > 0 )) && (( now - _CMUX_PR_JOB_STARTED_AT >= _CMUX_ASYNC_JOB_TIMEOUT )); then
+            _CMUX_PR_JOB_PID=""
+            _CMUX_PR_JOB_STARTED_AT=0
+            _CMUX_PR_FORCE=1
+        fi
+    fi
+
     # CWD: keep the app in sync with the actual shell directory.
     # This is also the simplest way to test sidebar directory behavior end-to-end.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
@@ -242,6 +269,7 @@ _cmux_precmd() {
             if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]] || (( _CMUX_GIT_FORCE )); then
                 kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
                 _CMUX_GIT_JOB_PID=""
+                _CMUX_GIT_JOB_STARTED_AT=0
             else
                 can_launch_git=0
             fi
@@ -264,6 +292,7 @@ _cmux_precmd() {
                 fi
             } >/dev/null 2>&1 &!
             _CMUX_GIT_JOB_PID=$!
+            _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
 
@@ -285,6 +314,7 @@ _cmux_precmd() {
             if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( _CMUX_PR_FORCE )); then
                 kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
                 _CMUX_PR_JOB_PID=""
+                _CMUX_PR_JOB_STARTED_AT=0
             else
                 can_launch_pr=0
             fi
@@ -321,6 +351,7 @@ _cmux_precmd() {
                 fi
             } >/dev/null 2>&1 &!
             _CMUX_PR_JOB_PID=$!
+            _CMUX_PR_JOB_STARTED_AT=$now
         fi
     fi
 
