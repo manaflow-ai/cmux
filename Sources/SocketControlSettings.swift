@@ -66,31 +66,65 @@ enum SocketControlPasswordStore {
     private static let keychainMigrationVersion = 1
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
     private static let legacyKeychainAccount = "local-socket-password"
+    private struct LazyKeychainFallbackCache {
+        var hasLoaded = false
+        var password: String?
+    }
+    private static let lazyKeychainFallbackLock = NSLock()
+    private static var lazyKeychainFallbackCache = LazyKeychainFallbackCache()
 
     static func configuredPassword(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> String? {
         if let envPassword = normalized(environment[SocketControlSettings.socketPasswordEnvKey]) {
             return envPassword
         }
-        return try? loadPassword(fileURL: fileURL)
+        let filePassword: String?
+        do {
+            filePassword = try loadPassword(fileURL: fileURL)
+        } catch {
+            filePassword = nil
+        }
+        if let filePassword {
+            return filePassword
+        }
+        guard allowLazyKeychainFallback else {
+            return nil
+        }
+        return cachedLazyKeychainFallbackPassword(loadKeychainPassword: loadKeychainPassword)
     }
 
     static func hasConfiguredPassword(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
-        guard let configured = configuredPassword(environment: environment, fileURL: fileURL) else { return false }
+        guard let configured = configuredPassword(
+            environment: environment,
+            fileURL: fileURL,
+            allowLazyKeychainFallback: allowLazyKeychainFallback,
+            loadKeychainPassword: loadKeychainPassword
+        ) else { return false }
         return !configured.isEmpty
     }
 
     static func verify(
         password candidate: String,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        allowLazyKeychainFallback: Bool = false,
+        loadKeychainPassword: () -> String? = { loadLegacyPasswordFromKeychain() }
     ) -> Bool {
-        guard let expected = configuredPassword(environment: environment, fileURL: fileURL), !expected.isEmpty else {
+        guard let expected = configuredPassword(
+            environment: environment,
+            fileURL: fileURL,
+            allowLazyKeychainFallback: allowLazyKeychainFallback,
+            loadKeychainPassword: loadKeychainPassword
+        ), !expected.isEmpty else {
             return false
         }
         return expected == candidate
@@ -173,6 +207,12 @@ enum SocketControlPasswordStore {
         try FileManager.default.removeItem(at: fileURL)
     }
 
+    static func resetLazyKeychainFallbackCacheForTests() {
+        lazyKeychainFallbackLock.lock()
+        lazyKeychainFallbackCache = LazyKeychainFallbackCache()
+        lazyKeychainFallbackLock.unlock()
+    }
+
     static func defaultPasswordFileURL(
         appSupportDirectory: URL? = nil,
         fileManager: FileManager = .default
@@ -223,6 +263,19 @@ enum SocketControlPasswordStore {
 #else
         return false
 #endif
+    }
+
+    private static func cachedLazyKeychainFallbackPassword(
+        loadKeychainPassword: () -> String?
+    ) -> String? {
+        lazyKeychainFallbackLock.lock()
+        defer { lazyKeychainFallbackLock.unlock() }
+        if lazyKeychainFallbackCache.hasLoaded {
+            return lazyKeychainFallbackCache.password
+        }
+        lazyKeychainFallbackCache.hasLoaded = true
+        lazyKeychainFallbackCache.password = normalized(loadKeychainPassword())
+        return lazyKeychainFallbackCache.password
     }
 
     private static func normalized(_ value: String?) -> String? {
