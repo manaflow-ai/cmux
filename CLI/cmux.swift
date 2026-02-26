@@ -1,6 +1,5 @@
 import Foundation
 import Darwin
-import Security
 #if canImport(Sentry)
 import Sentry
 #endif
@@ -416,17 +415,17 @@ enum CLIIDFormat: String {
 }
 
 private enum SocketPasswordResolver {
-    private static let service = "com.cmuxterm.app.socket-control"
-    private static let account = "local-socket-password"
+    private static let directoryName = "cmux"
+    private static let fileName = "socket-control-password"
 
     static func resolve(explicit: String?) -> String? {
-        if let explicit = normalized(explicit), !explicit.isEmpty {
+        if let explicit = normalized(explicit) {
             return explicit
         }
-        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]), !env.isEmpty {
+        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]) {
             return env
         }
-        return loadFromKeychain()
+        return loadFromFile()
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -435,23 +434,20 @@ private enum SocketPasswordResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func loadFromKeychain() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else {
+    private static func loadFromFile() -> String? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        guard let data = result as? Data else {
+        let passwordURL = appSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+        guard let data = try? Data(contentsOf: passwordURL) else {
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        guard let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalized(value)
     }
 }
 
@@ -5261,7 +5257,7 @@ struct CMUXCLI {
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
-          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then keychain password saved in Settings.
+          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Commands:
           version
