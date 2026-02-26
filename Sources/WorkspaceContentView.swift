@@ -177,8 +177,14 @@ struct WorkspaceContentView: View {
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
+        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
+        currentTime: () -> TimeInterval = { CFAbsoluteTimeGetCurrent() },
+        slowThresholdMs: Double = 120,
+        emitBreadcrumb: (_ message: String, _ category: String, _ data: [String: Any]) -> Void = { message, category, data in
+            sentryBreadcrumb(message, category: category, data: data)
+        }
     ) -> GhosttyConfig {
+        let startedAt = currentTime()
         var next = loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
         let defaultBackgroundHex: String
@@ -194,6 +200,23 @@ struct WorkspaceContentView: View {
         }
 
         next.backgroundColor = resolvedBackground
+        let elapsedMs = max(0, (currentTime() - startedAt) * 1000)
+        if elapsedMs >= slowThresholdMs {
+            emitBreadcrumb(
+                "theme.resolve.slow",
+                "config",
+                [
+                    "reason": reason,
+                    "duration_ms": Int(elapsedMs.rounded()),
+                    "theme": next.theme ?? "nil",
+                    "loaded_background": loadedBackgroundHex,
+                    "default_background": defaultBackgroundHex,
+                    "final_background": next.backgroundColor.hexString(),
+                    "used_background_override": backgroundOverride != nil,
+                    "thread": Thread.isMainThread ? "main" : "background"
+                ]
+            )
+        }
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) theme=\(next.theme ?? "nil")"
