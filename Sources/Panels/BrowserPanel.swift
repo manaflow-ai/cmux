@@ -1233,6 +1233,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
+    private var insecureHTTPAlertFactory: () -> NSAlert
+    private var insecureHTTPAlertWindowProvider: () -> NSWindow?
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     private var preferredDeveloperToolsVisible: Bool = false
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
@@ -1296,6 +1298,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
 
         self.webView = webView
+        self.insecureHTTPAlertFactory = { NSAlert() }
+        self.insecureHTTPAlertWindowProvider = { [weak webView] in
+            webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1835,7 +1841,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
 
-        let alert = NSAlert()
+        let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = "Connection isn't secure"
         alert.informativeText = """
@@ -1849,10 +1855,38 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Always allow this host in cmux"
 
-        let response = alert.runModal()
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
+            self?.handleInsecureHTTPAlertResponse(
+                response,
+                alert: alert,
+                host: host,
+                request: request,
+                url: url,
+                intent: intent,
+                recordTypedNavigation: recordTypedNavigation
+            )
+        }
+
+        if let alertWindow = insecureHTTPAlertWindowProvider() {
+            alert.beginSheetModal(for: alertWindow, completionHandler: handleResponse)
+            return
+        }
+
+        handleResponse(alert.runModal())
+    }
+
+    private func handleInsecureHTTPAlertResponse(
+        _ response: NSApplication.ModalResponse,
+        alert: NSAlert?,
+        host: String,
+        request: URLRequest,
+        url: URL,
+        intent: BrowserInsecureHTTPNavigationIntent,
+        recordTypedNavigation: Bool
+    ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
-            suppressionEnabled: alert.suppressionButton?.state == .on
+            suppressionEnabled: alert?.suppressionButton?.state == .on
         ) {
             BrowserInsecureHTTPSettings.addAllowedHost(host)
         }
@@ -2475,6 +2509,32 @@ private extension BrowserPanel {
 
 #if DEBUG
 extension BrowserPanel {
+    func configureInsecureHTTPAlertHooksForTesting(
+        alertFactory: @escaping () -> NSAlert,
+        windowProvider: @escaping () -> NSWindow?
+    ) {
+        insecureHTTPAlertFactory = alertFactory
+        insecureHTTPAlertWindowProvider = windowProvider
+    }
+
+    func resetInsecureHTTPAlertHooksForTesting() {
+        insecureHTTPAlertFactory = { NSAlert() }
+        insecureHTTPAlertWindowProvider = { [weak weakWebView = self.webView] in
+            weakWebView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+    }
+
+    func presentInsecureHTTPAlertForTesting(
+        url: URL,
+        recordTypedNavigation: Bool = false
+    ) {
+        presentInsecureHTTPAlert(
+            for: URLRequest(url: url),
+            intent: .currentTab,
+            recordTypedNavigation: recordTypedNavigation
+        )
+    }
+
     private static func debugRectDescription(_ rect: NSRect) -> String {
         String(
             format: "%.1f,%.1f %.1fx%.1f",

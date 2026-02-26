@@ -1274,6 +1274,65 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
+    private final class BrowserInsecureHTTPAlertSpy: NSAlert {
+        private(set) var beginSheetModalCallCount = 0
+        private(set) var runModalCallCount = 0
+        var nextResponse: NSApplication.ModalResponse = .alertThirdButtonReturn
+
+        override func beginSheetModal(
+            for sheetWindow: NSWindow,
+            completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
+        ) {
+            beginSheetModalCallCount += 1
+            handler?(nextResponse)
+        }
+
+        override func runModal() -> NSApplication.ModalResponse {
+            runModalCallCount += 1
+            return nextResponse
+        }
+    }
+
+    func testInsecureHTTPPromptUsesSheetWhenWindowIsAvailable() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.resetInsecureHTTPAlertHooksForTesting() }
+
+        let alertSpy = BrowserInsecureHTTPAlertSpy()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+
+        panel.configureInsecureHTTPAlertHooksForTesting(
+            alertFactory: { alertSpy },
+            windowProvider: { window }
+        )
+        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+    }
+
+    func testInsecureHTTPPromptFallsBackToRunModalWithoutWindow() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.resetInsecureHTTPAlertHooksForTesting() }
+
+        let alertSpy = BrowserInsecureHTTPAlertSpy()
+        panel.configureInsecureHTTPAlertHooksForTesting(
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        )
+        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+    }
+}
+
 final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     func testLinkActivatedCmdClickOpensInNewTab() {
         XCTAssertTrue(
