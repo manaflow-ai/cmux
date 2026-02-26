@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3314,6 +3315,52 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             browserPanelId,
             "Expected browser surface to be appended at end in the reused top-right pane"
         )
+    }
+}
+
+@MainActor
+final class TabManagerEqualizeSplitsTests: XCTestCase {
+    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
+            XCTFail("Expected nested split setup to succeed")
+            return
+        }
+
+        let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertGreaterThanOrEqual(initialSplits.count, 2, "Expected at least two split nodes in nested layout")
+
+        for (index, split) in initialSplits.enumerated() {
+            guard let splitId = UUID(uuidString: split.id) else {
+                XCTFail("Expected split ID to be a UUID")
+                return
+            }
+            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+            XCTAssertTrue(
+                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
+                "Expected to seed divider position for split \(splitId)"
+            )
+        }
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(equalizedSplits.count, initialSplits.count)
+        for split in equalizedSplits {
+            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+        }
+    }
+
+    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+        }
     }
 }
 
