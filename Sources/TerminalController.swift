@@ -147,6 +147,23 @@ class TerminalController {
         requested && socketCommandAllowsInAppFocusMutations()
     }
 
+    /// Commands that execute arbitrary client-supplied JavaScript (`browser.eval`,
+    /// `browser.addscript`, `browser.addinitscript`) are always allowed in modes
+    /// with meaningful access control (cmuxOnly, automation, password).  In `allowAll`
+    /// mode they are blocked by default — the user must explicitly opt in via Settings.
+    private static let browserJSEvalMethods: Set<String> = [
+        "browser.eval",
+        "browser.addscript",
+        "browser.addinitscript",
+    ]
+
+    private func isBrowserJSEvalAllowed() -> Bool {
+        guard accessMode == .allowAll else { return true }
+        return UserDefaults.standard.bool(
+            forKey: SocketControlSettings.allowBrowserJSEvalInOpenAccessKey
+        )
+    }
+
     private func v2MaybeFocusWindow(for tabManager: TabManager) {
         guard socketCommandAllowsInAppFocusMutations(),
               let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
@@ -1583,11 +1600,16 @@ class TerminalController {
         ])
 #endif
 
+        if !isBrowserJSEvalAllowed() {
+            methods.removeAll { Self.browserJSEvalMethods.contains($0) }
+        }
+
         return [
             "protocol": "cmux-socket",
             "version": 2,
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
+            "browser_js_eval_allowed": isBrowserJSEvalAllowed(),
             "methods": methods.sorted()
         ]
     }
@@ -5169,6 +5191,13 @@ class TerminalController {
     }
 
     private func v2BrowserEval(params: [String: Any]) -> V2CallResult {
+        guard isBrowserJSEvalAllowed() else {
+            return .err(
+                code: "capability_disabled",
+                message: "browser.eval is disabled in full open access mode. Enable 'Allow browser JS eval in open access' in Settings > Automation.",
+                data: ["capability": "browser_js_eval", "access_mode": accessMode.rawValue]
+            )
+        }
         guard let script = v2String(params, "script") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
@@ -7603,6 +7632,13 @@ class TerminalController {
     }
 
     private func v2BrowserAddInitScript(params: [String: Any]) -> V2CallResult {
+        guard isBrowserJSEvalAllowed() else {
+            return .err(
+                code: "capability_disabled",
+                message: "browser.addinitscript is disabled in full open access mode. Enable 'Allow browser JS eval in open access' in Settings > Automation.",
+                data: ["capability": "browser_js_eval", "access_mode": accessMode.rawValue]
+            )
+        }
         guard let script = v2String(params, "script") ?? v2String(params, "content") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
@@ -7626,6 +7662,13 @@ class TerminalController {
     }
 
     private func v2BrowserAddScript(params: [String: Any]) -> V2CallResult {
+        guard isBrowserJSEvalAllowed() else {
+            return .err(
+                code: "capability_disabled",
+                message: "browser.addscript is disabled in full open access mode. Enable 'Allow browser JS eval in open access' in Settings > Automation.",
+                data: ["capability": "browser_js_eval", "access_mode": accessMode.rawValue]
+            )
+        }
         guard let script = v2String(params, "script") ?? v2String(params, "content") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }

@@ -166,6 +166,13 @@ struct SocketControlSettings {
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
 
+    /// When `true`, socket clients in `allowAll` mode can execute arbitrary JavaScript
+    /// via `browser.eval`, `browser.addscript`, and `browser.addinitscript`.
+    /// In other modes (cmuxOnly, automation, password), browser JS eval is always permitted
+    /// because those modes already enforce meaningful access control.
+    static let allowBrowserJSEvalInOpenAccessKey = "socketAllowBrowserJSEvalInOpenAccess"
+    static let defaultAllowBrowserJSEvalInOpenAccess = false
+
     private static func normalizeMode(_ raw: String) -> String {
         raw
             .trimmingCharacters(in: .whitespacesAndNewlines)

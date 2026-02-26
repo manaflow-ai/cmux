@@ -2620,6 +2620,8 @@ struct SettingsView: View {
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(SocketControlSettings.allowBrowserJSEvalInOpenAccessKey)
+    private var allowBrowserJSEvalInOpenAccess = SocketControlSettings.defaultAllowBrowserJSEvalInOpenAccess
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
@@ -3095,6 +3097,18 @@ struct SettingsView: View {
                         }
                         if selectedSocketControlMode == .allowAll {
                             SettingsCardDivider()
+                            SettingsCardRow(
+                                "Allow Browser JS Eval",
+                                subtitle: allowBrowserJSEvalInOpenAccess
+                                    ? "Socket clients can execute arbitrary JavaScript in browser tabs via browser.eval, browser.addscript, and browser.addinitscript."
+                                    : "Arbitrary JavaScript execution via socket is blocked. Structured browser commands (click, type, snapshot, etc.) still work."
+                            ) {
+                                Toggle("", isOn: $allowBrowserJSEvalInOpenAccess)
+                                    .labelsHidden()
+                                    .controlSize(.small)
+                                    .accessibilityIdentifier("SettingsAllowBrowserJSEvalToggle")
+                            }
+                            SettingsCardDivider()
                             Text("Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging.")
                                 .font(.caption)
                                 .foregroundStyle(.red)
@@ -3469,6 +3483,7 @@ struct SettingsView: View {
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
+        allowBrowserJSEvalInOpenAccess = SocketControlSettings.defaultAllowBrowserJSEvalInOpenAccess
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
