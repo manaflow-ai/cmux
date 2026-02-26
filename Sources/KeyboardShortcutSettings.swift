@@ -228,6 +228,15 @@ enum KeyboardShortcutSettings {
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
+    static let openMarkdownDefaultsKey = "shortcut.openMarkdown"
+    static let openMarkdownDefault = StoredShortcut(key: "o", command: true, shift: true, option: false, control: false)
+    static func openMarkdownShortcut() -> StoredShortcut {
+        guard let data = UserDefaults.standard.data(forKey: openMarkdownDefaultsKey),
+              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
+            return openMarkdownDefault
+        }
+        return shortcut
+    }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }

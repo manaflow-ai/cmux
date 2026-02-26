@@ -1231,6 +1231,22 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
     }
+
+    func testOpenMarkdownShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.openMarkdownDefaultsKey, "shortcut.openMarkdown")
+        XCTAssertEqual(KeyboardShortcutSettings.openMarkdownDefault.key, "o")
+        XCTAssertTrue(KeyboardShortcutSettings.openMarkdownDefault.command)
+        XCTAssertTrue(KeyboardShortcutSettings.openMarkdownDefault.shift)
+        XCTAssertFalse(KeyboardShortcutSettings.openMarkdownDefault.option)
+        XCTAssertFalse(KeyboardShortcutSettings.openMarkdownDefault.control)
+    }
+
+    func testOpenMarkdownShortcutUsesDefaultWhenNoCustomValueStored() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: KeyboardShortcutSettings.openMarkdownDefaultsKey)
+        let resolved = KeyboardShortcutSettings.openMarkdownShortcut()
+        XCTAssertEqual(resolved, KeyboardShortcutSettings.openMarkdownDefault)
+    }
 }
 
 @MainActor
@@ -7723,7 +7739,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: false,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7733,7 +7748,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: true
             )
@@ -7743,7 +7757,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
         XCTAssertFalse(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7753,7 +7766,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
             )

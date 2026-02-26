@@ -235,6 +235,12 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var forwardHistoryURLStrings: [String]?
 }
 
+struct SessionMarkdownPanelSnapshot: Codable, Sendable {
+    var filePath: String?
+    var text: String
+    var isPreviewMode: Bool
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -248,6 +254,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var ttyName: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
+    var markdown: SessionMarkdownPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

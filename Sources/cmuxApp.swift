@@ -383,6 +383,14 @@ struct cmuxApp: App {
                         activeTabManager.addTab()
                     }
                 }
+
+                Divider()
+
+                splitCommandButton(title: "Open Markdown File…", shortcut: KeyboardShortcutSettings.openMarkdownShortcut()) {
+                    if appDelegate.openMarkdownFileInFocusedWorkspace() == nil {
+                        NSSound.beep()
+                    }
+                }
             }
 
             // Close tab/workspace
