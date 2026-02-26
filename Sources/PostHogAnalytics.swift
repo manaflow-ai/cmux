@@ -13,6 +13,7 @@ final class PostHogAnalytics {
     private let host = "https://us.i.posthog.com"
 
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
+    private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
     private var didStart = false
     private var activeCheckTimer: Timer?
@@ -54,6 +55,7 @@ final class PostHogAnalytics {
             guard let self else { return }
             guard NSApp.isActive else { return }
             self.trackDailyActive(reason: "activeTimer")
+            self.trackHourlyActive(reason: "activeTimer")
         }
     }
 
@@ -82,9 +84,40 @@ final class PostHogAnalytics {
         PostHogSDK.shared.flush()
     }
 
+    func trackHourlyActive(reason: String) {
+        startIfNeeded()
+        guard didStart else { return }
+
+        let hour = utcHourString(Date())
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: lastActiveHourUTCKey) == hour {
+            return
+        }
+
+        defaults.set(hour, forKey: lastActiveHourUTCKey)
+
+        PostHogSDK.shared.capture(
+            "cmux_hourly_active",
+            properties: Self.hourlyActiveProperties(
+                hourUTC: hour,
+                reason: reason,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
+            )
+        )
+    }
+
     func flush() {
         guard didStart else { return }
         PostHogSDK.shared.flush()
+    }
+
+    private func utcHourString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH"
+        return formatter.string(from: date)
     }
 
     private func utcDayString(_ date: Date) -> String {
@@ -109,6 +142,19 @@ final class PostHogAnalytics {
     ) -> [String: Any] {
         var properties: [String: Any] = [
             "day_utc": dayUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated static func hourlyActiveProperties(
+        hourUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        var properties: [String: Any] = [
+            "hour_utc": hourUTC,
             "reason": reason,
         ]
         properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }

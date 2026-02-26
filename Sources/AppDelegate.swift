@@ -968,6 +968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         if !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
+            PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
 
         guard let tabManager, let notificationStore else { return }
