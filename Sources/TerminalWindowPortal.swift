@@ -717,7 +717,8 @@ final class WindowTerminalPortal: NSObject {
     @discardableResult
     private func ensureInstalled() -> Bool {
         guard let window else { return false }
-        guard let (container, reference) = installationTarget(for: window) else { return false }
+        guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
+        else { return false }
 
         if hostView.superview !== container ||
             installedContainerView !== container ||
@@ -753,6 +754,22 @@ final class WindowTerminalPortal: NSObject {
         ensureDividerOverlayOnTop()
 
         return true
+    }
+
+    private func installedTargetIfStillValid(for window: NSWindow) -> (container: NSView, reference: NSView)? {
+        guard let container = installedContainerView,
+              let reference = installedReferenceView else {
+            return nil
+        }
+
+        guard hostView.superview === container,
+              container.window === window,
+              reference.window === window,
+              reference.superview === container else {
+            return nil
+        }
+
+        return (container, reference)
     }
 
     private func installationTarget(for window: NSWindow) -> (container: NSView, reference: NSView)? {
