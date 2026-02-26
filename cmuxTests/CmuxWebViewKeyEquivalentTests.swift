@@ -6472,6 +6472,20 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
 @MainActor
 final class TerminalWindowPortalLifecycleTests: XCTestCase {
+    private final class ContentViewCountingWindow: NSWindow {
+        var contentViewReadCount = 0
+
+        override var contentView: NSView? {
+            get {
+                contentViewReadCount += 1
+                return super.contentView
+            }
+            set {
+                super.contentView = newValue
+            }
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -6558,6 +6572,38 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
         XCTAssertEqual(portal.debugEntryCount(), 1, "Only the live anchored hosted view should remain tracked")
         XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
+    }
+
+    func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() {
+        let window = ContentViewCountingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let anchor = NSView(frame: NSRect(x: 40, y: 50, width: 200, height: 120))
+        contentView.addSubview(anchor)
+        let hosted = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
+        )
+        portal.bind(hostedView: hosted, to: anchor, visibleInUI: true)
+
+        let baselineReads = window.contentViewReadCount
+        for _ in 0..<25 {
+            portal.synchronizeHostedViewForAnchor(anchor)
+        }
+
+        XCTAssertEqual(
+            window.contentViewReadCount,
+            baselineReads,
+            "Repeated synchronize calls should reuse installed target instead of repeatedly reading window.contentView"
+        )
     }
 
     func testTerminalViewAtWindowPointResolvesPortalHostedSurface() {
