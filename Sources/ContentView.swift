@@ -781,6 +781,12 @@ var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
 
+enum CommandPaletteOverlayPromotionPolicy {
+    static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
+        isVisible && !previouslyVisible
+    }
+}
+
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -850,11 +856,15 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             ]
             NSLayoutConstraint.activate(installConstraints)
             installedThemeFrame = themeFrame
-        } else if themeFrame.subviews.last !== containerView {
-            themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
         }
 
         return true
+    }
+
+    private func promoteOverlayAboveSiblingsIfNeeded() {
+        guard let themeFrame = installedThemeFrame,
+              containerView.superview === themeFrame else { return }
+        themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
     }
 
     private func isPaletteResponder(_ responder: NSResponder?) -> Bool {
@@ -1052,14 +1062,18 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(rootView: AnyView, isVisible: Bool) {
         guard ensureInstalled() else { return }
+        let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
+            previouslyVisible: isPaletteVisible,
+            isVisible: isVisible
+        )
         isPaletteVisible = isVisible
         if isVisible {
             hostingView.rootView = rootView
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
-            if let themeFrame = installedThemeFrame, themeFrame.subviews.last !== containerView {
-                themeFrame.addSubview(containerView, positioned: .above, relativeTo: nil)
+            if shouldPromote {
+                promoteOverlayAboveSiblingsIfNeeded()
             }
             updateFocusLockForWindowState()
         } else {
@@ -1226,6 +1240,8 @@ struct ContentView: View {
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
 
@@ -1368,6 +1384,7 @@ struct ContentView: View {
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceShouldPin = "workspace.shouldPin"
+        static let workspaceHasPullRequests = "workspace.hasPullRequests"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -2208,6 +2225,17 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteRenameTabInput()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWorkspaceRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openCommandPaletteRenameWorkspaceInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
@@ -3339,6 +3367,10 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasPullRequests,
+                !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
+            )
         }
 
         if let panelContext = focusedPanelContext {
@@ -3530,6 +3562,14 @@ struct ContentView: View {
                 keywords: ["attempt", "check", "update", "upgrade", "release"]
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.restartSocketListener",
+                title: constant("Restart CLI Listener"),
+                subtitle: constant("Global"),
+                keywords: ["restart", "socket", "listener", "cli", "cmux", "control"]
+            )
+        )
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -3646,6 +3686,18 @@ struct ContentView: View {
             )
         )
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openWorkspacePullRequests",
+                title: constant("Open All Workspace PR Links"),
+                subtitle: workspaceSubtitle,
+                keywords: ["pull", "request", "review", "merge", "pr", "mr", "open", "links", "workspace"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
+                    $0.bool(CommandPaletteContextKeys.workspaceHasPullRequests)
+                }
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.browserBack",
@@ -3923,7 +3975,17 @@ struct ContentView: View {
             AppDelegate.shared?.jumpToLatestUnread()
         }
         registry.register(commandId: "palette.openSettings") {
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+#if DEBUG
+            dlog("palette.openSettings.invoke")
+#endif
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.openPreferencesWindow(debugSource: "palette.openSettings")
+            } else {
+#if DEBUG
+                dlog("palette.openSettings.missingAppDelegate fallback=1")
+#endif
+                AppDelegate.presentPreferencesWindow()
+            }
         }
         registry.register(commandId: "palette.checkForUpdates") {
             AppDelegate.shared?.checkForUpdates(nil)
@@ -3933,6 +3995,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.attemptUpdate") {
             AppDelegate.shared?.attemptUpdate(nil)
+        }
+        registry.register(commandId: "palette.restartSocketListener") {
+            AppDelegate.shared?.restartSocketListener(nil)
         }
 
         registry.register(commandId: "palette.renameWorkspace") {
@@ -3997,6 +4062,13 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.previousTabInPane") {
             tabManager.selectPreviousSurface()
+        }
+        registry.register(commandId: "palette.openWorkspacePullRequests") {
+            DispatchQueue.main.async {
+                if !openWorkspacePullRequestsInConfiguredBrowser() {
+                    NSSound.beep()
+                }
+            }
         }
 
         registry.register(commandId: "palette.browserBack") {
@@ -4239,6 +4311,9 @@ struct ContentView: View {
     }
 
     private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
+#if DEBUG
+        dlog("palette.run commandId=\(command.id) dismissOnRun=\(command.dismissOnRun ? 1 : 0)")
+#endif
         recordCommandPaletteUsage(command.id)
         command.action()
         if command.dismissOnRun {
@@ -4275,6 +4350,13 @@ struct ContentView: View {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameTabFlow()
+    }
+
+    private func openCommandPaletteRenameWorkspaceInput() {
+        if !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        beginRenameWorkspaceFlow()
     }
 
     static func shouldHandleCommandPaletteRequest(
@@ -4638,6 +4720,31 @@ struct ContentView: View {
             return false
         }
         return NSWorkspace.shared.open(url)
+    }
+
+    private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {
+        guard let workspace = tabManager.selectedWorkspace else { return false }
+        let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
+        guard !pullRequests.isEmpty else { return false }
+
+        var openedCount = 0
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            for pullRequest in pullRequests {
+                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
+                    openedCount += 1
+                } else if NSWorkspace.shared.open(pullRequest.url) {
+                    openedCount += 1
+                }
+            }
+            return openedCount > 0
+        }
+
+        for pullRequest in pullRequests {
+            if NSWorkspace.shared.open(pullRequest.url) {
+                openedCount += 1
+            }
+        }
+        return openedCount > 0
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
@@ -5626,7 +5733,7 @@ private struct SidebarExternalDropOverlay: View {
                     .contentShape(Rectangle())
                     .allowsHitTesting(true)
                     .onDrop(
-                        of: [SidebarTabDragPayload.typeIdentifier],
+                        of: SidebarTabDragPayload.dropContentTypes,
                         delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
                     )
             } else {
@@ -5961,7 +6068,7 @@ private struct SidebarEmptyArea: View {
                 }
                 selection = .tabs
             }
-            .onDrop(of: [SidebarTabDragPayload.typeIdentifier], delegate: SidebarTabDropDelegate(
+            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
                 targetTabId: nil,
                 tabManager: tabManager,
                 draggedTabId: $draggedTabId,
@@ -5992,6 +6099,78 @@ private struct SidebarEmptyArea: View {
     }
 }
 
+enum SidebarPathFormatter {
+    static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
+
+    static func shortenedPath(
+        _ path: String,
+        homeDirectoryPath: String = Self.homeDirectoryPath
+    ) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return path }
+        if trimmed == homeDirectoryPath {
+            return "~"
+        }
+        if trimmed.hasPrefix(homeDirectoryPath + "/") {
+            return "~" + trimmed.dropFirst(homeDirectoryPath.count)
+        }
+        return trimmed
+    }
+}
+
+enum SidebarWorkspaceShortcutHintMetrics {
+    private static let measurementFont = NSFont.systemFont(ofSize: 10, weight: .semibold)
+    private static let minimumSlotWidth: CGFloat = 28
+    private static let horizontalPadding: CGFloat = 12
+    private static let lock = NSLock()
+    private static var cachedHintWidths: [String: CGFloat] = [:]
+    #if DEBUG
+    private static var measurementCount = 0
+    #endif
+
+    static func slotWidth(label: String?, debugXOffset: Double) -> CGFloat {
+        guard let label else { return minimumSlotWidth }
+        let positiveDebugInset = max(0, CGFloat(ShortcutHintDebugSettings.clamped(debugXOffset))) + 2
+        return max(minimumSlotWidth, hintWidth(for: label) + positiveDebugInset)
+    }
+
+    static func hintWidth(for label: String) -> CGFloat {
+        lock.lock()
+        if let cached = cachedHintWidths[label] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let textWidth = (label as NSString).size(withAttributes: [.font: measurementFont]).width
+        let measuredWidth = ceil(textWidth) + horizontalPadding
+
+        lock.lock()
+        cachedHintWidths[label] = measuredWidth
+        #if DEBUG
+        measurementCount += 1
+        #endif
+        lock.unlock()
+        return measuredWidth
+    }
+
+    #if DEBUG
+    static func resetCacheForTesting() {
+        lock.lock()
+        cachedHintWidths.removeAll()
+        measurementCount = 0
+        lock.unlock()
+    }
+
+    static func measurementCountForTesting() -> Int {
+        lock.lock()
+        let count = measurementCount
+        lock.unlock()
+        return count
+    }
+    #endif
+}
+
 private struct TabItemView: View {
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var notificationStore: TerminalNotificationStore
@@ -6013,11 +6192,15 @@ private struct TabItemView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowGitBranchIcon") private var sidebarShowGitBranchIcon = false
+    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
-    @AppStorage("sidebarShowStatusPills") private var sidebarShowStatusPills = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
@@ -6114,18 +6297,18 @@ private struct TabItemView: View {
     }
 
     private var workspaceHintSlotWidth: CGFloat {
-        guard let label = workspaceShortcutLabel else { return 28 }
-        let positiveDebugInset = max(0, CGFloat(ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset))) + 2
-        return max(28, workspaceHintWidth(for: label) + positiveDebugInset)
-    }
-
-    private func workspaceHintWidth(for label: String) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        let textWidth = (label as NSString).size(withAttributes: [.font: font]).width
-        return ceil(textWidth) + 12
+        SidebarWorkspaceShortcutHintMetrics.slotWidth(
+            label: workspaceShortcutLabel,
+            debugXOffset: sidebarShortcutHintXOffset
+        )
     }
 
     var body: some View {
+        let latestNotificationSubtitle = latestNotificationText
+        let compactBranchDirectoryRow = branchDirectoryRow
+        let branchDirectoryLines = verticalBranchDirectoryLines
+        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 let unreadCount = notificationStore.unreadCount(forTabId: tab.id)
@@ -6192,7 +6375,7 @@ private struct TabItemView: View {
                 .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
             }
 
-            if let subtitle = latestNotificationText {
+            if let subtitle = latestNotificationSubtitle {
                 Text(subtitle)
                     .font(.system(size: 10))
                     .foregroundColor(activeSecondaryColor(0.8))
@@ -6201,16 +6384,25 @@ private struct TabItemView: View {
                     .multilineTextAlignment(.leading)
             }
 
-            if sidebarShowStatusPills, !tab.statusEntries.isEmpty {
-                SidebarStatusPillsRow(
-                    entries: tab.statusEntries.values.sorted(by: { (lhs, rhs) in
-                        if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
-                        return lhs.key < rhs.key
-                    }),
-                    isActive: usesInvertedActiveForeground,
-                    onFocus: { updateSelection() }
-                )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            if sidebarShowMetadata {
+                let metadataEntries = tab.sidebarStatusEntriesInDisplayOrder()
+                let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
+                if !metadataEntries.isEmpty {
+                    SidebarMetadataRows(
+                        entries: metadataEntries,
+                        isActive: usesInvertedActiveForeground,
+                        onFocus: { updateSelection() }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+                if !metadataBlocks.isEmpty {
+                    SidebarMetadataMarkdownBlocks(
+                        blocks: metadataBlocks,
+                        isActive: usesInvertedActiveForeground,
+                        onFocus: { updateSelection() }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
 
             // Latest log entry
@@ -6253,54 +6445,85 @@ private struct TabItemView: View {
             }
 
             // Branch + directory row
-            if sidebarBranchVerticalLayout {
-                if !verticalBranchDirectoryLines.isEmpty {
-                    HStack(alignment: .top, spacing: 3) {
-                        if sidebarShowGitBranchIcon, sidebarShowGitBranch, verticalRowsContainBranch {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        VStack(alignment: .leading, spacing: 1) {
-                            ForEach(Array(verticalBranchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                HStack(spacing: 3) {
-                                    if let branch = line.branch {
-                                        Text(branch)
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(activeSecondaryColor(0.75))
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
-                                    }
-                                    if line.branch != nil, line.directory != nil {
-                                        Image(systemName: "circle.fill")
-                                            .font(.system(size: 3))
-                                            .foregroundColor(activeSecondaryColor(0.6))
-                                            .padding(.horizontal, 1)
-                                    }
-                                    if let directory = line.directory {
-                                        Text(directory)
-                                            .font(.system(size: 10, design: .monospaced))
-                                            .foregroundColor(activeSecondaryColor(0.75))
-                                            .lineLimit(1)
-                                            .truncationMode(.tail)
+            if sidebarShowBranchDirectory {
+                if sidebarBranchVerticalLayout {
+                    if !branchDirectoryLines.isEmpty {
+                        HStack(alignment: .top, spacing: 3) {
+                            if sidebarShowGitBranchIcon, branchLinesContainBranch {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(activeSecondaryColor(0.6))
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                    HStack(spacing: 3) {
+                                        if let branch = line.branch {
+                                            Text(branch)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(activeSecondaryColor(0.75))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        if line.branch != nil, line.directory != nil {
+                                            Image(systemName: "circle.fill")
+                                                .font(.system(size: 3))
+                                                .foregroundColor(activeSecondaryColor(0.6))
+                                                .padding(.horizontal, 1)
+                                        }
+                                        if let directory = line.directory {
+                                            Text(directory)
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(activeSecondaryColor(0.75))
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            } else if let dirRow = branchDirectoryRow {
-                HStack(spacing: 3) {
-                    if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
-                        Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 9))
-                            .foregroundColor(activeSecondaryColor(0.6))
+                } else if let dirRow = compactBranchDirectoryRow {
+                    HStack(spacing: 3) {
+                        if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 9))
+                                .foregroundColor(activeSecondaryColor(0.6))
+                        }
+                        Text(dirRow)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(activeSecondaryColor(0.75))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
-                    Text(dirRow)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(activeSecondaryColor(0.75))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                }
+            }
+
+            // Pull request rows
+            if sidebarShowPullRequest, !pullRequestDisplays.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(pullRequestDisplays) { pullRequest in
+                        Button(action: {
+                            openPullRequestLink(pullRequest.url)
+                        }) {
+                            HStack(spacing: 4) {
+                                PullRequestStatusIcon(
+                                    status: pullRequest.status,
+                                    color: pullRequestForegroundColor
+                                )
+                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                    .underline()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open \(pullRequest.label) #\(pullRequest.number)")
+                    }
                 }
             }
 
@@ -6315,6 +6538,7 @@ private struct TabItemView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
+        .animation(.easeInOut(duration: 0.2), value: tab.metadataBlocks.count)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(
@@ -6374,7 +6598,7 @@ private struct TabItemView: View {
             dropIndicator = nil
             return SidebarTabDragPayload.provider(for: tab.id)
         }
-        .onDrop(of: [SidebarTabDragPayload.typeIdentifier], delegate: SidebarTabDropDelegate(
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
             targetTabId: tab.id,
             tabManager: tabManager,
             draggedTabId: $draggedTabId,
@@ -6384,7 +6608,7 @@ private struct TabItemView: View {
             dragAutoScrollController: dragAutoScrollController,
             dropIndicator: $dropIndicator
         ))
-        .onDrop(of: [BonsplitTabDragPayload.typeIdentifier], delegate: SidebarBonsplitTabDropDelegate(
+        .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
             selectedTabIds: $selectedTabIds,
@@ -6819,17 +7043,13 @@ private struct TabItemView: View {
         tab.sidebarBranchDirectoryEntriesInDisplayOrder()
     }
 
-    private var verticalRowsContainBranch: Bool {
-        sidebarShowGitBranch && verticalBranchDirectoryLines.contains { $0.branch != nil }
-    }
-
     private struct VerticalBranchDirectoryLine {
         let branch: String?
         let directory: String?
     }
 
     private var verticalBranchDirectoryLines: [VerticalBranchDirectoryLine] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = SidebarPathFormatter.homeDirectoryPath
         return verticalBranchDirectoryEntries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
@@ -6838,7 +7058,7 @@ private struct TabItemView: View {
 
             let directoryText: String? = {
                 guard let directory = entry.directory else { return nil }
-                let shortened = shortenPath(directory, home: home)
+                let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
                 return shortened.isEmpty ? nil : shortened
             }()
 
@@ -6857,18 +7077,66 @@ private struct TabItemView: View {
 
     private var directorySummaryText: String? {
         guard !tab.panels.isEmpty else { return nil }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = SidebarPathFormatter.homeDirectoryPath
         var seen: Set<String> = []
         var entries: [String] = []
         for panelId in tab.sidebarOrderedPanelIds() {
             let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
-            let shortened = shortenPath(directory, home: home)
+            let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
             guard !shortened.isEmpty else { continue }
             if seen.insert(shortened).inserted {
                 entries.append(shortened)
             }
         }
         return entries.isEmpty ? nil : entries.joined(separator: " | ")
+    }
+
+    private struct PullRequestDisplay: Identifiable {
+        let id: String
+        let number: Int
+        let label: String
+        let url: URL
+        let status: SidebarPullRequestStatus
+    }
+
+    private var pullRequestDisplays: [PullRequestDisplay] {
+        tab.sidebarPullRequestsInDisplayOrder().map { pullRequest in
+            PullRequestDisplay(
+                id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
+                number: pullRequest.number,
+                label: pullRequest.label,
+                url: pullRequest.url,
+                status: pullRequest.status
+            )
+        }
+    }
+
+    private var pullRequestForegroundColor: Color {
+        isActive ? .white.opacity(0.75) : .secondary
+    }
+
+    private func openPullRequestLink(_ url: URL) {
+        updateSelection()
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            if tabManager.openBrowser(
+                inWorkspace: tab.id,
+                url: url,
+                preferSplitRight: true,
+                insertAtEnd: true
+            ) == nil {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
+        switch status {
+        case .open: return "open"
+        case .merged: return "merged"
+        case .closed: return "closed"
+        }
     }
 
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
@@ -6905,16 +7173,99 @@ private struct TabItemView: View {
         }
     }
 
-    private func shortenPath(_ path: String, home: String) -> String {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return path }
-        if trimmed == home {
-            return "~"
+    private struct PullRequestStatusIcon: View {
+        let status: SidebarPullRequestStatus
+        let color: Color
+        private static let frameSize: CGFloat = 12
+
+        var body: some View {
+            switch status {
+            case .open:
+                PullRequestOpenIcon(color: color)
+            case .merged:
+                PullRequestMergedIcon(color: color)
+            case .closed:
+                Image(systemName: "xmark.circle")
+                    .font(.system(size: 7, weight: .regular))
+                    .foregroundColor(color)
+                    .frame(width: Self.frameSize, height: Self.frameSize)
+            }
         }
-        if trimmed.hasPrefix(home + "/") {
-            return "~" + trimmed.dropFirst(home.count)
+    }
+
+    private struct PullRequestOpenIcon: View {
+        let color: Color
+        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.0
+        private static let frameSize: CGFloat = 13
+
+        var body: some View {
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 3.0, y: 4.8))
+                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
+
+                    path.move(to: CGPoint(x: 4.8, y: 3.0))
+                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
+                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
+                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
+                }
+                .stroke(color, style: Self.stroke)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 3.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 11.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 11.0, y: 11.0)
+            }
+            .frame(width: Self.frameSize, height: Self.frameSize)
         }
-        return trimmed
+    }
+
+    private struct PullRequestMergedIcon: View {
+        let color: Color
+        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
+        private static let nodeDiameter: CGFloat = 3.0
+        private static let frameSize: CGFloat = 13
+
+        var body: some View {
+            ZStack {
+                Path { path in
+                    path.move(to: CGPoint(x: 4.6, y: 4.6))
+                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
+
+                    path.move(to: CGPoint(x: 4.6, y: 9.4))
+                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
+                }
+                .stroke(color, style: Self.stroke)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 3.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 3.0, y: 11.0)
+
+                Circle()
+                    .stroke(color, lineWidth: Self.stroke.lineWidth)
+                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
+                    .position(x: 11.0, y: 7.0)
+            }
+            .frame(width: Self.frameSize, height: Self.frameSize)
+        }
     }
 
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
@@ -6988,30 +7339,19 @@ private struct TabItemView: View {
     }
 }
 
-private struct SidebarStatusPillsRow: View {
+private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
     let isActive: Bool
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(statusText)
-                .font(.system(size: 10))
-                .foregroundColor(isActive ? activePrimaryTextColor : .secondary)
-                .lineLimit(isExpanded ? nil : 3)
-                .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onFocus()
-                    guard shouldShowToggle else { return }
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isExpanded.toggle()
-                    }
-                }
+            ForEach(visibleEntries, id: \.key) { entry in
+                SidebarMetadataEntryRow(entry: entry, isActive: isActive, onFocus: onFocus)
+            }
 
             if shouldShowToggle {
                 Button(isExpanded ? "Show less" : "Show more") {
@@ -7026,29 +7366,203 @@ private struct SidebarStatusPillsRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .help(statusText)
-    }
-
-    private var activePrimaryTextColor: Color {
-        Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.8))
+        .help(helpText)
     }
 
     private var activeSecondaryTextColor: Color {
         Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65))
     }
 
-    private var statusText: String {
-        entries
-            .map { entry in
-                let value = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty { return value }
-                return entry.key
-            }
-            .joined(separator: "\n")
+    private var visibleEntries: [SidebarStatusEntry] {
+        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
+        return Array(entries.prefix(collapsedEntryLimit))
+    }
+
+    private var helpText: String {
+        entries.map { entry in
+            let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? entry.key : trimmed
+        }
+        .joined(separator: "\n")
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > 1 || statusText.count > 120
+        entries.count > collapsedEntryLimit
+    }
+}
+
+private struct SidebarMetadataEntryRow: View {
+    let entry: SidebarStatusEntry
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    var body: some View {
+        Group {
+            if let url = entry.url {
+                Button {
+                    onFocus()
+                    NSWorkspace.shared.open(url)
+                } label: {
+                    rowContent(underlined: true)
+                }
+                .buttonStyle(.plain)
+                .help(url.absoluteString)
+            } else {
+                rowContent(underlined: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onFocus() }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowContent(underlined: Bool) -> some View {
+        HStack(spacing: 4) {
+            if let icon = iconView {
+                icon
+                    .foregroundColor(foregroundColor.opacity(0.95))
+            }
+            metadataText(underlined: underlined)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var foregroundColor: Color {
+        if let raw = entry.color, let explicit = Color(hex: raw) {
+            return explicit
+        }
+        return isActive ? .white.opacity(0.8) : .secondary
+    }
+
+    private var iconView: AnyView? {
+        guard let iconRaw = entry.icon?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !iconRaw.isEmpty else {
+            return nil
+        }
+        if iconRaw.hasPrefix("emoji:") {
+            let value = String(iconRaw.dropFirst("emoji:".count))
+            guard !value.isEmpty else { return nil }
+            return AnyView(Text(value).font(.system(size: 9)))
+        }
+        if iconRaw.hasPrefix("text:") {
+            let value = String(iconRaw.dropFirst("text:".count))
+            guard !value.isEmpty else { return nil }
+            return AnyView(Text(value).font(.system(size: 8, weight: .semibold)))
+        }
+        let symbolName: String
+        if iconRaw.hasPrefix("sf:") {
+            symbolName = String(iconRaw.dropFirst("sf:".count))
+        } else {
+            symbolName = iconRaw
+        }
+        guard !symbolName.isEmpty else { return nil }
+        return AnyView(Image(systemName: symbolName).font(.system(size: 8, weight: .medium)))
+    }
+
+    @ViewBuilder
+    private func metadataText(underlined: Bool) -> some View {
+        let trimmed = entry.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let display = trimmed.isEmpty ? entry.key : trimmed
+        if entry.format == .markdown,
+           let attributed = try? AttributedString(
+                markdown: display,
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+           ) {
+            Text(attributed)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        } else {
+            Text(display)
+                .underline(underlined)
+                .foregroundColor(foregroundColor)
+        }
+    }
+}
+
+private struct SidebarMetadataMarkdownBlocks: View {
+    let blocks: [SidebarMetadataBlock]
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedBlockLimit = 1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(visibleBlocks, id: \.key) { block in
+                SidebarMetadataMarkdownBlockRow(
+                    block: block,
+                    isActive: isActive,
+                    onFocus: onFocus
+                )
+            }
+
+            if shouldShowToggle {
+                Button(isExpanded ? "Show less details" : "Show more details") {
+                    onFocus()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isExpanded.toggle()
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var visibleBlocks: [SidebarMetadataBlock] {
+        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
+        return Array(blocks.prefix(collapsedBlockLimit))
+    }
+
+    private var shouldShowToggle: Bool {
+        blocks.count > collapsedBlockLimit
+    }
+}
+
+private struct SidebarMetadataMarkdownBlockRow: View {
+    let block: SidebarMetadataBlock
+    let isActive: Bool
+    let onFocus: () -> Void
+
+    @State private var renderedMarkdown: AttributedString?
+
+    var body: some View {
+        Group {
+            if let renderedMarkdown {
+                Text(renderedMarkdown)
+                    .foregroundColor(foregroundColor)
+            } else {
+                Text(block.markdown)
+                    .foregroundColor(foregroundColor)
+            }
+        }
+        .font(.system(size: 10))
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
+        .onTapGesture { onFocus() }
+        .onAppear(perform: renderMarkdown)
+        .onChange(of: block.markdown) { _ in
+            renderMarkdown()
+        }
+    }
+
+    private var foregroundColor: Color {
+        isActive ? .white.opacity(0.8) : .secondary
+    }
+
+    private func renderMarkdown() {
+        renderedMarkdown = try? AttributedString(
+            markdown: block.markdown,
+            options: .init(interpretedSyntax: .full)
+        )
     }
 }
 
@@ -7323,6 +7837,8 @@ private final class SidebarDragAutoScrollController: ObservableObject {
 
 private enum SidebarTabDragPayload {
     static let typeIdentifier = "com.cmux.sidebar-tab-reorder"
+    static let dropContentType = UTType(exportedAs: typeIdentifier)
+    static let dropContentTypes: [UTType] = [dropContentType]
     private static let prefix = "cmux.sidebar-tab."
 
     static func provider(for tabId: UUID) -> NSItemProvider {
@@ -7338,6 +7854,8 @@ private enum SidebarTabDragPayload {
 
 private enum BonsplitTabDragPayload {
     static let typeIdentifier = "com.splittabbar.tabtransfer"
+    static let dropContentType = UTType(exportedAs: typeIdentifier)
+    static let dropContentTypes: [UTType] = [dropContentType]
     private static let currentProcessId = Int32(ProcessInfo.processInfo.processIdentifier)
 
     struct Transfer: Decodable {

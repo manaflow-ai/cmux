@@ -321,7 +321,11 @@ class GhosttyApp {
     private var scrollLagSampleCount = 0
     private var scrollLagTotalMs: Double = 0
     private var scrollLagMaxMs: Double = 0
-    private let scrollLagThresholdMs: Double = 25  // Alert if tick takes >25ms during scroll
+    private let scrollLagThresholdMs: Double = 40
+    private let scrollLagMinimumSamples = 8
+    private let scrollLagMinimumAverageMs: Double = 12
+    private let scrollLagReportCooldownSeconds: TimeInterval = 300
+    private var lastScrollLagReportUptime: TimeInterval?
     private var scrollEndTimer: DispatchWorkItem?
 
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
@@ -356,7 +360,18 @@ class GhosttyApp {
             let maxLag = scrollLagMaxMs
             let samples = scrollLagSampleCount
             let threshold = scrollLagThresholdMs
-            if maxLag > threshold {
+            let nowUptime = ProcessInfo.processInfo.systemUptime
+            if Self.shouldCaptureScrollLagEvent(
+                samples: samples,
+                averageMs: avgLag,
+                maxMs: maxLag,
+                thresholdMs: threshold,
+                minimumSamples: scrollLagMinimumSamples,
+                minimumAverageMs: scrollLagMinimumAverageMs,
+                nowUptime: nowUptime,
+                lastReportedUptime: lastScrollLagReportUptime,
+                cooldown: scrollLagReportCooldownSeconds
+            ) {
                 SentrySDK.capture(message: "Scroll lag detected") { scope in
                     scope.setLevel(.warning)
                     scope.setContext(value: [
@@ -366,6 +381,7 @@ class GhosttyApp {
                         "threshold_ms": threshold
                     ], key: "scroll_lag")
                 }
+                lastScrollLagReportUptime = nowUptime
             }
             // Reset stats
             scrollLagSampleCount = 0
@@ -622,6 +638,29 @@ class GhosttyApp {
         currentColorScheme: GhosttyConfig.ColorSchemePreference
     ) -> Bool {
         previousColorScheme != currentColorScheme
+    }
+
+    static func shouldCaptureScrollLagEvent(
+        samples: Int,
+        averageMs: Double,
+        maxMs: Double,
+        thresholdMs: Double,
+        minimumSamples: Int = 8,
+        minimumAverageMs: Double = 12,
+        nowUptime: TimeInterval,
+        lastReportedUptime: TimeInterval?,
+        cooldown: TimeInterval = 300
+    ) -> Bool {
+        guard samples >= minimumSamples else { return false }
+        guard averageMs.isFinite, maxMs.isFinite, thresholdMs.isFinite, nowUptime.isFinite, cooldown.isFinite else {
+            return false
+        }
+        guard averageMs >= minimumAverageMs else { return false }
+        guard maxMs > thresholdMs else { return false }
+        if let lastReportedUptime, nowUptime - lastReportedUptime < cooldown {
+            return false
+        }
+        return true
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
@@ -2606,6 +2645,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return ghostty_surface_has_selection(surface)
         case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+        case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
+            return canSplitCurrentSurface()
         default:
             return true
         }
@@ -2746,10 +2787,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
-        // If the IME is composing (marked text present), don't intercept key
-        // events for bindings — let them flow through to keyDown so the input
-        // method can process them normally.
-        if hasMarkedText() {
+        // If the IME is composing (marked text present) and the key has no Cmd
+        // modifier, don't intercept — let it flow through to keyDown so the input
+        // method can process it normally. Cmd-based shortcuts should still work
+        // during composition since Cmd is never part of IME input sequences.
+        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
 
@@ -2916,7 +2958,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 "ign=\(cmuxScalarHex(event.charactersIgnoringModifiers)) mods=\(event.modifierFlags.rawValue)"
             )
 #endif
-            return
+            // If Ghostty handled the key (action/encoding), we're done.
+            // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
+            // so the IME gets a chance to process this event.
+            if handled { return }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -2971,8 +3016,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // so we can detect when composition ends.
         let markedTextBefore = markedText.length > 0
 
+        // Capture the keyboard layout ID before interpretation so we can
+        // detect if an IME changed it (e.g. toggling input methods).
+        // We only check when not already in a preedit state.
+        let keyboardIdBefore: String? = if (!markedTextBefore) {
+            KeyboardLayout.id
+        } else {
+            nil
+        }
+
         // Let the input system handle the event (for IME, dead keys, etc.)
         interpretKeyEvents([translationEvent])
+
+        // If the keyboard layout changed, an input method grabbed the event.
+        // Sync preedit and return without sending the key to Ghostty.
+        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            syncPreedit(clearIfNeeded: markedTextBefore)
+            return
+        }
 
         // Sync the preedit state with Ghostty so it can render the IME
         // composition overlay (e.g. for Korean, Japanese, Chinese input).
@@ -3227,6 +3288,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        guard let surface = surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        guard let surface = surface else { return }
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_MIDDLE, modsFromEvent(event))
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let surface = surface else { return nil }
         if ghostty_surface_mouse_captured(surface) {
@@ -3250,7 +3332,61 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
         pasteItem.target = self
+        menu.addItem(.separator())
+        let splitHorizontallyItem = menu.addItem(
+            withTitle: "Split Horizontally",
+            action: #selector(splitHorizontally(_:)),
+            keyEquivalent: "d"
+        )
+        splitHorizontallyItem.target = self
+        splitHorizontallyItem.keyEquivalentModifierMask = [.command, .shift]
+        splitHorizontallyItem.image = NSImage(
+            systemSymbolName: "rectangle.bottomhalf.inset.filled",
+            accessibilityDescription: nil
+        )
+
+        let splitVerticallyItem = menu.addItem(
+            withTitle: "Split Vertically",
+            action: #selector(splitVertically(_:)),
+            keyEquivalent: "d"
+        )
+        splitVerticallyItem.target = self
+        splitVerticallyItem.keyEquivalentModifierMask = [.command]
+        splitVerticallyItem.image = NSImage(
+            systemSymbolName: "rectangle.righthalf.inset.filled",
+            accessibilityDescription: nil
+        )
         return menu
+    }
+
+    private func canSplitCurrentSurface() -> Bool {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+              let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+            return false
+        }
+        return workspace.panels[surfaceId] != nil
+    }
+
+    @objc private func splitHorizontally(_ sender: Any?) {
+        _ = splitCurrentSurface(direction: .down)
+    }
+
+    @objc private func splitVertically(_ sender: Any?) {
+        _ = splitCurrentSurface(direction: .right)
+    }
+
+    @discardableResult
+    private func splitCurrentSurface(direction: SplitDirection) -> Bool {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else {
+            return false
+        }
+        return manager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
     }
 
     @objc private func triggerFlash(_ sender: Any?) {
@@ -5116,11 +5252,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     static func shouldApplyImmediateHostedStateUpdate(
-        hostWindowAttached: Bool,
         hostedViewHasSuperview: Bool,
         isBoundToCurrentHost: Bool
     ) -> Bool {
-        if !hostWindowAttached { return true }
+        // If this update originates from a stale/replaced host while the hosted view is
+        // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
         return !hostedViewHasSuperview
     }
@@ -5222,10 +5358,30 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
-            host.onGeometryChanged = { [weak host, weak coordinator] in
-                guard let host, let coordinator else { return }
+            host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
+                guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
                 guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
+                if host.window != nil,
+                   !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) {
+#if DEBUG
+                    dlog(
+                        "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                        "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                        "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
+                    )
+#endif
+                    TerminalWindowPortalRegistry.bind(
+                        hostedView: hostedView,
+                        to: host,
+                        visibleInUI: coordinator.desiredIsVisibleInUI,
+                        zPriority: coordinator.desiredPortalZPriority
+                    )
+                    coordinator.lastBoundHostId = ObjectIdentifier(host)
+                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                    hostedView.setActive(coordinator.desiredIsActive)
+                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }
 
@@ -5273,7 +5429,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
             TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         } ?? true
         let shouldApplyImmediateHostedState = Self.shouldApplyImmediateHostedStateUpdate(
-            hostWindowAttached: hostWindowAttached,
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )
@@ -5294,10 +5449,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 )
             }
 #endif
-            TerminalWindowPortalRegistry.updateEntryVisibility(
-                for: hostedView,
-                visibleInUI: isVisibleInUI
-            )
         }
     }
 

@@ -1050,6 +1050,27 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
+    func canCloseOtherTabsInFocusedPane() -> Bool {
+        closeOtherTabsInFocusedPanePlan() != nil
+    }
+
+    func closeOtherTabsInFocusedPaneWithConfirmation() {
+        guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
+
+        let count = plan.panelIds.count
+        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
+        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        guard confirmClose(
+            title: "Close other tabs?",
+            message: message,
+            acceptCmdD: false
+        ) else { return }
+
+        for panelId in plan.panelIds {
+            _ = plan.workspace.closePanel(panelId, force: true)
+        }
+    }
+
     func closeCurrentWorkspaceWithConfirmation() {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
@@ -1097,6 +1118,54 @@ class TabManager: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    private struct CloseOtherTabsInFocusedPanePlan {
+        let workspace: Workspace
+        let panelIds: [UUID]
+        let titles: [String]
+    }
+
+    private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
+        guard let workspace = selectedWorkspace else { return nil }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return nil
+        }
+
+        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        guard !tabsInPane.isEmpty else { return nil }
+        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+            return nil
+        }
+
+        var targetPanelIds: [UUID] = []
+        var targetTitles: [String] = []
+        for tab in tabsInPane where tab.id != selectedTabId {
+            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+            if workspace.isPanelPinned(panelId) {
+                continue
+            }
+            targetPanelIds.append(panelId)
+            targetTitles.append(closeOtherTabsDisplayTitle(workspace.panelTitle(panelId: panelId)))
+        }
+
+        guard !targetPanelIds.isEmpty else { return nil }
+        return CloseOtherTabsInFocusedPanePlan(
+            workspace: workspace,
+            panelIds: targetPanelIds,
+            titles: targetTitles
+        )
+    }
+
+    private func closeOtherTabsDisplayTitle(_ title: String?) -> String {
+        let collapsed = title?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let collapsed, !collapsed.isEmpty {
+            return collapsed
+        }
+        return "Untitled Tab"
+    }
+
     private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
         let willCloseWindow = tabs.count <= 1
         if workspaceNeedsConfirmClose(workspace),
@@ -1116,10 +1185,28 @@ class TabManager: ObservableObject {
     }
 
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
+        let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
+            partial + tab.bonsplitController.tabs(inPane: paneId).count
+        }
+        let panelKind: String = {
+            guard let panel = tab.panels[panelId] else { return "missing" }
+            if panel is TerminalPanel { return "terminal" }
+            if panel is BrowserPanel { return "browser" }
+            return String(describing: type(of: panel))
+        }()
+#if DEBUG
+        dlog(
+            "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+        )
+#endif
+
         // Cmd+W closes the focused Bonsplit tab (a "tab" in the UI). When the workspace only has
         // a single tab left, closing it should close the workspace (and possibly the window),
         // rather than creating a replacement terminal.
-        let isLastTabInWorkspace = tab.panels.count <= 1
+        let effectiveSurfaceCount = max(tab.panels.count, bonsplitTabCount)
+        let isLastTabInWorkspace = effectiveSurfaceCount <= 1
         if isLastTabInWorkspace {
             let willCloseWindow = tabs.count <= 1
             let needsConfirm = workspaceNeedsConfirmClose(tab)
@@ -1127,11 +1214,25 @@ class TabManager: ObservableObject {
                 let message = willCloseWindow
                     ? "This will close the last tab and close the window."
                     : "This will close the last tab and close its workspace."
+#if DEBUG
+                dlog(
+                    "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) reason=lastTab"
+                )
+#endif
                 guard confirmClose(
                     title: "Close tab?",
                     message: message,
                     acceptCmdD: willCloseWindow
-                ) else { return }
+                ) else {
+#if DEBUG
+                    dlog(
+                        "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) reason=lastTabConfirmDismissed"
+                    )
+#endif
+                    return
+                }
             }
 
             AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -1145,15 +1246,36 @@ class TabManager: ObservableObject {
 
         if let terminalPanel = tab.terminalPanel(for: panelId),
            terminalPanel.needsConfirmClose() {
+#if DEBUG
+            dlog(
+                "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=terminalNeedsConfirm"
+            )
+#endif
             guard confirmClose(
                 title: "Close tab?",
                 message: "This will close the current tab.",
                 acceptCmdD: false
-            ) else { return }
+            ) else {
+#if DEBUG
+                dlog(
+                    "surface.close.shortcut.cancel tab=\(tab.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) reason=terminalConfirmDismissed"
+                )
+#endif
+                return
+            }
         }
 
         // We already confirmed (if needed); bypass Bonsplit's delegate gating.
-        tab.closePanel(panelId, force: true)
+        let closed = tab.closePanel(panelId, force: true)
+#if DEBUG
+        dlog(
+            "surface.close.shortcut tab=\(tab.id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) " +
+            "panelsAfterCall=\(tab.panels.count)"
+        )
+#endif
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
@@ -1945,19 +2067,81 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
+    /// Open a browser in a specific workspace, optionally preferring a split-right layout.
+    @discardableResult
+    func openBrowser(
+        inWorkspace tabId: UUID,
+        url: URL? = nil,
+        preferSplitRight: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+
+        if preferSplitRight {
+            if let targetPaneId = workspace.topRightBrowserReusePane(),
+               let browserPanel = workspace.newBrowserSurface(
+                   inPane: targetPaneId,
+                   url: url,
+                   focus: true,
+                   insertAtEnd: insertAtEnd
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+
+            let splitSourcePanelId: UUID? = {
+                if let focusedPanelId = workspace.focusedPanelId,
+                   workspace.panels[focusedPanelId] != nil {
+                    return focusedPanelId
+                }
+                if let rememberedPanelId = lastFocusedPanelByTab[tabId],
+                   workspace.panels[rememberedPanelId] != nil {
+                    return rememberedPanelId
+                }
+                if let orderedPanelId = workspace.sidebarOrderedPanelIds().first(where: { workspace.panels[$0] != nil }) {
+                    return orderedPanelId
+                }
+                return workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }.first
+            }()
+
+            if let splitSourcePanelId,
+               let browserPanel = workspace.newBrowserSplit(
+                   from: splitSourcePanelId,
+                   orientation: .horizontal,
+                   url: url,
+                   focus: true
+               ) {
+                rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+                return browserPanel.id
+            }
+        }
+
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(
+                  inPane: paneId,
+                  url: url,
+                  focus: true,
+                  insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
+        return browserPanel.id
+    }
+
     /// Open a browser in the currently focused pane (as a new surface)
     @discardableResult
     func openBrowser(url: URL? = nil, insertAtEnd: Bool = false) -> UUID? {
-        guard let tabId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == tabId }),
-              let focusedPaneId = tab.bonsplitController.focusedPaneId else { return nil }
-        let panel = tab.newBrowserSurface(
-            inPane: focusedPaneId,
+        guard let tabId = selectedTabId else { return nil }
+        return openBrowser(
+            inWorkspace: tabId,
             url: url,
-            focus: true,
+            preferSplitRight: false,
             insertAtEnd: insertAtEnd
         )
-        return panel?.id
     }
 
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
@@ -3136,6 +3320,47 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
+    func sessionAutosaveFingerprint() -> Int {
+        var hasher = Hasher()
+        hasher.combine(selectedTabId)
+        hasher.combine(tabs.count)
+
+        for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
+            hasher.combine(workspace.id)
+            hasher.combine(workspace.focusedPanelId)
+            hasher.combine(workspace.currentDirectory)
+            hasher.combine(workspace.customTitle ?? "")
+            hasher.combine(workspace.customColor ?? "")
+            hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.panels.count)
+            hasher.combine(workspace.statusEntries.count)
+            hasher.combine(workspace.metadataBlocks.count)
+            hasher.combine(workspace.logEntries.count)
+            hasher.combine(workspace.panelDirectories.count)
+            hasher.combine(workspace.panelTitles.count)
+            hasher.combine(workspace.panelPullRequests.count)
+            hasher.combine(workspace.panelGitBranches.count)
+            hasher.combine(workspace.surfaceListeningPorts.count)
+
+            if let progress = workspace.progress {
+                hasher.combine(Int((progress.value * 1000).rounded()))
+                hasher.combine(progress.label)
+            } else {
+                hasher.combine(-1)
+            }
+
+            if let gitBranch = workspace.gitBranch {
+                hasher.combine(gitBranch.branch)
+                hasher.combine(gitBranch.isDirty)
+            } else {
+                hasher.combine("")
+                hasher.combine(false)
+            }
+        }
+
+        return hasher.finalize()
+    }
+
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
         let workspaceSnapshots = tabs
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
@@ -3235,6 +3460,7 @@ extension Notification.Name {
     static let commandPaletteRequested = Notification.Name("cmux.commandPaletteRequested")
     static let commandPaletteSwitcherRequested = Notification.Name("cmux.commandPaletteSwitcherRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
+    static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")

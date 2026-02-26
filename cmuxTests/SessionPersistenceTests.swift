@@ -363,6 +363,96 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSessionAutosaveTickPolicySkipsWhenTerminating() {
+        XCTAssertTrue(
+            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: false)
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldRunSessionAutosaveTick(isTerminatingApp: true)
+        )
+    }
+
+    func testSessionSnapshotSynchronousWritePolicy() {
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: false,
+                includeScrollback: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: false,
+                includeScrollback: true
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: true,
+                includeScrollback: false
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldWriteSessionSnapshotSynchronously(
+                isTerminatingApp: true,
+                includeScrollback: true
+            )
+        )
+    }
+
+    func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
+        let now = Date()
+        XCTAssertTrue(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-5),
+                now: now,
+                maximumAutosaveSkippableInterval: 60
+            )
+        )
+    }
+
+    func testUnchangedAutosaveFingerprintDoesNotSkipAfterStalenessWindow() {
+        let now = Date()
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-120),
+                now: now,
+                maximumAutosaveSkippableInterval: 60
+            )
+        )
+    }
+
+    func testUnchangedAutosaveFingerprintNeverSkipsTerminatingOrScrollbackWrites() {
+        let now = Date()
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: true,
+                includeScrollback: false,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-1),
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: false,
+                includeScrollback: true,
+                previousFingerprint: 1234,
+                currentFingerprint: 1234,
+                lastPersistedAt: now.addingTimeInterval(-1),
+                now: now
+            )
+        )
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(

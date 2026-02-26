@@ -117,6 +117,7 @@ struct WorkspaceContentView: View {
             syncBonsplitNotificationBadges()
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            GhosttyConfig.invalidateLoadCache()
             refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
         .onChange(of: colorScheme) { oldValue, newValue in
@@ -175,7 +176,7 @@ struct WorkspaceContentView: View {
     static func resolveGhosttyAppearanceConfig(
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
-        loadConfig: () -> GhosttyConfig = GhosttyConfig.load,
+        loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
         defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
     ) -> GhosttyConfig {
         var next = loadConfig()

@@ -302,6 +302,17 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     return keyCode == 36 || keyCode == 76
 }
 
+func shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+    flags: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.command] else { return false }
+    return keyCode == 36 || keyCode == 76
+}
+
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -730,6 +741,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private let sessionPersistenceQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionPersistence",
+        qos: .utility
+    )
+    private static let launchServicesRegistrationQueue = DispatchQueue(
+        label: "com.cmuxterm.app.launchServicesRegistration",
+        qos: .utility
+    )
+    private static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
+        launchServicesRegistrationQueue.async(execute: work)
+    }
+    private var lastSessionAutosaveFingerprint: Int?
+    private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
     private var didInstallLifecycleSnapshotObservers = false
@@ -826,12 +850,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             // Performance tracing (10% of transactions)
             options.tracesSampleRate = 0.1
-            // App hang timeout (default is 2s, be explicit)
-            options.appHangTimeoutInterval = 2.0
+            // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
+            // as hangs in normal user interaction flows.
+            options.appHangTimeoutInterval = 8.0
             // Attach stack traces to all events
             options.attachStacktrace = true
-            // Capture failed HTTP requests
-            options.enableCaptureFailedRequests = true
+            // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
+            options.enableCaptureFailedRequests = false
         }
 
         if !isRunningUnderXCTest {
@@ -844,7 +869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.registerLaunchServicesBundle()
+                self.scheduleLaunchServicesBundleRegistration()
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
             }
@@ -943,6 +968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         if !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
+            PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
 
         guard let tabManager, let notificationStore else { return }
@@ -1038,10 +1064,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?,
         defaults: UserDefaults = .standard
     ) {
-        guard let frame else { return }
-        let payload = PersistedWindowGeometry(frame: frame, display: display)
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
+            return
+        }
         defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
+    }
+
+    private nonisolated static func encodedPersistedWindowGeometryData(
+        frame: SessionRectSnapshot?,
+        display: SessionDisplaySnapshot?
+    ) -> Data? {
+        guard let frame else { return nil }
+        let payload = PersistedWindowGeometry(frame: frame, display: display)
+        return try? JSONEncoder().encode(payload)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -1490,7 +1525,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let interval = SessionPersistencePolicy.autosaveInterval
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .seconds(1))
         timer.setEventHandler { [weak self] in
-            _ = self?.saveSessionSnapshot(includeScrollback: false)
+            guard let self,
+                  Self.shouldRunSessionAutosaveTick(isTerminatingApp: self.isTerminatingApp) else {
+                return
+            }
+            let now = Date()
+            let autosaveFingerprint = self.sessionAutosaveFingerprint(includeScrollback: false)
+            if Self.shouldSkipSessionAutosaveForUnchangedFingerprint(
+                isTerminatingApp: self.isTerminatingApp,
+                includeScrollback: false,
+                previousFingerprint: self.lastSessionAutosaveFingerprint,
+                currentFingerprint: autosaveFingerprint,
+                lastPersistedAt: self.lastSessionAutosavePersistedAt,
+                now: now
+            ) {
+#if DEBUG
+                dlog("session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0")
+#endif
+                return
+            }
+
+            _ = self.saveSessionSnapshot(includeScrollback: false)
+            self.updateSessionAutosaveSaveState(
+                includeScrollback: false,
+                persistedAt: now,
+                fingerprint: autosaveFingerprint
+            )
         }
         sessionAutosaveTimer = timer
         timer.resume()
@@ -1534,6 +1594,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
+
+        let didWakeObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+            }
+        }
+        lifecycleSnapshotObservers.append(didWakeObserver)
+    }
+
+    private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
+        let raw = UserDefaults.standard.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let userMode = SocketControlSettings.migrateMode(raw)
+        let mode = SocketControlSettings.effectiveMode(userMode: userMode)
+        guard mode != .off else { return nil }
+        return (mode: mode, path: SocketControlSettings.socketPath())
+    }
+
+    private func restartSocketListenerIfEnabled(source: String) {
+        guard let tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
+            "mode": config.mode.rawValue,
+            "path": config.path,
+            "source": source
+        ])
+        TerminalController.shared.stop()
+        TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -1548,6 +1640,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didDisableSuddenTermination = false
     }
 
+    private func sessionAutosaveFingerprint(includeScrollback: Bool) -> Int? {
+        guard !includeScrollback else { return nil }
+
+        var hasher = Hasher()
+        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
+            lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+        hasher.combine(contexts.count)
+
+        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            hasher.combine(context.windowId)
+            hasher.combine(context.tabManager.sessionAutosaveFingerprint())
+            hasher.combine(context.sidebarState.isVisible)
+            hasher.combine(
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
+            )
+
+            switch context.sidebarSelectionState.selection {
+            case .tabs:
+                hasher.combine(0)
+            case .notifications:
+                hasher.combine(1)
+            }
+
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                Self.hashFrame(window.frame, into: &hasher)
+            } else {
+                hasher.combine(-1)
+            }
+        }
+
+        return hasher.finalize()
+    }
+
     @discardableResult
     private func saveSessionSnapshot(includeScrollback: Bool, removeWhenEmpty: Bool = false) -> Bool {
         if Self.shouldSkipSessionSaveDuringStartupRestore(
@@ -1559,22 +1685,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
+
+        let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback
+        )
+
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
-            if removeWhenEmpty {
-                SessionPersistenceStore.removeSnapshot()
-            }
+            persistSessionSnapshot(
+                nil,
+                removeWhenEmpty: removeWhenEmpty,
+                persistedGeometryData: nil,
+                synchronously: writeSynchronously
+            )
             return false
         }
-        if let primaryWindow = snapshot.windows.first {
-            persistWindowGeometry(
+
+        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
+            Self.encodedPersistedWindowGeometryData(
                 frame: primaryWindow.frame,
                 display: primaryWindow.display
             )
         }
+
 #if DEBUG
         debugLogSessionSaveSnapshot(snapshot, includeScrollback: includeScrollback)
 #endif
-        return SessionPersistenceStore.save(snapshot)
+        persistSessionSnapshot(
+            snapshot,
+            removeWhenEmpty: false,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: writeSynchronously
+        )
+        return true
     }
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
@@ -1592,6 +1735,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool
     ) -> Bool {
         isApplyingStartupSessionRestore && !includeScrollback
+    }
+
+    nonisolated static func shouldRunSessionAutosaveTick(isTerminatingApp: Bool) -> Bool {
+        !isTerminatingApp
+    }
+
+    nonisolated static func shouldWriteSessionSnapshotSynchronously(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool
+    ) -> Bool {
+        isTerminatingApp && includeScrollback
+    }
+
+    nonisolated static func shouldSkipSessionAutosaveForUnchangedFingerprint(
+        isTerminatingApp: Bool,
+        includeScrollback: Bool,
+        previousFingerprint: Int?,
+        currentFingerprint: Int?,
+        lastPersistedAt: Date,
+        now: Date,
+        maximumAutosaveSkippableInterval: TimeInterval = 60
+    ) -> Bool {
+        guard !isTerminatingApp,
+              !includeScrollback,
+              let previousFingerprint,
+              let currentFingerprint,
+              previousFingerprint == currentFingerprint else {
+            return false
+        }
+
+        return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
+    }
+
+    private func updateSessionAutosaveSaveState(
+        includeScrollback: Bool,
+        persistedAt: Date,
+        fingerprint: Int?
+    ) {
+        guard !isTerminatingApp, !includeScrollback else { return }
+        lastSessionAutosaveFingerprint = fingerprint
+        lastSessionAutosavePersistedAt = persistedAt
+    }
+
+    private nonisolated static func hashFrame(_ frame: NSRect, into hasher: inout Hasher) {
+        let standardized = frame.standardized
+        let quantized = [
+            standardized.origin.x,
+            standardized.origin.y,
+            standardized.size.width,
+            standardized.size.height,
+        ].map { Int(($0 * 2).rounded()) }
+        quantized.forEach { hasher.combine($0) }
+    }
+
+    private func persistSessionSnapshot(
+        _ snapshot: AppSessionSnapshot?,
+        removeWhenEmpty: Bool,
+        persistedGeometryData: Data?,
+        synchronously: Bool
+    ) {
+        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+
+        let writeBlock = {
+            if let persistedGeometryData {
+                UserDefaults.standard.set(
+                    persistedGeometryData,
+                    forKey: Self.persistedWindowGeometryDefaultsKey
+                )
+            }
+            if let snapshot {
+                _ = SessionPersistenceStore.save(snapshot)
+            } else if removeWhenEmpty {
+                SessionPersistenceStore.removeSnapshot()
+            }
+        }
+
+        if synchronously {
+            writeBlock()
+        } else {
+            sessionPersistenceQueue.async(execute: writeBlock)
+        }
     }
 
     private func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {
@@ -3229,6 +3453,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.attemptUpdate()
     }
 
+    @objc func restartSocketListener(_ sender: Any?) {
+        guard tabManager != nil else {
+            NSSound.beep()
+            return
+        }
+
+        guard socketListenerConfigurationIfEnabled() != nil else {
+            TerminalController.shared.stop()
+            NSSound.beep()
+            return
+        }
+        restartSocketListenerIfEnabled(source: "menu.command")
+    }
+
     private func setupMenuBarExtra() {
         let store = TerminalNotificationStore.shared
         menuBarExtraController = MenuBarExtraController(
@@ -3250,7 +3488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.checkForUpdates(nil)
             },
             onOpenPreferences: { [weak self] in
-                self?.openPreferencesWindow()
+                self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
                 NSApp.terminate(nil)
@@ -3258,9 +3496,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    @MainActor
+    static func presentPreferencesWindow(
+        showFallbackSettingsWindow: @MainActor () -> Void = {
+            SettingsWindowController.shared.show()
+        },
+        activateApplication: @MainActor () -> Void = {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    ) {
+#if DEBUG
+        dlog("settings.open.present path=customWindowDirect")
+#endif
+        showFallbackSettingsWindow()
+        activateApplication()
+#if DEBUG
+        dlog("settings.open.present activate=1")
+#endif
+    }
+
+    @MainActor
+    func openPreferencesWindow(debugSource: String) {
+#if DEBUG
+        dlog("settings.open.request source=\(debugSource)")
+#endif
+        Self.presentPreferencesWindow()
+    }
+
     @objc func openPreferencesWindow() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        openPreferencesWindow(debugSource: "appDelegate")
     }
 
     func refreshMenuBarExtraForDebug() {
@@ -4250,6 +4514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard panel.isVisible, let root = panel.contentView else { return false }
                 return findStaticText(in: root, equals: "Close workspace?")
                     || findStaticText(in: root, equals: "Close tab?")
+                    || findStaticText(in: root, equals: "Close other tabs?")
             }
         if let closeConfirmationPanel {
             // Special-case: Cmd+D should confirm destructive close on alerts.
@@ -4321,9 +4586,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+            flags: event.modifierFlags,
+            keyCode: event.keyCode
+        ) {
+            guard let targetWindow = mainWindowForShortcutEvent(event) else {
+                return false
+            }
+            targetWindow.toggleFullScreen(nil)
+            return true
+        }
+
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
-        // input), don't intercept key events — let them flow through to the input method.
-        if let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
+        // input), don't intercept non-Cmd key events — let them flow through to the
+        // input method. Cmd-based shortcuts (Cmd+T, Cmd+Shift+L, etc.) should still
+        // work during composition since Cmd is never part of IME input sequences.
+        if !normalizedFlags.contains(.command),
+           let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
             return false
         }
@@ -4508,7 +4787,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
-            _ = promptRenameSelectedWorkspace()
+            return requestRenameWorkspaceViaCommandPalette(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
+
+        if normalizedFlags == [.command, .option], (chars == "t" || event.keyCode == 17) {
+            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.settings" {
+                targetWindow.performClose(nil)
+            } else {
+                let responder = event.window?.firstResponder
+                    ?? NSApp.keyWindow?.firstResponder
+                    ?? NSApp.mainWindow?.firstResponder
+                if let ghosttyView = cmuxOwningGhosttyView(for: responder),
+                   let workspaceId = ghosttyView.tabId,
+                   let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
+                    manager.closeOtherTabsInFocusedPaneWithConfirmation()
+                } else {
+                    tabManager?.closeOtherTabsInFocusedPaneWithConfirmation()
+                }
+            }
+            return true
+        }
+
+        // Cmd+W must close the focused panel even if first-responder momentarily lags on a
+        // browser NSTextView during split focus transitions.
+        if normalizedFlags == [.command], (chars == "w" || event.keyCode == 13) {
+            if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+               targetWindow.identifier?.rawValue == "cmux.settings" {
+                targetWindow.performClose(nil)
+            } else {
+                let responder = event.window?.firstResponder
+                    ?? NSApp.keyWindow?.firstResponder
+                    ?? NSApp.mainWindow?.firstResponder
+                if let ghosttyView = cmuxOwningGhosttyView(for: responder),
+                   let workspaceId = ghosttyView.tabId,
+                   let panelId = ghosttyView.terminalSurface?.id,
+                   let manager = tabManagerFor(tabId: workspaceId) ?? tabManager {
+#if DEBUG
+                    dlog(
+                        "shortcut.cmdW route=ghostty workspace=\(workspaceId.uuidString.prefix(5)) " +
+                        "panel=\(panelId.uuidString.prefix(5)) selected=\(manager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
+                    )
+#endif
+                    manager.closePanelWithConfirmation(tabId: workspaceId, surfaceId: panelId)
+                } else {
+#if DEBUG
+                    dlog("shortcut.cmdW route=focusedPanelFallback")
+#endif
+                    tabManager?.closeCurrentPanelWithConfirmation()
+                }
+            }
             return true
         }
 
@@ -5146,6 +5476,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         handleCustomShortcut(event: event)
     }
 
+    @discardableResult
+    func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        NotificationCenter.default.post(name: .commandPaletteRenameWorkspaceRequested, object: targetWindow)
+        return true
+    }
+
 #if DEBUG
     // Debug/test hook: allow socket-driven shortcut simulation to reuse the same shortcut routing
     // logic as the local NSEvent monitor, without relying on AppKit event monitor behavior for
@@ -5371,13 +5708,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func registerLaunchServicesBundle() {
-        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
-        let registerStatus = LSRegisterURL(bundleURL as CFURL, true)
-        if registerStatus != noErr {
-            NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(bundleURL.path)")
+    private func scheduleLaunchServicesBundleRegistration(
+        bundleURL: URL = Bundle.main.bundleURL.standardizedFileURL,
+        scheduler: @escaping (@escaping @Sendable () -> Void) -> Void = AppDelegate.enqueueLaunchServicesRegistrationWork,
+        register: @escaping (CFURL) -> OSStatus = { url in
+            LSRegisterURL(url, true)
+        },
+        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { message, data in
+            sentryBreadcrumb(message, category: "startup", data: data)
+        }
+    ) {
+        let normalizedURL = bundleURL.standardizedFileURL
+        breadcrumb("launchservices.register.schedule", [
+            "bundlePath": normalizedURL.path
+        ])
+
+        scheduler {
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            let registerStatus = register(normalizedURL as CFURL)
+            let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
+
+            breadcrumb("launchservices.register.complete", [
+                "bundlePath": normalizedURL.path,
+                "status": Int(registerStatus),
+                "durationMs": durationMs
+            ])
+
+            if registerStatus != noErr {
+                NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+            }
         }
     }
+
+#if DEBUG
+    func scheduleLaunchServicesBundleRegistrationForTesting(
+        bundleURL: URL,
+        scheduler: @escaping (@escaping @Sendable () -> Void) -> Void,
+        register: @escaping (CFURL) -> OSStatus,
+        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { _, _ in }
+    ) {
+        scheduleLaunchServicesBundleRegistration(
+            bundleURL: bundleURL,
+            scheduler: scheduler,
+            register: register,
+            breadcrumb: breadcrumb
+        )
+    }
+#endif
 
     private func enforceSingleInstance() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
@@ -6506,9 +6883,47 @@ private var cmuxFirstResponderGuardCurrentEventOverride: NSEvent?
 private var cmuxFirstResponderGuardHitViewOverride: NSView?
 #endif
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxWindowFirstResponderBypassDepth = 0
+private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
+
+@discardableResult
+func cmuxWithWindowFirstResponderBypass<T>(_ body: () -> T) -> T {
+    cmuxWindowFirstResponderBypassDepth += 1
+    defer {
+        cmuxWindowFirstResponderBypassDepth = max(0, cmuxWindowFirstResponderBypassDepth - 1)
+    }
+    return body()
+}
+
+func cmuxIsWindowFirstResponderBypassActive() -> Bool {
+    cmuxWindowFirstResponderBypassDepth > 0
+}
+
+private final class CmuxFieldEditorOwningWebViewBox: NSObject {
+    weak var webView: CmuxWebView?
+
+    init(webView: CmuxWebView?) {
+        self.webView = webView
+    }
+}
 
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        if cmuxIsWindowFirstResponderBypassActive() {
+#if DEBUG
+            dlog(
+                "focus.guard bypassFirstResponder responder=\(String(describing: responder.map { type(of: $0) })) " +
+                "window=\(ObjectIdentifier(self))"
+            )
+#endif
+            return false
+        }
+
+        let currentEvent = Self.cmuxCurrentEvent(for: self)
+        let responderWebView = responder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
+        }
+
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
             responder: responder
@@ -6523,9 +6938,8 @@ private extension NSWindow {
         }
 
         if let responder,
-           let webView = Self.cmuxOwningWebView(for: responder),
+           let webView = responderWebView,
            !webView.allowsFirstResponderAcquisitionEffective {
-            let currentEvent = Self.cmuxCurrentEvent(for: self)
             let pointerInitiatedFocus = Self.cmuxShouldAllowPointerInitiatedWebViewFocus(
                 window: self,
                 webView: webView,
@@ -6558,7 +6972,7 @@ private extension NSWindow {
         }
 #if DEBUG
         if let responder,
-           let webView = Self.cmuxOwningWebView(for: responder) {
+           let webView = responderWebView {
             dlog(
                 "focus.guard allowFirstResponder responder=\(String(describing: type(of: responder))) " +
                 "window=\(ObjectIdentifier(self)) " +
@@ -6568,7 +6982,15 @@ private extension NSWindow {
             )
         }
 #endif
-        return cmux_makeFirstResponder(responder)
+        let result = cmux_makeFirstResponder(responder)
+        if result {
+            if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
+                Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
+            } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
+                Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
+            }
+        }
+        return result
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
@@ -6623,11 +7045,15 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
-        let firstResponderWebView = self.firstResponder.flatMap { Self.cmuxOwningWebView(for: $0) }
+        let firstResponderWebView = self.firstResponder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: event)
+        }
         if let ghosttyView = firstResponderGhosttyView {
-            // If the IME is composing, don't intercept key events — let them flow
-            // through normal AppKit event dispatch so the input method can process them.
-            if ghosttyView.hasMarkedText() {
+            // If the IME is composing and the key has no Cmd modifier, don't intercept —
+            // let it flow through normal AppKit event dispatch so the input method can
+            // process it. Cmd-based shortcuts should still work during composition since
+            // Cmd is never part of IME input sequences.
+            if ghosttyView.hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
                 return cmux_performKeyEquivalent(with: event)
             }
 
@@ -6747,12 +7173,8 @@ private extension NSWindow {
             return webView
         }
 
-        if let textView = responder as? NSTextView,
-           let delegateView = textView.delegate as? NSView,
-           let webView = cmuxOwningWebView(for: delegateView) {
-            return webView
-        }
-
+        // NSTextView.delegate is unsafe-unretained in AppKit. Reading it here while
+        // a responder chain is tearing down can trap with "unowned reference".
         var current = responder.nextResponder
         while let next = current {
             if let webView = next as? CmuxWebView {
@@ -6766,6 +7188,28 @@ private extension NSWindow {
         }
 
         return nil
+    }
+
+    private static func cmuxOwningWebView(
+        for responder: NSResponder,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxWebView? {
+        if let webView = cmuxOwningWebView(for: responder) {
+            return webView
+        }
+
+        guard let textView = responder as? NSTextView, textView.isFieldEditor else {
+            return nil
+        }
+
+        if let event,
+           let hitWebView = cmuxPointerHitWebView(in: window, event: event) {
+            cmuxTrackFieldEditor(textView, owningWebView: hitWebView)
+            return hitWebView
+        }
+
+        return cmuxTrackedOwningWebView(for: textView)
     }
 
     private static func cmuxOwningWebView(for view: NSView) -> CmuxWebView? {
@@ -6802,28 +7246,68 @@ private extension NSWindow {
         return window.contentView?.hitTest(event.locationInWindow)
     }
 
+    private static func cmuxTrackFieldEditor(_ fieldEditor: NSTextView, owningWebView webView: CmuxWebView?) {
+        if let webView {
+            objc_setAssociatedObject(
+                fieldEditor,
+                &cmuxFieldEditorOwningWebViewAssociationKey,
+                CmuxFieldEditorOwningWebViewBox(webView: webView),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        } else {
+            objc_setAssociatedObject(
+                fieldEditor,
+                &cmuxFieldEditorOwningWebViewAssociationKey,
+                nil,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    private static func cmuxTrackedOwningWebView(for fieldEditor: NSTextView) -> CmuxWebView? {
+        guard let box = objc_getAssociatedObject(
+            fieldEditor,
+            &cmuxFieldEditorOwningWebViewAssociationKey
+        ) as? CmuxFieldEditorOwningWebViewBox else {
+            return nil
+        }
+        guard let webView = box.webView else {
+            cmuxTrackFieldEditor(fieldEditor, owningWebView: nil)
+            return nil
+        }
+        return webView
+    }
+
+    private static func cmuxIsPointerDownEvent(_ event: NSEvent) -> Bool {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func cmuxPointerHitWebView(in window: NSWindow, event: NSEvent) -> CmuxWebView? {
+        guard cmuxIsPointerDownEvent(event) else { return nil }
+        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+            return nil
+        }
+        if let eventWindow = event.window, eventWindow !== window {
+            return nil
+        }
+        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event) else {
+            return nil
+        }
+        return cmuxOwningWebView(for: hitView)
+    }
+
     private static func cmuxShouldAllowPointerInitiatedWebViewFocus(
         window: NSWindow,
         webView: CmuxWebView,
         event: NSEvent?
     ) -> Bool {
-        guard let event else { return false }
-        switch event.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            break
-        default:
-            return false
-        }
-
-        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
-            return false
-        }
-        if let eventWindow = event.window, eventWindow !== window {
-            return false
-        }
-
-        guard let hitView = cmuxHitViewForCurrentEvent(in: window, event: event),
-              let hitWebView = cmuxOwningWebView(for: hitView) else {
+        guard let event,
+              let hitWebView = cmuxPointerHitWebView(in: window, event: event) else {
             return false
         }
         return hitWebView === webView

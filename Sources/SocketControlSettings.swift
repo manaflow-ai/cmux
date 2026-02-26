@@ -230,6 +230,11 @@ struct SocketControlSettings {
         if isRunningUnderXCTest(environment: environment) {
             return false
         }
+        // XCUITest launches the app as a separate process without XCTest env vars,
+        // so isRunningUnderXCTest() misses it. Check for any CMUX_UI_TEST_ env var.
+        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return false
+        }
 
         guard let bundleIdentifier = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
               !bundleIdentifier.isEmpty else {

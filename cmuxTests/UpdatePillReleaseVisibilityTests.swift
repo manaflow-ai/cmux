@@ -222,6 +222,47 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     }
 }
 
+final class TitlebarControlsSizingPolicyTests: XCTestCase {
+    func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
+        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        XCTAssertTrue(
+            titlebarControlsShouldScheduleForViewSizeChange(
+                previous: .zero,
+                current: NSSize(width: 240, height: 38)
+            )
+        )
+        XCTAssertFalse(
+            titlebarControlsShouldScheduleForViewSizeChange(
+                previous: NSSize(width: 240, height: 38),
+                current: NSSize(width: 240.2, height: 38.1)
+            )
+        )
+        XCTAssertTrue(
+            titlebarControlsShouldScheduleForViewSizeChange(
+                previous: NSSize(width: 240, height: 38),
+                current: NSSize(width: 247, height: 38)
+            )
+        )
+    }
+
+    func testLayoutApplyPolicySkipsEquivalentSnapshots() {
+        let baseline = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 128, height: 22),
+            containerHeight: 28,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
+        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
+
+        let changed = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 132, height: 22),
+            containerHeight: 28,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+    }
+}
+
 /// Regression test: ensure new terminal windows are born in full-size content mode so
 /// titlebar/content offsets are correct before the first resize.
 final class MainWindowLayoutStyleTests: XCTestCase {

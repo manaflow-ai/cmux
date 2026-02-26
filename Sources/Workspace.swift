@@ -61,7 +61,42 @@ struct SidebarStatusEntry {
     let value: String
     let icon: String?
     let color: String?
+    let url: URL?
+    let priority: Int
+    let format: SidebarMetadataFormat
     let timestamp: Date
+
+    init(
+        key: String,
+        value: String,
+        icon: String? = nil,
+        color: String? = nil,
+        url: URL? = nil,
+        priority: Int = 0,
+        format: SidebarMetadataFormat = .plain,
+        timestamp: Date = Date()
+    ) {
+        self.key = key
+        self.value = value
+        self.icon = icon
+        self.color = color
+        self.url = url
+        self.priority = priority
+        self.format = format
+        self.timestamp = timestamp
+    }
+}
+
+struct SidebarMetadataBlock {
+    let key: String
+    let markdown: String
+    let priority: Int
+    let timestamp: Date
+}
+
+enum SidebarMetadataFormat: String {
+    case plain
+    case markdown
 }
 
 private struct SessionPaneRestoreEntry {
@@ -581,6 +616,19 @@ struct SidebarGitBranchState {
     let isDirty: Bool
 }
 
+enum SidebarPullRequestStatus: String {
+    case open
+    case merged
+    case closed
+}
+
+struct SidebarPullRequestState: Equatable {
+    let number: Int
+    let label: String
+    let url: URL
+    let status: SidebarPullRequestStatus
+}
+
 enum SidebarBranchOrdering {
     struct BranchEntry: Equatable {
         let name: String
@@ -659,6 +707,65 @@ enum SidebarBranchOrdering {
         return orderedNames.map { name in
             BranchEntry(name: name, isDirty: branchDirty[name] ?? false)
         }
+    }
+
+    static func orderedUniquePullRequests(
+        orderedPanelIds: [UUID],
+        panelPullRequests: [UUID: SidebarPullRequestState],
+        fallbackPullRequest: SidebarPullRequestState?
+    ) -> [SidebarPullRequestState] {
+        func statusPriority(_ status: SidebarPullRequestStatus) -> Int {
+            switch status {
+            case .merged: return 3
+            case .open: return 2
+            case .closed: return 1
+            }
+        }
+
+        func normalizedReviewURLKey(for url: URL) -> String {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return url.absoluteString
+            }
+
+            // Treat URL variants that differ only by query/fragment as the same review item.
+            components.query = nil
+            components.fragment = nil
+            let scheme = components.scheme?.lowercased() ?? ""
+            let host = components.host?.lowercased() ?? ""
+            let port = components.port.map { ":\($0)" } ?? ""
+            var path = components.path
+            if path.hasSuffix("/"), path.count > 1 {
+                path.removeLast()
+            }
+            return "\(scheme)://\(host)\(port)\(path)"
+        }
+
+        func reviewKey(for state: SidebarPullRequestState) -> String {
+            "\(state.label.lowercased())#\(state.number)|\(normalizedReviewURLKey(for: state.url))"
+        }
+
+        var orderedKeys: [String] = []
+        var pullRequestsByKey: [String: SidebarPullRequestState] = [:]
+
+        for panelId in orderedPanelIds {
+            guard let state = panelPullRequests[panelId] else { continue }
+            let key = reviewKey(for: state)
+            if pullRequestsByKey[key] == nil {
+                orderedKeys.append(key)
+                pullRequestsByKey[key] = state
+                continue
+            }
+            guard let existing = pullRequestsByKey[key] else { continue }
+            if statusPriority(state.status) > statusPriority(existing.status) {
+                pullRequestsByKey[key] = state
+            }
+        }
+
+        if orderedKeys.isEmpty, let fallbackPullRequest {
+            return [fallbackPullRequest]
+        }
+
+        return orderedKeys.compactMap { pullRequestsByKey[$0] }
     }
 
     static func orderedUniqueBranchDirectoryEntries(
@@ -854,10 +961,13 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
     @Published var statusEntries: [String: SidebarStatusEntry] = [:]
+    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
     @Published var logEntries: [SidebarLogEntry] = []
     @Published var progress: SidebarProgressState?
     @Published var gitBranch: SidebarGitBranchState?
     @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
+    @Published var pullRequest: SidebarPullRequestState?
+    @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
@@ -1410,6 +1520,30 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelPullRequest(
+        panelId: UUID,
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus
+    ) {
+        let state = SidebarPullRequestState(number: number, label: label, url: url, status: status)
+        let existing = panelPullRequests[panelId]
+        if existing != state {
+            panelPullRequests[panelId] = state
+        }
+        if panelId == focusedPanelId {
+            pullRequest = state
+        }
+    }
+
+    func clearPanelPullRequest(panelId: UUID) {
+        panelPullRequests.removeValue(forKey: panelId)
+        if panelId == focusedPanelId {
+            pullRequest = nil
+        }
+    }
+
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1458,6 +1592,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 
@@ -1506,6 +1641,30 @@ final class Workspace: Identifiable, ObservableObject {
             defaultDirectory: currentDirectory,
             fallbackBranch: gitBranch
         )
+    }
+
+    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+        SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: sidebarOrderedPanelIds(),
+            panelPullRequests: panelPullRequests,
+            fallbackPullRequest: pullRequest
+        )
+    }
+
+    func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
+        statusEntries.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
+    }
+
+    func sidebarMetadataBlocksInDisplayOrder() -> [SidebarMetadataBlock] {
+        metadataBlocks.values.sorted { lhs, rhs in
+            if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
+            if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+            return lhs.key < rhs.key
+        }
     }
 
     // MARK: - Panel Operations
@@ -1954,17 +2113,38 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
-        // currently focused, close whichever tab bonsplit marks selected in that focused pane.
-        guard focusedPanelId == panelId,
+        // currently focused (or is the active terminal first responder), close whichever tab
+        // bonsplit marks selected in that focused pane.
+        let firstResponderPanelId = cmuxOwningGhosttyView(
+            for: NSApp.keyWindow?.firstResponder ?? NSApp.mainWindow?.firstResponder
+        )?.terminalSurface?.id
+        let targetIsActive = focusedPanelId == panelId || firstResponderPanelId == panelId
+        guard targetIsActive,
               let focusedPane = bonsplitController.focusedPaneId,
               let selected = bonsplitController.selectedTab(inPane: focusedPane) else {
+#if DEBUG
+            dlog(
+                "surface.close.fallback.skip panel=\(panelId.uuidString.prefix(5)) " +
+                "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
+                "firstResponderPanel=\(firstResponderPanelId?.uuidString.prefix(5) ?? "nil") " +
+                "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil")"
+            )
+#endif
             return false
         }
 
         if force {
             forceCloseTabIds.insert(selected.id)
         }
-        return bonsplitController.closeTab(selected.id)
+        let closed = bonsplitController.closeTab(selected.id)
+#if DEBUG
+        dlog(
+            "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
+            "selectedTab=\(String(describing: selected.id).prefix(5)) " +
+            "closed=\(closed ? 1 : 0)"
+        )
+#endif
+        return closed
     }
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
@@ -2027,6 +2207,49 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    /// Returns the top-right pane in the current split tree.
+    /// When a workspace is already split, sidebar PR opens should reuse an existing pane
+    /// instead of creating additional right splits.
+    func topRightBrowserReusePane() -> PaneID? {
+        let paneIds = bonsplitController.allPaneIds
+        guard paneIds.count > 1 else { return nil }
+
+        let paneById = Dictionary(uniqueKeysWithValues: paneIds.map { ($0.id.uuidString, $0) })
+        var paneBounds: [String: CGRect] = [:]
+        browserCollectNormalizedPaneBounds(
+            node: bonsplitController.treeSnapshot(),
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &paneBounds
+        )
+
+        guard !paneBounds.isEmpty else {
+            return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
+        }
+
+        let epsilon = 0.000_1
+        let rightMostX = paneBounds.values.map(\.maxX).max() ?? 0
+
+        let sortedCandidates = paneBounds
+            .filter { _, rect in abs(rect.maxX - rightMostX) <= epsilon }
+            .sorted { lhs, rhs in
+                if abs(lhs.value.minY - rhs.value.minY) > epsilon {
+                    return lhs.value.minY < rhs.value.minY
+                }
+                if abs(lhs.value.minX - rhs.value.minX) > epsilon {
+                    return lhs.value.minX > rhs.value.minX
+                }
+                return lhs.key < rhs.key
+            }
+
+        for candidate in sortedCandidates {
+            if let pane = paneById[candidate.key] {
+                return pane
+            }
+        }
+
+        return paneIds.sorted { $0.id.uuidString < $1.id.uuidString }.first
+    }
+
     private enum BrowserPaneBranch {
         case first
         case second
@@ -2061,6 +2284,54 @@ final class Workspace: Identifiable, ObservableObject {
         case .split(let splitNode):
             browserCollectPaneNodes(node: splitNode.first, into: &output)
             browserCollectPaneNodes(node: splitNode.second, into: &output)
+        }
+    }
+
+    private func browserCollectNormalizedPaneBounds(
+        node: ExternalTreeNode,
+        availableRect: CGRect,
+        into output: inout [String: CGRect]
+    ) {
+        switch node {
+        case .pane(let paneNode):
+            output[paneNode.id] = availableRect
+        case .split(let splitNode):
+            let divider = min(max(splitNode.dividerPosition, 0), 1)
+            let firstRect: CGRect
+            let secondRect: CGRect
+
+            if splitNode.orientation.lowercased() == "vertical" {
+                // Stacked split: first = top, second = bottom
+                firstRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY,
+                    width: availableRect.width,
+                    height: availableRect.height * divider
+                )
+                secondRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY + (availableRect.height * divider),
+                    width: availableRect.width,
+                    height: availableRect.height * (1 - divider)
+                )
+            } else {
+                // Side-by-side split: first = left, second = right
+                firstRect = CGRect(
+                    x: availableRect.minX,
+                    y: availableRect.minY,
+                    width: availableRect.width * divider,
+                    height: availableRect.height
+                )
+                secondRect = CGRect(
+                    x: availableRect.minX + (availableRect.width * divider),
+                    y: availableRect.minY,
+                    width: availableRect.width * (1 - divider),
+                    height: availableRect.height
+                )
+            }
+
+            browserCollectNormalizedPaneBounds(node: splitNode.first, availableRect: firstRect, into: &output)
+            browserCollectNormalizedPaneBounds(node: splitNode.second, availableRect: secondRect, into: &output)
         }
     }
 
@@ -2788,6 +3059,7 @@ final class Workspace: Identifiable, ObservableObject {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[targetPanelId]
+        pullRequest = panelPullRequests[targetPanelId]
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -3249,6 +3521,7 @@ extension Workspace: BonsplitDelegate {
             currentDirectory = dir
         }
         gitBranch = panelGitBranches[panelId]
+        pullRequest = panelPullRequests[panelId]
 
         // Post notification
         NotificationCenter.default.post(
@@ -3468,6 +3741,7 @@ extension Workspace: BonsplitDelegate {
         surfaceIdToPanelId.removeValue(forKey: tabId)
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
@@ -3612,6 +3886,7 @@ extension Workspace: BonsplitDelegate {
                 panels.removeValue(forKey: panelId)
                 panelDirectories.removeValue(forKey: panelId)
                 panelGitBranches.removeValue(forKey: panelId)
+                panelPullRequests.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)

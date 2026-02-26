@@ -84,6 +84,30 @@ export const testimonials = [
     url: "https://x.com/kataring/status/2026189035056832718",
     platform: "x" as const,
   },
+  {
+    name: "Scott Watermasysk",
+    handle: "@scottw",
+    avatar: "/avatars/scottw.jpg",
+    text: "This has been such a useful find. I can't recommend it enough.",
+    url: "https://x.com/scottw/status/2026806893067551084",
+    platform: "x" as const,
+  },
+  {
+    name: "John Blythe",
+    handle: "@johnblythe",
+    avatar: "/avatars/johnblythe.jpg",
+    text: "grabbed this over the weekend and loved it. been waiting for something like this.",
+    url: "https://x.com/johnblythe/status/2026812731844637010",
+    platform: "x" as const,
+  },
+  {
+    name: "Christopher",
+    handle: "@BChris91",
+    avatar: "/avatars/bchris91.jpg",
+    text: "This is exactly what I've wanted. Amazing job thank you!",
+    url: "https://x.com/BChris91/status/2026821091637838273",
+    platform: "x" as const,
+  },
 ];
 
 export type Testimonial = (typeof testimonials)[number];

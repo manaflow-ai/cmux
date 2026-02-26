@@ -7,6 +7,38 @@ import AppKit
 @testable import cmux
 #endif
 
+final class SidebarPathFormatterTests: XCTestCase {
+    func testShortenedPathReplacesExactHomeDirectory() {
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~"
+        )
+    }
+
+    func testShortenedPathReplacesHomeDirectoryPrefix() {
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example/projects/cmux",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~/projects/cmux"
+        )
+    }
+
+    func testShortenedPathLeavesExternalPathUnchanged() {
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/tmp/cmux",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "/tmp/cmux"
+        )
+    }
+}
+
 final class GhosttyConfigTests: XCTestCase {
     private struct RGB: Equatable {
         let red: Int
@@ -126,6 +158,64 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(config.backgroundColor), RGB(red: 253, green: 246, blue: 227))
     }
 
+    func testLoadCachesPerColorScheme() {
+        GhosttyConfig.invalidateLoadCache()
+        defer { GhosttyConfig.invalidateLoadCache() }
+
+        var loadCount = 0
+        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { scheme in
+            loadCount += 1
+            var config = GhosttyConfig()
+            config.fontFamily = "\(scheme)-\(loadCount)"
+            return config
+        }
+
+        let lightFirst = GhosttyConfig.load(
+            preferredColorScheme: .light,
+            loadFromDisk: loadFromDisk
+        )
+        let lightSecond = GhosttyConfig.load(
+            preferredColorScheme: .light,
+            loadFromDisk: loadFromDisk
+        )
+        let darkFirst = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+
+        XCTAssertEqual(loadCount, 2)
+        XCTAssertEqual(lightFirst.fontFamily, "light-1")
+        XCTAssertEqual(lightSecond.fontFamily, "light-1")
+        XCTAssertEqual(darkFirst.fontFamily, "dark-2")
+    }
+
+    func testLoadCacheInvalidationForcesReload() {
+        GhosttyConfig.invalidateLoadCache()
+        defer { GhosttyConfig.invalidateLoadCache() }
+
+        var loadCount = 0
+        let loadFromDisk: (GhosttyConfig.ColorSchemePreference) -> GhosttyConfig = { _ in
+            loadCount += 1
+            var config = GhosttyConfig()
+            config.fontFamily = "reload-\(loadCount)"
+            return config
+        }
+
+        let first = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+        GhosttyConfig.invalidateLoadCache()
+        let second = GhosttyConfig.load(
+            preferredColorScheme: .dark,
+            loadFromDisk: loadFromDisk
+        )
+
+        XCTAssertEqual(loadCount, 2)
+        XCTAssertEqual(first.fontFamily, "reload-1")
+        XCTAssertEqual(second.fontFamily, "reload-2")
+    }
+
     func testLegacyConfigFallbackUsesLegacyFileWhenConfigGhosttyIsEmpty() {
         XCTAssertTrue(
             GhosttyApp.shouldLoadLegacyGhosttyConfig(
@@ -221,6 +311,74 @@ final class GhosttyConfigTests: XCTestCase {
             GhosttyApp.shouldReloadConfigurationForAppearanceChange(
                 previousColorScheme: .dark,
                 currentColorScheme: .dark
+            )
+        )
+    }
+
+    func testScrollLagCaptureRequiresSustainedLag() {
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 4,
+                averageMs: 18,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 6,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 18,
+                maxMs: 35,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 10,
+                averageMs: 18,
+                maxMs: 85,
+                thresholdMs: 40,
+                nowUptime: 1000,
+                lastReportedUptime: nil
+            )
+        )
+    }
+
+    func testScrollLagCaptureRespectsCooldownWindow() {
+        XCTAssertFalse(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1200,
+                lastReportedUptime: 1005,
+                cooldown: 300
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldCaptureScrollLagEvent(
+                samples: 12,
+                averageMs: 22,
+                maxMs: 90,
+                thresholdMs: 40,
+                nowUptime: 1406,
+                lastReportedUptime: 1005,
+                cooldown: 300
             )
         )
     }
@@ -741,6 +899,18 @@ final class SocketControlSettingsTests: XCTestCase {
             )
         )
     }
+
+    func testXCUITestLaunchEnvironmentIgnoresLaunchTagGate() {
+        // XCUITest launches the app as a separate process without XCTest env vars.
+        // The app receives CMUX_UI_TEST_* vars via XCUIApplication.launchEnvironment.
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["CMUX_UI_TEST_MODE": "1"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
 }
 
 final class PostHogAnalyticsPropertiesTests: XCTestCase {
@@ -771,6 +941,35 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertEqual(properties["platform"] as? String, "cmuxterm")
         XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
         XCTAssertEqual(properties["app_build"] as? String, "230")
+    }
+
+    func testHourlyActivePropertiesIncludeVersionAndBuild() {
+        let properties = PostHogAnalytics.hourlyActiveProperties(
+            hourUTC: "2026-02-21T14",
+            reason: "didBecomeActive",
+            infoDictionary: [
+                "CFBundleShortVersionString": "0.31.0",
+                "CFBundleVersion": "230",
+            ]
+        )
+
+        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
+        XCTAssertEqual(properties["reason"] as? String, "didBecomeActive")
+        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
+        XCTAssertEqual(properties["app_build"] as? String, "230")
+    }
+
+    func testHourlyPropertiesOmitVersionFieldsWhenUnavailable() {
+        let properties = PostHogAnalytics.hourlyActiveProperties(
+            hourUTC: "2026-02-21T14",
+            reason: "activeTimer",
+            infoDictionary: [:]
+        )
+
+        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
+        XCTAssertEqual(properties["reason"] as? String, "activeTimer")
+        XCTAssertNil(properties["app_version"])
+        XCTAssertNil(properties["app_build"])
     }
 
     func testPropertiesOmitVersionFieldsWhenUnavailable() {
