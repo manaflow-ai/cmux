@@ -1877,8 +1877,12 @@ class TabManager: ObservableObject {
         tabs.first(where: { $0.panels[surfaceId] != nil })
     }
 
+    func hasSurfaceModel(surfaceId: UUID) -> Bool {
+        tabs.contains(where: { $0.panels[surfaceId] != nil })
+    }
+
     func debugHasSurfaceModel(surfaceId: UUID) -> Bool {
-        debugWorkspaceContainingSurface(surfaceId) != nil
+        hasSurfaceModel(surfaceId: surfaceId)
     }
 
     func debugSurfaceDriftSummary(surfaceId: UUID?) -> String {

@@ -3703,6 +3703,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+
+    var portalSurfaceId: UUID? {
+        surfaceView.terminalSurface?.id
+    }
+
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
 	    private static var flashCounts: [UUID: Int] = [:]
@@ -3807,7 +3812,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     var debugSurfaceId: UUID? {
-        surfaceView.terminalSurface?.id
+        portalSurfaceId
     }
 #endif
 

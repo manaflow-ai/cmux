@@ -1186,11 +1186,28 @@ final class WindowTerminalPortal: NSObject {
         return true
     }
 
+    private func isHostedViewBackedByModel(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        guard let surfaceId = hostedView.portalSurfaceId else { return false }
+        guard let tabManager = AppDelegate.shared?.tabManager else { return true }
+        return tabManager.hasSurfaceModel(surfaceId: surfaceId)
+    }
+
     private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
         guard ensureInstalled() else { return }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
+            return
+        }
+        if !isHostedViewBackedByModel(hostedView) {
+#if DEBUG
+            dlog(
+                "portal.sync.drop hosted=\(portalDebugToken(hostedView)) " +
+                "reason=modelMissing"
+            )
+#endif
+            hostedView.isHidden = true
+            detachHostedView(withId: hostedId)
             return
         }
         guard let anchorView = entry.anchorView, let window else {
@@ -1638,6 +1655,27 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
+    private static func isHostedViewBackedByModel(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        guard let surfaceId = hostedView.portalSurfaceId else { return false }
+        guard let tabManager = AppDelegate.shared?.tabManager else { return true }
+        return tabManager.hasSurfaceModel(surfaceId: surfaceId)
+    }
+
+    private static func dropModelMissingBinding(hostedView: GhosttySurfaceScrollView, reason: String) {
+        let hostedId = ObjectIdentifier(hostedView)
+        if let windowId = hostedToWindowId.removeValue(forKey: hostedId) {
+            portalsByWindowId[windowId]?.detachHostedView(withId: hostedId)
+        }
+        hostedView.isHidden = true
+#if DEBUG
+        let surface = hostedView.portalSurfaceId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "portal.bind.skip hosted=\(portalDebugToken(hostedView)) " +
+            "surface=\(surface) reason=modelMissing context=\(reason)"
+        )
+#endif
+    }
+
     private static func portal(for window: NSWindow) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
@@ -1654,6 +1692,10 @@ enum TerminalWindowPortalRegistry {
 
     static func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
         guard let window = anchorView.window else { return }
+        guard isHostedViewBackedByModel(hostedView) else {
+            dropModelMissingBinding(hostedView: hostedView, reason: "bind")
+            return
+        }
 
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
@@ -1694,6 +1736,11 @@ enum TerminalWindowPortalRegistry {
     /// Called when a bind is deferred (host not yet in window) to prevent stale
     /// portal syncs from hiding a view that is about to become visible.
     static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+        guard isHostedViewBackedByModel(hostedView) else {
+            dropModelMissingBinding(hostedView: hostedView, reason: "updateEntryVisibility")
+            return
+        }
+
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
