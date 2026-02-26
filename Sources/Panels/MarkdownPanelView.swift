@@ -3,69 +3,203 @@ import AppKit
 import WebKit
 
 enum MarkdownPreviewRenderer {
-    static let lightCSSURL = "https://cdn.jsdelivr.net/npm/github-markdown-css@5.8.1/github-markdown.min.css"
-    static let darkCSSURL = "https://cdn.jsdelivr.net/npm/github-markdown-css@5.8.1/github-markdown-dark.min.css"
+    static let parserMarker = "cmuxLocalMarkdownParserV1"
+
+    private static func localCSS(isDarkMode: Bool) -> String {
+        let pageBackground = isDarkMode ? "#0d1117" : "#ffffff"
+        let pageText = isDarkMode ? "#f0f6fc" : "#1f2328"
+        let mutedText = isDarkMode ? "#9198a1" : "#59636e"
+        let border = isDarkMode ? "#3d444d" : "#d1d9e0"
+        let altRow = isDarkMode ? "#151b23" : "#f6f8fa"
+        let codeBg = isDarkMode ? "#161b22" : "#f6f8fa"
+        let inlineCodeBg = isDarkMode ? "#656c7633" : "#afb8c133"
+        let link = isDarkMode ? "#58a6ff" : "#0969da"
+
+        return """
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: \(pageBackground);
+        }
+        .canvas {
+          padding: 16px 20px 22px 20px;
+          background: \(pageBackground);
+          box-sizing: border-box;
+        }
+        .markdown-body {
+          box-sizing: border-box;
+          min-width: 200px;
+          max-width: 980px;
+          margin: 0 auto;
+          color: \(pageText);
+          font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;
+          font-size: 16px;
+          line-height: 1.5;
+          word-wrap: break-word;
+        }
+        .markdown-body h1, .markdown-body h2, .markdown-body h3,
+        .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+          margin-top: 1.5rem;
+          margin-bottom: 1rem;
+          font-weight: 600;
+          line-height: 1.25;
+        }
+        .markdown-body h1 { font-size: 2em; border-bottom: 1px solid \(border); padding-bottom: 0.3em; }
+        .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid \(border); padding-bottom: 0.3em; }
+        .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body pre, .markdown-body blockquote, .markdown-body table {
+          margin-top: 0;
+          margin-bottom: 1rem;
+        }
+        .markdown-body a { color: \(link); text-decoration: none; }
+        .markdown-body a:hover { text-decoration: underline; }
+        .markdown-body blockquote {
+          margin: 0 0 1rem 0;
+          padding: 0 1em;
+          color: \(mutedText);
+          border-left: 0.25em solid \(border);
+        }
+        .markdown-body pre {
+          padding: 1rem;
+          overflow: auto;
+          border-radius: 6px;
+          background: \(codeBg);
+        }
+        .markdown-body code, .markdown-body tt {
+          color: \(pageText);
+          background-color: \(inlineCodeBg);
+          border-radius: 6px;
+          padding: 0.2em 0.4em;
+          font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+          font-size: 85%;
+        }
+        .markdown-body pre code {
+          background: transparent;
+          padding: 0;
+          border-radius: 0;
+          font-size: 100%;
+        }
+        .markdown-body table {
+          border-spacing: 0;
+          border-collapse: collapse;
+          display: block;
+          width: max-content;
+          max-width: 100%;
+          overflow: auto;
+        }
+        .markdown-body table tr {
+          background-color: \(pageBackground);
+          border-top: 1px solid \(border);
+        }
+        .markdown-body table tr:nth-child(2n) { background-color: \(altRow); }
+        .markdown-body table th, .markdown-body table td {
+          border: 1px solid \(border);
+          padding: 6px 13px;
+        }
+        .fallback {
+          white-space: pre-wrap;
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+          font-size: 12px;
+          color: \(pageText);
+        }
+        """
+    }
+
+    private static let localParserScript = """
+    window.\(parserMarker) = true;
+    function cmuxEscapeHtml(input) {
+      return String(input)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+    function cmuxSplitTableRow(row) {
+      let value = String(row).trim();
+      if (value.startsWith('|')) value = value.slice(1);
+      if (value.endsWith('|')) value = value.slice(0, -1);
+      return value.split('|').map(cell => cell.trim());
+    }
+    function cmuxInline(input) {
+      let text = cmuxEscapeHtml(input);
+      text = text.replace(/`([^`\\n]+)`/g, '<code>$1</code>');
+      text = text.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
+      text = text.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>');
+      text = text.replace(/\\[([^\\]]+)\\]\\(([^\\)\\s]+)\\)/g, '<a href="$2">$1</a>');
+      return text;
+    }
+    function cmuxRenderMarkdown(source) {
+      const lines = String(source).replace(/\\r\\n?/g, '\\n').split('\\n');
+      const html = [];
+      let i = 0;
+      const isTableDivider = (line) => /^\\s*\\|?(\\s*:?-{3,}:?\\s*\\|)+\\s*:?-{3,}:?\\s*\\|?\\s*$/.test(line);
+      const blockStart = (line) => /^(\\s*$|#{1,6}\\s+|\\s*>|\\s*```|\\s*[-+*]\\s+|\\s*\\d+\\.\\s+)/.test(line);
+      while (i < lines.length) {
+        const line = lines[i];
+        if (/^\\s*$/.test(line)) { i++; continue; }
+        if (/^\\s*```/.test(line)) {
+          i++;
+          const code = [];
+          while (i < lines.length && !/^\\s*```/.test(lines[i])) code.push(lines[i++]);
+          if (i < lines.length) i++;
+          html.push('<pre><code>' + cmuxEscapeHtml(code.join('\\n')) + '</code></pre>');
+          continue;
+        }
+        if (line.includes('|') && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
+          const headers = cmuxSplitTableRow(line);
+          i += 2;
+          const rows = [];
+          while (i < lines.length && lines[i].includes('|') && !/^\\s*$/.test(lines[i])) rows.push(cmuxSplitTableRow(lines[i++]));
+          const thead = '<thead><tr>' + headers.map(h => '<th>' + cmuxInline(h) + '</th>').join('') + '</tr></thead>';
+          const tbody = rows.length ? '<tbody>' + rows.map(r => '<tr>' + headers.map((_, idx) => '<td>' + cmuxInline(r[idx] || '') + '</td>').join('') + '</tr>').join('') + '</tbody>' : '';
+          html.push('<table>' + thead + tbody + '</table>');
+          continue;
+        }
+        const heading = line.match(/^(#{1,6})\\s+(.*)$/);
+        if (heading) {
+          const level = heading[1].length;
+          html.push('<h' + level + '>' + cmuxInline(heading[2]) + '</h' + level + '>');
+          i++;
+          continue;
+        }
+        if (/^\\s*>\\s?/.test(line)) {
+          const quote = [];
+          while (i < lines.length && /^\\s*>\\s?/.test(lines[i])) quote.push(lines[i++].replace(/^\\s*>\\s?/, ''));
+          html.push('<blockquote><p>' + cmuxInline(quote.join(' ')) + '</p></blockquote>');
+          continue;
+        }
+        if (/^\\s*[-+*]\\s+/.test(line) || /^\\s*\\d+\\.\\s+/.test(line)) {
+          const ordered = /^\\s*\\d+\\.\\s+/.test(line);
+          const items = [];
+          while (i < lines.length) {
+            const m = lines[i].match(ordered ? /^\\s*\\d+\\.\\s+(.*)$/ : /^\\s*[-+*]\\s+(.*)$/);
+            if (!m) break;
+            items.push(cmuxInline(m[1]));
+            i++;
+          }
+          const tag = ordered ? 'ol' : 'ul';
+          html.push('<' + tag + '>' + items.map(v => '<li>' + v + '</li>').join('') + '</' + tag + '>');
+          continue;
+        }
+        const para = [line.trim()];
+        i++;
+        while (i < lines.length && !blockStart(lines[i])) para.push(lines[i++].trim());
+        html.push('<p>' + cmuxInline(para.join(' ')) + '</p>');
+      }
+      return html.join('\\n');
+    }
+    """
 
     static func renderedHTML(markdown: String, isDarkMode: Bool) -> String {
         let markdownBase64 = Data(markdown.utf8).base64EncodedString()
-        let cssURL = isDarkMode ? darkCSSURL : lightCSSURL
-        let pageBackground = isDarkMode ? "#0d1117" : "#ffffff"
-        let tableRowBg = isDarkMode ? "#0d1117" : "#ffffff"
-        let tableAltRowBg = isDarkMode ? "#151b23" : "#f6f8fa"
-        let tableBorder = isDarkMode ? "#3d444d" : "#d1d9e0"
-        let tableText = isDarkMode ? "#f0f6fc" : "#1f2328"
-        let inlineCodeBg = isDarkMode ? "#656c7633" : "#afb8c133"
 
         return """
         <html>
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <link rel="stylesheet" href="\(cssURL)">
           <style>
-            html, body {
-              margin: 0;
-              padding: 0;
-              background: \(pageBackground);
-            }
-            .canvas {
-              padding: 16px 20px 22px 20px;
-              background: \(pageBackground);
-              box-sizing: border-box;
-            }
-            .markdown-body {
-              box-sizing: border-box;
-              min-width: 200px;
-              max-width: 980px;
-              margin: 0 auto;
-            }
-            .fallback {
-              white-space: pre-wrap;
-              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-              font-size: 12px;
-            }
-            /* Explicit overrides to keep table/code colors aligned with GitHub tokens */
-            .markdown-body { color: \(tableText); }
-            .markdown-body table tr {
-              background-color: \(tableRowBg);
-              border-top: 1px solid \(tableBorder);
-            }
-            .markdown-body table tr:nth-child(2n) { background-color: \(tableAltRowBg); }
-            .markdown-body table th, .markdown-body table td {
-              color: \(tableText);
-              border: 1px solid \(tableBorder);
-            }
-            .markdown-body code, .markdown-body tt {
-              color: \(tableText);
-              background-color: \(inlineCodeBg);
-            }
-            @media (prefers-color-scheme: dark) {
-              .fallback {
-                color: #f0f6fc;
-              }
-            }
+          \(localCSS(isDarkMode: isDarkMode))
           </style>
-          <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+          <script>\(localParserScript)</script>
         </head>
         <body>
           <div class="canvas">
@@ -82,13 +216,7 @@ enum MarkdownPreviewRenderer {
             function render() {
               const host = document.getElementById('content');
               const raw = decodeBase64Utf8('\(markdownBase64)');
-              if (window.marked && typeof window.marked.parse === 'function') {
-                marked.setOptions({ gfm: true, breaks: false, mangle: false, headerIds: false });
-                host.innerHTML = marked.parse(raw);
-              } else {
-                host.classList.add('fallback');
-                host.textContent = raw;
-              }
+              host.innerHTML = cmuxRenderMarkdown(raw);
             }
 
             try { render(); } catch (e) {

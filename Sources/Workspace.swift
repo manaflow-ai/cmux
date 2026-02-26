@@ -1021,7 +1021,6 @@ final class Workspace: Identifiable, ObservableObject {
         BonsplitConfiguration.SplitButtonTooltips(
             newTerminal: KeyboardShortcutSettings.Action.newSurface.tooltip("New Terminal"),
             newBrowser: KeyboardShortcutSettings.Action.openBrowser.tooltip("New Browser"),
-            newMarkdown: "Open Markdown File (\(KeyboardShortcutSettings.openMarkdownShortcut().displayString))",
             splitRight: KeyboardShortcutSettings.Action.splitRight.tooltip("Split Right"),
             splitDown: KeyboardShortcutSettings.Action.splitDown.tooltip("Split Down")
         )
@@ -2129,6 +2128,77 @@ final class Workspace: Identifiable, ObservableObject {
         installBrowserPanelSubscription(browserPanel)
 
         return browserPanel
+    }
+
+    /// Create a new markdown panel split.
+    @discardableResult
+    func newMarkdownSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        fileURL: URL? = nil,
+        focus: Bool = true
+    ) -> MarkdownPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let markdownPanel: MarkdownPanel
+        if let fileURL {
+            do {
+                markdownPanel = try MarkdownPanel.loadFromDisk(workspaceId: id, fileURL: fileURL)
+            } catch {
+                return nil
+            }
+        } else {
+            markdownPanel = MarkdownPanel(workspaceId: id, fileURL: nil, text: "", isPreviewMode: false, lastSavedText: "")
+        }
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: markdownPanel.displayTitle,
+            icon: markdownPanel.displayIcon,
+            kind: SurfaceKind.markdown,
+            isDirty: markdownPanel.isDirty,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: markdownPanel.id)
+            panelTitles.removeValue(forKey: markdownPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(markdownPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: markdownPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return markdownPanel
     }
 
     /// Create a new markdown surface in the specified pane.

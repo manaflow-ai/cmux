@@ -773,16 +773,17 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.markdown?.isPreviewMode, false)
     }
 
-    func testMarkdownPreviewRendererUsesGitHubThemeCSSAndMarkedScript() {
+    func testMarkdownPreviewRendererUsesLocalAssetsAndNoCDNDependencies() {
         let lightHTML = MarkdownPreviewRenderer.renderedHTML(markdown: "# Hello", isDarkMode: false)
-        XCTAssertTrue(lightHTML.contains(MarkdownPreviewRenderer.lightCSSURL))
-        XCTAssertTrue(lightHTML.contains("https://cdn.jsdelivr.net/npm/marked/marked.min.js"))
+        XCTAssertFalse(lightHTML.contains("cdn.jsdelivr.net"))
+        XCTAssertTrue(lightHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
         XCTAssertTrue(lightHTML.contains("<article id=\"content\" class=\"markdown-body\"></article>"))
+        XCTAssertTrue(lightHTML.contains("cmuxRenderMarkdown(raw)"))
 
         let darkHTML = MarkdownPreviewRenderer.renderedHTML(markdown: "# Hello", isDarkMode: true)
-        XCTAssertTrue(darkHTML.contains(MarkdownPreviewRenderer.darkCSSURL))
         XCTAssertTrue(darkHTML.contains("background: #0d1117"))
-        XCTAssertTrue(darkHTML.contains("marked.setOptions({ gfm: true"))
+        XCTAssertFalse(darkHTML.contains("cdn.jsdelivr.net"))
+        XCTAssertTrue(darkHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
     }
 
     func testMarkdownEditorThemePaletteDarkModeUsesVSCodeDarkPlusTokens() {
