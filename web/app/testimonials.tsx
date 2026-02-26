@@ -92,6 +92,14 @@ export const testimonials = [
     url: "https://x.com/scottw/status/2026806893067551084",
     platform: "x" as const,
   },
+  {
+    name: "John Blythe",
+    handle: "@johnblythe",
+    avatar: "/avatars/johnblythe.jpg",
+    text: "grabbed this over the weekend and loved it. been waiting for something like this.",
+    url: "https://x.com/johnblythe/status/2026812731844637010",
+    platform: "x" as const,
+  },
 ];
 
 export type Testimonial = (typeof testimonials)[number];
