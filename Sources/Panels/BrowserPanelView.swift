@@ -348,6 +348,21 @@ struct BrowserPanelView: View {
 #endif
             onRequestPanelFocus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .webViewDidReceiveHover).filter { [weak panel] note in
+            // Only handle hover intents from our own webview.
+            guard let webView = note.object as? CmuxWebView else { return false }
+            return webView === panel?.webView
+        }) { _ in
+            guard !isFocused else { return }
+#if DEBUG
+            dlog(
+                "browser.focus.hoverIntent panel=\(panel.id.uuidString.prefix(5)) " +
+                "isFocused=\(isFocused ? 1 : 0) " +
+                "addressFocused=\(addressBarFocused ? 1 : 0)"
+            )
+#endif
+            onRequestPanelFocus()
+        }
         .onAppear {
             UserDefaults.standard.register(defaults: [
                 BrowserSearchSettings.searchEngineKey: BrowserSearchSettings.defaultSearchEngine.rawValue,
