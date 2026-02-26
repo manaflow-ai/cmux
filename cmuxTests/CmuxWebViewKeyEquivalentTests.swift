@@ -6081,6 +6081,45 @@ final class WindowDragHandleHitTests: XCTestCase {
     }
 }
 
+#if DEBUG
+@MainActor
+final class SidebarWorkspaceShortcutHintMetricsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+    }
+
+    override func tearDown() {
+        SidebarWorkspaceShortcutHintMetrics.resetCacheForTesting()
+        super.tearDown()
+    }
+
+    func testHintWidthCachesRepeatedMeasurements() {
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 0)
+
+        let first = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        XCTAssertGreaterThan(first, 0)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+
+        let second = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘1")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 1)
+
+        _ = SidebarWorkspaceShortcutHintMetrics.hintWidth(for: "⌘2")
+        XCTAssertEqual(SidebarWorkspaceShortcutHintMetrics.measurementCountForTesting(), 2)
+    }
+
+    func testSlotWidthAppliesMinimumAndDebugInset() {
+        let nilLabelWidth = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: nil, debugXOffset: 999)
+        XCTAssertEqual(nilLabelWidth, 28)
+
+        let base = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 0)
+        let widened = SidebarWorkspaceShortcutHintMetrics.slotWidth(label: "⌘1", debugXOffset: 10)
+        XCTAssertGreaterThan(widened, base)
+    }
+}
+#endif
+
 @MainActor
 final class DraggableFolderHitTests: XCTestCase {
     func testFolderHitTestReturnsContainerWhenInsideBounds() {
