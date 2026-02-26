@@ -3079,7 +3079,9 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             hostedView.reconcileGeometryNow()
-            if hasSurface {
+            // Re-check surface after reconcileGeometryNow() which can trigger AppKit
+            // layout and view lifecycle changes that free surfaces (#432).
+            if terminalPanel.surface.surface != nil {
                 terminalPanel.surface.forceRefresh()
             } else if isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()

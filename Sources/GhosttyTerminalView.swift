@@ -2027,18 +2027,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
             FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
         }
 	        #endif
-        guard let surface,
-              let view = attachedView,
+        guard let view = attachedView,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
         }
 
+        // Re-read self.surface before each ghostty call to guard against the surface
+        // being freed during wake-from-sleep geometry reconciliation (issue #432).
+        // The surface can be invalidated between calls when AppKit layout triggers
+        // view lifecycle changes (e.g., forceRefreshSurface → layout → deinit → free).
+
         // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
         // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
         // but callbacks have not resumed for the current display.
-        if let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+        if let surface = self.surface,
+           let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
         }
@@ -2173,7 +2178,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
-        guard let surface else {
+        // Nil out the surface pointer so any in-flight closures (e.g. geometry
+        // reconcile dispatched via DispatchQueue.main.async) that read self.surface
+        // before this object is fully deallocated will see nil and bail out,
+        // rather than passing a freed pointer to ghostty_surface_refresh (#432).
+        let surfaceToFree = surface
+        surface = nil
+
+        guard let surfaceToFree else {
             callbackContext?.release()
             return
         }
@@ -2182,7 +2194,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // callback userdata until surface free completes so callbacks never dereference
         // a deallocated view pointer.
         Task { @MainActor in
-            ghostty_surface_free(surface)
+            ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
         }
     }
