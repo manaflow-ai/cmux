@@ -23,6 +23,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     func testNotificationsRouteToCorrectWindow() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launch()
@@ -106,6 +107,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     func testNotificationsPopoverCanCloseViaShortcutAndEscape() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
         app.launch()
@@ -139,6 +141,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     func testEmptyNotificationsPopoverBlocksTerminalTyping() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launch()
         app.activate()
@@ -300,5 +303,164 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+}
+
+final class CommandPaletteEscapeLeakUITests: XCTestCase {
+    private var socketPath = ""
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+        socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: socketPath)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(atPath: socketPath)
+        super.tearDown()
+    }
+
+    func testCmdPThenEscapeDoesNotLeakToTerminal() {
+        runCommandPaletteEscapeLeakCheck(
+            label: "cmd_p",
+            openPalette: { app in
+                app.typeKey("p", modifierFlags: [.command])
+            }
+        )
+    }
+
+    func testCmdShiftPThenEscapeDoesNotLeakToTerminal() {
+        runCommandPaletteEscapeLeakCheck(
+            label: "cmd_shift_p",
+            openPalette: { app in
+                app.typeKey("p", modifierFlags: [.command, .shift])
+            }
+        )
+    }
+
+    private func runCommandPaletteEscapeLeakCheck(
+        label: String,
+        openPalette: (XCUIApplication) -> Void
+    ) {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected at least one app window")
+        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected control socket to respond")
+
+        let token = "CMUX_ESC_PROBE_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))"
+        let startMarker = "\(token)_START"
+
+        // Ensure we're at a clean prompt first.
+        _ = socketCommand("send_key ctrl-c")
+        _ = socketCommand("send echo \(startMarker)\\n")
+        _ = socketCommand("send cat -v\\n")
+
+        XCTAssertTrue(
+            waitForTerminalTextContains(startMarker, timeout: 3.0),
+            "Expected probe start marker to be visible before shortcut test"
+        )
+
+        openPalette(app)
+        app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+
+        _ = socketCommand("send_key ctrl-c")
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        guard let terminalText = readCurrentTerminalText() else {
+            XCTFail("Expected terminal text from control socket")
+            return
+        }
+
+        XCTAssertFalse(
+            terminalText.contains("^["),
+            """
+            Expected Escape after command palette shortcut to not leak to terminal.
+            scenario=\(label)
+            terminalText=\(terminalText)
+            """
+        )
+    }
+
+    private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.windows.count >= count { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return app.windows.count >= count
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if socketCommand("ping") == "PONG" {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return socketCommand("ping") == "PONG"
+    }
+
+    private func waitForTerminalTextContains(_ marker: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let text = readCurrentTerminalText(), text.contains(marker) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return readCurrentTerminalText()?.contains(marker) ?? false
+    }
+
+    private func socketCommand(_ cmd: String) -> String? {
+        let nc = "/usr/bin/nc"
+        guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: nc)
+        proc.arguments = ["-U", socketPath, "-w", "2"]
+
+        let inPipe = Pipe()
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        proc.standardInput = inPipe
+        proc.standardOutput = outPipe
+        proc.standardError = errPipe
+
+        do {
+            try proc.run()
+        } catch {
+            return nil
+        }
+
+        if let data = (cmd + "\n").data(using: .utf8) {
+            inPipe.fileHandleForWriting.write(data)
+        }
+        inPipe.fileHandleForWriting.closeFile()
+
+        proc.waitUntilExit()
+
+        let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let outStr = String(data: outData, encoding: .utf8) else { return nil }
+        if let first = outStr.split(separator: "\n", maxSplits: 1).first {
+            return String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func readCurrentTerminalText() -> String? {
+        guard let response = socketCommand("read_terminal_text"), response.hasPrefix("OK ") else {
+            return nil
+        }
+        let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = Data(base64Encoded: encoded) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }

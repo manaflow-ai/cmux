@@ -4445,6 +4445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                event: event,
                commandPaletteTargetWindow: commandPaletteTargetWindow
            ) {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
             return true
         }
 

@@ -779,6 +779,78 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testRepeatedEscapeAfterConsumedFollowupEscapeIsConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+
+        guard let initialEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct initial Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: initialEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        guard let followupEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct follow-up Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: followupEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        guard let repeatedEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: true
+        ) else {
+            XCTFail("Failed to construct repeated Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testRepeatedEscapeWithoutOverlayStillFallsThrough() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
