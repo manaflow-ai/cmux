@@ -348,34 +348,40 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     private static func storedKey(from event: NSEvent) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
+        // Layout-independent keys: always use keyCode for these.
         switch event.keyCode {
         case 123: return "←" // left arrow
         case 124: return "→" // right arrow
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
         case 48: return "\t" // tab
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
         default:
             break
         }
 
+        // For character-producing keys, use layout-aware translation so the recorded
+        // shortcut matches the character the user sees, not the physical key position.
+        // This ensures correct behavior on non-QWERTY layouts (Dvorak, Colemak, etc.).
+        // UCKeyTranslate gives us the unshifted character, which normalizes shifted
+        // symbol keys (e.g. "}" records as "]").
+        if let layoutChar = KeyboardLayout.character(forKeyCode: event.keyCode) {
+            let ch = layoutChar.first
+            if ch != nil && (ch!.isLetter || ch!.isNumber) {
+                return layoutChar
+            }
+            // Accept symbol characters that are valid shortcut keys.
+            let validSymbols: Set<Character> = ["[", "]", "-", "=", ",", ".", "/", ";", "'", "`", "\\"]
+            if let ch, validSymbols.contains(ch) {
+                return layoutChar
+            }
+        }
+
+        // Fallback to charactersIgnoringModifiers for any remaining cases.
         guard let chars = event.charactersIgnoringModifiers?.lowercased(),
               let char = chars.first else {
             return nil
         }
 
-        // Allow letters/numbers; everything else should be handled by keyCode mapping above.
         if char.isLetter || char.isNumber {
             return String(char)
         }
