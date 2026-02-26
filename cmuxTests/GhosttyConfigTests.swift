@@ -943,6 +943,35 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertEqual(properties["app_build"] as? String, "230")
     }
 
+    func testHourlyActivePropertiesIncludeVersionAndBuild() {
+        let properties = PostHogAnalytics.hourlyActiveProperties(
+            hourUTC: "2026-02-21T14",
+            reason: "didBecomeActive",
+            infoDictionary: [
+                "CFBundleShortVersionString": "0.31.0",
+                "CFBundleVersion": "230",
+            ]
+        )
+
+        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
+        XCTAssertEqual(properties["reason"] as? String, "didBecomeActive")
+        XCTAssertEqual(properties["app_version"] as? String, "0.31.0")
+        XCTAssertEqual(properties["app_build"] as? String, "230")
+    }
+
+    func testHourlyPropertiesOmitVersionFieldsWhenUnavailable() {
+        let properties = PostHogAnalytics.hourlyActiveProperties(
+            hourUTC: "2026-02-21T14",
+            reason: "activeTimer",
+            infoDictionary: [:]
+        )
+
+        XCTAssertEqual(properties["hour_utc"] as? String, "2026-02-21T14")
+        XCTAssertEqual(properties["reason"] as? String, "activeTimer")
+        XCTAssertNil(properties["app_version"])
+        XCTAssertNil(properties["app_build"])
+    }
+
     func testPropertiesOmitVersionFieldsWhenUnavailable() {
         let superProperties = PostHogAnalytics.superProperties(infoDictionary: [:])
         XCTAssertEqual(superProperties["platform"] as? String, "cmuxterm")
