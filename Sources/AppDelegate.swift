@@ -4618,6 +4618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
+                scheduleDeferredSplitShortcutRetry(direction: .right)
                 return true
             }
             _ = performSplitShortcut(direction: .right)
@@ -4629,6 +4630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
             if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
+                scheduleDeferredSplitShortcutRetry(direction: .down)
                 return true
             }
             _ = performSplitShortcut(direction: .down)
@@ -4762,6 +4764,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func splitDirectionLabel(_ direction: SplitDirection) -> String {
+        switch direction {
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        }
+    }
+
+    private func scheduleDeferredSplitShortcutRetry(direction: SplitDirection, attemptsRemaining: Int = 3) {
+        guard attemptsRemaining > 0 else { return }
+        let directionLabel = splitDirectionLabel(direction)
+#if DEBUG
+        dlog("split.shortcut retry.schedule dir=\(directionLabel) attempts=\(attemptsRemaining)")
+#endif
+        DispatchQueue.main.asyncAfter(deadline: .now() + (1.0 / 120.0)) { [weak self] in
+            guard let self else { return }
+            if self.shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: direction) {
+                if attemptsRemaining > 1 {
+                    self.scheduleDeferredSplitShortcutRetry(direction: direction, attemptsRemaining: attemptsRemaining - 1)
+                } else {
+#if DEBUG
+                    dlog("split.shortcut retry.abandon dir=\(directionLabel)")
+#endif
+                }
+                return
+            }
+#if DEBUG
+            dlog("split.shortcut retry.apply dir=\(directionLabel)")
+#endif
+            _ = self.performSplitShortcut(direction: direction)
+        }
+    }
+
     private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
         guard let tabManager,
               let workspace = tabManager.selectedWorkspace,
@@ -4787,13 +4823,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager.reconcileFocusedPanelFromFirstResponderForKeyboard()
 
 #if DEBUG
-        let directionLabel: String
-        switch direction {
-        case .left: directionLabel = "left"
-        case .right: directionLabel = "right"
-        case .up: directionLabel = "up"
-        case .down: directionLabel = "down"
-        }
+        let directionLabel = splitDirectionLabel(direction)
         let firstResponderType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog(
             "split.shortcut suppressed dir=\(directionLabel) reason=transient_focus_state " +

@@ -2578,6 +2578,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return surface
     }
 
+    private func applySurfaceFocusForCurrentResponder(trigger: String) {
+        guard let surface = ensureSurfaceReadyForInput() else { return }
+        let now = CACurrentMediaTime()
+        let deltaMs = (now - lastScrollEventTime) * 1000
+        Self.focusLog("\(trigger): surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+#if DEBUG
+        dlog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") trigger=\(trigger)")
+        if let terminalSurface {
+            AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
+                tabId: terminalSurface.tabId,
+                surfaceId: terminalSurface.id
+            )
+        }
+#endif
+        if let terminalSurface {
+            NotificationCenter.default.post(
+                name: .ghosttyDidBecomeFirstResponderSurface,
+                object: nil,
+                userInfo: [
+                    GhosttyNotificationKey.tabId: terminalSurface.tabId,
+                    GhosttyNotificationKey.surfaceId: terminalSurface.id,
+                ]
+            )
+        }
+        ghostty_surface_set_focus(surface, true)
+
+        // Ghostty only restarts its vsync display link on display-id changes while focused.
+        // During rapid split close / SwiftUI reparenting, the view can reattach to a window
+        // and get its display id set *before* it becomes first responder; in that case, the
+        // renderer can remain stuck until some later screen/focus transition. Reassert the
+        // display id now that we're focused to ensure the renderer is running.
+        if let displayID = window?.screen?.displayID, displayID != 0 {
+            ghostty_surface_set_display_id(surface, displayID)
+        }
+    }
+
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
         return action.withCString { cString in
@@ -2648,41 +2684,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             }
         }
-        if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
-            let now = CACurrentMediaTime()
-            let deltaMs = (now - lastScrollEventTime) * 1000
-            Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
-#if DEBUG
-            dlog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
-            if let terminalSurface {
-                AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
-                    tabId: terminalSurface.tabId,
-                    surfaceId: terminalSurface.id
-                )
-            }
-#endif
-            if let terminalSurface {
-                NotificationCenter.default.post(
-                    name: .ghosttyDidBecomeFirstResponderSurface,
-                    object: nil,
-                    userInfo: [
-                        GhosttyNotificationKey.tabId: terminalSurface.tabId,
-                        GhosttyNotificationKey.surfaceId: terminalSurface.id,
-                    ]
-                )
-            }
-            ghostty_surface_set_focus(surface, true)
-
-            // Ghostty only restarts its vsync display link on display-id changes while focused.
-            // During rapid split close / SwiftUI reparenting, the view can reattach to a window
-            // and get its display id set *before* it becomes first responder; in that case, the
-            // renderer can remain stuck until some later screen/focus transition. Reassert the
-            // display id now that we're focused to ensure the renderer is running.
-            if let displayID = window?.screen?.displayID, displayID != 0 {
-                ghostty_surface_set_display_id(surface, displayID)
-            }
+        if result, shouldApplySurfaceFocus {
+            applySurfaceFocusForCurrentResponder(trigger: "becomeFirstResponder")
         }
         return result
+    }
+
+    fileprivate func replaySuppressedReparentFocusIfNeeded() {
+        guard desiredFocus, !suppressingReparentFocus else { return }
+        guard isVisibleInUI, hasUsableFocusGeometry, !isHiddenOrHasHiddenAncestor else { return }
+        guard let window,
+              let fr = window.firstResponder as? NSView,
+              fr === self || fr.isDescendant(of: self) else {
+            return
+        }
+#if DEBUG
+        dlog(
+            "focus.firstResponder replaySuppressed surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+        )
+#endif
+        onFocus?()
+        applySurfaceFocusForCurrentResponder(trigger: "replaySuppressedReparentFocus")
     }
 
     override func resignFirstResponder() -> Bool {
@@ -4477,7 +4500,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func clearSuppressReparentFocus() {
+        let wasSuppressed = surfaceView.suppressingReparentFocus
         surfaceView.suppressingReparentFocus = false
+        guard wasSuppressed else { return }
+        surfaceView.replaySuppressedReparentFocusIfNeeded()
     }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.

@@ -538,6 +538,8 @@ final class WindowTerminalPortal: NSObject {
     private static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
+    private static let transientHideGraceDuration: TimeInterval = 0.12
+    private static let transientHideGracePassLimit: Int = 6
 
     private weak var window: NSWindow?
     private let hostView = WindowTerminalHostView(frame: .zero)
@@ -548,7 +550,19 @@ final class WindowTerminalPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
+    private struct TransientHideState {
+        var firstObservedAt: TimeInterval
+        var passCount: Int
+    }
+    private var transientHideStateByHostedId: [ObjectIdentifier: TransientHideState] = [:]
 #if DEBUG
+    private struct BlankProbeState {
+        var lastWasBlank: Bool?
+        var lastFingerprint: UInt64
+        var lastLoggedAt: TimeInterval
+    }
+    private static let blankProbeCrop = CGRect(x: 0.08, y: 0.08, width: 0.84, height: 0.84)
+    private var blankProbeStateByHostedId: [ObjectIdentifier: BlankProbeState] = [:]
     private var lastLoggedBonsplitContainerSignature: String?
 #endif
 
@@ -840,6 +854,84 @@ final class WindowTerminalPortal: NSObject {
             "host=\(portalDebugFrameInWindow(hostView)) anchor=\(portalDebugFrameInWindow(anchorView))"
         )
     }
+
+    private func logBlankProbe(
+        hostedView: GhosttySurfaceScrollView,
+        hostedId: ObjectIdentifier,
+        event: String,
+        force: Bool = false
+    ) {
+        let surface = hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil"
+        guard let sample = hostedView.debugSampleIOSurface(normalizedCrop: Self.blankProbeCrop) else {
+            if force {
+                dlog(
+                    "portal.blankProbe event=\(event) surface=\(surface) sample=nil " +
+                    "hostedHidden=\(hostedView.isHidden ? 1 : 0) inWindow=\(hostedView.window != nil ? 1 : 0) " +
+                    "frame=\(portalDebugFrame(hostedView.frame))"
+                )
+            }
+            return
+        }
+
+        let isBlank = sample.isProbablyBlank
+        var state = blankProbeStateByHostedId[hostedId]
+            ?? BlankProbeState(lastWasBlank: nil, lastFingerprint: 0, lastLoggedAt: 0)
+        let now = CACurrentMediaTime()
+        let blankStateChanged = state.lastWasBlank == nil || state.lastWasBlank != isBlank
+        let fingerprintChanged = state.lastFingerprint != sample.fingerprint
+        let shouldLog =
+            force ||
+            blankStateChanged ||
+            (isBlank && (now - state.lastLoggedAt) > 0.20) ||
+            (!isBlank && fingerprintChanged && event.contains("reveal"))
+        guard shouldLog else {
+            state.lastWasBlank = isBlank
+            state.lastFingerprint = sample.fingerprint
+            blankProbeStateByHostedId[hostedId] = state
+            return
+        }
+
+        dlog(
+            "portal.blankProbe event=\(event) surface=\(surface) blank=\(isBlank ? 1 : 0) " +
+            "samples=\(sample.sampleCount) uniqQ=\(sample.uniqueQuantized) " +
+            "std=\(String(format: "%.2f", sample.lumaStdDev)) mode=\(String(format: "%.4f", sample.modeFraction)) " +
+            "ios=\(sample.iosurfaceWidthPx)x\(sample.iosurfaceHeightPx) exp=\(sample.expectedWidthPx)x\(sample.expectedHeightPx) " +
+            "gravity=\(sample.layerContentsGravity) key=\(sample.layerContentsKey) " +
+            "hostedHidden=\(hostedView.isHidden ? 1 : 0) inWindow=\(hostedView.window != nil ? 1 : 0)"
+        )
+        state.lastWasBlank = isBlank
+        state.lastFingerprint = sample.fingerprint
+        state.lastLoggedAt = now
+        blankProbeStateByHostedId[hostedId] = state
+    }
+
+    private func scheduleBlankProbeBurst(
+        hostedView: GhosttySurfaceScrollView,
+        hostedId: ObjectIdentifier,
+        event: String
+    ) {
+        logBlankProbe(hostedView: hostedView, hostedId: hostedId, event: "\(event).now", force: true)
+
+        DispatchQueue.main.async { [weak self, weak hostedView] in
+            guard let self, let hostedView else { return }
+            self.logBlankProbe(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "\(event).next",
+                force: true
+            )
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + (1.0 / 60.0)) { [weak self, weak hostedView] in
+            guard let self, let hostedView else { return }
+            self.logBlankProbe(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "\(event).vsync",
+                force: true
+            )
+        }
+    }
 #endif
 
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
@@ -896,6 +988,10 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        transientHideStateByHostedId.removeValue(forKey: hostedId)
+#if DEBUG
+        blankProbeStateByHostedId.removeValue(forKey: hostedId)
+#endif
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -919,6 +1015,10 @@ final class WindowTerminalPortal: NSObject {
         guard entry.visibleInUI else { return }
         entry.visibleInUI = false
         entriesByHostedId[hostedId] = entry
+        transientHideStateByHostedId.removeValue(forKey: hostedId)
+#if DEBUG
+        blankProbeStateByHostedId.removeValue(forKey: hostedId)
+#endif
         entry.hostedView?.isHidden = true
 #if DEBUG
         dlog("portal.hideEntry hosted=\(portalDebugToken(entry.hostedView)) reason=workspaceUnmount")
@@ -932,6 +1032,57 @@ final class WindowTerminalPortal: NSObject {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = visibleInUI
         entriesByHostedId[hostedId] = entry
+        if !visibleInUI {
+            transientHideStateByHostedId.removeValue(forKey: hostedId)
+#if DEBUG
+            blankProbeStateByHostedId.removeValue(forKey: hostedId)
+#endif
+        }
+    }
+
+    private func clearTransientHideState(for hostedId: ObjectIdentifier) {
+        transientHideStateByHostedId.removeValue(forKey: hostedId)
+    }
+
+    private func shouldDeferTransientHide(
+        for hostedId: ObjectIdentifier,
+        hostedView: GhosttySurfaceScrollView,
+        entryVisibleInUI: Bool,
+        reason: String
+    ) -> Bool {
+        guard entryVisibleInUI, !hostedView.isHidden else {
+            clearTransientHideState(for: hostedId)
+            return false
+        }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        var state = transientHideStateByHostedId[hostedId]
+            ?? TransientHideState(firstObservedAt: now, passCount: 0)
+        state.passCount += 1
+        transientHideStateByHostedId[hostedId] = state
+
+        let elapsed = now - state.firstObservedAt
+        let shouldDefer =
+            elapsed < Self.transientHideGraceDuration &&
+            state.passCount <= Self.transientHideGracePassLimit
+        if shouldDefer {
+            scheduleDeferredFullSynchronizeAll()
+#if DEBUG
+            dlog(
+                "portal.hidden.defer hosted=\(portalDebugToken(hostedView)) " +
+                "reason=\(reason) elapsedMs=\(String(format: "%.2f", elapsed * 1000)) pass=\(state.passCount)"
+            )
+            scheduleBlankProbeBurst(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "portal.deferHide.\(reason)"
+            )
+#endif
+        } else {
+            clearTransientHideState(for: hostedId)
+        }
+
+        return shouldDefer
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -1089,6 +1240,7 @@ final class WindowTerminalPortal: NSObject {
         guard let entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
+            clearTransientHideState(for: hostedId)
             return
         }
         guard let anchorView = entry.anchorView, let window else {
@@ -1101,6 +1253,7 @@ final class WindowTerminalPortal: NSObject {
                     dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
                 }
 #endif
+                clearTransientHideState(for: hostedId)
                 hostedView.isHidden = true
             }
             return
@@ -1114,6 +1267,7 @@ final class WindowTerminalPortal: NSObject {
                 )
             }
 #endif
+            clearTransientHideState(for: hostedId)
             hostedView.isHidden = true
             return
         }
@@ -1133,6 +1287,14 @@ final class WindowTerminalPortal: NSObject {
             hostBounds.size.height.isFinite
         let hostBoundsReady = hasFiniteHostBounds && hostBounds.width > 1 && hostBounds.height > 1
         if !hostBoundsReady {
+            if shouldDeferTransientHide(
+                for: hostedId,
+                hostedView: hostedView,
+                entryVisibleInUI: entry.visibleInUI,
+                reason: "hostBoundsNotReady"
+            ) {
+                return
+            }
 #if DEBUG
             dlog(
                 "portal.sync.defer hosted=\(portalDebugToken(hostedView)) " +
@@ -1140,6 +1302,7 @@ final class WindowTerminalPortal: NSObject {
                 "anchor=\(portalDebugFrame(frameInHost)) visibleInUI=\(entry.visibleInUI ? 1 : 0)"
             )
 #endif
+            clearTransientHideState(for: hostedId)
             hostedView.isHidden = true
             scheduleDeferredFullSynchronizeAll()
             return
@@ -1169,6 +1332,10 @@ final class WindowTerminalPortal: NSObject {
             tinyFrame ||
             !hasFiniteFrame ||
             outsideHostBounds
+        let transientGeometryHide =
+            shouldHide &&
+            entry.visibleInUI &&
+            (anchorHidden || tinyFrame || !hasFiniteFrame || outsideHostBounds)
         let shouldDeferReveal = !shouldHide && hostedView.isHidden && !revealReadyForDisplay
 
         let oldFrame = hostedView.frame
@@ -1197,6 +1364,19 @@ final class WindowTerminalPortal: NSObject {
         }
 #endif
 
+        if transientGeometryHide,
+           shouldDeferTransientHide(
+            for: hostedId,
+            hostedView: hostedView,
+            entryVisibleInUI: entry.visibleInUI,
+            reason: "transientGeometry"
+           ) {
+            return
+        }
+        if !shouldHide {
+            clearTransientHideState(for: hostedId)
+        }
+
         // Hide before updating the frame when this entry should not be visible.
         // This avoids a one-frame flash of unrendered terminal background when a portal
         // briefly transitions through offscreen/tiny geometry during rapid split churn.
@@ -1208,8 +1388,14 @@ final class WindowTerminalPortal: NSObject {
                 "tiny=\(tinyFrame ? 1 : 0) revealReady=\(revealReadyForDisplay ? 1 : 0) finite=\(hasFiniteFrame ? 1 : 0) " +
                 "outside=\(outsideHostBounds ? 1 : 0) frame=\(portalDebugFrame(targetFrame)) " +
                 "host=\(portalDebugFrame(hostBounds))"
+                )
+            scheduleBlankProbeBurst(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "portal.hide"
             )
 #endif
+            clearTransientHideState(for: hostedId)
             hostedView.isHidden = true
         }
 
@@ -1220,6 +1406,13 @@ final class WindowTerminalPortal: NSObject {
             CATransaction.commit()
             hostedView.reconcileGeometryNow()
             hostedView.refreshSurfaceNow()
+#if DEBUG
+            scheduleBlankProbeBurst(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "portal.frameUpdate"
+            )
+#endif
         }
 
         if hasFiniteFrame {
@@ -1259,6 +1452,13 @@ final class WindowTerminalPortal: NSObject {
             // revealed terminals don't sit on a stale/blank IOSurface until later focus churn.
             hostedView.reconcileGeometryNow()
             hostedView.refreshSurfaceNow()
+#if DEBUG
+            scheduleBlankProbeBurst(
+                hostedView: hostedView,
+                hostedId: hostedId,
+                event: "portal.reveal"
+            )
+#endif
         }
 
 #if DEBUG

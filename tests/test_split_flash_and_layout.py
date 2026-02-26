@@ -119,6 +119,39 @@ def _assert_no_transient_detach_or_hide(
         )
 
 
+def _assert_panel_stays_visible(
+    c: cmux,
+    panel_id: str,
+    *,
+    duration_s: float = 1.0,
+    cadence_s: float = 0.005,
+    max_false_samples: int = 2,
+) -> None:
+    panel_id_l = panel_id.lower()
+    false_in_window = 0
+    hidden_true = 0
+    missing = 0
+    deadline = time.time() + duration_s
+
+    while time.time() < deadline:
+        rows = c.surface_health()
+        row = next((r for r in rows if (r.get("id") or "").lower() == panel_id_l), None)
+        if row is None:
+            missing += 1
+        else:
+            if row.get("in_window") is False:
+                false_in_window += 1
+            if row.get("hidden") is True:
+                hidden_true += 1
+        time.sleep(cadence_s)
+
+    if false_in_window > max_false_samples or hidden_true > max_false_samples or missing > max_false_samples:
+        raise cmuxError(
+            f"Panel visibility regressed for anchor panel {panel_id}: "
+            f"in_window_false={false_in_window} hidden_true={hidden_true} missing={missing}"
+        )
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         # Run on a fresh workspace to avoid state carry-over from restored sessions.
@@ -146,6 +179,38 @@ def main() -> int:
         if len(panes) < 2:
             raise cmuxError(f"Expected >= 2 panes after split, got {len(panes)}")
         _assert_selected_panels_healthy(after)
+
+        # Rapid split->split->close should keep the original pane continuously visible.
+        focused_surfaces = [sid for _idx, sid, focused in c.list_surfaces() if focused]
+        if not focused_surfaces:
+            raise cmuxError("list_surfaces returned no focused terminal for stress check")
+        anchor_panel_id = focused_surfaces[0]
+        if not anchor_panel_id:
+            raise cmuxError("focused terminal missing panel id for stress check")
+
+        for _ in range(6):
+            c.focus_surface(anchor_panel_id)
+            time.sleep(0.02)
+            right_panel = c.new_split("right")
+            if not right_panel:
+                focused = [sid for _idx, sid, is_focused in c.list_surfaces() if is_focused]
+                right_panel = focused[0] if focused else ""
+            if not right_panel:
+                raise cmuxError("split stress: missing right panel id after split")
+            time.sleep(0.04)
+            down_panel = c.new_split("down")
+            if not down_panel:
+                focused = [sid for _idx, sid, is_focused in c.list_surfaces() if is_focused]
+                down_panel = focused[0] if focused else ""
+            if not down_panel:
+                raise cmuxError("split stress: missing down panel id after split")
+            time.sleep(0.04)
+            c.close_surface(down_panel)
+            time.sleep(0.04)
+            c.close_surface(right_panel)
+            time.sleep(0.05)
+
+        _assert_panel_stays_visible(c, anchor_panel_id, duration_s=1.0, max_false_samples=2)
 
         # Drag-to-split from a single-surface pane should also avoid EmptyPanelView flashes.
         drag_workspace = c.new_workspace()

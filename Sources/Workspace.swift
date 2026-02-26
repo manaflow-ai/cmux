@@ -1069,8 +1069,16 @@ final class Workspace: Identifiable, ObservableObject {
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
+    nonisolated private static let closeForceRefreshSuppressionDuration: TimeInterval = 0.20
     private var geometryReconcileScheduled = false
     private var geometryReconcileNeedsRerun = false
+    private var suppressForceRefreshUntilUptime: TimeInterval = 0
+    private struct GeometryRefreshSignature: Equatable {
+        let widthPx: Int
+        let heightPx: Int
+        let attached: Bool
+    }
+    private var lastGeometryRefreshSignatureByPanelId: [UUID: GeometryRefreshSignature] = [:]
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
     private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
@@ -1456,6 +1464,8 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        lastGeometryRefreshSignatureByPanelId = lastGeometryRefreshSignatureByPanelId
+            .filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
 
@@ -1741,7 +1751,7 @@ final class Workspace: Identifiable, ObservableObject {
         if focus {
             previousHostedView?.suppressReparentFocus()
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.async {
                 previousHostedView?.clearSuppressReparentFocus()
             }
         } else {
@@ -1867,7 +1877,7 @@ final class Workspace: Identifiable, ObservableObject {
         if focus {
             previousHostedView?.suppressReparentFocus()
             focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.async {
                 previousHostedView?.clearSuppressReparentFocus()
             }
         } else {
@@ -1944,6 +1954,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
+            suppressForceRefreshAfterClose(reason: "closePanel.request")
             if force {
                 forceCloseTabIds.insert(tabId)
             }
@@ -1959,6 +1970,7 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
+        suppressForceRefreshAfterClose(reason: "closePanel.fallback")
         if force {
             forceCloseTabIds.insert(selected.id)
         }
@@ -2399,19 +2411,8 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView,
                 allowPreviousHostedView: false
             )
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.reassertFocusAfterNonFocusSplit(
-                    generation: generation,
-                    preferredPanelId: preferredPanelId,
-                    splitPanelId: splitPanelId,
-                    previousHostedView: previousHostedView,
-                    allowPreviousHostedView: false
-                )
-                self.scheduleFocusReconcile()
-                self.clearNonFocusSplitFocusReassert(generation: generation)
-            }
+            self.scheduleFocusReconcile()
+            self.clearNonFocusSplitFocusReassert(generation: generation)
         }
     }
 
@@ -2782,10 +2783,32 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func suppressForceRefreshAfterClose(reason: String) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let nextSuppressionDeadline = now + Self.closeForceRefreshSuppressionDuration
+        if nextSuppressionDeadline > suppressForceRefreshUntilUptime {
+            suppressForceRefreshUntilUptime = nextSuppressionDeadline
+        }
+#if DEBUG
+        dlog(
+            "ws.geometry.forceRefresh.suppress reason=\(reason) " +
+            "durationMs=\(String(format: "%.0f", Self.closeForceRefreshSuppressionDuration * 1000))"
+        )
+#endif
+    }
+
+    private func geometryRefreshSignature(for hostedView: GhosttySurfaceScrollView, attached: Bool) -> GeometryRefreshSignature {
+        let scale = max(1.0, hostedView.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
+        let widthPx = max(0, Int((hostedView.bounds.width * scale).rounded(.toNearestOrAwayFromZero)))
+        let heightPx = max(0, Int((hostedView.bounds.height * scale).rounded(.toNearestOrAwayFromZero)))
+        return GeometryRefreshSignature(widthPx: widthPx, heightPx: heightPx, attached: attached)
+    }
+
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
     private func reconcileTerminalGeometryPass() -> Bool {
         var needsFollowUpPass = false
+        let suppressForceRefresh = ProcessInfo.processInfo.systemUptime < suppressForceRefreshUntilUptime
 
         // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
         for window in NSApp.windows {
@@ -2808,9 +2831,33 @@ final class Workspace: Identifiable, ObservableObject {
 
             hostedView.reconcileGeometryNow()
             if hasSurface {
-                terminalPanel.surface.forceRefresh()
+                let signature = geometryRefreshSignature(for: hostedView, attached: isAttached)
+                let previousSignature = lastGeometryRefreshSignatureByPanelId[terminalPanel.id]
+                if suppressForceRefresh {
+#if DEBUG
+                    if previousSignature != signature {
+                        dlog(
+                            "ws.geometry.forceRefresh.skipSuppressed panel=\(terminalPanel.id.uuidString.prefix(5)) " +
+                            "w=\(signature.widthPx) h=\(signature.heightPx) attached=\(signature.attached ? 1 : 0)"
+                        )
+                    }
+#endif
+                    lastGeometryRefreshSignatureByPanelId[terminalPanel.id] = signature
+                } else if previousSignature != signature {
+                    terminalPanel.surface.forceRefresh()
+#if DEBUG
+                    dlog(
+                        "ws.geometry.forceRefresh.apply panel=\(terminalPanel.id.uuidString.prefix(5)) " +
+                        "w=\(signature.widthPx) h=\(signature.heightPx) attached=\(signature.attached ? 1 : 0)"
+                    )
+#endif
+                    lastGeometryRefreshSignatureByPanelId[terminalPanel.id] = signature
+                }
             } else if isAttached && hasUsableBounds {
+                lastGeometryRefreshSignatureByPanelId.removeValue(forKey: terminalPanel.id)
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+            } else {
+                lastGeometryRefreshSignatureByPanelId.removeValue(forKey: terminalPanel.id)
             }
         }
 
@@ -3368,6 +3415,7 @@ extension Workspace: BonsplitDelegate {
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
+        suppressForceRefreshAfterClose(reason: "didCloseTab")
 
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
@@ -3553,6 +3601,7 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        suppressForceRefreshAfterClose(reason: "didClosePane")
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
