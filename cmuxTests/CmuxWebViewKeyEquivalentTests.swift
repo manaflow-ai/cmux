@@ -1934,6 +1934,68 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
+final class FullScreenShortcutTests: XCTestCase {
+    func testMatchesCommandReturn() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command],
+                keyCode: 36
+            )
+        )
+    }
+
+    func testMatchesCommandKeypadEnterWithNumericPadFlag() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command, .numericPad],
+                keyCode: 76
+            )
+        )
+    }
+
+    func testIgnoresCapsLockForCommandEnter() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command, .capsLock],
+                keyCode: 36
+            )
+        )
+    }
+
+    func testRejectsNonEnterKeyCodes() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command],
+                keyCode: 13
+            )
+        )
+    }
+
+    func testRejectsAdditionalModifiers() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command, .shift],
+                keyCode: 36
+            )
+        )
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [.command, .control],
+                keyCode: 36
+            )
+        )
+    }
+
+    func testRejectsWhenCommandIsMissing() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+                flags: [],
+                keyCode: 36
+            )
+        )
+    }
+}
+
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
         XCTAssertEqual(
