@@ -3364,7 +3364,7 @@ struct ContentView: View {
     private func commandPaletteContextSnapshot() -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
 
-        if let workspace = tabManager.selectedWorkspace {
+        if let workspace = tabManager.selectedWorkspaceForUserAction() {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
@@ -4021,14 +4021,14 @@ struct ContentView: View {
             beginRenameWorkspaceFlow()
         }
         registry.register(commandId: "palette.clearWorkspaceName") {
-            guard let workspace = tabManager.selectedWorkspace else {
+            guard let workspace = tabManager.selectedWorkspaceForUserAction() else {
                 NSSound.beep()
                 return
             }
             tabManager.clearCustomTitle(tabId: workspace.id)
         }
         registry.register(commandId: "palette.toggleWorkspacePin") {
-            guard let workspace = tabManager.selectedWorkspace else {
+            guard let workspace = tabManager.selectedWorkspaceForUserAction() else {
                 NSSound.beep()
                 return
             }
@@ -4662,7 +4662,7 @@ struct ContentView: View {
     }
 
     private func beginRenameWorkspaceFlow() {
-        guard let workspace = tabManager.selectedWorkspace else {
+        guard let workspace = tabManager.selectedWorkspaceForUserAction() else {
             NSSound.beep()
             return
         }

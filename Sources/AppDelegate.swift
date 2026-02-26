@@ -4455,8 +4455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func promptRenameSelectedWorkspace() -> Bool {
         guard let tabManager,
-              let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.selectedWorkspaceForUserAction() else {
             NSSound.beep()
             return false
         }

@@ -702,6 +702,17 @@ class TabManager: ObservableObject {
         return tabs.first(where: { $0.id == selectedTabId })
     }
 
+    /// Returns the selected workspace for user-triggered workspace commands.
+    /// If selection is temporarily missing but there is exactly one workspace,
+    /// treat that sole workspace as the command target.
+    func selectedWorkspaceForUserAction() -> Workspace? {
+        if let selectedWorkspace {
+            return selectedWorkspace
+        }
+        guard tabs.count == 1 else { return nil }
+        return tabs.first
+    }
+
     // Keep selectedTab as convenience alias
     var selectedTab: Workspace? { selectedWorkspace }
 
