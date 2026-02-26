@@ -263,6 +263,16 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
     }
 }
 
+final class TitlebarControlsHoverPolicyTests: XCTestCase {
+    func testHoverTrackingOnlyEnabledForHoverBackgroundStyles() {
+        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.classic.config))
+        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.compact.config))
+        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.roomy.config))
+        XCTAssertTrue(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.pillGroup.config))
+        XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.softButtons.config))
+    }
+}
+
 /// Regression test: ensure new terminal windows are born in full-size content mode so
 /// titlebar/content offsets are correct before the first resize.
 final class MainWindowLayoutStyleTests: XCTestCase {

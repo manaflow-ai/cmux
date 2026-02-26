@@ -200,7 +200,7 @@ struct TitlebarControlButton<Content: View>: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
+        let baseButton = Button(action: action) {
             content()
                 .frame(width: config.buttonSize, height: config.buttonSize)
                 .contentShape(Rectangle())
@@ -209,7 +209,12 @@ struct TitlebarControlButton<Content: View>: View {
         .frame(width: config.buttonSize, height: config.buttonSize)
         .contentShape(Rectangle())
         .background(hoverBackground)
-        .onHover { isHovering = $0 }
+
+        if titlebarControlsShouldTrackButtonHover(config: config) {
+            baseButton.onHover { isHovering = $0 }
+        } else {
+            baseButton
+        }
     }
 
     @ViewBuilder
@@ -341,7 +346,7 @@ struct TitlebarControlsView: View {
                 .frame(width: config.buttonSize, height: config.buttonSize)
             }
             .accessibilityIdentifier("titlebarControl.showNotifications")
-            .overlay(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 }.allowsHitTesting(false))
+            .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .accessibilityLabel("Notifications")
             .help(KeyboardShortcutSettings.Action.showNotifications.tooltip("Show notifications"))
 
@@ -661,6 +666,10 @@ struct TitlebarControlsLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
     let yOffset: CGFloat
+}
+
+func titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyleConfig) -> Bool {
+    config.hoverBackground
 }
 
 func titlebarControlsShouldScheduleForViewSizeChange(
