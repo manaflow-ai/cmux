@@ -634,6 +634,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarSelectionState: SidebarSelectionState?
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
+    private var sleepWakeCapturedWindowGeometryByWindowId: [UUID: PersistedWindowGeometry] = [:]
+    private var pendingSleepWakeFrameRestoreWorkItem: DispatchWorkItem?
     private var windowKeyObserver: NSObjectProtocol?
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
@@ -1085,6 +1087,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: SessionRectSnapshot(window.frame),
             display: displaySnapshot(for: window)
         )
+    }
+
+    private func preferredMainWindowForGeometryPersistence() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            return keyWindow
+        }
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            return mainWindow
+        }
+
+        for context in mainWindowContexts.values {
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                return window
+            }
+        }
+        return nil
+    }
+
+    private func captureWindowGeometryBeforeSleep() {
+        pendingSleepWakeFrameRestoreWorkItem?.cancel()
+        pendingSleepWakeFrameRestoreWorkItem = nil
+
+        var captured: [UUID: PersistedWindowGeometry] = [:]
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { continue }
+            captured[context.windowId] = PersistedWindowGeometry(
+                frame: SessionRectSnapshot(window.frame),
+                display: displaySnapshot(for: window)
+            )
+        }
+        sleepWakeCapturedWindowGeometryByWindowId = captured
+
+        if let primaryWindow = preferredMainWindowForGeometryPersistence() {
+            persistWindowGeometry(from: primaryWindow)
+        }
+
+#if DEBUG
+        dlog("sleep.capture windows=\(captured.count)")
+#endif
+    }
+
+    private func restoreWindowGeometryAfterWakeIfNeeded() {
+        guard !sleepWakeCapturedWindowGeometryByWindowId.isEmpty else { return }
+
+        let captured = sleepWakeCapturedWindowGeometryByWindowId
+        sleepWakeCapturedWindowGeometryByWindowId = [:]
+        applyCapturedWindowGeometryAfterWake(captured, source: "immediate")
+
+        let delayedRestore = DispatchWorkItem { [weak self] in
+            self?.applyCapturedWindowGeometryAfterWake(captured, source: "delayed")
+        }
+        pendingSleepWakeFrameRestoreWorkItem?.cancel()
+        pendingSleepWakeFrameRestoreWorkItem = delayedRestore
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: delayedRestore)
+    }
+
+    private func applyCapturedWindowGeometryAfterWake(
+        _ captured: [UUID: PersistedWindowGeometry],
+        source: String
+    ) {
+        guard !captured.isEmpty else { return }
+
+        let displays = currentDisplayGeometries()
+        var restoredCount = 0
+
+        for context in mainWindowContexts.values {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId),
+                  let geometry = captured[context.windowId],
+                  let restoredFrame = Self.resolvedWindowFrame(
+                      from: geometry.frame,
+                      display: geometry.display,
+                      availableDisplays: displays.available,
+                      fallbackDisplay: displays.fallback
+                  ),
+                  Self.shouldApplySleepWakeFrameRestore(
+                      currentFrame: window.frame,
+                      restoredFrame: restoredFrame
+                  ) else {
+                continue
+            }
+
+            window.setFrame(restoredFrame, display: true)
+            restoredCount += 1
+#if DEBUG
+            dlog(
+                "sleep.restore source=\(source) window=\(context.windowId.uuidString.prefix(8)) " +
+                    "applied={\(debugNSRectDescription(window.frame))}"
+            )
+#endif
+        }
+
+        if restoredCount > 0 {
+            _ = saveSessionSnapshot(includeScrollback: false)
+        }
+
+#if DEBUG
+        dlog("sleep.restore.complete source=\(source) restored=\(restoredCount)")
+#endif
+        if source == "delayed" {
+            pendingSleepWakeFrameRestoreWorkItem = nil
+        }
     }
 
     private func currentDisplayGeometries() -> (
@@ -1595,12 +1698,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
 
+        let willSleepObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.captureWindowGeometryBeforeSleep()
+                _ = self.saveSessionSnapshot(includeScrollback: false)
+            }
+        }
+        lifecycleSnapshotObservers.append(willSleepObserver)
+
         let didWakeObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.restoreWindowGeometryAfterWakeIfNeeded()
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
             }
         }
@@ -1766,6 +1883,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return now.timeIntervalSince(lastPersistedAt) < maximumAutosaveSkippableInterval
+    }
+
+    nonisolated static func shouldApplySleepWakeFrameRestore(
+        currentFrame: CGRect,
+        restoredFrame: CGRect,
+        tolerance: CGFloat = 1
+    ) -> Bool {
+        !rectApproximatelyEqual(currentFrame, restoredFrame, tolerance: tolerance)
     }
 
     private func updateSessionAutosaveSaveState(

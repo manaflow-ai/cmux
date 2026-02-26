@@ -453,6 +453,30 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSleepWakeFrameRestorePolicyAppliesWhenFrameChanges() {
+        let current = CGRect(x: 100, y: 100, width: 900, height: 620)
+        let restored = CGRect(x: 100, y: 100, width: 1200, height: 800)
+
+        XCTAssertTrue(
+            AppDelegate.shouldApplySleepWakeFrameRestore(
+                currentFrame: current,
+                restoredFrame: restored
+            )
+        )
+    }
+
+    func testSleepWakeFrameRestorePolicySkipsWhenWithinTolerance() {
+        let current = CGRect(x: 100, y: 100, width: 900, height: 620)
+        let restored = CGRect(x: 100.4, y: 99.7, width: 900.3, height: 620.2)
+
+        XCTAssertFalse(
+            AppDelegate.shouldApplySleepWakeFrameRestore(
+                currentFrame: current,
+                restoredFrame: restored
+            )
+        )
+    }
+
     func testResolvedWindowFramePrefersSavedDisplayIdentity() {
         let savedFrame = SessionRectSnapshot(x: 1_200, y: 100, width: 600, height: 400)
         let savedDisplay = SessionDisplaySnapshot(
