@@ -56,6 +56,7 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
@@ -2751,7 +2752,7 @@ struct SettingsView: View {
         do {
             try SocketControlPasswordStore.savePassword(trimmed)
             socketPasswordDraft = ""
-            socketPasswordStatusMessage = "Password saved to keychain."
+            socketPasswordStatusMessage = "Password saved."
             socketPasswordStatusIsError = false
         } catch {
             socketPasswordStatusMessage = "Failed to save password (\(error.localizedDescription))."
@@ -3063,7 +3064,7 @@ struct SettingsView: View {
                             SettingsCardRow(
                                 "Socket Password",
                                 subtitle: hasSocketPasswordConfigured
-                                    ? "Stored in login keychain."
+                                    ? "Stored in Application Support."
                                     : "No password set. External clients will be blocked until one is configured."
                             ) {
                                 HStack(spacing: 8) {

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 enum SocketControlMode: String, CaseIterable, Identifiable {
     case off
@@ -37,7 +39,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         case .automation:
             return "Allow external local automation clients from this macOS user (no ancestry check)."
         case .password:
-            return "Require socket authentication with a password stored in your keychain."
+            return "Require socket authentication with a password stored in a local file."
         case .allowAll:
             return "Allow any local process and user to connect with no auth. Unsafe."
         }
@@ -58,103 +60,175 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
 }
 
 enum SocketControlPasswordStore {
-    static let service = "com.cmuxterm.app.socket-control"
-    static let account = "local-socket-password"
-
-    private static var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ]
-    }
+    static let directoryName = "cmux"
+    static let fileName = "socket-control-password"
+    private static let keychainMigrationDefaultsKey = "socketControlPasswordMigrationVersion"
+    private static let keychainMigrationVersion = 1
+    private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
+    private static let legacyKeychainAccount = "local-socket-password"
 
     static func configuredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil
     ) -> String? {
-        if let envPassword = environment[SocketControlSettings.socketPasswordEnvKey], !envPassword.isEmpty {
+        if let envPassword = normalized(environment[SocketControlSettings.socketPasswordEnvKey]) {
             return envPassword
         }
-        return try? loadPassword()
+        return try? loadPassword(fileURL: fileURL)
     }
 
     static func hasConfiguredPassword(
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil
     ) -> Bool {
-        guard let configured = configuredPassword(environment: environment) else { return false }
+        guard let configured = configuredPassword(environment: environment, fileURL: fileURL) else { return false }
         return !configured.isEmpty
     }
 
     static func verify(
         password candidate: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileURL: URL? = nil
     ) -> Bool {
-        guard let expected = configuredPassword(environment: environment), !expected.isEmpty else {
+        guard let expected = configuredPassword(environment: environment, fileURL: fileURL), !expected.isEmpty else {
             return false
         }
         return expected == candidate
     }
 
-    static func loadPassword() throws -> String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound {
-            return nil
-        }
-        guard status == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
-        guard let data = result as? Data else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
-    }
-
-    static func savePassword(_ password: String) throws {
-        let normalized = password.trimmingCharacters(in: .newlines)
-        if normalized.isEmpty {
-            try clearPassword()
+    static func migrateLegacyKeychainPasswordIfNeeded(
+        defaults: UserDefaults = .standard,
+        fileURL: URL? = nil,
+        loadLegacyPassword: () -> String? = { loadLegacyPasswordFromKeychain() },
+        deleteLegacyPassword: () -> Bool = { deleteLegacyPasswordFromKeychain() }
+    ) {
+        guard defaults.integer(forKey: keychainMigrationDefaultsKey) < keychainMigrationVersion else {
             return
         }
 
-        let data = Data(normalized.utf8)
-        var lookup = baseQuery
-        lookup[kSecReturnData as String] = true
-        lookup[kSecMatchLimit as String] = kSecMatchLimitOne
+        guard let legacyPassword = normalized(loadLegacyPassword()) else {
+            defaults.set(keychainMigrationVersion, forKey: keychainMigrationDefaultsKey)
+            return
+        }
 
-        var existing: CFTypeRef?
-        let lookupStatus = SecItemCopyMatching(lookup as CFDictionary, &existing)
-        switch lookupStatus {
-        case errSecSuccess:
-            let attrsToUpdate: [String: Any] = [
-                kSecValueData as String: data
-            ]
-            let updateStatus = SecItemUpdate(baseQuery as CFDictionary, attrsToUpdate as CFDictionary)
-            guard updateStatus == errSecSuccess else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(updateStatus))
+        do {
+            if try loadPassword(fileURL: fileURL) == nil {
+                try savePassword(legacyPassword, fileURL: fileURL)
             }
-        case errSecItemNotFound:
-            var add = baseQuery
-            add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            let addStatus = SecItemAdd(add as CFDictionary, nil)
-            guard addStatus == errSecSuccess else {
-                throw NSError(domain: NSOSStatusErrorDomain, code: Int(addStatus))
+            guard deleteLegacyPassword() else {
+                return
             }
-        default:
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(lookupStatus))
+            defaults.set(keychainMigrationVersion, forKey: keychainMigrationDefaultsKey)
+        } catch {
+            // Leave migration unset so it retries on next launch.
         }
     }
 
-    static func clearPassword() throws {
-        let status = SecItemDelete(baseQuery as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+    static func loadPassword(fileURL: URL? = nil) throws -> String? {
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            return nil
         }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return nil
+        }
+        let data = try Data(contentsOf: fileURL)
+        guard let password = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalized(password)
+    }
+
+    static func savePassword(_ password: String, fileURL: URL? = nil) throws {
+        let normalized = password.trimmingCharacters(in: .newlines)
+        if normalized.isEmpty {
+            try clearPassword(fileURL: fileURL)
+            return
+        }
+
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileNoSuchFileError,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to resolve socket password file path."]
+            )
+        }
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let data = Data(normalized.utf8)
+        try data.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+    }
+
+    static func clearPassword(fileURL: URL? = nil) throws {
+        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+            return
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: fileURL)
+    }
+
+    static func defaultPasswordFileURL(
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        return resolvedAppSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func loadLegacyPasswordFromKeychain() -> String? {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: legacyKeychainService,
+            kSecAttrAccount: legacyKeychainAccount,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+#else
+        return nil
+#endif
+    }
+
+    private static func deleteLegacyPasswordFromKeychain() -> Bool {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: legacyKeychainService,
+            kSecAttrAccount: legacyKeychainAccount,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+#else
+        return false
+#endif
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .newlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
