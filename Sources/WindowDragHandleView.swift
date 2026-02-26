@@ -8,7 +8,7 @@ private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
 
 private func windowDragHandleShouldDeferHitCapture(for eventType: NSEvent.EventType?) -> Bool {
     switch eventType {
-    case .mouseMoved?, .cursorUpdate?:
+    case nil, .mouseMoved?, .cursorUpdate?:
         return true
     default:
         return false
