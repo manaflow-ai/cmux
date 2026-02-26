@@ -779,6 +779,11 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(lightHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
         XCTAssertTrue(lightHTML.contains("<article id=\"content\" class=\"markdown-body\"></article>"))
         XCTAssertTrue(lightHTML.contains("cmuxRenderMarkdown(raw)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxExtractHtmlTags(input)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxRestoreHtmlTags(input, tags)"))
+        XCTAssertTrue(lightHTML.contains("const isRawHtmlLine = (line) =>"))
+        XCTAssertTrue(lightHTML.contains("if (/^\\s*<table(\\s|>)/i.test(line))"))
+        XCTAssertTrue(lightHTML.contains(".markdown-body table th *, .markdown-body table td *"))
 
         let darkHTML = MarkdownPreviewRenderer.renderedHTML(markdown: "# Hello", isDarkMode: true)
         XCTAssertTrue(darkHTML.contains("background: #0d1117"))

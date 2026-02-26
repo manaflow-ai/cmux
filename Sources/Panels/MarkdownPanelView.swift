@@ -94,7 +94,10 @@ enum MarkdownPreviewRenderer {
         .markdown-body table th, .markdown-body table td {
           border: 1px solid \(border);
           padding: 6px 13px;
+          color: \(pageText) !important;
+          background-color: inherit;
         }
+        .markdown-body table th *, .markdown-body table td * { color: inherit !important; }
         .fallback {
           white-space: pre-wrap;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
@@ -112,6 +115,21 @@ enum MarkdownPreviewRenderer {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
     }
+    function cmuxExtractHtmlTags(input) {
+      const tags = [];
+      const tokenized = String(input).replace(/<\\/?[a-zA-Z][^>]*>/g, (tag) => {
+        const token = `__CMUX_HTML_TAG_${tags.length}__`;
+        tags.push(tag);
+        return token;
+      });
+      return { tokenized, tags };
+    }
+    function cmuxRestoreHtmlTags(input, tags) {
+      return String(input).replace(/__CMUX_HTML_TAG_(\\d+)__/g, (_, idx) => {
+        const i = Number(idx);
+        return Number.isNaN(i) ? '' : (tags[i] || '');
+      });
+    }
     function cmuxSplitTableRow(row) {
       let value = String(row).trim();
       if (value.startsWith('|')) value = value.slice(1);
@@ -119,12 +137,13 @@ enum MarkdownPreviewRenderer {
       return value.split('|').map(cell => cell.trim());
     }
     function cmuxInline(input) {
-      let text = cmuxEscapeHtml(input);
+      const extracted = cmuxExtractHtmlTags(input);
+      let text = cmuxEscapeHtml(extracted.tokenized);
       text = text.replace(/`([^`\\n]+)`/g, '<code>$1</code>');
       text = text.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
       text = text.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>');
       text = text.replace(/\\[([^\\]]+)\\]\\(([^\\)\\s]+)\\)/g, '<a href="$2">$1</a>');
-      return text;
+      return cmuxRestoreHtmlTags(text, extracted.tags);
     }
     function cmuxRenderMarkdown(source) {
       const lines = String(source).replace(/\\r\\n?/g, '\\n').split('\\n');
@@ -132,9 +151,31 @@ enum MarkdownPreviewRenderer {
       let i = 0;
       const isTableDivider = (line) => /^\\s*\\|?(\\s*:?-{3,}:?\\s*\\|)+\\s*:?-{3,}:?\\s*\\|?\\s*$/.test(line);
       const blockStart = (line) => /^(\\s*$|#{1,6}\\s+|\\s*>|\\s*```|\\s*[-+*]\\s+|\\s*\\d+\\.\\s+)/.test(line);
+      const isRawHtmlLine = (line) => /^\\s*<\\/?[a-zA-Z][\\w:-]*(\\s[^>]*)?>\\s*$/.test(line) || /^\\s*<!--.*-->\\s*$/.test(line);
       while (i < lines.length) {
         const line = lines[i];
         if (/^\\s*$/.test(line)) { i++; continue; }
+        if (/^\\s*<table(\\s|>)/i.test(line)) {
+          const block = [line];
+          i++;
+          while (i < lines.length) {
+            block.push(lines[i]);
+            if (/<\\/table>\\s*$/i.test(lines[i])) {
+              i++;
+              break;
+            }
+            i++;
+          }
+          html.push(block.join('\\n'));
+          continue;
+        }
+        if (isRawHtmlLine(line)) {
+          const block = [line];
+          i++;
+          while (i < lines.length && isRawHtmlLine(lines[i])) block.push(lines[i++]);
+          html.push(block.join('\\n'));
+          continue;
+        }
         if (/^\\s*```/.test(line)) {
           i++;
           const code = [];
