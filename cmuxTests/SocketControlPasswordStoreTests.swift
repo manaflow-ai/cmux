@@ -7,6 +7,16 @@ import XCTest
 #endif
 
 final class SocketControlPasswordStoreTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        SocketControlPasswordStore.resetLazyKeychainFallbackCacheForTests()
+    }
+
+    override func tearDown() {
+        SocketControlPasswordStore.resetLazyKeychainFallbackCacheForTests()
+        super.tearDown()
+    }
+
     func testSaveLoadAndClearRoundTripUsesFileStorage() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
@@ -41,6 +51,127 @@ final class SocketControlPasswordStoreTests: XCTestCase {
             fileURL: fileURL
         )
         XCTAssertEqual(configured, "env-secret")
+    }
+
+    func testConfiguredPasswordLazyKeychainFallbackReadsOnlyOnceAndCaches() {
+        var readCount = 0
+
+        let withoutFallback = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: nil,
+            allowLazyKeychainFallback: false,
+            loadKeychainPassword: {
+                readCount += 1
+                return "legacy-secret"
+            }
+        )
+        XCTAssertNil(withoutFallback)
+        XCTAssertEqual(readCount, 0)
+
+        let firstWithFallback = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: nil,
+            allowLazyKeychainFallback: true,
+            loadKeychainPassword: {
+                readCount += 1
+                return "legacy-secret"
+            }
+        )
+        XCTAssertEqual(firstWithFallback, "legacy-secret")
+        XCTAssertEqual(readCount, 1)
+
+        let secondWithFallback = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: nil,
+            allowLazyKeychainFallback: true,
+            loadKeychainPassword: {
+                readCount += 1
+                return "new-secret"
+            }
+        )
+        XCTAssertEqual(secondWithFallback, "legacy-secret")
+        XCTAssertEqual(readCount, 1)
+    }
+
+    func testConfiguredPasswordLazyKeychainFallbackCachesMissingValue() {
+        var readCount = 0
+
+        let first = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: nil,
+            allowLazyKeychainFallback: true,
+            loadKeychainPassword: {
+                readCount += 1
+                return nil
+            }
+        )
+        XCTAssertNil(first)
+        XCTAssertEqual(readCount, 1)
+
+        let second = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: nil,
+            allowLazyKeychainFallback: true,
+            loadKeychainPassword: {
+                readCount += 1
+                return "should-not-be-read"
+            }
+        )
+        XCTAssertNil(second)
+        XCTAssertEqual(readCount, 1)
+    }
+
+    func testConfiguredPasswordPrefersStoredFileOverLazyKeychainFallback() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-socket-password-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("socket-password.txt", isDirectory: false)
+        try SocketControlPasswordStore.savePassword("stored-secret", fileURL: fileURL)
+
+        var readCount = 0
+        let configured = SocketControlPasswordStore.configuredPassword(
+            environment: [:],
+            fileURL: fileURL,
+            allowLazyKeychainFallback: true,
+            loadKeychainPassword: {
+                readCount += 1
+                return "legacy-secret"
+            }
+        )
+
+        XCTAssertEqual(configured, "stored-secret")
+        XCTAssertEqual(readCount, 0)
+    }
+
+    func testHasConfiguredAndVerifyReuseSingleLazyKeychainRead() {
+        var readCount = 0
+        let loader = {
+            readCount += 1
+            return "legacy-secret"
+        }
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.hasConfiguredPassword(
+                environment: [:],
+                fileURL: nil,
+                allowLazyKeychainFallback: true,
+                loadKeychainPassword: loader
+            )
+        )
+        XCTAssertEqual(readCount, 1)
+
+        XCTAssertTrue(
+            SocketControlPasswordStore.verify(
+                password: "legacy-secret",
+                environment: [:],
+                fileURL: nil,
+                allowLazyKeychainFallback: true,
+                loadKeychainPassword: loader
+            )
+        )
+        XCTAssertEqual(readCount, 1)
     }
 
     func testDefaultPasswordFileURLUsesCmuxAppSupportPath() throws {
