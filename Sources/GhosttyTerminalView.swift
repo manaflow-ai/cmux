@@ -3124,16 +3124,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyUp(with event: NSEvent) {
-        guard let surface = surface else {
+        guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
         }
 
-        var keyEvent = ghostty_input_key_s()
+        // Build release events from the same translation path as keyDown so
+        // consumers that depend on precise key identity (for example Space
+        // hold/release flows) receive consistent metadata.
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         keyEvent.action = GHOSTTY_ACTION_RELEASE
-        keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.text = nil
         keyEvent.composing = false
         _ = ghostty_surface_key(surface, keyEvent)
