@@ -18,6 +18,15 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    name: "Edward Grefenstette",
+    handle: "@egrefen",
+    subtitle: "Director of Research at Google DeepMind",
+    avatar: "/avatars/egrefen.jpg",
+    text: "I've been using this all weekend and it's amazing.",
+    url: "https://x.com/egrefen/status/2026806171563184199",
+    platform: "x" as const,
+  },
+  {
     name: "あさざ",
     handle: "@asaza_0928",
     avatar: "/avatars/asaza_0928.jpg",
