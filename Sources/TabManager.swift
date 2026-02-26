@@ -2006,15 +2006,58 @@ class TabManager: ObservableObject {
 
     /// Equalize splits - not directly supported by bonsplit
     func equalizeSplits(tabId: UUID) -> Bool {
-        // Bonsplit doesn't have a built-in equalize feature
-        // This would require manually setting all divider positions to 0.5
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        var foundSplit = false
+        var allSucceeded = true
+        equalizeSplits(
+            in: tab.bonsplitController.treeSnapshot(),
+            controller: tab.bonsplitController,
+            foundSplit: &foundSplit,
+            allSucceeded: &allSucceeded
+        )
+        return foundSplit && allSucceeded
     }
 
     /// Toggle zoom on a panel - bonsplit doesn't have zoom support
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
         // Bonsplit doesn't have zoom support
         return false
+    }
+
+    private func equalizeSplits(
+        in node: ExternalTreeNode,
+        controller: BonsplitController,
+        foundSplit: inout Bool,
+        allSucceeded: inout Bool
+    ) {
+        switch node {
+        case .pane:
+            return
+        case .split(let splitNode):
+            foundSplit = true
+            guard let splitId = UUID(uuidString: splitNode.id) else {
+                allSucceeded = false
+                return
+            }
+
+            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+                allSucceeded = false
+            }
+
+            equalizeSplits(
+                in: splitNode.first,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+            equalizeSplits(
+                in: splitNode.second,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+        }
     }
 
     /// Close a surface/panel
