@@ -209,22 +209,54 @@ struct GhosttyConfig {
         bundleResourceURL: URL?,
         preferredColorScheme: ColorSchemePreference? = nil
     ) {
+        let startedAt = CFAbsoluteTimeGetCurrent()
         let resolvedThemeName = Self.resolveThemeName(
             from: name,
             preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
         )
-        for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
+        let candidateNames = Self.themeNameCandidates(from: resolvedThemeName)
+        var pathCount = 0
+        for candidateName in candidateNames {
             for path in Self.themeSearchPaths(
                 forThemeName: candidateName,
                 environment: environment,
                 bundleResourceURL: bundleResourceURL
             ) {
+                pathCount += 1
                 if let contents = try? String(contentsOfFile: path, encoding: .utf8) {
                     parse(contents)
+                    let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
+                    if durationMs >= 150 {
+                        sentryBreadcrumb(
+                            "ghostty.theme.load.slow",
+                            category: "config",
+                            data: [
+                                "requested_theme": name,
+                                "resolved_theme": resolvedThemeName,
+                                "matched_candidate": candidateName,
+                                "candidate_count": candidateNames.count,
+                                "path_count": pathCount,
+                                "duration_ms": durationMs
+                            ]
+                        )
+                    }
                     return
                 }
             }
         }
+
+        let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
+        sentryBreadcrumb(
+            "ghostty.theme.load.miss",
+            category: "config",
+            data: [
+                "requested_theme": name,
+                "resolved_theme": resolvedThemeName,
+                "candidate_count": candidateNames.count,
+                "path_count": pathCount,
+                "duration_ms": durationMs
+            ]
+        )
     }
 
     static func currentColorSchemePreference(
@@ -368,9 +400,7 @@ struct GhosttyConfig {
             let expanded = NSString(string: resourcesRoot).expandingTildeInPath
             guard !expanded.isEmpty else { return }
             appendUniquePath(
-                URL(fileURLWithPath: expanded)
-                    .appendingPathComponent("themes/\(themeName)")
-                    .path
+                appendPathComponents(expanded, ["themes", themeName])
             )
         }
 
@@ -378,20 +408,18 @@ struct GhosttyConfig {
         appendThemePath(in: environment["GHOSTTY_RESOURCES_DIR"])
 
         // 2) App bundle resources.
-        appendUniquePath(
-            bundleResourceURL?
-                .appendingPathComponent("ghostty/themes/\(themeName)")
-                .path
-        )
+        if let bundlePath = bundleResourceURL?.path {
+            appendUniquePath(
+                appendPathComponents(bundlePath, ["ghostty", "themes", themeName])
+            )
+        }
 
         // 3) Data dirs (Ghostty installs themes under share/ghostty/themes).
         if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
             for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
                 guard !dataDir.isEmpty else { continue }
                 appendUniquePath(
-                    URL(fileURLWithPath: dataDir)
-                        .appendingPathComponent("ghostty/themes/\(themeName)")
-                        .path
+                    appendPathComponents(dataDir, ["ghostty", "themes", themeName])
                 )
             }
         }
@@ -402,6 +430,14 @@ struct GhosttyConfig {
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
+    }
+
+    private static func appendPathComponents(_ basePath: String, _ components: [String]) -> String {
+        var path = NSString(string: basePath).expandingTildeInPath
+        for component in components {
+            path = (path as NSString).appendingPathComponent(component)
+        }
+        return path
     }
 
     private static func readConfigFile(at path: String) -> String? {

@@ -989,3 +989,56 @@ final class PostHogAnalyticsPropertiesTests: XCTestCase {
         XCTAssertNil(dailyProperties["app_build"])
     }
 }
+
+final class WorkspaceContentViewThemeResolveTests: XCTestCase {
+    func testResolveGhosttyAppearanceConfigEmitsSlowBreadcrumbWhenThresholdExceeded() {
+        var timestamps: [TimeInterval] = [100.0, 100.25]
+        var breadcrumbs: [(message: String, category: String, data: [String: Any])] = []
+
+        let resolved = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: "unit-test",
+            loadConfig: {
+                var config = GhosttyConfig()
+                config.theme = "Builtin Solarized Dark"
+                config.backgroundColor = NSColor(hex: "#111111")!
+                return config
+            },
+            defaultBackground: { NSColor(hex: "#222222")! },
+            currentTime: { timestamps.removeFirst() },
+            slowThresholdMs: 100,
+            emitBreadcrumb: { message, category, data in
+                breadcrumbs.append((message, category, data))
+            }
+        )
+
+        XCTAssertEqual(breadcrumbs.count, 1)
+        XCTAssertEqual(breadcrumbs.first?.message, "theme.resolve.slow")
+        XCTAssertEqual(breadcrumbs.first?.category, "config")
+        XCTAssertEqual(breadcrumbs.first?.data["reason"] as? String, "unit-test")
+        XCTAssertEqual(breadcrumbs.first?.data["duration_ms"] as? Int, 250)
+        XCTAssertEqual(breadcrumbs.first?.data["theme"] as? String, "Builtin Solarized Dark")
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#222222")
+    }
+
+    func testResolveGhosttyAppearanceConfigSkipsBreadcrumbWhenBelowThreshold() {
+        var timestamps: [TimeInterval] = [200.0, 200.05]
+        var breadcrumbCount = 0
+
+        _ = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            reason: "fast-path",
+            loadConfig: {
+                var config = GhosttyConfig()
+                config.backgroundColor = NSColor(hex: "#111111")!
+                return config
+            },
+            defaultBackground: { NSColor(hex: "#333333")! },
+            currentTime: { timestamps.removeFirst() },
+            slowThresholdMs: 120,
+            emitBreadcrumb: { _, _, _ in
+                breadcrumbCount += 1
+            }
+        )
+
+        XCTAssertEqual(breadcrumbCount, 0)
+    }
+}
