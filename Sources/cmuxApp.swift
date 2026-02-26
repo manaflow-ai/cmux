@@ -25,6 +25,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.togglePaneZoom.defaultsKey) private var togglePaneZoomShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
@@ -559,6 +560,10 @@ struct cmuxApp: App {
                     performBrowserSplitFromMenu(direction: .down)
                 }
 
+                splitCommandButton(title: "Toggle Pane Full Screen", shortcut: togglePaneZoomMenuShortcut) {
+                    _ = activeTabManager.toggleFocusedPaneFullscreen()
+                }
+
                 Divider()
 
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
@@ -709,6 +714,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: splitBrowserDownShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
+    private var togglePaneZoomMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: togglePaneZoomShortcutData,
+            fallback: KeyboardShortcutSettings.Action.togglePaneZoom.defaultShortcut
         )
     }
 

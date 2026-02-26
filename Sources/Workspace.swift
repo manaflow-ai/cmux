@@ -972,6 +972,22 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private struct PaneZoomState {
+        let paneId: PaneID
+        let splitDividerPositions: [UUID: CGFloat]
+    }
+    private enum PaneZoomPathBranch {
+        case first
+        case second
+    }
+    private struct PaneZoomPathStep {
+        let split: ExternalSplitNode
+        let branch: PaneZoomPathBranch
+    }
+    private static let paneZoomCollapsedDividerPosition: CGFloat = 0
+    private static let paneZoomExpandedDividerPosition: CGFloat = 1
+    private var paneZoomState: PaneZoomState?
+    var isPaneZoomed: Bool { paneZoomState != nil }
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -1838,6 +1854,10 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         focus: Bool = true
     ) -> TerminalPanel? {
+        if paneZoomState != nil {
+            _ = restorePaneZoomState()
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -1980,6 +2000,10 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         focus: Bool = true
     ) -> BrowserPanel? {
+        if paneZoomState != nil {
+            _ = restorePaneZoomState()
+        }
+
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -2898,6 +2922,120 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         return newTerminalSurface(inPane: focusedPaneId, focus: focus)
+    }
+
+    /// Toggle focused-pane fullscreen (zoomed pane layout) for this workspace.
+    @discardableResult
+    func toggleSplitZoom(from panelId: UUID? = nil) -> Bool {
+        guard let targetPane = targetPaneForZoom(panelId: panelId) else { return false }
+
+        if let state = paneZoomState {
+            if state.paneId == targetPane {
+                return restorePaneZoomState()
+            }
+            _ = restorePaneZoomState()
+            return applyPaneZoom(to: targetPane)
+        }
+
+        return applyPaneZoom(to: targetPane)
+    }
+
+    private func targetPaneForZoom(panelId: UUID?) -> PaneID? {
+        if let panelId, let paneId = paneId(forPanelId: panelId) {
+            return paneId
+        }
+        return bonsplitController.focusedPaneId
+    }
+
+    @discardableResult
+    private func applyPaneZoom(to paneId: PaneID) -> Bool {
+        let tree = bonsplitController.treeSnapshot()
+        guard let path = paneZoomPath(toPaneId: paneId.id.uuidString, in: tree) else { return false }
+        guard !path.isEmpty else { return true }
+
+        var splitDividerPositions: [UUID: CGFloat] = [:]
+        collectPaneZoomSplitDividerPositions(in: tree, into: &splitDividerPositions)
+
+        for step in path.reversed() {
+            guard let splitId = UUID(uuidString: step.split.id) else { continue }
+            let dividerPosition = step.branch == .first
+                ? Self.paneZoomExpandedDividerPosition
+                : Self.paneZoomCollapsedDividerPosition
+            _ = bonsplitController.setDividerPosition(dividerPosition, forSplit: splitId, fromExternal: true)
+        }
+
+        paneZoomState = PaneZoomState(paneId: paneId, splitDividerPositions: splitDividerPositions)
+
+        if bonsplitController.focusedPaneId != paneId {
+            bonsplitController.focusPane(paneId)
+        }
+        if let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+        return true
+    }
+
+    @discardableResult
+    private func restorePaneZoomState() -> Bool {
+        guard let state = paneZoomState else { return false }
+        paneZoomState = nil
+
+        var restoredAny = false
+        for (splitId, dividerPosition) in state.splitDividerPositions {
+            if bonsplitController.setDividerPosition(dividerPosition, forSplit: splitId, fromExternal: true) {
+                restoredAny = true
+            }
+        }
+        return restoredAny || state.splitDividerPositions.isEmpty
+    }
+
+    private func clearPaneZoomState() {
+        paneZoomState = nil
+    }
+
+    private func maybeClearPaneZoomStateForCurrentTree() {
+        guard let state = paneZoomState else { return }
+        guard bonsplitController.allPaneIds.contains(state.paneId) else {
+            paneZoomState = nil
+            return
+        }
+        for splitId in state.splitDividerPositions.keys where !bonsplitController.findSplit(splitId) {
+            paneZoomState = nil
+            return
+        }
+    }
+
+    private func paneZoomPath(toPaneId paneId: String, in node: ExternalTreeNode) -> [PaneZoomPathStep]? {
+        switch node {
+        case .pane(let pane):
+            return pane.id == paneId ? [] : nil
+        case .split(let split):
+            if var path = paneZoomPath(toPaneId: paneId, in: split.first) {
+                path.append(PaneZoomPathStep(split: split, branch: .first))
+                return path
+            }
+            if var path = paneZoomPath(toPaneId: paneId, in: split.second) {
+                path.append(PaneZoomPathStep(split: split, branch: .second))
+                return path
+            }
+            return nil
+        }
+    }
+
+    private func collectPaneZoomSplitDividerPositions(
+        in node: ExternalTreeNode,
+        into output: inout [UUID: CGFloat]
+    ) {
+        switch node {
+        case .pane:
+            return
+        case .split(let split):
+            if let splitId = UUID(uuidString: split.id) {
+                output[splitId] = CGFloat(split.dividerPosition)
+            }
+            collectPaneZoomSplitDividerPositions(in: split.first, into: &output)
+            collectPaneZoomSplitDividerPositions(in: split.second, into: &output)
+        }
     }
 
     // MARK: - Flash/Notification Support
@@ -3825,6 +3963,8 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        clearPaneZoomState()
+
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -3881,6 +4021,8 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        clearPaneZoomState()
+
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),
@@ -4111,6 +4253,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
+        maybeClearPaneZoomStateForCurrentTree()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

@@ -1187,6 +1187,18 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
     }
 
+    func testTogglePaneFullScreenShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.togglePaneZoom.label, "Toggle Pane Full Screen")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.togglePaneZoom.defaultsKey, "shortcut.togglePaneZoom")
+
+        let shortcut = KeyboardShortcutSettings.Action.togglePaneZoom.defaultShortcut
+        XCTAssertEqual(shortcut.key, "m")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -3147,6 +3159,56 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
             browserPanelId,
             "Expected browser surface to be appended at end in the reused top-right pane"
         )
+    }
+}
+
+@MainActor
+final class WorkspacePaneZoomTests: XCTestCase {
+    func testToggleSplitZoomExpandsFocusedPaneAndRestoresLayout() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let targetPaneId = workspace.paneId(forPanelId: rightPanel.id),
+              let siblingPaneId = workspace.bonsplitController.allPaneIds.first(where: { $0 != targetPaneId }) else {
+            XCTFail("Expected split workspace setup")
+            return
+        }
+
+        workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 1200, height: 800))
+
+        let beforeSnapshot = workspace.bonsplitController.layoutSnapshot()
+        guard let targetWidthBefore = beforeSnapshot.panes.first(where: { $0.paneId == targetPaneId.id.uuidString })?.frame.width,
+              let siblingWidthBefore = beforeSnapshot.panes.first(where: { $0.paneId == siblingPaneId.id.uuidString })?.frame.width else {
+            XCTFail("Expected pane widths before zoom")
+            return
+        }
+
+        XCTAssertTrue(manager.toggleSplitZoom(tabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertTrue(workspace.isPaneZoomed)
+
+        let zoomedSnapshot = workspace.bonsplitController.layoutSnapshot()
+        guard let targetWidthZoomed = zoomedSnapshot.panes.first(where: { $0.paneId == targetPaneId.id.uuidString })?.frame.width,
+              let siblingWidthZoomed = zoomedSnapshot.panes.first(where: { $0.paneId == siblingPaneId.id.uuidString })?.frame.width else {
+            XCTFail("Expected pane widths after zoom")
+            return
+        }
+
+        XCTAssertGreaterThan(targetWidthZoomed, targetWidthBefore)
+        XCTAssertLessThan(siblingWidthZoomed, siblingWidthBefore)
+
+        XCTAssertTrue(manager.toggleSplitZoom(tabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertFalse(workspace.isPaneZoomed)
+
+        let restoredSnapshot = workspace.bonsplitController.layoutSnapshot()
+        guard let targetWidthRestored = restoredSnapshot.panes.first(where: { $0.paneId == targetPaneId.id.uuidString })?.frame.width,
+              let siblingWidthRestored = restoredSnapshot.panes.first(where: { $0.paneId == siblingPaneId.id.uuidString })?.frame.width else {
+            XCTFail("Expected pane widths after restoring zoom")
+            return
+        }
+
+        XCTAssertEqual(targetWidthRestored, targetWidthBefore, accuracy: 0.5)
+        XCTAssertEqual(siblingWidthRestored, siblingWidthBefore, accuracy: 0.5)
     }
 }
 

@@ -1385,6 +1385,7 @@ struct ContentView: View {
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
+        static let workspacePaneZoomed = "workspace.paneZoomed"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -3315,6 +3316,8 @@ struct ContentView: View {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.togglePaneFullScreen":
+            return .togglePaneZoom
         default:
             return nil
         }
@@ -3371,6 +3374,7 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
             )
+            snapshot.setBool(CommandPaletteContextKeys.workspacePaneZoomed, workspace.isPaneZoomed)
         }
 
         if let panelContext = focusedPanelContext {
@@ -3928,6 +3932,19 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.togglePaneFullScreen",
+                title: { context in
+                    context.bool(CommandPaletteContextKeys.workspacePaneZoomed)
+                        ? "Restore Pane Layout"
+                        : "Toggle Pane Full Screen"
+                },
+                subtitle: constant("Pane Layout"),
+                keywords: ["pane", "split", "zoom", "fullscreen", "maximize"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
 
         return contributions
     }
@@ -4162,6 +4179,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             _ = tabManager.createBrowserSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.togglePaneFullScreen") {
+            if !tabManager.toggleFocusedPaneFullscreen() {
+                NSSound.beep()
+            }
         }
     }
 

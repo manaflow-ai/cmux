@@ -1858,6 +1858,12 @@ class TabManager: ObservableObject {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
+    /// Toggle focused-pane fullscreen (zoom) in the selected workspace.
+    @discardableResult
+    func toggleFocusedPaneFullscreen() -> Bool {
+        selectedWorkspace?.toggleSplitZoom() ?? false
+    }
+
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
@@ -2011,10 +2017,10 @@ class TabManager: ObservableObject {
         return false
     }
 
-    /// Toggle zoom on a panel - bonsplit doesn't have zoom support
+    /// Toggle zoom on a panel within a workspace.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        // Bonsplit doesn't have zoom support
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.toggleSplitZoom(from: surfaceId)
     }
 
     /// Close a surface/panel
