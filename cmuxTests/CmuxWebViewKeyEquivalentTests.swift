@@ -684,6 +684,35 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
     }
 }
 
+@MainActor
+final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
+    func testScheduleLaunchServicesRegistrationDefersRegisterWork() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        var scheduledWork: (@Sendable () -> Void)?
+        var registerCallCount = 0
+
+        app.scheduleLaunchServicesBundleRegistrationForTesting(
+            bundleURL: URL(fileURLWithPath: "/tmp/../tmp/cmux-launch-services-test.app"),
+            scheduler: { work in
+                scheduledWork = work
+            },
+            register: { _ in
+                registerCallCount += 1
+                return noErr
+            }
+        )
+
+        XCTAssertEqual(registerCallCount, 0, "Registration should not run inline on the startup call path")
+        XCTAssertNotNil(scheduledWork, "Registration work should be handed to the scheduler")
+
+        scheduledWork?()
+
+        XCTAssertEqual(registerCallCount, 1)
+    }
+}
+
 final class FocusFlashPatternTests: XCTestCase {
     func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
         XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])

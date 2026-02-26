@@ -734,6 +734,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private static let launchServicesRegistrationQueue = DispatchQueue(
+        label: "com.cmuxterm.app.launchServicesRegistration",
+        qos: .utility
+    )
+    private static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
+        launchServicesRegistrationQueue.async(execute: work)
+    }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var didHandleExplicitOpenIntentAtStartup = false
@@ -851,7 +858,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.registerLaunchServicesBundle()
+                self.scheduleLaunchServicesBundleRegistration()
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
             }
@@ -5678,13 +5685,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func registerLaunchServicesBundle() {
-        let bundleURL = Bundle.main.bundleURL.standardizedFileURL
-        let registerStatus = LSRegisterURL(bundleURL as CFURL, true)
-        if registerStatus != noErr {
-            NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(bundleURL.path)")
+    private func scheduleLaunchServicesBundleRegistration(
+        bundleURL: URL = Bundle.main.bundleURL.standardizedFileURL,
+        scheduler: @escaping (@escaping @Sendable () -> Void) -> Void = AppDelegate.enqueueLaunchServicesRegistrationWork,
+        register: @escaping (CFURL) -> OSStatus = { url in
+            LSRegisterURL(url, true)
+        },
+        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { message, data in
+            sentryBreadcrumb(message, category: "startup", data: data)
+        }
+    ) {
+        let normalizedURL = bundleURL.standardizedFileURL
+        breadcrumb("launchservices.register.schedule", [
+            "bundlePath": normalizedURL.path
+        ])
+
+        scheduler {
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            let registerStatus = register(normalizedURL as CFURL)
+            let durationMs = Int(((CFAbsoluteTimeGetCurrent() - startedAt) * 1000).rounded())
+
+            breadcrumb("launchservices.register.complete", [
+                "bundlePath": normalizedURL.path,
+                "status": Int(registerStatus),
+                "durationMs": durationMs
+            ])
+
+            if registerStatus != noErr {
+                NSLog("LaunchServices registration failed (status: \(registerStatus)) for \(normalizedURL.path)")
+            }
         }
     }
+
+#if DEBUG
+    func scheduleLaunchServicesBundleRegistrationForTesting(
+        bundleURL: URL,
+        scheduler: @escaping (@escaping @Sendable () -> Void) -> Void,
+        register: @escaping (CFURL) -> OSStatus,
+        breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { _, _ in }
+    ) {
+        scheduleLaunchServicesBundleRegistration(
+            bundleURL: bundleURL,
+            scheduler: scheduler,
+            register: register,
+            breadcrumb: breadcrumb
+        )
+    }
+#endif
 
     private func enforceSingleInstance() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
