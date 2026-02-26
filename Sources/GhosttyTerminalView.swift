@@ -2791,6 +2791,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func clearIMEPointForTesting() {
         imePointOverrideForTesting = nil
     }
+
+    // Test-only helper to assert modifier press/release inference for flagsChanged.
+    func flagsChangedActionForTesting(event: NSEvent) -> ghostty_input_action_e? {
+        flagsChangedAction(for: event)
+    }
 #endif
 
 #if DEBUG
@@ -3145,8 +3150,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
+        guard let action = flagsChangedAction(for: event) else { return }
+
         var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
         keyEvent.mods = modsFromEvent(event)
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
@@ -3155,8 +3162,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
+    private func flagsChangedAction(for event: NSEvent) -> ghostty_input_action_e? {
+        if hasMarkedText() { return nil }
+
+        let modifierMask: UInt32
+        switch event.keyCode {
+        case 0x39: modifierMask = GHOSTTY_MODS_CAPS.rawValue
+        case 0x38, 0x3C: modifierMask = GHOSTTY_MODS_SHIFT.rawValue
+        case 0x3B, 0x3E: modifierMask = GHOSTTY_MODS_CTRL.rawValue
+        case 0x3A, 0x3D: modifierMask = GHOSTTY_MODS_ALT.rawValue
+        case 0x37, 0x36: modifierMask = GHOSTTY_MODS_SUPER.rawValue
+        default: return nil
+        }
+
+        let mods = modsFromEvent(event)
+        var action = GHOSTTY_ACTION_RELEASE
+
+        if (mods.rawValue & modifierMask) != 0 {
+            let sidePressed: Bool
+            switch event.keyCode {
+            case 0x3C:
+                sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0
+            case 0x3E:
+                sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCTLKEYMASK) != 0
+            case 0x3D:
+                sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERALTKEYMASK) != 0
+            case 0x36:
+                sidePressed = event.modifierFlags.rawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
+            default:
+                sidePressed = true
+            }
+
+            if sidePressed {
+                action = GHOSTTY_ACTION_PRESS
+            }
+        }
+
+        return action
+    }
+
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
+        if event.modifierFlags.contains(.capsLock) { mods |= GHOSTTY_MODS_CAPS.rawValue }
         if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if event.modifierFlags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
         if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
