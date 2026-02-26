@@ -5252,11 +5252,11 @@ struct GhosttyTerminalView: NSViewRepresentable {
     }
 
     static func shouldApplyImmediateHostedStateUpdate(
-        hostWindowAttached: Bool,
         hostedViewHasSuperview: Bool,
         isBoundToCurrentHost: Bool
     ) -> Bool {
-        if !hostWindowAttached { return true }
+        // If this update originates from a stale/replaced host while the hosted view is
+        // already attached elsewhere, do not mutate visibility/active state here.
         if isBoundToCurrentHost { return true }
         return !hostedViewHasSuperview
     }
@@ -5358,10 +5358,30 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 hostedView.setActive(coordinator.desiredIsActive)
                 hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
             }
-            host.onGeometryChanged = { [weak host, weak coordinator] in
-                guard let host, let coordinator else { return }
+            host.onGeometryChanged = { [weak host, weak hostedView, weak coordinator] in
+                guard let host, let hostedView, let coordinator else { return }
                 guard coordinator.attachGeneration == generation else { return }
                 guard coordinator.lastBoundHostId == ObjectIdentifier(host) else { return }
+                if host.window != nil,
+                   !TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host) {
+#if DEBUG
+                    dlog(
+                        "ws.hostState.rebindOnGeometry surface=\(terminalSurface.id.uuidString.prefix(5)) " +
+                        "reason=portalEntryMissing visible=\(coordinator.desiredIsVisibleInUI ? 1 : 0) " +
+                        "active=\(coordinator.desiredIsActive ? 1 : 0) z=\(coordinator.desiredPortalZPriority)"
+                    )
+#endif
+                    TerminalWindowPortalRegistry.bind(
+                        hostedView: hostedView,
+                        to: host,
+                        visibleInUI: coordinator.desiredIsVisibleInUI,
+                        zPriority: coordinator.desiredPortalZPriority
+                    )
+                    coordinator.lastBoundHostId = ObjectIdentifier(host)
+                    hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
+                    hostedView.setActive(coordinator.desiredIsActive)
+                    hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+                }
                 TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             }
 
@@ -5409,7 +5429,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
             TerminalWindowPortalRegistry.isHostedView(hostedView, boundTo: host)
         } ?? true
         let shouldApplyImmediateHostedState = Self.shouldApplyImmediateHostedStateUpdate(
-            hostWindowAttached: hostWindowAttached,
             hostedViewHasSuperview: hostedView.superview != nil,
             isBoundToCurrentHost: isBoundToCurrentHost
         )
@@ -5430,10 +5449,6 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 )
             }
 #endif
-            TerminalWindowPortalRegistry.updateEntryVisibility(
-                for: hostedView,
-                visibleInUI: isVisibleInUI
-            )
         }
     }
 

@@ -72,12 +72,19 @@ def main() -> int:
         "let hostBounds = hostView.bounds",
         "let clampedFrame = frameInHost.intersection(hostBounds)",
         "let targetFrame = (hasFiniteFrame && hasVisibleIntersection) ? clampedFrame : frameInHost",
-        "scheduleDeferredFullSynchronizeAll()",
         "hostedView.reconcileGeometryNow()",
         "hostedView.refreshSurfaceNow()",
     ]:
         if required not in sync_block:
             failures.append(f"terminal portal sync missing: {required}")
+
+    if (
+        "scheduleDeferredFullSynchronizeAll()" not in sync_block
+        and "scheduleTransientRecoveryRetryIfNeeded(" not in sync_block
+    ):
+        failures.append(
+            "terminal portal sync no longer schedules deferred recovery for transient geometry states"
+        )
 
     terminal_view_path = root / "Sources" / "GhosttyTerminalView.swift"
     terminal_view_source = terminal_view_path.read_text(encoding="utf-8")
