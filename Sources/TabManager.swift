@@ -1309,6 +1309,12 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
 
 #if DEBUG
+        debugLogSurfaceDrift(
+            event: "closeRuntime.begin",
+            tabId: tabId,
+            surfaceId: surfaceId,
+            extra: "panelsBefore=\(tab.panels.count)"
+        )
         dlog(
             "surface.close.runtime tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panelsBefore=\(tab.panels.count)"
@@ -1325,6 +1331,12 @@ class TabManager: ObservableObject {
             "surface.close.runtime.done tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) closed=\(closed ? 1 : 0) panelsAfter=\(tab.panels.count)"
         )
+        debugLogSurfaceDrift(
+            event: "closeRuntime.end",
+            tabId: tabId,
+            surfaceId: surfaceId,
+            extra: "closed=\(closed ? 1 : 0) panelsAfter=\(tab.panels.count)"
+        )
 #endif
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
     }
@@ -1338,6 +1350,12 @@ class TabManager: ObservableObject {
         guard tab.panels[surfaceId] != nil else { return }
 
 #if DEBUG
+        debugLogSurfaceDrift(
+            event: "childExited.begin",
+            tabId: tabId,
+            surfaceId: surfaceId,
+            extra: "panels=\(tab.panels.count) workspaces=\(tabs.count)"
+        )
         dlog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
             "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count)"
@@ -1348,6 +1366,14 @@ class TabManager: ObservableObject {
         // semantics (and close the window when it was the last workspace).
         if tab.panels.count <= 1 {
             if tabs.count <= 1 {
+#if DEBUG
+                debugLogSurfaceDrift(
+                    event: "childExited.lastPanel.lastWorkspace",
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    extra: "route=windowClose"
+                )
+#endif
                 if let app = AppDelegate.shared {
                     app.notificationStore?.clearNotifications(forTabId: tabId)
                     app.closeMainWindowContainingTabId(tabId)
@@ -1356,11 +1382,27 @@ class TabManager: ObservableObject {
                     closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
                 }
             } else {
+#if DEBUG
+                debugLogSurfaceDrift(
+                    event: "childExited.lastPanel.multiWorkspace",
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    extra: "route=closeWorkspace"
+                )
+#endif
                 closeWorkspace(tab)
             }
             return
         }
 
+#if DEBUG
+        debugLogSurfaceDrift(
+            event: "childExited.routeRuntimeClose",
+            tabId: tabId,
+            surfaceId: surfaceId,
+            extra: "panels=\(tab.panels.count)"
+        )
+#endif
         closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
     }
 
@@ -1817,6 +1859,73 @@ class TabManager: ObservableObject {
 
     private static func debugMsText(_ ms: Double) -> String {
         String(format: "%.2fms", ms)
+    }
+
+    private static func debugShortIdentifier(_ id: String?) -> String {
+        guard let id, !id.isEmpty else { return "nil" }
+        if let uuid = UUID(uuidString: id) {
+            return debugShortWorkspaceId(uuid)
+        }
+        return String(id.prefix(5))
+    }
+
+    private static func debugFrameSummary(_ frame: PixelRect) -> String {
+        String(format: "%.0fx%.0f@%.0f,%.0f", frame.width, frame.height, frame.x, frame.y)
+    }
+
+    private func debugWorkspaceContainingSurface(_ surfaceId: UUID) -> Workspace? {
+        tabs.first(where: { $0.panels[surfaceId] != nil })
+    }
+
+    func debugHasSurfaceModel(surfaceId: UUID) -> Bool {
+        debugWorkspaceContainingSurface(surfaceId) != nil
+    }
+
+    func debugSurfaceDriftSummary(surfaceId: UUID?) -> String {
+        guard let surfaceId else {
+            return
+                "surface=nil model=missing " +
+                "selectedWs=\(Self.debugShortWorkspaceId(selectedTabId)) workspaces=\(tabs.count)"
+        }
+
+        let surfaceShort = Self.debugShortWorkspaceId(surfaceId)
+        guard let workspace = debugWorkspaceContainingSurface(surfaceId) else {
+            return
+                "surface=\(surfaceShort) model=missing " +
+                "selectedWs=\(Self.debugShortWorkspaceId(selectedTabId)) workspaces=\(tabs.count)"
+        }
+
+        let layout = workspace.bonsplitController.layoutSnapshot()
+        let paneState = layout.panes.map { pane in
+            let selected = Self.debugShortIdentifier(pane.selectedTabId)
+            let tabsText = pane.tabIds.map(Self.debugShortIdentifier).joined(separator: ",")
+            return
+                "\(Self.debugShortIdentifier(pane.paneId)){" +
+                "sel=\(selected)," +
+                "tabs=\(tabsText.isEmpty ? "-" : tabsText)," +
+                "frame=\(Self.debugFrameSummary(pane.frame))}"
+        }.joined(separator: ";")
+        let panel = workspace.panels[surfaceId]
+        let panelType = panel?.panelType.rawValue ?? "missing"
+        let ghostSummary = (panel as? TerminalPanel)?.hostedView.debugLifecycleSummary() ?? "ghost=na"
+
+        return
+            "surface=\(surfaceShort) model=present " +
+            "ws=\(Self.debugShortWorkspaceId(workspace.id)) selectedWs=\(selectedTabId == workspace.id ? 1 : 0) " +
+            "panelType=\(panelType) " +
+            "\(workspace.debugBonsplitStateSummary(highlightPanelId: surfaceId)) " +
+            "layoutFocusedPane=\(Self.debugShortIdentifier(layout.focusedPaneId)) " +
+            "layoutPanes=\(paneState.isEmpty ? "none" : paneState) " +
+            "\(ghostSummary)"
+    }
+
+    func debugLogSurfaceDrift(event: String, tabId: UUID?, surfaceId: UUID?, extra: String = "") {
+        let extraSuffix = extra.isEmpty ? "" : " \(extra)"
+        dlog(
+            "surface.drift event=\(event) tab=\(Self.debugShortWorkspaceId(tabId)) " +
+            "surface=\(Self.debugShortWorkspaceId(surfaceId))\(extraSuffix) " +
+            "\(debugSurfaceDriftSummary(surfaceId: surfaceId))"
+        )
     }
 #endif
 

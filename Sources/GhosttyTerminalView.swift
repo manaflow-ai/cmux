@@ -4704,6 +4704,77 @@ final class GhosttySurfaceScrollView: NSView {
             isFirstResponder: isFirstResponder
         )
     }
+
+    private static func debugShortSurfaceId(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugAgeText(since timestamp: CFTimeInterval) -> String {
+        guard timestamp > 0 else { return "na" }
+        let ageMs = max(0, (CACurrentMediaTime() - timestamp) * 1000)
+        return String(format: "%.1fms", ageMs)
+    }
+
+    private func debugViewDepth(maxDepth: Int = 128) -> Int {
+        var depth = 0
+        var current: NSView? = self
+        while let view = current, depth < maxDepth {
+            depth += 1
+            current = view.superview
+        }
+        return depth
+    }
+
+    private func debugIsPortalHosted() -> Bool {
+        var current: NSView? = self
+        while let view = current {
+            if view is WindowTerminalHostView { return true }
+            current = view.superview
+        }
+        return false
+    }
+
+    private func debugSuperviewChain(limit: Int = 8) -> String {
+        var parts: [String] = []
+        var current: NSView? = self
+        var remaining = limit
+        while let view = current, remaining > 0 {
+            parts.append(String(describing: type(of: view)))
+            current = view.superview
+            remaining -= 1
+        }
+        if current != nil {
+            parts.append("...")
+        }
+        return parts.joined(separator: ">")
+    }
+
+    func debugLifecycleSummary() -> String {
+        let stats = debugRenderStats()
+        let frameText = String(format: "%.1fx%.1f@%.1f,%.1f", frame.width, frame.height, frame.minX, frame.minY)
+        let boundsText = String(format: "%.1fx%.1f", bounds.width, bounds.height)
+        let layerKey = stats.layerContentsKey.count > 16
+            ? String(stats.layerContentsKey.prefix(16))
+            : stats.layerContentsKey
+        let dropZone = activeDropZone.map { String(describing: $0) } ?? "none"
+
+        return
+            "ghost.surface=\(Self.debugShortSurfaceId(debugSurfaceId)) " +
+            "portal=\(debugIsPortalHosted() ? 1 : 0) depth=\(debugViewDepth()) " +
+            "inWindow=\(stats.inWindow ? 1 : 0) window=\(window?.windowNumber ?? -1) " +
+            "hostHidden=\(isHidden ? 1 : 0) surfaceHidden=\(surfaceView.isHidden ? 1 : 0) " +
+            "visibleFlag=\(surfaceView.isVisibleInUI ? 1 : 0) active=\(stats.isActive ? 1 : 0) " +
+            "firstResponder=\(stats.isFirstResponder ? 1 : 0) desiredFocus=\(stats.desiredFocus ? 1 : 0) " +
+            "frame=\(frameText) bounds=\(boundsText) " +
+            "draw=\(stats.drawCount)/\(Self.debugAgeText(since: stats.lastDrawTime)) " +
+            "present=\(stats.presentCount)/\(Self.debugAgeText(since: stats.lastPresentTime)) " +
+            "metal=\(stats.metalDrawableCount)/\(Self.debugAgeText(since: stats.metalLastDrawableTime)) " +
+            "layer=\(stats.layerClass) key=\(layerKey) " +
+            "dropZone=\(dropZone) dropHidden=\(dropZoneOverlayView.isHidden ? 1 : 0) " +
+            "ringHidden=\(notificationRingOverlayView.isHidden ? 1 : 0) " +
+            "chain=\(debugSuperviewChain())"
+    }
 #endif
 
 #if DEBUG
@@ -5462,17 +5533,23 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let hostedView = coordinator.hostedView
 #if DEBUG
         if let hostedView {
+            let modelState =
+                AppDelegate.shared?.tabManager?.debugSurfaceDriftSummary(surfaceId: hostedView.debugSurfaceId)
+                ?? "surfaceState=tabManager_missing"
+            let ghostState = hostedView.debugLifecycleSummary()
             if let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 dlog(
                     "ws.swiftui.dismantle id=\(snapshot.id) dt=\(String(format: "%.2fms", dtMs)) " +
                     "surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
-                    "inWindow=\(hostedView.window != nil ? 1 : 0)"
+                    "inWindow=\(hostedView.window != nil ? 1 : 0) " +
+                    "\(ghostState) \(modelState)"
                 )
             } else {
                 dlog(
                     "ws.swiftui.dismantle id=none surface=\(hostedView.debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
-                    "inWindow=\(hostedView.window != nil ? 1 : 0)"
+                    "inWindow=\(hostedView.window != nil ? 1 : 0) " +
+                    "\(ghostState) \(modelState)"
                 )
             }
         }

@@ -556,6 +556,7 @@ final class WindowTerminalPortal: NSObject {
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
+    private var lastLoggedModelDriftSignatureByHostedId: [ObjectIdentifier: String] = [:]
 #endif
 
     private struct Entry {
@@ -864,6 +865,39 @@ final class WindowTerminalPortal: NSObject {
             "host=\(portalDebugFrameInWindow(hostView)) anchor=\(portalDebugFrameInWindow(anchorView))"
         )
     }
+
+    private func logModelDriftIfNeeded(
+        hostedId: ObjectIdentifier,
+        hostedView: GhosttySurfaceScrollView,
+        entry: Entry,
+        anchorView: NSView?,
+        reason: String,
+        targetFrame: NSRect
+    ) {
+        guard let surfaceId = hostedView.debugSurfaceId else { return }
+        guard let tabManager = AppDelegate.shared?.tabManager else {
+            lastLoggedModelDriftSignatureByHostedId.removeValue(forKey: hostedId)
+            return
+        }
+        guard !tabManager.debugHasSurfaceModel(surfaceId: surfaceId) else {
+            lastLoggedModelDriftSignatureByHostedId.removeValue(forKey: hostedId)
+            return
+        }
+
+        let signature =
+            "\(reason)|\(entry.visibleInUI ? 1 : 0)|\(hostedView.isHidden ? 1 : 0)|" +
+            "\(portalDebugFrame(targetFrame))|\(portalDebugToken(anchorView))"
+        guard lastLoggedModelDriftSignatureByHostedId[hostedId] != signature else { return }
+        lastLoggedModelDriftSignatureByHostedId[hostedId] = signature
+
+        dlog(
+            "portal.model.drift hosted=\(portalDebugToken(hostedView)) " +
+            "surface=\(surfaceId.uuidString.prefix(5)) reason=\(reason) " +
+            "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
+            "anchor=\(portalDebugToken(anchorView)) frame=\(portalDebugFrame(targetFrame)) " +
+            "\(tabManager.debugSurfaceDriftSummary(surfaceId: surfaceId))"
+        )
+    }
 #endif
 
     /// Convert an anchor view's bounds to window coordinates while honoring ancestor clipping.
@@ -920,14 +954,21 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+#if DEBUG
+        lastLoggedModelDriftSignatureByHostedId.removeValue(forKey: hostedId)
+#endif
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
 #if DEBUG
         let hadSuperview = (entry.hostedView?.superview === hostView) ? 1 : 0
+        let modelState =
+            AppDelegate.shared?.tabManager?.debugSurfaceDriftSummary(surfaceId: entry.hostedView?.debugSurfaceId)
+            ?? "surfaceState=tabManager_missing"
         dlog(
             "portal.detach hosted=\(portalDebugToken(entry.hostedView)) " +
-            "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview)"
+            "anchor=\(portalDebugToken(entry.anchorView)) hadSuperview=\(hadSuperview) " +
+            "\(modelState)"
         )
 #endif
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
@@ -1434,6 +1475,14 @@ final class WindowTerminalPortal: NSObject {
             "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
             "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0) " +
             "hostBounds=\(portalDebugFrame(hostBounds))"
+        )
+        logModelDriftIfNeeded(
+            hostedId: hostedId,
+            hostedView: hostedView,
+            entry: entry,
+            anchorView: anchorView,
+            reason: shouldHide ? "syncHidden" : "syncVisible",
+            targetFrame: targetFrame
         )
 #endif
 

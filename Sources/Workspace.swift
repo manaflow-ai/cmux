@@ -1216,6 +1216,70 @@ final class Workspace: Identifiable, ObservableObject {
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         return String(format: "%.2f", ms)
     }
+
+    private static func debugShortUUID(_ id: UUID?) -> String {
+        guard let id else { return "nil" }
+        return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugShortIdentifier(_ id: String?) -> String {
+        guard let id, !id.isEmpty else { return "nil" }
+        if let uuid = UUID(uuidString: id) {
+            return debugShortUUID(uuid)
+        }
+        return String(id.prefix(5))
+    }
+
+    private static func debugFrameSummary(_ frame: PixelRect) -> String {
+        String(format: "%.0fx%.0f@%.0f,%.0f", frame.width, frame.height, frame.x, frame.y)
+    }
+
+    private func debugTreeSummary(_ node: ExternalTreeNode) -> String {
+        switch node {
+        case .pane(let pane):
+            let tabCount = pane.tabs.count
+            return
+                "p(\(Self.debugShortIdentifier(pane.id)):" +
+                "sel=\(Self.debugShortIdentifier(pane.selectedTabId)):" +
+                "n=\(tabCount))"
+        case .split(let split):
+            let orientation = split.orientation == "horizontal" ? "h" : "v"
+            return
+                "\(orientation)(\(debugTreeSummary(split.first))|\(debugTreeSummary(split.second)))"
+        }
+    }
+
+    func debugBonsplitStateSummary(highlightPanelId: UUID? = nil) -> String {
+        let layout = bonsplitController.layoutSnapshot()
+        let tree = debugTreeSummary(bonsplitController.treeSnapshot())
+        let highlightTabId = highlightPanelId
+            .flatMap(surfaceIdFromPanelId)?
+            .uuid
+            .uuidString
+            .lowercased()
+
+        let paneState = layout.panes.map { pane in
+            let selected = Self.debugShortIdentifier(pane.selectedTabId)
+            let tabs = pane.tabIds.map(Self.debugShortIdentifier).joined(separator: ",")
+            let isHighlighted = highlightTabId.map { tabId in
+                pane.tabIds.contains { $0.caseInsensitiveCompare(tabId) == .orderedSame }
+            } ?? false
+            let marker = isHighlighted ? "*" : ""
+            return
+                "\(marker)\(Self.debugShortIdentifier(pane.paneId)){" +
+                "sel=\(selected)," +
+                "tabs=\(tabs.isEmpty ? "-" : tabs)," +
+                "frame=\(Self.debugFrameSummary(pane.frame))}"
+        }.joined(separator: ";")
+
+        return
+            "ws=\(Self.debugShortUUID(id)) " +
+            "focusedPane=\(Self.debugShortIdentifier(layout.focusedPaneId)) " +
+            "focusedPanel=\(Self.debugShortUUID(focusedPanelId)) " +
+            "panels=\(panels.count) panes=\(layout.panes.count) " +
+            "paneState=\(paneState.isEmpty ? "none" : paneState) " +
+            "tree=\(tree)"
+    }
 #endif
 
     func panelIdFromSurfaceId(_ surfaceId: TabID) -> UUID? {
@@ -3659,6 +3723,16 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+#if DEBUG
+        let panelType = panel?.panelType.rawValue ?? "missing"
+        let ghostStateBeforeClose = (panel as? TerminalPanel)?.hostedView.debugLifecycleSummary() ?? "ghost=na"
+        dlog(
+            "surface.close.delegate.begin ws=\(id.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "pane=\(pane.id.uuidString.prefix(5)) isDetaching=\(isDetaching ? 1 : 0) panelType=\(panelType) " +
+            "\(debugBonsplitStateSummary(highlightPanelId: panelId)) \(ghostStateBeforeClose)"
+        )
+#endif
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
@@ -3703,6 +3777,14 @@ extension Workspace: BonsplitDelegate {
         if lastTerminalConfigInheritancePanelId == panelId {
             lastTerminalConfigInheritancePanelId = nil
         }
+#if DEBUG
+        dlog(
+            "surface.close.delegate.end ws=\(id.uuidString.prefix(5)) " +
+            "tab=\(tabId.uuid.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "remainingPanels=\(panels.count) remainingPanes=\(bonsplitController.allPaneIds.count) " +
+            "\(debugBonsplitStateSummary(highlightPanelId: nil))"
+        )
+#endif
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
