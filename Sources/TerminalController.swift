@@ -11821,6 +11821,23 @@ class TerminalController {
         }
         let isDirty = parsed.options["status"]?.lowercased() == "dirty"
 
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.updatePanelGitBranch(panelId: scope.panelId, branch: branch, isDirty: isDirty)
+            }
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -11862,6 +11879,24 @@ class TerminalController {
 
     private func clearGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
+
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.clearPanelGitBranch(panelId: scope.panelId)
+            }
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
