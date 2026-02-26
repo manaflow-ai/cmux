@@ -8,10 +8,14 @@ private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
 
 private func windowDragHandleShouldDeferHitCapture(for eventType: NSEvent.EventType?) -> Bool {
     switch eventType {
-    case nil, .mouseMoved?, .cursorUpdate?:
-        return true
-    default:
+    case .leftMouseDown?:
         return false
+    default:
+        // Only left-mouse-down needs the full view-hierarchy walk.
+        // All other events (mouseMoved, cursorUpdate, activation, nil, …)
+        // bail out immediately so we never re-enter SwiftUI views during
+        // a layout pass — which causes exclusive-access crashes (#490).
+        return true
     }
 }
 
@@ -212,6 +216,9 @@ func windowDragHandleShouldCaptureHit(
     in dragHandleView: NSView,
     eventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
+    // Suppression recovery runs first so stale depth is cleared even for
+    // passive events — the associated-object reads/writes here are pure ObjC
+    // runtime calls and cannot trigger Swift exclusive-access violations.
     if isWindowDragSuppressed(window: dragHandleView.window) {
         // Recover from stale suppression if a prior interaction missed cleanup.
         // We only keep suppression active while the left mouse button is down.
@@ -233,6 +240,8 @@ func windowDragHandleShouldCaptureHit(
         }
     }
 
+    // Bail out before the view-hierarchy walk so we never re-enter SwiftUI
+    // views during a layout pass — which causes exclusive-access crashes (#490).
     if windowDragHandleShouldDeferHitCapture(for: eventType) {
         #if DEBUG
         let eventTypeDescription = eventType.map { String(describing: $0) } ?? "nil"
