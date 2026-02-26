@@ -6,6 +6,15 @@ private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {
     String(format: "(%.1f,%.1f)", point.x, point.y)
 }
 
+private func windowDragHandleShouldDeferHitCapture(for eventType: NSEvent.EventType?) -> Bool {
+    switch eventType {
+    case .mouseMoved?, .cursorUpdate?:
+        return true
+    default:
+        return false
+    }
+}
+
 /// Runs the same action macOS titlebars use for double-click:
 /// zoom by default, or minimize when the user preference is set.
 @discardableResult
@@ -185,7 +194,11 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
-func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSView) -> Bool {
+func windowDragHandleShouldCaptureHit(
+    _ point: NSPoint,
+    in dragHandleView: NSView,
+    eventType: NSEvent.EventType? = NSApp.currentEvent?.type
+) -> Bool {
     if isWindowDragSuppressed(window: dragHandleView.window) {
         // Recover from stale suppression if a prior interaction missed cleanup.
         // We only keep suppression active while the left mouse button is down.
@@ -205,6 +218,16 @@ func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSVie
         #endif
             return false
         }
+    }
+
+    if windowDragHandleShouldDeferHitCapture(for: eventType) {
+        #if DEBUG
+        let eventTypeDescription = eventType.map { String(describing: $0) } ?? "nil"
+        dlog(
+            "titlebar.dragHandle.hitTest capture=false reason=passiveEvent eventType=\(eventTypeDescription) point=\(windowDragHandleFormatPoint(point))"
+        )
+        #endif
+        return false
     }
 
     guard dragHandleView.bounds.contains(point) else {
