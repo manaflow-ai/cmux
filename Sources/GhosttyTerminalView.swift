@@ -2787,10 +2787,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
-        // If the IME is composing (marked text present), don't intercept key
-        // events for bindings — let them flow through to keyDown so the input
-        // method can process them normally.
-        if hasMarkedText() {
+        // If the IME is composing (marked text present) and the key has no Cmd
+        // modifier, don't intercept — let it flow through to keyDown so the input
+        // method can process it normally. Cmd-based shortcuts should still work
+        // during composition since Cmd is never part of IME input sequences.
+        if hasMarkedText(), !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
 
