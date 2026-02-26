@@ -1935,62 +1935,79 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
 }
 
 final class FullScreenShortcutTests: XCTestCase {
-    func testMatchesCommandReturn() {
+    func testMatchesCommandControlF() {
         XCTAssertTrue(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [.command],
-                keyCode: 36
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "f",
+                keyCode: 3
             )
         )
     }
 
-    func testMatchesCommandKeypadEnterWithNumericPadFlag() {
+    func testMatchesCommandControlFFromKeyCodeWhenCharsAreUnavailable() {
         XCTAssertTrue(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [.command, .numericPad],
-                keyCode: 76
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3
             )
         )
     }
 
-    func testIgnoresCapsLockForCommandEnter() {
+    func testIgnoresCapsLockForCommandControlF() {
         XCTAssertTrue(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [.command, .capsLock],
-                keyCode: 36
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control, .capsLock],
+                chars: "f",
+                keyCode: 3
             )
         )
     }
 
-    func testRejectsNonEnterKeyCodes() {
+    func testRejectsWhenControlIsMissing() {
         XCTAssertFalse(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
                 flags: [.command],
-                keyCode: 13
+                chars: "f",
+                keyCode: 3
             )
         )
     }
 
     func testRejectsAdditionalModifiers() {
         XCTAssertFalse(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [.command, .shift],
-                keyCode: 36
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control, .shift],
+                chars: "f",
+                keyCode: 3
             )
         )
         XCTAssertFalse(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [.command, .control],
-                keyCode: 36
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control, .option],
+                chars: "f",
+                keyCode: 3
             )
         )
     }
 
     func testRejectsWhenCommandIsMissing() {
         XCTAssertFalse(
-            shouldToggleMainWindowFullScreenForCommandEnterShortcut(
-                flags: [],
-                keyCode: 36
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.control],
+                chars: "f",
+                keyCode: 3
+            )
+        )
+    }
+
+    func testRejectsNonFKey() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "r",
+                keyCode: 15
             )
         )
     }
