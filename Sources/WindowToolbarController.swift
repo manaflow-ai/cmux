@@ -10,6 +10,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var cancellables = Set<AnyCancellable>()
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     override init() {
@@ -24,33 +25,25 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     func start(tabManager: TabManager) {
         self.tabManager = tabManager
+        bindTabManager()
         attachToExistingWindows()
         installObservers()
         scheduleFocusedCommandTextUpdate()
     }
 
+    private func bindTabManager() {
+        cancellables.removeAll()
+        tabManager?.$selectedCommandTitle
+            .receive(on: DispatchQueue.main)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.scheduleFocusedCommandTextUpdate()
+            }
+            .store(in: &cancellables)
+    }
+
     private func installObservers() {
         let center = NotificationCenter.default
-        observers.append(center.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
-            }
-        })
-
-        observers.append(center.addObserver(
-            forName: .ghosttyDidFocusTab,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
-            }
-        })
-
         observers.append(center.addObserver(
             forName: NSWindow.didBecomeMainNotification,
             object: nil,
@@ -91,14 +84,8 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func updateFocusedCommandText() {
         guard let tabManager else { return }
-        let text: String
-        if let selectedId = tabManager.selectedTabId,
-           let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-            let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
-        } else {
-            text = "Cmd: —"
-        }
+        let title = tabManager.selectedCommandTitle
+        let text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
 
         for label in commandLabels.values {
             if label.stringValue != text {

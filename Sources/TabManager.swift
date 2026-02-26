@@ -564,6 +564,7 @@ class TabManager: ObservableObject {
 
     @Published var tabs: [Workspace] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
+    @Published private(set) var selectedCommandTitle: String = ""
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -616,6 +617,9 @@ class TabManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
+    private var selectedWorkspaceTitleObserver: AnyCancellable?
+    private var observedSelectedWorkspaceId: UUID?
+    private var selectedCommandTitleCancellables = Set<AnyCancellable>()
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
@@ -650,19 +654,6 @@ class TabManager: ObservableObject {
     init(initialWorkingDirectory: String? = nil) {
         addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidSetTitle,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated { [weak self] in
-                guard let self else { return }
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                guard let title = notification.userInfo?[GhosttyNotificationKey.title] as? String else { return }
-                enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
-            }
-        })
-        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
@@ -674,6 +665,8 @@ class TabManager: ObservableObject {
                 markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
             }
         })
+        bindSelectedCommandTitle()
+        syncSelectedWorkspaceTitleSubscription()
 
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
@@ -700,6 +693,46 @@ class TabManager: ObservableObject {
     var selectedWorkspace: Workspace? {
         guard let selectedTabId else { return nil }
         return tabs.first(where: { $0.id == selectedTabId })
+    }
+
+    func handleGhosttySetTitle(tabId: UUID, surfaceId: UUID, title: String) {
+        enqueuePanelTitleUpdate(tabId: tabId, panelId: surfaceId, title: title)
+    }
+
+    private func bindSelectedCommandTitle() {
+        $selectedTabId
+            .combineLatest($tabs)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.syncSelectedWorkspaceTitleSubscription()
+            }
+            .store(in: &selectedCommandTitleCancellables)
+    }
+
+    private func syncSelectedWorkspaceTitleSubscription() {
+        guard let workspace = selectedWorkspace else {
+            selectedWorkspaceTitleObserver = nil
+            observedSelectedWorkspaceId = nil
+            updateSelectedCommandTitle(from: "")
+            return
+        }
+
+        if observedSelectedWorkspaceId != workspace.id {
+            observedSelectedWorkspaceId = workspace.id
+            selectedWorkspaceTitleObserver = workspace.$title
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] title in
+                    self?.updateSelectedCommandTitle(from: title)
+                }
+        }
+
+        updateSelectedCommandTitle(from: workspace.title)
+    }
+
+    private func updateSelectedCommandTitle(from title: String) {
+        let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedCommandTitle != normalized else { return }
+        selectedCommandTitle = normalized
     }
 
     // Keep selectedTab as convenience alias

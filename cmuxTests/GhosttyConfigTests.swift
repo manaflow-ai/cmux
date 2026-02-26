@@ -531,35 +531,53 @@ final class RecentlyClosedBrowserStackTests: XCTestCase {
 }
 
 final class TabManagerNotificationOrderingSourceTests: XCTestCase {
-    func testGhosttyDidSetTitleObserverDoesNotHopThroughTask() throws {
+    func testTabManagerRoutesGhosttyTitleUpdatesThroughDedicatedHandler() throws {
         let projectRoot = findProjectRoot()
         let tabManagerURL = projectRoot.appendingPathComponent("Sources/TabManager.swift")
         let source = try String(contentsOf: tabManagerURL, encoding: .utf8)
 
-        guard let titleObserverStart = source.range(of: "forName: .ghosttyDidSetTitle"),
-              let focusObserverStart = source.range(
-                of: "forName: .ghosttyDidFocusSurface",
-                range: titleObserverStart.upperBound..<source.endIndex
+        guard let handlerStart = source.range(of: "func handleGhosttySetTitle("),
+              let bindStart = source.range(
+                of: "private func bindSelectedCommandTitle()",
+                range: handlerStart.upperBound..<source.endIndex
               ) else {
-            XCTFail("Failed to locate TabManager notification observer block in Sources/TabManager.swift")
+            XCTFail("Failed to locate handleGhosttySetTitle block in Sources/TabManager.swift")
             return
         }
 
-        let block = String(source[titleObserverStart.lowerBound..<focusObserverStart.lowerBound])
-        XCTAssertFalse(
-            block.contains("Task {"),
-            """
-            The .ghosttyDidSetTitle observer must update model state in the notification callback.
-            Using Task can reorder updates and leave titlebar/toolbar one event behind.
-            """
-        )
-        XCTAssertTrue(
-            block.contains("MainActor.assumeIsolated"),
-            "Expected .ghosttyDidSetTitle observer to run synchronously on MainActor."
-        )
+        let block = String(source[handlerStart.lowerBound..<bindStart.lowerBound])
         XCTAssertTrue(
             block.contains("enqueuePanelTitleUpdate"),
-            "Expected .ghosttyDidSetTitle observer to enqueue panel title updates."
+            "Expected handleGhosttySetTitle to enqueue panel title updates."
+        )
+    }
+
+    func testGhosttySetTitleActionRoutesToOwningTabManager() throws {
+        let projectRoot = findProjectRoot()
+        let viewURL = projectRoot.appendingPathComponent("Sources/GhosttyTerminalView.swift")
+        let source = try String(contentsOf: viewURL, encoding: .utf8)
+
+        guard let actionStart = source.range(of: "case GHOSTTY_ACTION_SET_TITLE:"),
+              let nextCaseStart = source.range(
+                of: "case GHOSTTY_ACTION_PWD:",
+                range: actionStart.upperBound..<source.endIndex
+              ) else {
+            XCTFail("Failed to locate GHOSTTY_ACTION_SET_TITLE block in Sources/GhosttyTerminalView.swift")
+            return
+        }
+
+        let block = String(source[actionStart.lowerBound..<nextCaseStart.lowerBound])
+        XCTAssertTrue(
+            block.contains("tabManagerFor(tabId: tabId)"),
+            "Expected GHOSTTY_ACTION_SET_TITLE to route updates to the owning TabManager."
+        )
+        XCTAssertTrue(
+            block.contains("handleGhosttySetTitle"),
+            "Expected GHOSTTY_ACTION_SET_TITLE to use TabManager.handleGhosttySetTitle."
+        )
+        XCTAssertFalse(
+            block.contains("NotificationCenter.default.post"),
+            "Expected GHOSTTY_ACTION_SET_TITLE to avoid NotificationCenter fan-out."
         )
     }
 
