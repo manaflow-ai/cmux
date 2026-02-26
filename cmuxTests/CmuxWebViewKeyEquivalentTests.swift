@@ -6571,6 +6571,75 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private final class ScrollProbeSurfaceView: GhosttyNSView {
+        private(set) var scrollWheelCallCount = 0
+
+        override func scrollWheel(with event: NSEvent) {
+            scrollWheelCallCount += 1
+        }
+    }
+
+    func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = ScrollProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+        XCTAssertFalse(
+            scrollView.acceptsFirstResponder,
+            "Host scroll view should not become first responder and steal terminal shortcuts"
+        )
+
+        _ = window.makeFirstResponder(nil)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+
+        XCTAssertEqual(
+            surfaceView.scrollWheelCallCount,
+            1,
+            "Trackpad wheel events should be forwarded directly to Ghostty surface scrolling"
+        )
+        XCTAssertTrue(
+            window.firstResponder === surfaceView,
+            "Scroll wheel handling should keep keyboard focus on terminal surface"
+        )
+    }
+
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
