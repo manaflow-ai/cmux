@@ -15,6 +15,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CREATE_DMG_VERSION: 8.0.0
+
 jobs:
   decide:
     runs-on: ubuntu-latest
@@ -112,7 +115,7 @@ jobs:
         run: |
           brew update
           brew install zig
-          npm install --global create-dmg
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Build GhosttyKit.xcframework
         run: |

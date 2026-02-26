@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CREATE_DMG_VERSION: 8.0.0
+
 jobs:
   build-sign-notarize:
     runs-on: self-hosted
@@ -101,7 +104,7 @@ jobs:
         run: |
           brew update
           brew install zig
-          npm install --global create-dmg
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download Metal Toolchain
         if: steps.guard_release_assets.outputs.skip_all != 'true'
