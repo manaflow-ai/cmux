@@ -254,11 +254,13 @@ func windowDragHandleShouldCaptureHit(_ point: NSPoint, in dragHandleView: NSVie
         }
     }
 
+    let siblingSnapshot = Array(superview.subviews.reversed())
+
     #if DEBUG
-    let siblingCount = superview.subviews.count
+    let siblingCount = siblingSnapshot.count
     #endif
 
-    for sibling in superview.subviews.reversed() {
+    for sibling in siblingSnapshot {
         guard sibling !== dragHandleView else { continue }
         guard !sibling.isHidden, sibling.alphaValue > 0 else { continue }
 

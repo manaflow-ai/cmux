@@ -145,7 +145,6 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             set {}
         }
     }
-
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "n", modifiers: [.command])
@@ -529,7 +528,6 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
         XCTAssertTrue(window.makeFirstResponder(responder))
     }
-
     private func installMenu(spy: ActionSpy, key: String, modifiers: NSEvent.ModifierFlags) {
         let mainMenu = NSMenu()
 
@@ -5899,6 +5897,21 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    private final class MutatingSiblingView: NSView {
+        weak var container: NSView?
+        private var didMutate = false
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point) else { return nil }
+            guard !didMutate, let container else { return nil }
+            didMutate = true
+            let transient = NSView(frame: .zero)
+            container.addSubview(transient)
+            transient.removeFromSuperview()
+            return nil
+        }
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -6038,6 +6051,21 @@ final class WindowDragHandleHitTests: XCTestCase {
             nestedCaptureResult,
             false,
             "Top-hit recursion in one window must not disable top-hit resolution in another window"
+        )
+    }
+
+    func testDragHandleRemainsStableWhenSiblingMutatesSubviewsDuringHitTest() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let mutatingSibling = MutatingSiblingView(frame: container.bounds)
+        mutatingSibling.container = container
+        container.addSubview(mutatingSibling)
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            "Subview mutations during hit testing should not crash or break drag-handle capture"
         )
     }
 }
