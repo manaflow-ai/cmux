@@ -117,6 +117,14 @@ export const testimonials = [
     url: "https://x.com/BChris91/status/2026821091637838273",
     platform: "x" as const,
   },
+  {
+    name: "Connor",
+    handle: "@connorelsea",
+    avatar: "/avatars/connorelsea.jpg",
+    text: "Been using this for a week and it's fantastic. Vert tab for each WIP task. Inside, claudes on one side and browser with PR and resources on the other, switch between tasks and stay organized. Mix that with skills to have Claude watch CI recursively, etc. feeling enlightened tbh",
+    url: "https://x.com/connorelsea/status/2026867085750440390",
+    platform: "x" as const,
+  },
 ];
 
 export type Testimonial = (typeof testimonials)[number];
