@@ -302,6 +302,17 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     return keyCode == 36 || keyCode == 76
 }
 
+func shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+    flags: NSEvent.ModifierFlags,
+    keyCode: UInt16
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.command] else { return false }
+    return keyCode == 36 || keyCode == 76
+}
+
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -4571,6 +4582,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if normalizedFlags == [.command, .shift],
            (chars == "," || chars == "<" || event.keyCode == 43) {
             GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
+            return true
+        }
+
+        if shouldToggleMainWindowFullScreenForCommandEnterShortcut(
+            flags: event.modifierFlags,
+            keyCode: event.keyCode
+        ) {
+            guard let targetWindow = mainWindowForShortcutEvent(event) else {
+                return false
+            }
+            targetWindow.toggleFullScreen(nil)
             return true
         }
 
