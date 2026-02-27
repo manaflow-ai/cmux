@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import fs from "fs";
 import path from "path";
+import { changelogMedia, type VersionMedia } from "./changelog-media";
 
 export const metadata: Metadata = {
   title: "Changelog",
@@ -52,7 +53,6 @@ function parseChangelog(markdown: string): ChangelogVersion[] {
       if (currentSection) {
         currentSection.items.push(itemMatch[1]);
       } else {
-        // Items without a ### heading (e.g. 1.0.x initial release)
         if (!current.sections.length) {
           currentSection = { heading: "", items: [] };
           current.sections.push(currentSection);
@@ -64,7 +64,6 @@ function parseChangelog(markdown: string): ChangelogVersion[] {
       continue;
     }
 
-    // Non-empty lines that aren't headings or items (intro text)
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith("#")) {
       current.intro = trimmed;
@@ -97,39 +96,229 @@ function InlineMarkdown({ text }: { text: string }) {
   );
 }
 
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function isMajorRelease(
+  v: ChangelogVersion,
+  media: VersionMedia | undefined
+): boolean {
+  return !!media?.features?.length || v.sections.length >= 3;
+}
+
+function HeroImage({ src, version }: { src: string; version: string }) {
+  return (
+    <div className="mt-4 mb-6 overflow-hidden rounded-lg border border-border">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={`cmux ${version}`}
+        className="w-full h-auto"
+      />
+    </div>
+  );
+}
+
+function FeatureGrid({ media }: { media: VersionMedia }) {
+  if (!media.features?.length) return null;
+
+  const hasAnyImage = media.features.some((f) => f.image);
+
+  return (
+    <div
+      className={`mt-4 mb-6 grid gap-3 ${
+        hasAnyImage ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2"
+      }`}
+    >
+      {media.features.map((feature, i) => (
+        <div
+          key={i}
+          className="rounded-lg border border-border overflow-hidden"
+        >
+          {feature.image && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={feature.image}
+              alt={feature.title}
+              className="w-full h-auto border-b border-border"
+            />
+          )}
+          <div className="px-4 py-3">
+            <div className="text-[14px] font-semibold text-foreground">
+              {feature.title}
+            </div>
+            <div className="text-[13px] text-muted leading-relaxed mt-0.5">
+              {feature.description}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ContributorList({ items }: { items: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-2 mt-2">
+      {items.map((item, i) => {
+        const match = item.match(
+          /\[@([^\]]+)\]\((https:\/\/github\.com\/[^)]+)\)/
+        );
+        if (match) {
+          return (
+            <a
+              key={i}
+              href={match[2]}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border text-[13px] text-muted hover:text-foreground transition-colors no-underline!"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://github.com/${match[1]}.png?size=48`}
+                alt={match[1]}
+                width={18}
+                height={18}
+                className="rounded-full"
+              />
+              {match[1]}
+            </a>
+          );
+        }
+        return (
+          <span key={i} className="text-[13px] text-muted">
+            <InlineMarkdown text={item} />
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function SectionBadge({ heading }: { heading: string }) {
+  const lower = heading.toLowerCase();
+
+  let color = "bg-border/50 text-muted";
+  let label = heading;
+
+  if (lower === "added") {
+    color = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+    label = "Added";
+  } else if (lower === "changed") {
+    color = "bg-blue-500/10 text-blue-600 dark:text-blue-400";
+    label = "Changed";
+  } else if (lower === "fixed") {
+    color = "bg-amber-500/10 text-amber-600 dark:text-amber-400";
+    label = "Fixed";
+  } else if (lower.startsWith("thanks")) {
+    color = "bg-purple-500/10 text-purple-600 dark:text-purple-400";
+    label = "Contributors";
+  }
+
+  return (
+    <span
+      className={`inline-block text-[12px] font-medium px-2 py-0.5 rounded-md ${color}`}
+    >
+      {label}
+    </span>
+  );
+}
+
 export default function ChangelogPage() {
   const changelogPath = path.join(process.cwd(), "..", "CHANGELOG.md");
   const markdown = fs.readFileSync(changelogPath, "utf-8");
   const versions = parseChangelog(markdown);
 
   return (
-    <>
+    <div>
       <h1>Changelog</h1>
-      <p>All notable changes to cmux are documented here.</p>
+      <p>What&apos;s new in cmux.</p>
 
-      {versions.map((v) => (
-        <div key={v.version} className="mb-8">
-          <h2>
-            {v.version}{" "}
-            <span className="text-muted font-normal text-[14px]">
-              — {v.date}
-            </span>
-          </h2>
-          {v.intro && <p>{v.intro}</p>}
-          {v.sections.map((section, i) => (
-            <div key={i}>
-              {section.heading && <h3>{section.heading}</h3>}
-              <ul>
-                {section.items.map((item, j) => (
-                  <li key={j}>
-                    <InlineMarkdown text={item} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      ))}
-    </>
+      <div className="mt-8 space-y-0">
+        {versions.map((v) => {
+          const media = changelogMedia[v.version];
+          const major = isMajorRelease(v, media);
+
+          return (
+            <article
+              key={v.version}
+              id={`v${v.version}`}
+              className={`relative border-t border-border py-8 first:border-t-0 ${
+                major ? "" : ""
+              }`}
+            >
+              <div className="flex items-baseline gap-3">
+                <a
+                  href={`#v${v.version}`}
+                  className="no-underline! hover:underline!"
+                >
+                  <h2 className="!mt-0 !mb-0">{v.version}</h2>
+                </a>
+                <time
+                  className="text-[13px] text-muted font-mono"
+                  dateTime={v.date}
+                >
+                  {formatDate(v.date)}
+                </time>
+              </div>
+
+              {media?.summary && (
+                <p className="text-[15px] text-muted leading-relaxed mt-2 mb-0">
+                  {media.summary}
+                </p>
+              )}
+
+              {media?.hero && (
+                <HeroImage src={media.hero} version={v.version} />
+              )}
+
+              {media && <FeatureGrid media={media} />}
+
+              {v.intro && !media?.summary && (
+                <p className="text-[14px] text-muted italic mt-2 mb-0">
+                  {v.intro.replace(/^_/, "").replace(/_$/, "")}
+                </p>
+              )}
+
+              <div className="mt-4 space-y-4">
+                {v.sections.map((section, i) => {
+                  const isContributors = section.heading
+                    .toLowerCase()
+                    .startsWith("thanks");
+
+                  if (isContributors) {
+                    return (
+                      <div key={i}>
+                        <SectionBadge heading={section.heading} />
+                        <ContributorList items={section.items} />
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={i}>
+                      {section.heading && (
+                        <SectionBadge heading={section.heading} />
+                      )}
+                      <ul className="!mt-2 !mb-0">
+                        {section.items.map((item, j) => (
+                          <li key={j} className="text-[14px]">
+                            <InlineMarkdown text={item} />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
   );
 }
