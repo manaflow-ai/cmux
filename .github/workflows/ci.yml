@@ -69,20 +69,26 @@ jobs:
       - name: Download Metal Toolchain
         run: xcodebuild -downloadComponent MetalToolchain || echo "Metal toolchain already available or -downloadComponent not supported"
 
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
         run: |
           set -euo pipefail
-          if ! command -v zig >/dev/null 2>&1; then
-            if command -v brew >/dev/null 2>&1; then
-              brew install zig
-            else
-              echo "zig is required to build GhosttyKit.xcframework. Install zig and retry." >&2
+          SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $SHA"
+          for i in $(seq 1 30); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Downloaded successfully"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Failed to download xcframework after 30 retries" >&2
               exit 1
             fi
-          fi
-          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false)
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+            echo "Attempt $i failed, retrying in 20s (build-ghosttykit may still be running)..."
+            sleep 20
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
       - name: Run unit tests

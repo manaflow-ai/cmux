@@ -86,9 +86,18 @@ jobs:
         run: |
           set -euo pipefail
           TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
-          gh release create "$TAG" \
+          if ! gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
             --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }})" \
             --notes "Pre-built GhosttyKit.xcframework for commit ${{ steps.ghostty-sha.outputs.sha }}" \
-            GhosttyKit.xcframework.tar.gz
-          echo "Published release $TAG"
+            GhosttyKit.xcframework.tar.gz; then
+            # Another run may have published the same release concurrently.
+            if gh release view "$TAG" --repo manaflow-ai/ghostty >/dev/null 2>&1; then
+              echo "Release $TAG was published by another run, skipping"
+            else
+              echo "Failed to create release $TAG" >&2
+              exit 1
+            fi
+          else
+            echo "Published release $TAG"
+          fi
