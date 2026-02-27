@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     url: "https://cmux.dev/blog/show-hn-launch",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: "Launching cmux on Show HN",
     description:
       "cmux launched on Hacker News, hit #2, went viral in Japan, and people started building extensions on the CLI.",
