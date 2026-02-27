@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Features
@@ -106,6 +106,16 @@ The main additions are the sidebar and notification system. The sidebar has vert
 The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
 
 Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+
+## The Zen of cmux
+
+cmux is not prescriptive about how developers hold their tools. It's a terminal and browser with a CLI, and the rest is up to you.
+
+cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours.
+
+The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first.
+
+Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
 
 ## Keyboard Shortcuts
 
