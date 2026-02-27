@@ -2716,6 +2716,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return path
     }
 
+    /// Pastes clipboard content into the terminal. If the clipboard contains only
+    /// image data, saves it as a temporary PNG and pastes the shell-escaped file path.
     @IBAction func paste(_ sender: Any?) {
         // When the clipboard contains only image data (e.g. from Cmd+Ctrl+Shift+4
         // screenshot), save it as a temporary PNG and paste the file path so that
@@ -2730,10 +2732,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
