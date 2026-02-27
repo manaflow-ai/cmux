@@ -312,7 +312,7 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
-                Button("Open Workspaces for All Tab Colors") {
+                Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
@@ -2996,7 +2996,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
+                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below.")
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
                             if index > 0 {
