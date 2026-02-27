@@ -119,16 +119,18 @@ function formatDate(dateStr: string): string {
 function HeroImage({ src, version }: { src: string; version: string }) {
   const { width, height } = pngDimensions(src);
   return (
-    <div className="mt-4 mb-6 overflow-hidden rounded-lg border border-border">
-      <Image
-        src={src}
-        alt={`cmux ${version}`}
-        width={width}
-        height={height}
-        sizes="(max-width: 640px) 100vw, 640px"
-        className="w-full h-auto"
-        priority
-      />
+    <div style={{ paddingTop: 16, paddingBottom: 24 }}>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <Image
+          src={src}
+          alt={`cmux ${version}`}
+          width={width}
+          height={height}
+          sizes="(max-width: 640px) 100vw, 640px"
+          className="w-full h-auto"
+          priority
+        />
+      </div>
     </div>
   );
 }
@@ -136,15 +138,17 @@ function HeroImage({ src, version }: { src: string; version: string }) {
 function FeatureImage({ src, alt }: { src: string; alt: string }) {
   const { width, height } = pngDimensions(src);
   return (
-    <div className="mt-3 overflow-hidden rounded-lg border border-border">
-      <Image
-        src={src}
-        alt={alt}
-        width={width}
-        height={height}
-        sizes="(max-width: 640px) 100vw, 640px"
-        className="block w-full max-w-full h-auto"
-      />
+    <div style={{ paddingTop: 12 }}>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <Image
+          src={src}
+          alt={alt}
+          width={width}
+          height={height}
+          sizes="(max-width: 640px) 100vw, 640px"
+          className="block w-full max-w-full h-auto"
+        />
+      </div>
     </div>
   );
 }
@@ -153,10 +157,10 @@ function FeatureList({ media }: { media: VersionMedia }) {
   if (!media.features?.length) return null;
 
   return (
-    <div className="mt-5 space-y-6">
+    <div style={{ paddingTop: 20, display: "flex", flexDirection: "column", gap: 24 }}>
       {media.features.map((feature, i) => (
         <div key={i}>
-          <p className="mb-0">
+          <p style={{ margin: 0, padding: 0 }}>
             <strong>{feature.title}.</strong>{" "}
             <span className="text-muted">{feature.description}</span>
           </p>
@@ -171,7 +175,7 @@ function FeatureList({ media }: { media: VersionMedia }) {
 
 function ContributorList({ items }: { items: string[] }) {
   return (
-    <div className="flex flex-wrap gap-2 mt-2">
+    <div className="flex flex-wrap gap-2" style={{ paddingTop: 8 }}>
       {items.map((item, i) => {
         const match = item.match(
           /\[@([^\]]+)\]\((https:\/\/github\.com\/[^)]+)\)/
@@ -240,9 +244,9 @@ export default function ChangelogPage() {
 
   return (
     <div className="max-w-[640px] overflow-hidden">
-      <h1>Changelog</h1>
+      <h1 style={{ margin: 0, padding: 0, paddingBottom: 8 }}>Changelog</h1>
 
-      <div className="mt-8">
+      <div style={{ paddingTop: 32 }}>
         {versions.map((v) => {
           const media = changelogMedia[v.version];
 
@@ -250,9 +254,10 @@ export default function ChangelogPage() {
             <article
               key={v.version}
               id={`v${v.version}`}
-              className="relative border-t border-border py-10 first:border-t-0"
+              className="border-t border-border first:border-t-0"
+              style={{ display: "flex", flexDirection: "column", padding: "40px 0" }}
             >
-              <div className="flex items-center gap-3">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <a
                   href={`#v${v.version}`}
                   className="no-underline! hover:no-underline!"
@@ -270,9 +275,9 @@ export default function ChangelogPage() {
               </div>
 
               {media?.title && (
-                <h2 className="mt-3 mb-0 text-[1.5rem] font-bold tracking-tight">
+                <div style={{ paddingTop: 12, margin: 0, fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.025em" }}>
                   {media.title}
-                </h2>
+                </div>
               )}
 
               {media?.hero && (
@@ -282,12 +287,12 @@ export default function ChangelogPage() {
               {media && <FeatureList media={media} />}
 
               {v.intro && !media && (
-                <p className="text-[14px] text-muted italic mt-3 mb-0">
+                <div className="text-[14px] text-muted italic" style={{ paddingTop: 12 }}>
                   {v.intro.replace(/^_/, "").replace(/_$/, "")}
-                </p>
+                </div>
               )}
 
-              <div className="mt-5 space-y-4">
+              <div style={{ paddingTop: 20, display: "flex", flexDirection: "column", gap: 16 }}>
                 {v.sections.map((section, i) => {
                   const isContributors = section.heading
                     .toLowerCase()
@@ -307,9 +312,9 @@ export default function ChangelogPage() {
                       {section.heading && (
                         <SectionBadge heading={section.heading} />
                       )}
-                      <ul className="mt-2 pb-0">
+                      <ul style={{ margin: 0, paddingTop: 8, paddingBottom: 0, paddingLeft: 24, listStyle: "disc" }}>
                         {section.items.map((item, j) => (
-                          <li key={j} className="text-[14px]">
+                          <li key={j} style={{ margin: 0, padding: 0, fontSize: 14, lineHeight: 1.6, color: "var(--muted)" }}>
                             <InlineMarkdown text={item} />
                           </li>
                         ))}
