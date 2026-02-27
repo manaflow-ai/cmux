@@ -3158,10 +3158,19 @@ final class Workspace: Identifiable, ObservableObject {
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
         for panel in panels.values {
-            if let terminalPanel = panel as? TerminalPanel,
-               terminalPanel.needsConfirmClose() {
+            if panelNeedsCloseConfirmation(panel) {
                 return true
             }
+        }
+        return false
+    }
+
+    private func panelNeedsCloseConfirmation(_ panel: any Panel) -> Bool {
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.needsConfirmClose()
+        }
+        if let markdownPanel = panel as? MarkdownPanel {
+            return markdownPanel.isDirty
         }
         return false
     }
@@ -3778,7 +3787,7 @@ extension Workspace: BonsplitDelegate {
 
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+              let panel = panels[panelId] else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
@@ -3787,7 +3796,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if terminalPanel.needsConfirmClose() {
+        if panelNeedsCloseConfirmation(panel) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -4053,8 +4062,8 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               let terminalPanel = terminalPanel(for: panelId),
-               terminalPanel.needsConfirmClose() {
+               let panel = panels[panelId],
+               panelNeedsCloseConfirmation(panel) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
