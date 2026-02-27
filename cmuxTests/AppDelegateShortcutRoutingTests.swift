@@ -6,6 +6,24 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class EscapeTrackingSheetPanel: NSPanel {
+    private(set) var performKeyEquivalentCallCount = 0
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        performKeyEquivalentCallCount += 1
+        return true
+    }
+}
+
+private final class EscapeTrackingCloseConfirmationPanel: NSPanel {
+    private(set) var performKeyEquivalentCallCount = 0
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        performKeyEquivalentCallCount += 1
+        return true
+    }
+}
+
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -370,6 +388,561 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedWorkspaceWindow?.windowNumber, window.windowNumber)
     }
 
+    func testEscapeDismissesVisibleCommandPaletteAndConsumesEvent() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let dismissExpectation = expectation(description: "Expected command palette dismiss request on Escape")
+        var observedWindow: NSWindow?
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteDismissRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedWindow = notification.object as? NSWindow
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        let toggleExpectation = expectation(description: "Escape should not route through toggle notification")
+        toggleExpectation.isInverted = true
+        let toggleToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteToggleRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            toggleExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(toggleToken) }
+
+        guard let event = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [dismissExpectation, toggleExpectation], timeout: 1.0)
+        XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testEscapeIsForwardedToAttachedSheetAndConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let sheet = EscapeTrackingSheetPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 140),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        window.beginSheet(sheet)
+        defer {
+            if sheet.sheetParent != nil {
+                window.endSheet(sheet)
+            }
+            sheet.orderOut(nil)
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: sheet.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(sheet.performKeyEquivalentCallCount, 1)
+    }
+
+    func testEscapeImmediatelyAfterCmdPSwitcherRequestConsumesBeforeVisibilitySync() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+        appDelegate.setCommandPaletteVisible(false, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let switcherExpectation = expectation(description: "Expected command palette switcher request")
+        var switcherWindow: NSWindow?
+        let switcherToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            switcherWindow = notification.object as? NSWindow
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(switcherToken) }
+
+        guard let commandPEvent = makeKeyDownEvent(
+            key: "p",
+            modifiers: [.command],
+            keyCode: 35,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+P event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: commandPEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        wait(for: [switcherExpectation], timeout: 1.0)
+        XCTAssertEqual(switcherWindow?.windowNumber, window.windowNumber)
+
+        // Simulate the race where palette visibility has not yet synced when Escape arrives.
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        let dismissExpectation = expectation(description: "Expected command palette dismiss request on immediate Escape")
+        var dismissWindow: NSWindow?
+        let dismissToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteDismissRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            dismissWindow = notification.object as? NSWindow
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(dismissToken) }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [dismissExpectation], timeout: 1.0)
+        XCTAssertEqual(dismissWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testEscapeImmediatelyAfterCmdShiftPRequestConsumesBeforeVisibilitySync() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+        appDelegate.setCommandPaletteVisible(false, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let requestExpectation = expectation(description: "Expected command palette request")
+        var requestWindow: NSWindow?
+        let requestToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            requestWindow = notification.object as? NSWindow
+            requestExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(requestToken) }
+
+        guard let commandShiftPEvent = makeKeyDownEvent(
+            key: "p",
+            modifiers: [.command, .shift],
+            keyCode: 35,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+P event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: commandShiftPEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        wait(for: [requestExpectation], timeout: 1.0)
+        XCTAssertEqual(requestWindow?.windowNumber, window.windowNumber)
+
+        // Simulate the race where palette visibility has not yet synced when Escape arrives.
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        let dismissExpectation = expectation(description: "Expected command palette dismiss request on immediate Escape")
+        var dismissWindow: NSWindow?
+        let dismissToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteDismissRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            dismissWindow = notification.object as? NSWindow
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(dismissToken) }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [dismissExpectation], timeout: 1.0)
+        XCTAssertEqual(dismissWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testRepeatedEscapeAfterCommandPaletteDismissIsConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+
+        guard let initialEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct initial Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: initialEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        guard let repeatedEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: true
+        ) else {
+            XCTFail("Failed to construct repeated Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testNonRepeatedFollowupEscapeAfterCommandPaletteDismissIsConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+
+        guard let initialEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct initial Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: initialEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        guard let followupEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct follow-up Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: followupEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testRepeatedEscapeAfterConsumedFollowupEscapeIsConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+
+        guard let initialEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct initial Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: initialEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        guard let followupEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct follow-up Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: followupEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        guard let repeatedEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: true
+        ) else {
+            XCTFail("Failed to construct repeated Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: repeatedEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testRepeatedEscapeWithoutOverlayStillFallsThrough() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        guard let firstEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct first Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: firstEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        guard let repeatedEscape = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber,
+            isARepeat: true
+        ) else {
+            XCTFail("Failed to construct repeated Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: repeatedEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testEscapeIsForwardedToCloseConfirmationPanelAndConsumed() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let panel = EscapeTrackingCloseConfirmationPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 140),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 140))
+        let label = NSTextField(labelWithString: "Close tab?")
+        label.frame = NSRect(x: 16, y: 90, width: 200, height: 24)
+        contentView.addSubview(label)
+        panel.contentView = contentView
+        panel.makeKeyAndOrderFront(nil)
+        defer { panel.orderOut(nil) }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = makeKeyDownEvent(
+            key: "\u{1B}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: panel.windowNumber,
+            isARepeat: false
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(panel.performKeyEquivalentCallCount, 1)
+    }
+
     func testCmdDigitDoesNotFallbackToOtherWindowWhenEventWindowContextIsMissing() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -523,7 +1096,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         key: String,
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt16,
-        windowNumber: Int
+        windowNumber: Int,
+        isARepeat: Bool = false
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -534,7 +1108,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             context: nil,
             characters: key,
             charactersIgnoringModifiers: key,
-            isARepeat: false,
+            isARepeat: isARepeat,
             keyCode: keyCode
         )
     }

@@ -1085,6 +1085,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private var pendingCommandPaletteRequestByWindowId: [UUID: TimeInterval] = [:]
+    private let commandPaletteRequestGraceInterval: TimeInterval = 0.75
+    private var commandPaletteDismissFollowupEscapeSuppressionWindowId: UUID?
+    private var commandPaletteDismissFollowupEscapeSuppressionDeadline: TimeInterval = 0
+    private let commandPaletteDismissFollowupEscapeSuppressionInterval: TimeInterval = 0.75
+    private var shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = false
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -2749,6 +2755,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
         commandPaletteVisibilityByWindowId[windowId] = visible
+        if visible {
+            pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
+        }
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
@@ -2776,6 +2785,72 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func isCommandPaletteVisible(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
         return commandPaletteVisibilityByWindowId[windowId] ?? false
+    }
+
+    private func notePendingCommandPaletteRequest(for window: NSWindow?) {
+        guard let window, let windowId = mainWindowId(for: window) else { return }
+        pendingCommandPaletteRequestByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func isCommandPaletteRequestPending(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window),
+              let requestTimestamp = pendingCommandPaletteRequestByWindowId[windowId] else {
+            return false
+        }
+
+        let age = ProcessInfo.processInfo.systemUptime - requestTimestamp
+        if age <= commandPaletteRequestGraceInterval {
+            return true
+        }
+
+        pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
+        return false
+    }
+
+    private func clearPendingCommandPaletteRequest(for window: NSWindow?) {
+        guard let window, let windowId = mainWindowId(for: window) else { return }
+        pendingCommandPaletteRequestByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func armCommandPaletteDismissFollowupEscapeSuppression(for window: NSWindow) {
+        guard let windowId = mainWindowId(for: window) else {
+            clearCommandPaletteDismissFollowupEscapeSuppression()
+            return
+        }
+        commandPaletteDismissFollowupEscapeSuppressionWindowId = windowId
+        commandPaletteDismissFollowupEscapeSuppressionDeadline =
+            ProcessInfo.processInfo.systemUptime + commandPaletteDismissFollowupEscapeSuppressionInterval
+    }
+
+    private func clearCommandPaletteDismissFollowupEscapeSuppression() {
+        commandPaletteDismissFollowupEscapeSuppressionWindowId = nil
+        commandPaletteDismissFollowupEscapeSuppressionDeadline = 0
+    }
+
+    private func shouldConsumeCommandPaletteDismissFollowupEscape(
+        event: NSEvent,
+        commandPaletteTargetWindow: NSWindow?
+    ) -> Bool {
+        guard event.keyCode == 53, !event.isARepeat else { return false }
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard normalizedFlags.isEmpty else { return false }
+        guard let suppressedWindowId = commandPaletteDismissFollowupEscapeSuppressionWindowId else { return false }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now <= commandPaletteDismissFollowupEscapeSuppressionDeadline else {
+            clearCommandPaletteDismissFollowupEscapeSuppression()
+            return false
+        }
+
+        guard let targetWindow = commandPaletteTargetWindow ?? mainWindowForShortcutEvent(event),
+              let targetWindowId = mainWindowId(for: targetWindow),
+              targetWindowId == suppressedWindowId else {
+            return false
+        }
+
+        clearCommandPaletteDismissFollowupEscapeSuppression()
+        return true
     }
 
     func shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
@@ -4888,12 +4963,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
         let hasOption = flags.contains(.option)
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
+        let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
+
+        if !event.isARepeat {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = false
+            if !isPlainEscape {
+                clearCommandPaletteDismissFollowupEscapeSuppression()
+            }
+        }
+        if isPlainEscape, event.isARepeat, shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss {
+            return true
+        }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -4928,18 +5015,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 closeButton.performClick(nil)
                 return true
             }
+            if isPlainEscape {
+                _ = closeConfirmationPanel.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+                return true
+            }
             return false
         }
 
-        if NSApp.modalWindow != nil || NSApp.keyWindow?.attachedSheet != nil {
-            return false
-        }
-
-        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+        let commandPaletteRequestPendingInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteRequestPending(for: $0)
+        } ?? false
+
+        if isPlainEscape,
+           (commandPaletteVisibleInTargetWindow || commandPaletteRequestPendingInTargetWindow),
+           let paletteWindow = commandPaletteTargetWindow {
+            NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+            clearPendingCommandPaletteRequest(for: paletteWindow)
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+            armCommandPaletteDismissFollowupEscapeSuppression(for: paletteWindow)
+            return true
+        }
+
+        if isPlainEscape {
+            if let modalWindow = NSApp.modalWindow {
+                _ = modalWindow.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+                return true
+            }
+
+            if let sheetWindow = sheetWindowForEscapeEvent(event) {
+                _ = sheetWindow.performKeyEquivalent(with: event)
+                shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+                return true
+            }
+        }
+
+        if isPlainEscape,
+           shouldConsumeCommandPaletteDismissFollowupEscape(
+               event: event,
+               commandPaletteTargetWindow: commandPaletteTargetWindow
+           ) {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
+            return true
+        }
+
+        if NSApp.modalWindow != nil || sheetWindowForEscapeEvent(event) != nil {
+            return false
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
@@ -4960,6 +5087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            notePendingCommandPaletteRequest(for: targetWindow)
             return true
         }
 
@@ -4967,6 +5095,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            notePendingCommandPaletteRequest(for: targetWindow)
             return true
         }
 
@@ -5012,6 +5141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
+            shouldSuppressRepeatedPlainEscapeAfterOverlayDismiss = true
             return true
         }
 
@@ -5498,6 +5628,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #endif
 
         return false
+    }
+
+    private func sheetWindowForEscapeEvent(_ event: NSEvent) -> NSWindow? {
+        if let eventWindow = event.window, eventWindow.sheetParent != nil {
+            return eventWindow
+        }
+        if let sheet = NSApp.keyWindow?.attachedSheet {
+            return sheet
+        }
+        if let sheet = NSApp.mainWindow?.attachedSheet {
+            return sheet
+        }
+        return NSApp.windows.compactMap { $0.attachedSheet }.first(where: { $0.isVisible })
     }
 
     private func shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: SplitDirection) -> Bool {
