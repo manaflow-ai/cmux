@@ -27,6 +27,14 @@ export const testimonials = [
     platform: "x" as const,
   },
   {
+    name: "Max Forsey",
+    handle: "@max4c_",
+    avatar: "/avatars/max4c_.jpg",
+    text: "this has been my favorite tool for past two weeks",
+    url: "https://x.com/max4c_/status/2027266664270889204",
+    platform: "x" as const,
+  },
+  {
     name: "あさざ",
     handle: "@asaza_0928",
     avatar: "/avatars/asaza_0928.jpg",
