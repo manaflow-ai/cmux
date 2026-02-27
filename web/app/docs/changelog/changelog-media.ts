@@ -85,6 +85,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "CJK Input",
         description:
           "Full IME support for Korean, Chinese, and Japanese. Preedit text renders inline with proper anchoring and sizing, so composing characters works the way you'd expect.",
+        image: "/changelog/0.60.0-cjk-input.png",
       },
       {
         title: "Claude Code",
