@@ -240,3 +240,94 @@ final class SocketControlPasswordStoreTests: XCTestCase {
         XCTAssertEqual(try SocketControlPasswordStore.loadPassword(fileURL: fileURL), "legacy-secret")
     }
 }
+
+final class CmuxCLIPathInstallerTests: XCTestCase {
+    func testInstallAndUninstallRoundTripWithoutAdministratorPrivileges() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cli-installer-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let bundledCLIURL = root
+            .appendingPathComponent("cmux.app/Contents/Resources/bin/cmux", isDirectory: false)
+        try fileManager.createDirectory(
+            at: bundledCLIURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "#!/bin/sh\necho cmux\n".write(to: bundledCLIURL, atomically: true, encoding: .utf8)
+
+        let destinationURL = root.appendingPathComponent("usr/local/bin/cmux", isDirectory: false)
+
+        var privilegedInstallCallCount = 0
+        var privilegedUninstallCallCount = 0
+        let installer = CmuxCLIPathInstaller(
+            fileManager: fileManager,
+            destinationURL: destinationURL,
+            bundledCLIURLProvider: { bundledCLIURL },
+            expectedBundledCLIPath: bundledCLIURL.path,
+            privilegedInstaller: { _, _ in privilegedInstallCallCount += 1 },
+            privilegedUninstaller: { _ in privilegedUninstallCallCount += 1 }
+        )
+
+        let installOutcome = try installer.install()
+        XCTAssertFalse(installOutcome.usedAdministratorPrivileges)
+        XCTAssertEqual(privilegedInstallCallCount, 0)
+        XCTAssertTrue(installer.isInstalled())
+        XCTAssertEqual(
+            try fileManager.destinationOfSymbolicLink(atPath: destinationURL.path),
+            bundledCLIURL.path
+        )
+
+        let uninstallOutcome = try installer.uninstall()
+        XCTAssertFalse(uninstallOutcome.usedAdministratorPrivileges)
+        XCTAssertTrue(uninstallOutcome.removedExistingEntry)
+        XCTAssertEqual(privilegedUninstallCallCount, 0)
+        XCTAssertFalse(fileManager.fileExists(atPath: destinationURL.path))
+        XCTAssertFalse(installer.isInstalled())
+    }
+
+    func testInstallFallsBackToAdministratorFlowWhenDestinationIsNotWritable() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-cli-installer-tests-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let bundledCLIURL = root
+            .appendingPathComponent("cmux.app/Contents/Resources/bin/cmux", isDirectory: false)
+        try fileManager.createDirectory(
+            at: bundledCLIURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "#!/bin/sh\necho cmux\n".write(to: bundledCLIURL, atomically: true, encoding: .utf8)
+
+        let destinationURL = root.appendingPathComponent("usr/local/bin/cmux", isDirectory: false)
+        let destinationDir = destinationURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: destinationDir.path)
+        defer {
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationDir.path)
+        }
+
+        var privilegedInstallCallCount = 0
+        let installer = CmuxCLIPathInstaller(
+            fileManager: fileManager,
+            destinationURL: destinationURL,
+            bundledCLIURLProvider: { bundledCLIURL },
+            expectedBundledCLIPath: bundledCLIURL.path,
+            privilegedInstaller: { sourceURL, privilegedDestinationURL in
+                privilegedInstallCallCount += 1
+                XCTAssertEqual(sourceURL.standardizedFileURL, bundledCLIURL.standardizedFileURL)
+                XCTAssertEqual(privilegedDestinationURL.standardizedFileURL, destinationURL.standardizedFileURL)
+                try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destinationDir.path)
+                try fileManager.createSymbolicLink(at: privilegedDestinationURL, withDestinationURL: sourceURL)
+            }
+        )
+
+        let installOutcome = try installer.install()
+        XCTAssertTrue(installOutcome.usedAdministratorPrivileges)
+        XCTAssertEqual(privilegedInstallCallCount, 1)
+        XCTAssertTrue(installer.isInstalled())
+    }
+}
