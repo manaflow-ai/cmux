@@ -18,11 +18,6 @@ export default function BrowserAutomationPage() {
         elements, inspect page state, evaluate JavaScript, and manage browser
         session data.
       </p>
-      <Callout>
-        This page documents canonical, currently supported browser subcommands.
-        Legacy aliases and commands that are intentionally unsupported on
-        WKWebView are omitted.
-      </Callout>
 
       <h2>Command Index</h2>
       <table>
