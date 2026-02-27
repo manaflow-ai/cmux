@@ -1238,6 +1238,7 @@ struct ContentView: View {
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
+    @State private var commandPaletteFlashingIndex: Int? = nil
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -2675,7 +2676,12 @@ struct ContentView: View {
                     .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                     .focused($isCommandPaletteSearchFocused)
                     .onSubmit {
-                        runSelectedCommandPaletteResult(visibleResults: visibleResults)
+                        let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
+                        guard index < visibleResults.count else {
+                            NSSound.beep()
+                            return
+                        }
+                        triggerCommandPaletteFlashAndRun(index: index, command: visibleResults[index].command)
                     }
                     .backport.onKeyPress(.downArrow) { _ in
                         moveCommandPaletteSelection(by: 1)
@@ -2717,12 +2723,15 @@ struct ContentView: View {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
-                            let rowBackground: Color = isSelected
-                                ? cmuxAccentColor().opacity(0.12)
-                                : (isHovered ? Color.primary.opacity(0.08) : .clear)
+                            let isFlashing = commandPaletteFlashingIndex == index
+                            let rowBackground: Color = isFlashing
+                                ? cmuxAccentColor().opacity(0.3)
+                                : (isSelected
+                                    ? cmuxAccentColor().opacity(0.12)
+                                    : (isHovered ? Color.primary.opacity(0.08) : .clear))
 
                             Button {
-                                runCommandPaletteCommand(result.command)
+                                triggerCommandPaletteFlashAndRun(index: index, command: result.command)
                             } label: {
                                 HStack(spacing: 8) {
                                     commandPaletteHighlightedTitleText(
@@ -4382,6 +4391,21 @@ struct ContentView: View {
         return .handled
     }
 
+    private func triggerCommandPaletteFlashAndRun(index: Int, command: CommandPaletteCommand) {
+        // Commands that keep the palette open (dismissOnRun: false) skip the flash.
+        guard command.dismissOnRun else {
+            runCommandPaletteCommand(command)
+            return
+        }
+        withAnimation(.easeOut(duration: 0.15)) {
+            commandPaletteFlashingIndex = index
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            commandPaletteFlashingIndex = nil
+            runCommandPaletteCommand(command)
+        }
+    }
+
     private func runSelectedCommandPaletteResult(visibleResults: [CommandPaletteSearchResult]? = nil) {
         let visibleResults = visibleResults ?? Array(commandPaletteResults)
         guard !visibleResults.isEmpty else {
@@ -4533,6 +4557,7 @@ struct ContentView: View {
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
+        commandPaletteFlashingIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         resetCommandPaletteSearchFocus()
@@ -4547,6 +4572,7 @@ struct ContentView: View {
         commandPaletteRenameDraft = ""
         commandPaletteSelectedResultIndex = 0
         commandPaletteHoveredResultIndex = nil
+        commandPaletteFlashingIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
         isCommandPaletteSearchFocused = false
