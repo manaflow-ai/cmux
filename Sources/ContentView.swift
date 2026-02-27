@@ -1831,7 +1831,7 @@ struct ContentView: View {
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
@@ -2435,8 +2435,7 @@ struct ContentView: View {
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
             // Ghostty theme colors remain authoritative.
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
-                && bgGlassEnabled
+            if bgGlassEnabled
                 && !WindowGlassEffect.isAvailable {
                 window.isOpaque = false
                 window.backgroundColor = .clear

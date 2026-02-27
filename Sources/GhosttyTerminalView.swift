@@ -12,9 +12,8 @@ import IOSurface
 #if os(macOS)
 private func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     let defaults = UserDefaults.standard
-    let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
-    let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? true
-    return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
+    let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false
+    return bgGlassEnabled && !WindowGlassEffect.isAvailable
 }
 #endif
 
