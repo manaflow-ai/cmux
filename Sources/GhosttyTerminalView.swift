@@ -1225,15 +1225,12 @@ class GhosttyApp {
             if let tabId = surfaceView.tabId,
                let surfaceId = surfaceView.terminalSurface?.id {
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(
-                        name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
-                    )
+                    let appDelegate = AppDelegate.shared
+                    if let tabManager = appDelegate?.tabManagerFor(tabId: tabId) {
+                        tabManager.handleGhosttySetTitle(tabId: tabId, surfaceId: surfaceId, title: title)
+                    } else if let tabManager = appDelegate?.tabManager {
+                        tabManager.handleGhosttySetTitle(tabId: tabId, surfaceId: surfaceId, title: title)
+                    }
                 }
             }
             return true

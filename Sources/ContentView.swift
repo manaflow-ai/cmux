@@ -1212,7 +1212,6 @@ struct ContentView: View {
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastSidebarSelectionIndex: Int? = nil
-    @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
@@ -1222,7 +1221,6 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
-    @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
     @State private var sidebarResizerPointerMonitor: Any?
     @State private var isResizerBandActive = false
@@ -1885,7 +1883,7 @@ struct ContentView: View {
                     DraggableFolderIcon(directory: directory)
                 }
 
-                Text(titlebarText)
+                Text(tabManager.selectedCommandTitle)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundColor(fakeTitlebarTextColor)
                     .lineLimit(1)
@@ -1907,26 +1905,6 @@ struct ContentView: View {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
                 .frame(height: 1)
-        }
-    }
-
-    private func updateTitlebarText() {
-        guard let selectedId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            if !titlebarText.isEmpty {
-                titlebarText = ""
-            }
-            return
-        }
-        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if titlebarText != title {
-            titlebarText = title
-        }
-    }
-
-    private func scheduleTitlebarTextRefresh() {
-        titlebarTextUpdateCoalescer.signal {
-            updateTitlebarText()
         }
     }
 
@@ -2056,7 +2034,6 @@ struct ContentView: View {
                 selectedTabIds = [selectedId]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
-            updateTitlebarText()
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -2078,7 +2055,6 @@ struct ContentView: View {
                 selectedTabIds = [newValue]
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == newValue }
             }
-            updateTitlebarText()
         })
 
         view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
@@ -2099,22 +2075,14 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  tabId == tabManager.selectedTabId else { return }
-            scheduleTitlebarTextRefresh()
-        })
-
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusTab)) { _ in
             sidebarSelectionState.selection = .tabs
-            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidFocusSurface)) { notification in
             guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
                   tabId == tabManager.selectedTabId else { return }
             completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "focus")
-            scheduleTitlebarTextRefresh()
         })
 
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
