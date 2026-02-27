@@ -136,14 +136,16 @@ function HeroImage({ src, version }: { src: string; version: string }) {
 function FeatureImage({ src, alt }: { src: string; alt: string }) {
   const { width, height } = pngDimensions(src);
   return (
-    <Image
-      src={src}
-      alt={alt}
-      width={width}
-      height={height}
-      sizes="(max-width: 640px) 100vw, 640px"
-      className="w-full h-auto rounded-lg border border-border mt-3"
-    />
+    <div className="mt-3 overflow-hidden rounded-lg border border-border">
+      <Image
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        sizes="(max-width: 640px) 100vw, 640px"
+        className="block w-full max-w-full h-auto"
+      />
+    </div>
   );
 }
 
@@ -237,7 +239,7 @@ export default function ChangelogPage() {
   const versions = parseChangelog(markdown);
 
   return (
-    <div className="max-w-[640px]">
+    <div className="max-w-[640px] overflow-hidden">
       <h1>Changelog</h1>
 
       <div className="mt-8">
