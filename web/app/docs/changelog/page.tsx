@@ -156,7 +156,7 @@ function FeatureList({ media }: { media: VersionMedia }) {
     <div className="mt-5 space-y-6">
       {media.features.map((feature, i) => (
         <div key={i}>
-          <p className="!mb-0">
+          <p className="mb-0">
             <strong>{feature.title}.</strong>{" "}
             <span className="text-muted">{feature.description}</span>
           </p>
@@ -270,7 +270,7 @@ export default function ChangelogPage() {
               </div>
 
               {media?.title && (
-                <h2 className="!mt-3 !mb-0 text-[1.5rem] font-bold tracking-tight">
+                <h2 className="mt-3 mb-0 text-[1.5rem] font-bold tracking-tight">
                   {media.title}
                 </h2>
               )}
@@ -307,7 +307,7 @@ export default function ChangelogPage() {
                       {section.heading && (
                         <SectionBadge heading={section.heading} />
                       )}
-                      <ul className="!mt-2 !mb-0">
+                      <ul className="mt-2 mb-0">
                         {section.items.map((item, j) => (
                           <li key={j} className="text-[14px]">
                             <InlineMarkdown text={item} />
