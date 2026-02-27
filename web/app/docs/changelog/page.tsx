@@ -125,10 +125,10 @@ function FeatureList({ media }: { media: VersionMedia }) {
   if (!media.features?.length) return null;
 
   return (
-    <div className="mt-4 space-y-5">
+    <div className="mt-5 space-y-6">
       {media.features.map((feature, i) => (
         <div key={i}>
-          <p className="!mb-1">
+          <p className="!mb-0">
             <strong>{feature.title}.</strong>{" "}
             <span className="text-muted">{feature.description}</span>
           </p>
@@ -138,7 +138,7 @@ function FeatureList({ media }: { media: VersionMedia }) {
               alt={feature.title}
               width={1200}
               height={675}
-              className="w-full h-auto rounded-lg border border-border mt-2"
+              className="w-full h-auto rounded-lg border border-border mt-3"
             />
           )}
         </div>
@@ -217,11 +217,11 @@ export default function ChangelogPage() {
   const versions = parseChangelog(markdown);
 
   return (
-    <div>
+    <div className="max-w-[640px]">
       <h1>Changelog</h1>
       <p>What&apos;s new in cmux.</p>
 
-      <div className="mt-8 space-y-0">
+      <div className="mt-8">
         {versions.map((v) => {
           const media = changelogMedia[v.version];
 
@@ -229,27 +229,29 @@ export default function ChangelogPage() {
             <article
               key={v.version}
               id={`v${v.version}`}
-              className="relative border-t border-border py-8 first:border-t-0"
+              className="relative border-t border-border py-10 first:border-t-0"
             >
-              <div className="flex items-baseline gap-3">
+              <div className="flex items-center gap-3">
                 <a
                   href={`#v${v.version}`}
-                  className="no-underline! hover:underline!"
+                  className="no-underline! hover:no-underline!"
                 >
-                  <h2 className="!mt-0 !mb-0">{v.version}</h2>
+                  <span className="inline-block text-[13px] font-mono text-muted bg-code-bg px-2 py-0.5 rounded-md">
+                    {v.version}
+                  </span>
                 </a>
                 <time
-                  className="text-[13px] text-muted font-mono"
+                  className="text-[13px] text-muted"
                   dateTime={v.date}
                 >
                   {formatDate(v.date)}
                 </time>
               </div>
 
-              {media?.summary && (
-                <p className="text-[15px] text-muted leading-relaxed mt-2 mb-0">
-                  {media.summary}
-                </p>
+              {media?.title && (
+                <h2 className="!mt-3 !mb-0 text-[1.5rem] font-bold tracking-tight">
+                  {media.title}
+                </h2>
               )}
 
               {media?.hero && (
@@ -258,13 +260,13 @@ export default function ChangelogPage() {
 
               {media && <FeatureList media={media} />}
 
-              {v.intro && !media?.summary && (
-                <p className="text-[14px] text-muted italic mt-2 mb-0">
+              {v.intro && !media && (
+                <p className="text-[14px] text-muted italic mt-3 mb-0">
                   {v.intro.replace(/^_/, "").replace(/_$/, "")}
                 </p>
               )}
 
-              <div className="mt-4 space-y-4">
+              <div className="mt-5 space-y-4">
                 {v.sections.map((section, i) => {
                   const isContributors = section.heading
                     .toLowerCase()

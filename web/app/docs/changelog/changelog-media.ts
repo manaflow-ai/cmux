@@ -2,7 +2,7 @@
  * Supplementary media and narrative for changelog versions.
  *
  * CHANGELOG.md remains the source of truth for the raw list of changes.
- * This file adds hero images, feature highlights, and narrative summaries
+ * This file adds titles, feature highlights, and narrative descriptions
  * for major releases. Versions not listed here render as plain bullet lists.
  *
  * Images live in public/changelog/ and should be 2x (e.g. 1600×900 for a
@@ -17,84 +17,76 @@ export interface FeatureHighlight {
 }
 
 export interface VersionMedia {
-  /** One-line narrative summary shown below the version heading. */
-  summary: string;
+  /** Big title shown as a heading, summarizing the main features. */
+  title: string;
   /** Hero image shown at the top of the version entry. */
   hero?: string;
-  /** Feature highlights with optional screenshots. Shown as a grid above the bullet list. */
+  /** Feature highlights shown inline below the title. */
   features?: FeatureHighlight[];
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
   "0.61.0": {
-    summary:
-      "Open with your favorite editor, command palette, tab colors, workspace metadata, and a refreshed theme across the entire app.",
+    title: "Tab Colors, Command Palette, Open With",
     features: [
-      {
-        title: "Open With",
-        description:
-          "Open your current directory in VS Code, Cursor, Zed, Xcode, Finder, or any other editor directly from the command palette.",
-        image: "/changelog/0.61.0-open-with.png",
-      },
       {
         title: "Tab Colors",
         description:
-          "Right-click any workspace to assign a color. 17 presets plus a custom color picker for visual organization.",
+          "Right-click any workspace in the sidebar to assign it a color. There are 17 presets to choose from, or pick a custom color. Colors show on the tab itself and on the workspace indicator rail.",
         image: "/changelog/0.61.0-tab-colors.png",
       },
       {
         title: "Command Palette",
         description:
-          "Cmd+Shift+P opens a searchable palette for actions, settings, and switching between windows and workspaces.",
+          "Hit Cmd+Shift+P to open a searchable command palette. Every action in cmux is here: creating workspaces, toggling the sidebar, checking for updates, switching windows. Keyboard shortcuts are shown inline so you can learn them as you go.",
         image: "/changelog/0.61.0-command-palette.png",
+      },
+      {
+        title: "Open With",
+        description:
+          "You can now open your current directory in VS Code, Cursor, Zed, Xcode, Finder, or any other editor directly from the command palette. Type \"open\" and pick your editor.",
+        image: "/changelog/0.61.0-open-with.png",
       },
       {
         title: "Workspace Metadata",
         description:
-          "Sidebar shows PR links, listening ports, git branches, and working directories across all panes in a workspace.",
+          "The sidebar now shows richer context for each workspace: PR links that open in the browser, listening ports, git branches, and working directories across all panes.",
         image: "/changelog/0.61.0-workspace-metadata.png",
       },
     ],
   },
   "0.60.0": {
-    summary:
-      "Tab context menus, browser file uploads, notification rings, CJK input, and Claude Code integration.",
-    // hero: "/changelog/0.60.0-hero.png",
+    title: "Context Menus, Notification Rings, CJK Input",
     features: [
       {
         title: "Tab Context Menu",
         description:
-          "Right-click any tab to rename, close, mark as unread, or move it to another workspace.",
-        // image: "/changelog/0.60.0-tab-context-menu.png",
+          "Right-click any tab to rename it, close it, mark it as unread, or move it to another workspace. All the tab actions that used to require keyboard shortcuts are now accessible from a menu.",
       },
       {
         title: "Notification Rings",
         description:
-          "Terminal panes show an animated ring when a background process sends a notification.",
-        // image: "/changelog/0.60.0-notification-rings.png",
+          "When a background process sends a notification (like a long build finishing), the terminal pane shows an animated ring so you can spot it at a glance without switching workspaces.",
       },
       {
         title: "CJK Input",
         description:
-          "Full IME support for Korean, Chinese, and Japanese input methods.",
-        // image: "/changelog/0.60.0-cjk-input.png",
+          "Full IME support for Korean, Chinese, and Japanese. Preedit text renders inline with proper anchoring and sizing, so composing characters works the way you'd expect.",
       },
       {
-        title: "Claude Code Integration",
+        title: "Claude Code",
         description:
-          "Claude Code is enabled by default with workspace-aware routing and read-screen APIs.",
-        // image: "/changelog/0.60.0-claude-code.png",
+          "Claude Code integration is now enabled by default. Each workspace gets its own routing context, and agents can read terminal screen contents via the API.",
       },
     ],
   },
   "0.32.0": {
-    summary: "Sidebar metadata, port scanning, and browser workspace targeting.",
+    title: "Sidebar Metadata",
     features: [
       {
         title: "Sidebar Metadata",
         description:
-          "Git branch, listening ports, log entries, progress bars, and status pills in the sidebar.",
-        // image: "/changelog/0.32.0-sidebar-metadata.png",
+          "The sidebar now displays git branch, listening ports, log entries, progress bars, and status pills for each workspace.",
       },
     ],
   },
