@@ -336,7 +336,7 @@ struct EmptyPanelView: View {
         dlog("emptyPane.newMarkdown pane=\(paneId.id.uuidString.prefix(5))")
 #endif
         focusPane()
-        _ = AppDelegate.shared?.openMarkdownFileInFocusedWorkspace()
+        _ = AppDelegate.shared?.openMarkdownFileInFocusedWorkspace(preferredPaneId: paneId)
     }
 
     private var newSurfaceShortcut: StoredShortcut {

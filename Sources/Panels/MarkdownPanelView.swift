@@ -115,20 +115,35 @@ enum MarkdownPreviewRenderer {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
     }
-    function cmuxExtractHtmlTags(input) {
+    function cmuxExtractAllowedTableTags(input) {
       const tags = [];
-      const tokenized = String(input).replace(/<\\/?[a-zA-Z][^>]*>/g, (tag) => {
+      const tokenized = String(input).replace(
+        /<\\/?(?:table|thead|tbody|tfoot|tr|th|td|caption|colgroup|col)\\b[^>]*>/gi,
+        (tag) => {
         const token = `__CMUX_HTML_TAG_${tags.length}__`;
         tags.push(tag);
         return token;
       });
       return { tokenized, tags };
     }
-    function cmuxRestoreHtmlTags(input, tags) {
+    function cmuxRestoreAllowedTableTags(input, tags) {
       return String(input).replace(/__CMUX_HTML_TAG_(\\d+)__/g, (_, idx) => {
         const i = Number(idx);
         return Number.isNaN(i) ? '' : (tags[i] || '');
       });
+    }
+    function cmuxSanitizeHref(rawHref) {
+      const href = String(rawHref || '').trim();
+      if (!href) return '#';
+      if (href.startsWith('#') || href.startsWith('/') || href.startsWith('//')) return href;
+      if (/^\\.\\.?\\//.test(href)) return href;
+      try {
+        const parsed = new URL(href, 'https://cmux.local');
+        const protocol = parsed.protocol.toLowerCase();
+        return (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') ? href : '#';
+      } catch {
+        return '#';
+      }
     }
     function cmuxSplitTableRow(row) {
       let value = String(row).trim();
@@ -137,13 +152,16 @@ enum MarkdownPreviewRenderer {
       return value.split('|').map(cell => cell.trim());
     }
     function cmuxInline(input) {
-      const extracted = cmuxExtractHtmlTags(input);
+      const extracted = cmuxExtractAllowedTableTags(input);
       let text = cmuxEscapeHtml(extracted.tokenized);
       text = text.replace(/`([^`\\n]+)`/g, '<code>$1</code>');
       text = text.replace(/\\*\\*([^*\\n]+)\\*\\*/g, '<strong>$1</strong>');
       text = text.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>');
-      text = text.replace(/\\[([^\\]]+)\\]\\(([^\\)\\s]+)\\)/g, '<a href="$2">$1</a>');
-      return cmuxRestoreHtmlTags(text, extracted.tags);
+      text = text.replace(
+        /\\[([^\\]]+)\\]\\(([^\\)\\s]+)\\)/g,
+        (_, label, href) => '<a href="' + cmuxEscapeHtml(cmuxSanitizeHref(href)) + '">' + label + '</a>'
+      );
+      return cmuxRestoreAllowedTableTags(text, extracted.tags);
     }
     function cmuxRenderMarkdown(source) {
       const lines = String(source).replace(/\\r\\n?/g, '\\n').split('\\n');
@@ -151,7 +169,7 @@ enum MarkdownPreviewRenderer {
       let i = 0;
       const isTableDivider = (line) => /^\\s*\\|?(\\s*:?-{3,}:?\\s*\\|)+\\s*:?-{3,}:?\\s*\\|?\\s*$/.test(line);
       const blockStart = (line) => /^(\\s*$|#{1,6}\\s+|\\s*>|\\s*```|\\s*[-+*]\\s+|\\s*\\d+\\.\\s+)/.test(line);
-      const isRawHtmlLine = (line) => /^\\s*<\\/?[a-zA-Z][\\w:-]*(\\s[^>]*)?>\\s*$/.test(line) || /^\\s*<!--.*-->\\s*$/.test(line);
+      const isRawHtmlLine = (line) => /^\\s*<!--.*-->\\s*$/.test(line);
       while (i < lines.length) {
         const line = lines[i];
         if (/^\\s*$/.test(line)) { i++; continue; }
@@ -275,22 +293,29 @@ enum MarkdownPreviewRenderer {
 private struct MarkdownPreviewTextView: NSViewRepresentable {
     let markdown: String
 
+    final class Coordinator {
+        var lastRenderedHTML: String?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> CmuxWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.preferredContentMode = .desktop
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
-        webView.loadHTMLString(
-            MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode()),
-            baseURL: nil
-        )
+        let html = MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode())
+        webView.loadHTMLString(html, baseURL: nil)
+        context.coordinator.lastRenderedHTML = html
         return webView
     }
 
     func updateNSView(_ nsView: CmuxWebView, context: Context) {
-        nsView.loadHTMLString(
-            MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode()),
-            baseURL: nil
-        )
+        let html = MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode())
+        guard context.coordinator.lastRenderedHTML != html else { return }
+        nsView.loadHTMLString(html, baseURL: nil)
+        context.coordinator.lastRenderedHTML = html
     }
 
     private func resolvedIsDarkMode() -> Bool {
@@ -334,6 +359,7 @@ private struct MarkdownEditorTextView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.string = text
         highlighter.apply(to: textView)
+        context.coordinator.lastHighlightedIsDarkMode = isDarkMode(for: textView)
 
         scrollView.documentView = textView
         return scrollView
@@ -341,19 +367,27 @@ private struct MarkdownEditorTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
+        let currentIsDarkMode = isDarkMode(for: textView)
         if textView.string != text {
             context.coordinator.isProgrammaticUpdate = true
             textView.string = text
             highlighter.apply(to: textView)
             context.coordinator.isProgrammaticUpdate = false
-        } else {
+            context.coordinator.lastHighlightedIsDarkMode = currentIsDarkMode
+        } else if context.coordinator.lastHighlightedIsDarkMode != currentIsDarkMode {
             highlighter.apply(to: textView)
+            context.coordinator.lastHighlightedIsDarkMode = currentIsDarkMode
         }
+    }
+
+    private func isDarkMode(for textView: NSTextView) -> Bool {
+        textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: MarkdownEditorTextView
         var isProgrammaticUpdate = false
+        var lastHighlightedIsDarkMode: Bool?
 
         init(parent: MarkdownEditorTextView) {
             self.parent = parent
@@ -364,6 +398,7 @@ private struct MarkdownEditorTextView: NSViewRepresentable {
                   let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
             parent.highlighter.apply(to: textView)
+            lastHighlightedIsDarkMode = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         }
     }
 }

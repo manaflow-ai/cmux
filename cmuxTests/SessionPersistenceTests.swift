@@ -735,7 +735,8 @@ final class SessionPersistenceTests: XCTestCase {
         let source = SessionMarkdownPanelSnapshot(
             filePath: "/tmp/test.md",
             text: "# Hello\n\nWorld",
-            isPreviewMode: true
+            isPreviewMode: true,
+            lastSavedText: "# Hello"
         )
 
         let data = try JSONEncoder().encode(source)
@@ -743,6 +744,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.filePath, "/tmp/test.md")
         XCTAssertEqual(decoded.text, "# Hello\n\nWorld")
         XCTAssertTrue(decoded.isPreviewMode)
+        XCTAssertEqual(decoded.lastSavedText, "# Hello")
     }
 
     func testSessionPanelSnapshotMarkdownRoundTrip() throws {
@@ -762,7 +764,8 @@ final class SessionPersistenceTests: XCTestCase {
             markdown: SessionMarkdownPanelSnapshot(
                 filePath: "/tmp/note.md",
                 text: "| a | b |\n|---|---|\n| 1 | 2 |",
-                isPreviewMode: false
+                isPreviewMode: false,
+                lastSavedText: "| a | b |\n|---|---|"
             )
         )
 
@@ -771,6 +774,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(decoded.type, .markdown)
         XCTAssertEqual(decoded.markdown?.filePath, "/tmp/note.md")
         XCTAssertEqual(decoded.markdown?.isPreviewMode, false)
+        XCTAssertEqual(decoded.markdown?.lastSavedText, "| a | b |\n|---|---|")
     }
 
     func testMarkdownPreviewRendererUsesLocalAssetsAndNoCDNDependencies() {
@@ -779,8 +783,9 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(lightHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
         XCTAssertTrue(lightHTML.contains("<article id=\"content\" class=\"markdown-body\"></article>"))
         XCTAssertTrue(lightHTML.contains("cmuxRenderMarkdown(raw)"))
-        XCTAssertTrue(lightHTML.contains("function cmuxExtractHtmlTags(input)"))
-        XCTAssertTrue(lightHTML.contains("function cmuxRestoreHtmlTags(input, tags)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxExtractAllowedTableTags(input)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxRestoreAllowedTableTags(input, tags)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxSanitizeHref(rawHref)"))
         XCTAssertTrue(lightHTML.contains("const isRawHtmlLine = (line) =>"))
         XCTAssertTrue(lightHTML.contains("if (/^\\s*<table(\\s|>)/i.test(line))"))
         XCTAssertTrue(lightHTML.contains(".markdown-body table th *, .markdown-body table td *"))

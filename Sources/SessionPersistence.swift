@@ -239,6 +239,7 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String?
     var text: String
     var isPreviewMode: Bool
+    var lastSavedText: String? = nil
 }
 
 struct SessionPanelSnapshot: Codable, Sendable {

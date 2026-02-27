@@ -33,6 +33,7 @@ final class MarkdownPanel: Panel, ObservableObject {
     var displayIcon: String? { "doc.text" }
 
     var isDirty: Bool { text != lastSavedText }
+    var savedTextBaseline: String { lastSavedText }
 
     init(
         workspaceId: UUID,

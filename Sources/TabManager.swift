@@ -2147,10 +2147,12 @@ class TabManager: ObservableObject {
         inPane preferredPaneId: PaneID? = nil,
         insertAtEnd: Bool = true
     ) -> UUID? {
-        let resolvedWorkspaceId = workspaceId ?? selectedTabId
-        guard let tabId = resolvedWorkspaceId,
+        guard let tabId = workspaceId ?? selectedTabId,
               let workspace = tabs.first(where: { $0.id == tabId }) else {
             return nil
+        }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
         }
 
         let paneId: PaneID?

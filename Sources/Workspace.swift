@@ -349,7 +349,8 @@ extension Workspace {
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.fileURL?.path,
                 text: markdownPanel.text,
-                isPreviewMode: markdownPanel.isPreviewMode
+                isPreviewMode: markdownPanel.isPreviewMode,
+                lastSavedText: markdownPanel.savedTextBaseline
             )
         }
 
@@ -534,6 +535,7 @@ extension Workspace {
                 inPane: paneId,
                 fileURL: fileURL,
                 initialText: restoredText,
+                lastSavedText: snapshot.markdown?.lastSavedText,
                 isPreviewMode: restoredPreviewMode,
                 focus: false
             ) else {
@@ -2163,6 +2165,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+        if let directory = markdownPanel.fileURL?.deletingLastPathComponent().path,
+           !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            updatePanelDirectory(panelId: markdownPanel.id, directory: directory)
+        }
 
         let newTab = Bonsplit.Tab(
             title: markdownPanel.displayTitle,
@@ -2207,6 +2213,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         fileURL: URL?,
         initialText: String? = nil,
+        lastSavedText: String? = nil,
         isPreviewMode: Bool = false,
         focus: Bool? = nil,
         insertAtEnd: Bool = false
@@ -2220,7 +2227,7 @@ final class Workspace: Identifiable, ObservableObject {
                 fileURL: fileURL,
                 text: initialText,
                 isPreviewMode: isPreviewMode,
-                lastSavedText: initialText
+                lastSavedText: lastSavedText ?? initialText
             )
         } else if let fileURL {
             do {

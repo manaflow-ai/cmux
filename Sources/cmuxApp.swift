@@ -387,9 +387,7 @@ struct cmuxApp: App {
                 Divider()
 
                 splitCommandButton(title: "Open Markdown File…", shortcut: KeyboardShortcutSettings.openMarkdownShortcut()) {
-                    if appDelegate.openMarkdownFileInFocusedWorkspace() == nil {
-                        NSSound.beep()
-                    }
+                    _ = appDelegate.openMarkdownFileInFocusedWorkspace()
                 }
             }
 
