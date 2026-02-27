@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import fs from "fs";
 import path from "path";
+import Image from "next/image";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
 export const metadata: Metadata = {
@@ -105,21 +106,16 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function isMajorRelease(
-  v: ChangelogVersion,
-  media: VersionMedia | undefined
-): boolean {
-  return !!media?.features?.length || v.sections.length >= 3;
-}
-
 function HeroImage({ src, version }: { src: string; version: string }) {
   return (
     <div className="mt-4 mb-6 overflow-hidden rounded-lg border border-border">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <Image
         src={src}
         alt={`cmux ${version}`}
+        width={1600}
+        height={900}
         className="w-full h-auto"
+        priority
       />
     </div>
   );
@@ -128,24 +124,19 @@ function HeroImage({ src, version }: { src: string; version: string }) {
 function FeatureGrid({ media }: { media: VersionMedia }) {
   if (!media.features?.length) return null;
 
-  const hasAnyImage = media.features.some((f) => f.image);
-
   return (
-    <div
-      className={`mt-4 mb-6 grid gap-3 ${
-        hasAnyImage ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2"
-      }`}
-    >
+    <div className="mt-4 mb-6 grid gap-3 grid-cols-1 sm:grid-cols-2">
       {media.features.map((feature, i) => (
         <div
           key={i}
           className="rounded-lg border border-border overflow-hidden"
         >
           {feature.image && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
+            <Image
               src={feature.image}
               alt={feature.title}
+              width={800}
+              height={450}
               className="w-full h-auto border-b border-border"
             />
           )}
@@ -177,8 +168,7 @@ function ContributorList({ items }: { items: string[] }) {
               href={match[2]}
               className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border text-[13px] text-muted hover:text-foreground transition-colors no-underline!"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <Image
                 src={`https://github.com/${match[1]}.png?size=48`}
                 alt={match[1]}
                 width={18}
@@ -241,15 +231,12 @@ export default function ChangelogPage() {
       <div className="mt-8 space-y-0">
         {versions.map((v) => {
           const media = changelogMedia[v.version];
-          const major = isMajorRelease(v, media);
 
           return (
             <article
               key={v.version}
               id={`v${v.version}`}
-              className={`relative border-t border-border py-8 first:border-t-0 ${
-                major ? "" : ""
-              }`}
+              className="relative border-t border-border py-8 first:border-t-0"
             >
               <div className="flex items-baseline gap-3">
                 <a
