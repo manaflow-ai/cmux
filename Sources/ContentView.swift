@@ -4057,14 +4057,17 @@ struct ContentView: View {
             tabManager.addWorkspace()
         }
         registry.register(commandId: "palette.openFolder") {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.title = "Open Folder"
-            panel.prompt = "Open"
-            if panel.runModal() == .OK, let url = panel.url {
-                tabManager.addWorkspace(workingDirectory: url.path)
+            // Defer so the command palette dismisses before the modal sheet appears.
+            DispatchQueue.main.async {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.title = "Open Folder"
+                panel.prompt = "Open"
+                if panel.runModal() == .OK, let url = panel.url {
+                    tabManager.addWorkspace(workingDirectory: url.path)
+                }
             }
         }
         registry.register(commandId: "palette.newWindow") {
