@@ -275,10 +275,10 @@ enum MarkdownPreviewRenderer {
 private struct MarkdownPreviewTextView: NSViewRepresentable {
     let markdown: String
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> CmuxWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.preferredContentMode = .desktop
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = CmuxWebView(frame: .zero, configuration: configuration)
         webView.loadHTMLString(
             MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode()),
             baseURL: nil
@@ -286,7 +286,7 @@ private struct MarkdownPreviewTextView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ nsView: CmuxWebView, context: Context) {
         nsView.loadHTMLString(
             MarkdownPreviewRenderer.renderedHTML(markdown: markdown, isDarkMode: resolvedIsDarkMode()),
             baseURL: nil
