@@ -3362,6 +3362,8 @@ struct ContentView: View {
             return .splitDown
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
+        case "palette.triggerFlash":
+            return .triggerFlash
         default:
             return nil
         }
@@ -3589,6 +3591,14 @@ struct ContentView: View {
                 title: constant("Toggle Sidebar"),
                 subtitle: constant("Layout"),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.triggerFlash",
+                title: constant("Flash Focused Panel"),
+                subtitle: constant("View"),
+                keywords: ["flash", "highlight", "focus", "panel"]
             )
         )
         contributions.append(
@@ -4080,6 +4090,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.triggerFlash") {
+            tabManager.triggerFocusFlash()
         }
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
