@@ -6339,6 +6339,7 @@ private struct TabItemView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage(SidebarFontSizeSettings.key) private var sidebarFontSizeRaw = SidebarFontSizeSettings.defaultSize.rawValue
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
 
@@ -6356,6 +6357,10 @@ private struct TabItemView: View {
 
     private var activeTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: activeTabIndicatorStyleRaw)
+    }
+
+    private var sidebarFontSize: SidebarFontSize {
+        SidebarFontSize(rawValue: sidebarFontSizeRaw) ?? .default
     }
 
     private var titleFontWeight: Font.Weight {
@@ -6455,7 +6460,7 @@ private struct TabItemView: View {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: sidebarFontSize.badgeSize, weight: .semibold))
                             .foregroundColor(.white)
                     }
                     .frame(width: 16, height: 16)
@@ -6463,12 +6468,12 @@ private struct TabItemView: View {
 
                 if tab.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: sidebarFontSize.badgeSize, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(.system(size: sidebarFontSize.titleSize, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -6483,7 +6488,7 @@ private struct TabItemView: View {
                         tabManager.closeWorkspaceWithConfirmation(tab)
                     }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: sidebarFontSize.badgeSize, weight: .medium))
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
@@ -6496,7 +6501,7 @@ private struct TabItemView: View {
                         Text(workspaceShortcutLabel)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(.system(size: sidebarFontSize.metadataSize, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .foregroundColor(activePrimaryTextColor)
                             .padding(.horizontal, 6)
@@ -6515,7 +6520,7 @@ private struct TabItemView: View {
 
             if let subtitle = latestNotificationSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(.system(size: sidebarFontSize.metadataSize))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -6589,7 +6594,7 @@ private struct TabItemView: View {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
+                                    .font(.system(size: sidebarFontSize.badgeSize))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
@@ -6597,7 +6602,7 @@ private struct TabItemView: View {
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: sidebarFontSize.branchSize, design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -6610,7 +6615,7 @@ private struct TabItemView: View {
                                         }
                                         if let directory = line.directory {
                                             Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(.system(size: sidebarFontSize.branchSize, design: .monospaced))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -6624,11 +6629,11 @@ private struct TabItemView: View {
                     HStack(spacing: 3) {
                         if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
+                                .font(.system(size: sidebarFontSize.badgeSize))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.system(size: sidebarFontSize.branchSize, design: .monospaced))
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
