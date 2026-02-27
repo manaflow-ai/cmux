@@ -62,13 +62,19 @@ export const changelogMedia: Record<string, VersionMedia> = {
     ],
   },
   "0.60.0": {
-    title: "Tab Context Menu, Notification Rings, CJK Input",
+    title: "Tab Context Menu, DevTools, Notification Rings, CJK Input",
     features: [
       {
         title: "Tab Context Menu",
         description:
           "Right-click any tab in a pane to rename it, close tabs to the left or right, move it to another pane, or create a new terminal or browser tab next to it. You can also zoom a pane to full size and mark tabs as unread.",
         image: "/changelog/0.60.0-tab-context-menu.png",
+      },
+      {
+        title: "Browser DevTools",
+        description:
+          "The embedded browser now has full WebKit DevTools. Open them with the standard shortcut and they persist across tab switches. Inspect elements, debug JavaScript, and monitor network requests without leaving cmux.",
+        image: "/changelog/0.60.0-devtools.png",
       },
       {
         title: "Notification Rings",
