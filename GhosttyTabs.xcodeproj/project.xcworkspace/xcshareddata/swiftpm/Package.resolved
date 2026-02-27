@@ -1,6 +1,24 @@
 {
-  "originHash" : "a1df212ee81645b29368e6cc39c83aebbbafb5c592f726afc990bab228304987",
+  "originHash" : "b1ae8aa6d43d56101c08c5bfe55e9889c64638023a4614b815589d0969f55fb4",
   "pins" : [
+    {
+      "identity" : "coretextswift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/CoreTextSwift",
+      "state" : {
+        "revision" : "833177201d6421e6322296f39fce6ff6ae52618a",
+        "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "neon",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kylemacomber/Neon",
+      "state" : {
+        "branch" : "ce8d252",
+        "revision" : "ce8d252c8fd53ea0b6960e02c423315eef11f141"
+      }
+    },
     {
       "identity" : "posthog-ios",
       "kind" : "remoteSourceControl",
@@ -8,6 +26,15 @@
       "state" : {
         "revision" : "5afb749442ecf7798a725ccd30342d94abb5e57f",
         "version" : "3.41.0"
+      }
+    },
+    {
+      "identity" : "rearrange",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/Rearrange",
+      "state" : {
+        "revision" : "5ff7f3363f7a08f77e0d761e38e6add31c2136e1",
+        "version" : "1.8.1"
       }
     },
     {
@@ -26,6 +53,78 @@
       "state" : {
         "revision" : "5581748cef2bae787496fe6d61139aebe0a451f6",
         "version" : "2.8.1"
+      }
+    },
+    {
+      "identity" : "sttextkitplus",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextKitPlus",
+      "state" : {
+        "revision" : "2ee74906f4d753458eeaa9a2f6d4538aacb86a1d",
+        "version" : "0.3.0"
+      }
+    },
+    {
+      "identity" : "sttextview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextView.git",
+      "state" : {
+        "revision" : "041b1716756b4416aaaafa1022db4cefc9c42ccc",
+        "version" : "2.3.5"
+      }
+    },
+    {
+      "identity" : "sttextview-plugin-neon",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-Neon.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5a30db4ce7908a5414e7b499e2379bdc49991cd1"
+      }
+    },
+    {
+      "identity" : "sttextview-plugin-textformation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/krzyzanowskim/STTextView-Plugin-TextFormation.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "77613b515506d561aa3e1bdc3881caab549803a4"
+      }
+    },
+    {
+      "identity" : "swifttreesitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/SwiftTreeSitter",
+      "state" : {
+        "revision" : "08ef81eb8620617b55b08868126707ad72bf754f",
+        "version" : "0.25.0"
+      }
+    },
+    {
+      "identity" : "textformation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/TextFormation",
+      "state" : {
+        "revision" : "b1ce9a14bd86042bba4de62236028dc4ce9db6a1",
+        "version" : "0.9.0"
+      }
+    },
+    {
+      "identity" : "textstory",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ChimeHQ/TextStory",
+      "state" : {
+        "revision" : "8dc9148b46fcf93b08ea9d4ef9bdb5e4f700e008",
+        "version" : "0.9.0"
+      }
+    },
+    {
+      "identity" : "tree-sitter",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tree-sitter/tree-sitter",
+      "state" : {
+        "revision" : "da6fe9beb4f7f67beb75914ca8e0d48ae48d6406",
+        "version" : "0.25.10"
       }
     }
   ],

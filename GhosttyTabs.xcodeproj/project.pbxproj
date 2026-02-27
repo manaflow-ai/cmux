@@ -29,6 +29,8 @@
 		A5001403 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001413 /* TerminalPanelView.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
+		A5001408 /* CodeEditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* CodeEditorPanel.swift */; };
+		A5001409 /* CodeEditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* CodeEditorPanelView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
 			A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
@@ -37,6 +39,11 @@
 			A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 			B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 			A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
+			A5003060 /* STTextView in Frameworks */ = {isa = PBXBuildFile; productRef = A5003061 /* STTextView */; };
+			A5003070 /* STTextView-Plugin-Neon in Frameworks */ = {isa = PBXBuildFile; productRef = A5003071 /* STTextView-Plugin-Neon */; };
+			A5003080 /* TextFormationPlugin in Frameworks */ = {isa = PBXBuildFile; productRef = A5003081 /* TextFormationPlugin */; };
+			A5003021 /* SyntaxHighlightTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003020 /* SyntaxHighlightTheme.swift */; };
+			A5003031 /* LanguageDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003030 /* LanguageDetection.swift */; };
 			A5001303 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001301 /* SurfaceSearchOverlay.swift */; };
 			A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 			A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
@@ -84,6 +91,11 @@
 					F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
+				FF000011A1B2C3D4E5F60011 /* SidebarContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */; };
+				FF000012A1B2C3D4E5F60012 /* FileTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */; };
+				FF000013A1B2C3D4E5F60013 /* FileTreeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */; };
+				FF000014A1B2C3D4E5F60014 /* FileTreeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */; };
+				FF000015A1B2C3D4E5F60015 /* FileTreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -165,7 +177,11 @@
 		A5001413 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanelView.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
-		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		A5001418 /* CodeEditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeEditorPanel.swift; sourceTree = "<group>"; };
+		A5001419 /* CodeEditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodeEditorPanelView.swift; sourceTree = "<group>"; };
+		A5003020 /* SyntaxHighlightTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SyntaxHighlightTheme.swift; sourceTree = "<group>"; };
+		A5003030 /* LanguageDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/LanguageDetection.swift; sourceTree = "<group>"; };
+	A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
@@ -215,6 +231,11 @@
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
+				FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/SidebarContentMode.swift; sourceTree = "<group>"; };
+				FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeNode.swift; sourceTree = "<group>"; };
+				FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeModel.swift; sourceTree = "<group>"; };
+				FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeRow.swift; sourceTree = "<group>"; };
+				FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeSidebar.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -226,6 +247,9 @@
 					A5001230 /* Sparkle in Frameworks */,
 					A5001250 /* Sentry in Frameworks */,
 					A5001270 /* PostHog in Frameworks */,
+					A5003060 /* STTextView in Frameworks */,
+					A5003070 /* STTextView-Plugin-Neon in Frameworks */,
+					A5003080 /* TextFormationPlugin in Frameworks */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
@@ -349,6 +373,10 @@
 				A5001412 /* BrowserPanel.swift */,
 				A5001413 /* TerminalPanelView.swift */,
 				A5001414 /* BrowserPanelView.swift */,
+				A5001418 /* CodeEditorPanel.swift */,
+				A5001419 /* CodeEditorPanelView.swift */,
+				A5003020 /* SyntaxHighlightTheme.swift */,
+				A5003030 /* LanguageDetection.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -367,6 +395,7 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				FF000020A1B2C3D4E5F60020 /* FileTree */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -432,6 +461,18 @@
 				path = cmuxTests;
 				sourceTree = "<group>";
 			};
+		FF000020A1B2C3D4E5F60020 /* FileTree */ = {
+			isa = PBXGroup;
+			children = (
+				FF000001A1B2C3D4E5F60001 /* SidebarContentMode.swift */,
+				FF000002A1B2C3D4E5F60002 /* FileTreeNode.swift */,
+				FF000003A1B2C3D4E5F60003 /* FileTreeModel.swift */,
+				FF000004A1B2C3D4E5F60004 /* FileTreeRow.swift */,
+				FF000005A1B2C3D4E5F60005 /* FileTreeSidebar.swift */,
+			);
+			name = FileTree;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -456,6 +497,9 @@
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
+					A5003061 /* STTextView */,
+					A5003071 /* STTextView-Plugin-Neon */,
+					A5003081 /* TextFormationPlugin */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -541,6 +585,9 @@
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+					A5003062 /* XCRemoteSwiftPackageReference "STTextView" */,
+					A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */,
+					A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -588,6 +635,10 @@
 				A5001402 /* BrowserPanel.swift in Sources */,
 				A5001403 /* TerminalPanelView.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
+				A5001408 /* CodeEditorPanel.swift in Sources */,
+				A5001409 /* CodeEditorPanelView.swift in Sources */,
+				A5003021 /* SyntaxHighlightTheme.swift in Sources */,
+				A5003031 /* LanguageDetection.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -606,6 +657,11 @@
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
+				FF000011A1B2C3D4E5F60011 /* SidebarContentMode.swift in Sources */,
+				FF000012A1B2C3D4E5F60012 /* FileTreeNode.swift in Sources */,
+				FF000013A1B2C3D4E5F60013 /* FileTreeModel.swift in Sources */,
+				FF000014A1B2C3D4E5F60014 /* FileTreeRow.swift in Sources */,
+				FF000015A1B2C3D4E5F60015 /* FileTreeSidebar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -949,6 +1005,30 @@
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
 			};
+			A5003062 /* XCRemoteSwiftPackageReference "STTextView" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView.git";
+				requirement = {
+					kind = upToNextMajorVersion;
+					minimumVersion = 2.2.0;
+				};
+			};
+			A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView-Plugin-Neon.git";
+				requirement = {
+					kind = branch;
+					branch = main;
+				};
+			};
+			A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/krzyzanowskim/STTextView-Plugin-TextFormation.git";
+				requirement = {
+					kind = branch;
+					branch = main;
+				};
+			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -971,6 +1051,21 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
 				productName = Bonsplit;
+			};
+			A5003061 /* STTextView */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003062 /* XCRemoteSwiftPackageReference "STTextView" */;
+				productName = STTextView;
+			};
+			A5003071 /* STTextView-Plugin-Neon */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003072 /* XCRemoteSwiftPackageReference "STTextView-Plugin-Neon" */;
+				productName = "STTextView-Plugin-Neon";
+			};
+			A5003081 /* TextFormationPlugin */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = A5003082 /* XCRemoteSwiftPackageReference "STTextView-Plugin-TextFormation" */;
+				productName = TextFormationPlugin;
 			};
 /* End XCSwiftPackageProductDependency section */
 

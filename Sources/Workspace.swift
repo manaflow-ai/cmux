@@ -339,6 +339,9 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
+        case .codeEditor:
+            // Code editor panels are transient and not persisted across sessions
+            return nil
         }
 
         return SessionPanelSnapshot(
@@ -513,6 +516,9 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .codeEditor:
+            // Code editor panels are not restored from session snapshots
+            return nil
         }
     }
 
@@ -984,6 +990,7 @@ final class Workspace: Identifiable, ObservableObject {
     private enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let codeEditor = "codeEditor"
     }
 
     // MARK: - Initialization
@@ -1275,12 +1282,18 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? BrowserPanel
     }
 
+    func codeEditorPanel(for panelId: UUID) -> CodeEditorPanel? {
+        panels[panelId] as? CodeEditorPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .codeEditor:
+            return SurfaceKind.codeEditor
         }
     }
 
@@ -2099,6 +2112,95 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    // MARK: - Code Editor
+
+    /// Find an existing code editor panel with the given file path in this workspace.
+    func existingCodeEditorPanel(forFilePath path: String) -> CodeEditorPanel? {
+        panels.values.compactMap { $0 as? CodeEditorPanel }.first { $0.filePath == path }
+    }
+
+    /// Create a new code editor surface in the specified pane.
+    @discardableResult
+    func newCodeEditorSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil
+    ) -> CodeEditorPanel? {
+        // If a code editor for this file already exists, just focus it
+        if let existing = existingCodeEditorPanel(forFilePath: filePath) {
+            if let tabId = surfaceIdFromPanelId(existing.id) {
+                bonsplitController.selectTab(tabId)
+                if focus != false {
+                    focusPanel(existing.id)
+                }
+            }
+            return existing
+        }
+
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+
+        let editorPanel = CodeEditorPanel(workspaceId: id, filePath: filePath)
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.codeEditor,
+            isDirty: editorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = editorPanel.id
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            editorPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        }
+
+        installCodeEditorPanelSubscription(editorPanel)
+
+        return editorPanel
+    }
+
+    private func installCodeEditorPanelSubscription(_ editorPanel: CodeEditorPanel) {
+        let subscription = Publishers.CombineLatest(
+            editorPanel.$isDirty.removeDuplicates(),
+            editorPanel.$filePath.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak editorPanel] isDirty, _ in
+            guard let self = self,
+                  let editorPanel = editorPanel,
+                  let tabId = self.surfaceIdFromPanelId(editorPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            let nextTitle = editorPanel.displayTitle
+            if self.panelTitles[editorPanel.id] != nextTitle {
+                self.panelTitles[editorPanel.id] = nextTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: editorPanel.id, fallback: nextTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+
+            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                isDirty: dirtyUpdate
+            )
+        }
+        panelSubscriptions[editorPanel.id] = subscription
+    }
+
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
@@ -2552,6 +2654,8 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.updateWorkspaceId(id)
             installBrowserPanelSubscription(browserPanel)
+        } else if let editorPanel = detached.panel as? CodeEditorPanel {
+            installCodeEditorPanelSubscription(editorPanel)
         }
 
         if let directory = detached.directory {
@@ -2900,6 +3004,12 @@ final class Workspace: Identifiable, ObservableObject {
         return newTerminalSurface(inPane: focusedPaneId, focus: focus)
     }
 
+    @discardableResult
+    func newCodeEditorSurfaceInFocusedPane(filePath: String, focus: Bool? = nil) -> CodeEditorPanel? {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        return newCodeEditorSurface(inPane: focusedPaneId, filePath: filePath, focus: focus)
+    }
+
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
@@ -2977,6 +3087,10 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             if let terminalPanel = panel as? TerminalPanel,
                terminalPanel.needsConfirmClose() {
+                return true
+            }
+            if let editorPanel = panel as? CodeEditorPanel,
+               editorPanel.isDirty {
                 return true
             }
         }
@@ -3596,46 +3710,55 @@ extension Workspace: BonsplitDelegate {
         }
 
         // Check if the panel needs close confirmation
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
         }
 
-        // If confirmation is required, Bonsplit will call into this delegate and we must return false.
+        let needsConfirm: Bool = {
+            if let terminalPanel = terminalPanel(for: panelId) {
+                return terminalPanel.needsConfirmClose()
+            }
+            if let editorPanel = codeEditorPanel(for: panelId) {
+                return editorPanel.isDirty
+            }
+            return false
+        }()
+
+        guard needsConfirm else {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            recordPostCloseSelection()
+            return true
+        }
+
+        // Confirmation is required. Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if terminalPanel.needsConfirmClose() {
-            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            if pendingCloseConfirmTabIds.contains(tab.id) {
-                return false
-            }
-
-            pendingCloseConfirmTabIds.insert(tab.id)
-            let tabId = tab.id
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                Task { @MainActor in
-                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
-
-                    // If the tab disappeared while we were scheduling, do nothing.
-                    guard self.panelIdFromSurfaceId(tabId) != nil else { return }
-
-                    let confirmed = await self.confirmClosePanel(for: tabId)
-                    guard confirmed else { return }
-
-                    self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
-                }
-            }
-
+        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+        if pendingCloseConfirmTabIds.contains(tab.id) {
             return false
         }
 
-        clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-        recordPostCloseSelection()
-        return true
+        pendingCloseConfirmTabIds.insert(tab.id)
+        let tabId = tab.id
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+
+                // If the tab disappeared while we were scheduling, do nothing.
+                guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                let confirmed = await self.confirmClosePanel(for: tabId)
+                guard confirmed else { return }
+
+                self.forceCloseTabIds.insert(tabId)
+                self.bonsplitController.closeTab(tabId)
+            }
+        }
+
+        return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
@@ -3871,11 +3994,17 @@ extension Workspace: BonsplitDelegate {
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
-            if let panelId = panelIdFromSurfaceId(tab.id),
-               let terminalPanel = terminalPanel(for: panelId),
-               terminalPanel.needsConfirmClose() {
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
-                return false
+            if let panelId = panelIdFromSurfaceId(tab.id) {
+                if let terminalPanel = terminalPanel(for: panelId),
+                   terminalPanel.needsConfirmClose() {
+                    pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                    return false
+                }
+                if let editorPanel = codeEditorPanel(for: panelId),
+                   editorPanel.isDirty {
+                    pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                    return false
+                }
             }
         }
         pendingPaneClosePanelIds[pane.id] = tabs.compactMap { panelIdFromSurfaceId($0.id) }

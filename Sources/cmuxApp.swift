@@ -9,6 +9,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var sidebarContentModeState = SidebarContentModeState()
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -185,6 +186,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .environmentObject(sidebarContentModeState)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -469,6 +471,17 @@ struct cmuxApp: App {
                 splitCommandButton(title: "Toggle Sidebar", shortcut: toggleSidebarMenuShortcut) {
                     if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
                         sidebarState.toggle()
+                    }
+                }
+
+                Button("Toggle File Tree") {
+                    if sidebarContentModeState.mode == .fileTree {
+                        sidebarContentModeState.mode = .tabs
+                    } else {
+                        sidebarContentModeState.mode = .fileTree
+                        if !sidebarState.isVisible {
+                            sidebarState.toggle()
+                        }
                     }
                 }
 
@@ -2650,6 +2663,7 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage("sidebarFileTreeLayout") private var fileTreeLayout = SidebarFileTreeLayout.toggle.rawValue
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2945,6 +2959,23 @@ struct SettingsView: View {
                             Toggle("", isOn: $sidebarShowMetadata)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Sidebar File Tree",
+                            subtitle: fileTreeLayout == SidebarFileTreeLayout.split.rawValue
+                                ? "Split: tabs and file tree shown together with a draggable divider."
+                                : "Toggle: switch between tabs and file tree with Cmd+Shift+E.",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $fileTreeLayout) {
+                                Text("Toggle").tag(SidebarFileTreeLayout.toggle.rawValue)
+                                Text("Split").tag(SidebarFileTreeLayout.split.rawValue)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
                         }
                     }
 

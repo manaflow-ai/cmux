@@ -591,6 +591,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        let sidebarContentModeState: SidebarContentModeState
         weak var window: NSWindow?
 
         init(
@@ -598,12 +599,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            sidebarContentModeState: SidebarContentModeState,
             window: NSWindow?
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.sidebarContentModeState = sidebarContentModeState
             self.window = window
         }
     }
@@ -634,6 +637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    weak var sidebarContentModeState: SidebarContentModeState?
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObserver: NSObjectProtocol?
@@ -1913,7 +1917,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager,
         sidebarState: SidebarState,
-        sidebarSelectionState: SidebarSelectionState
+        sidebarSelectionState: SidebarSelectionState,
+        sidebarContentModeState: SidebarContentModeState
     ) {
         tabManager.window = window
 
@@ -1932,6 +1937,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                sidebarContentModeState: sidebarContentModeState,
                 window: window
             )
             NotificationCenter.default.addObserver(
@@ -3370,6 +3376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
+        let sidebarContentModeState = SidebarContentModeState()
         let notificationStore = TerminalNotificationStore.shared
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
@@ -3377,6 +3384,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(sidebarContentModeState)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
@@ -3415,7 +3423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState
+            sidebarSelectionState: sidebarSelectionState,
+            sidebarContentModeState: sidebarContentModeState
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
         if TerminalController.shouldSuppressSocketCommandActivation() {
@@ -4691,6 +4700,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleFileTree)) {
+            if let modeState = sidebarContentModeState {
+                if modeState.mode == .fileTree {
+                    modeState.mode = .tabs
+                } else {
+                    modeState.mode = .fileTree
+                    // Show sidebar if hidden
+                    if sidebarState?.isVisible == false {
+                        sidebarState?.toggle()
+                    }
+                }
+            }
+            return true
+        }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
 #if DEBUG
             dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
@@ -5911,6 +5935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager = context.tabManager
         sidebarState = context.sidebarState
         sidebarSelectionState = context.sidebarSelectionState
+        sidebarContentModeState = context.sidebarContentModeState
         TerminalController.shared.setActiveTabManager(context.tabManager)
 #if DEBUG
         dlog(
@@ -5949,11 +5974,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager = nextContext.tabManager
                 sidebarState = nextContext.sidebarState
                 sidebarSelectionState = nextContext.sidebarSelectionState
+                sidebarContentModeState = nextContext.sidebarContentModeState
                 TerminalController.shared.setActiveTabManager(nextContext.tabManager)
             } else {
                 tabManager = nil
                 sidebarState = nil
                 sidebarSelectionState = nil
+                sidebarContentModeState = nil
                 TerminalController.shared.setActiveTabManager(nil)
             }
         }

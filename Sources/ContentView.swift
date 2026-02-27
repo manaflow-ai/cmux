@@ -633,8 +633,17 @@ final class FileDropOverlayView: NSView {
               let themeFrame = contentView.superview else { return "-" }
 
         let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
-        isHidden = true
-        defer { isHidden = false }
+
+        // Avoid toggling isHidden during a display cycle — AppKit throws
+        // an exception from _postWindowNeedsDisplay if setNeedsDisplay is
+        // called while the display cycle is already flushing.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        alphaValue = 0
+        defer {
+            alphaValue = 1
+            CATransaction.commit()
+        }
 
         guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
         var chain: [String] = []
@@ -1216,6 +1225,11 @@ struct ContentView: View {
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @EnvironmentObject var sidebarContentModeState: SidebarContentModeState
+    @StateObject private var fileTreeModel = FileTreeModel()
+    @AppStorage("sidebarFileTreeLayout") private var fileTreeLayout = SidebarFileTreeLayout.toggle.rawValue
+    @State private var splitDividerRatio: CGFloat = 0.4
+    @State private var splitDragStartRatio: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -1754,13 +1768,194 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-        )
+        VStack(spacing: 0) {
+            // Match native titlebar behavior in the sidebar top strip:
+            // drag-to-move and double-click action (zoom/minimize).
+            WindowDragHandleView()
+                .frame(height: 28) // traffic light padding
+            sidebarModeHeader
+            Divider().opacity(0.5)
+            if fileTreeLayout == SidebarFileTreeLayout.split.rawValue {
+                sidebarSplitContent
+            } else {
+                sidebarToggleContent
+            }
+        }
         .frame(width: sidebarWidth)
+        .ignoresSafeArea()
+        .background(SidebarBackdrop().ignoresSafeArea())
+    }
+
+    private var sidebarToggleContent: some View {
+        Group {
+            switch sidebarContentModeState.mode {
+            case .tabs:
+                VerticalTabsSidebar(
+                    updateViewModel: updateViewModel,
+                    selection: $sidebarSelectionState.selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+            case .fileTree:
+                if let workspace = tabManager.selectedWorkspace {
+                    FileTreeSidebar(
+                        model: fileTreeModel,
+                        workspace: workspace,
+                        onFileAction: { path in
+                            openInEditor(path, tabManager: tabManager)
+                        }
+                    )
+                } else {
+                    VerticalTabsSidebar(
+                        updateViewModel: updateViewModel,
+                        selection: $sidebarSelectionState.selection,
+                        selectedTabIds: $selectedTabIds,
+                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                    )
+                }
+            }
+        }
+    }
+
+    private var sidebarSplitContent: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                VerticalTabsSidebar(
+                    updateViewModel: updateViewModel,
+                    selection: $sidebarSelectionState.selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+                .frame(height: geo.size.height * splitDividerRatio)
+
+                splitDividerHandle
+
+                if let workspace = tabManager.selectedWorkspace {
+                    FileTreeSidebar(
+                        model: fileTreeModel,
+                        workspace: workspace,
+                        onFileAction: { path in
+                            openInEditor(path, tabManager: tabManager)
+                        }
+                    )
+                    .frame(maxHeight: .infinity)
+                } else {
+                    VStack {
+                        Spacer()
+                        Text("No workspace")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+        }
+    }
+
+    private var splitDividerHandle: some View {
+        ZStack {
+            Divider()
+        }
+        .frame(height: 8)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    guard let parent = NSApp.keyWindow?.contentView else { return }
+                    let parentHeight = parent.frame.height
+                    guard parentHeight > 0 else { return }
+                    if splitDragStartRatio == nil {
+                        splitDragStartRatio = splitDividerRatio
+                    }
+                    let delta = value.translation.height / parentHeight
+                    let newRatio = (splitDragStartRatio ?? splitDividerRatio) + delta
+                    splitDividerRatio = min(max(newRatio, 0.15), 0.85)
+                }
+                .onEnded { _ in
+                    splitDragStartRatio = nil
+                }
+        )
+    }
+
+    private var isSplitLayout: Bool {
+        fileTreeLayout == SidebarFileTreeLayout.split.rawValue
+    }
+
+    private var showFileTreeControls: Bool {
+        isSplitLayout || sidebarContentModeState.mode == .fileTree
+    }
+
+    private var sidebarModeHeader: some View {
+        HStack(spacing: 6) {
+            if !isSplitLayout {
+                Button {
+                    sidebarContentModeState.mode = .tabs
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(sidebarContentModeState.mode == .tabs ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    sidebarContentModeState.mode = .fileTree
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(sidebarContentModeState.mode == .fileTree ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if showFileTreeControls {
+                Text(fileTreeDirectoryBasename)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundColor(.primary)
+            }
+
+            Spacer()
+
+            if showFileTreeControls {
+                Button {
+                    fileTreeModel.toggleHiddenFiles()
+                } label: {
+                    Image(systemName: fileTreeModel.showHiddenFiles ? "eye" : "eye.slash")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(fileTreeModel.showHiddenFiles ? "Hide hidden files" : "Show hidden files")
+
+                Button {
+                    fileTreeModel.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Refresh")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var fileTreeDirectoryBasename: String {
+        let path = fileTreeModel.rootPath
+        guard !path.isEmpty else { return "" }
+        return (path as NSString).lastPathComponent
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -1986,6 +2181,10 @@ struct ContentView: View {
         }
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return dir.isEmpty ? nil : dir
+    }
+
+    private func openInEditor(_ path: String, tabManager: TabManager?) {
+        tabManager?.selectedTab?.newCodeEditorSurfaceInFocusedPane(filePath: path, focus: true)
     }
 
     private var contentAndSidebarLayout: AnyView {
@@ -2294,6 +2493,18 @@ struct ContentView: View {
             updateWindowGlassTint()
         })
 
+        view = AnyView(view.onChange(of: fileTreeLayout) { newLayout in
+            if newLayout == SidebarFileTreeLayout.split.rawValue {
+                // Entering split mode: load file tree if workspace available
+                if let dir = tabManager.selectedTab?.currentDirectory {
+                    fileTreeModel.loadDirectory(dir)
+                }
+            } else {
+                // Returning to toggle mode: default to tabs
+                sidebarContentModeState.mode = .tabs
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
@@ -2342,6 +2553,23 @@ struct ContentView: View {
             guard !isResizerDragging else { return }
             if abs(sidebarWidth - sanitized) > 0.5 {
                 sidebarWidth = sanitized
+            }
+        })
+
+        view = AnyView(view.onChange(of: sidebarContentModeState.mode) { newMode in
+            if newMode == .fileTree {
+                sidebarSelectionState.selection = .tabs
+                if let dir = tabManager.selectedTab?.currentDirectory {
+                    fileTreeModel.loadDirectory(dir)
+                }
+            }
+        })
+
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { _ in
+            if sidebarContentModeState.mode == .fileTree {
+                if let dir = tabManager.selectedTab?.currentDirectory {
+                    fileTreeModel.loadDirectory(dir)
+                }
             }
         })
 
@@ -2419,7 +2647,8 @@ struct ContentView: View {
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState
+                sidebarSelectionState: sidebarSelectionState,
+                sidebarContentModeState: sidebarContentModeState
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
         }))
@@ -5426,8 +5655,6 @@ struct VerticalTabsSidebar: View {
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
-    /// Space at top of sidebar for traffic light buttons
-    private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
 
     var body: some View {
@@ -5435,10 +5662,6 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
-
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                                 TabItemView(
@@ -5476,16 +5699,6 @@ struct VerticalTabsSidebar: View {
                     }
                     .frame(width: 0, height: 0)
                 )
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
-                }
-                .overlay(alignment: .top) {
-                    // Match native titlebar behavior in the sidebar top strip:
-                    // drag-to-move and double-click action (zoom/minimize).
-                    WindowDragHandleView()
-                        .frame(height: trafficLightPadding)
-                }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
             }
@@ -5501,7 +5714,6 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
         .background(
             WindowAccessor { window in
                 commandKeyMonitor.setHostWindow(window)
@@ -6014,7 +6226,7 @@ private struct SidebarDevFooter: View {
 }
 #endif
 
-private struct SidebarTopScrim: View {
+struct SidebarTopScrim: View {
     let height: CGFloat
 
     var body: some View {
@@ -8178,7 +8390,7 @@ enum SidebarSelection {
     case notifications
 }
 
-private struct ClearScrollBackground: ViewModifier {
+struct ClearScrollBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 13.0, *) {
             content
@@ -8604,7 +8816,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
-private struct SidebarBackdrop: View {
+struct SidebarBackdrop: View {
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = 0.18
     @AppStorage("sidebarTintHex") private var sidebarTintHex = "#000000"
     @AppStorage("sidebarMaterial") private var sidebarMaterial = SidebarMaterialOption.sidebar.rawValue

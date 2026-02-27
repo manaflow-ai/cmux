@@ -15,6 +15,7 @@ struct GhosttyConfig {
     var theme: String?
     var workingDirectory: String?
     var scrollbackLimit: Int = 10000
+    var tabWidth: Int = 4
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
@@ -143,6 +144,10 @@ struct GhosttyConfig {
                 case "scrollback-limit":
                     if let limit = Int(value) {
                         scrollbackLimit = limit
+                    }
+                case "editor-tab-width":
+                    if let width = Int(value) {
+                        tabWidth = max(1, min(16, width))
                     }
                 case "background":
                     if let color = NSColor(hex: value) {
