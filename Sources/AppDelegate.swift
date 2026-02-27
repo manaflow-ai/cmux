@@ -823,6 +823,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -839,29 +840,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        SentrySDK.start { options in
-            options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
-            #if DEBUG
-            options.environment = "development"
-            options.debug = true
-            #else
-            options.environment = "production"
-            options.debug = false
-            #endif
-            options.sendDefaultPii = true
+        if telemetryEnabled {
+            SentrySDK.start { options in
+                options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+                #if DEBUG
+                options.environment = "development"
+                options.debug = true
+                #else
+                options.environment = "production"
+                options.debug = false
+                #endif
+                options.sendDefaultPii = true
 
-            // Performance tracing (10% of transactions)
-            options.tracesSampleRate = 0.1
-            // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
-            // as hangs in normal user interaction flows.
-            options.appHangTimeoutInterval = 8.0
-            // Attach stack traces to all events
-            options.attachStacktrace = true
-            // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
-            options.enableCaptureFailedRequests = false
+                // Performance tracing (10% of transactions)
+                options.tracesSampleRate = 0.1
+                // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
+                // as hangs in normal user interaction flows.
+                options.appHangTimeoutInterval = 8.0
+                // Attach stack traces to all events
+                options.attachStacktrace = true
+                // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
+                options.enableCaptureFailedRequests = false
+            }
         }
 
-        if !isRunningUnderXCTest {
+        if telemetryEnabled && !isRunningUnderXCTest {
             PostHogAnalytics.shared.startIfNeeded()
         }
 
@@ -968,7 +971,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "tabCount": tabManager?.tabs.count ?? 0
         ])
         let env = ProcessInfo.processInfo.environment
-        if !isRunningUnderXCTest(env) {
+        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
             PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
@@ -997,7 +1000,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
-        PostHogAnalytics.shared.flush()
+        if TelemetrySettings.enabledForCurrentLaunch {
+            PostHogAnalytics.shared.flush()
+        }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
     }
