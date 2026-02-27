@@ -3998,15 +3998,16 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // Get the focused terminal in the original pane to inherit config from
-        guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,
-              let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
-              terminalPanel(for: sourcePanelId) != nil else { return }
+        // Mirror Cmd+D behavior: split buttons should always seed a terminal in the new pane.
+        // When the focused source is a browser, inherit terminal config from nearby terminals
+        // (or fall back to defaults) instead of leaving an empty selector pane.
+        let sourceTabId = controller.selectedTab(inPane: originalPane)?.id
+        let sourcePanelId = sourceTabId.flatMap { panelIdFromSurfaceId($0) }
 
 #if DEBUG
         dlog(
             "split.didSplit.autoCreate pane=\(newPane.id.uuidString.prefix(5)) " +
-            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.uuidString.prefix(5))"
+            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.map { String($0.uuidString.prefix(5)) } ?? "none")"
         )
 #endif
 
