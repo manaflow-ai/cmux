@@ -2007,16 +2007,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Force a full size recalculation and surface redraw.
     func forceRefresh() {
-	        let hasSurface = surface != nil
-	        let viewState: String
-	        if let view = attachedView {
-	            let inWindow = view.window != nil
-	            let bounds = view.bounds
-	            let metalOK = (view.layer as? CAMetalLayer) != nil
-	            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
-	        } else {
-	            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
-	        }
+        let hasSurface = surface != nil
+        let viewState: String
+        if let view = attachedView {
+            let inWindow = view.window != nil
+            let bounds = view.bounds
+            let metalOK = (view.layer as? CAMetalLayer) != nil
+            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
+        } else {
+            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
+        }
         #if DEBUG
         let ts = ISO8601DateFormatter().string(from: Date())
         let line = "[\(ts)] forceRefresh: \(id) \(viewState)\n"
@@ -2028,13 +2028,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else {
             FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
         }
-	        #endif
+        #endif
         guard let view = attachedView,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
         }
+        guard let currentSurface = self.surface else { return }
 
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
@@ -2044,10 +2045,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
         // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
         // but callbacks have not resumed for the current display.
-        if let surface = self.surface,
-           let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
+        if let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            ghostty_surface_set_display_id(currentSurface, displayID)
         }
 
         view.forceRefreshSurface()
@@ -2175,6 +2175,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let surface = surface else { return false }
         return ghostty_surface_has_selection(surface)
     }
+
+#if DEBUG
+    /// Test-only helper to deterministically simulate a released runtime surface.
+    @MainActor
+    func releaseSurfaceForTesting() {
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        guard let surfaceToFree = surface else {
+            callbackContext?.release()
+            return
+        }
+
+        surface = nil
+        ghostty_surface_free(surfaceToFree)
+        callbackContext?.release()
+    }
+#endif
 
     deinit {
         let callbackContext = surfaceCallbackContext
