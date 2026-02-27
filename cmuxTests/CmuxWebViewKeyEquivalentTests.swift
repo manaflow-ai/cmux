@@ -6133,7 +6133,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class ReentrantDragHandleView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
-            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown)
+            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: self.window)
             return shouldCapture ? self : nil
         }
     }
@@ -6194,6 +6194,67 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
+        let point = NSPoint(x: 180, y: 18)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        container.addSubview(dragHandle)
+
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { foreignWindow.orderOut(nil) }
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: nil
+            ),
+            "Launch activation events without a matching window should not trigger drag-handle hierarchy walk"
+        )
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: foreignWindow
+            ),
+            "Left mouse-down events for a different window should be treated as passive"
+        )
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Left mouse-down events for this window should still capture empty titlebar space"
+        )
     }
 
     func testPassiveHostingTopHitClassification() {
@@ -6271,7 +6332,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         nestedContainer.addSubview(nestedDragHandle)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown),
+            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
 
@@ -6279,11 +6340,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
         probe.autoresizingMask = [.width, .height]
         probe.onHitTest = {
-            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown)
+            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow)
         }
         outerContainer.addSubview(probe)
 
-        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle, eventType: .leftMouseDown)
+        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle, eventType: .leftMouseDown, eventWindow: outerWindow)
 
         XCTAssertEqual(
             nestedCaptureResult,
@@ -6330,7 +6391,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown),
+            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown, eventWindow: window),
             "Reentrant same-window top-hit resolution should not trigger exclusivity crashes"
         )
     }
@@ -7775,7 +7836,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: false,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7785,7 +7845,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: true
             )
@@ -7795,7 +7854,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
         XCTAssertFalse(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7805,7 +7863,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
             )
