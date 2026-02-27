@@ -4071,6 +4071,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         notificationRingOverlayView.frame = bounds
         flashOverlayView.frame = bounds
+        searchOverlayHostingView?.frame = bounds
         updateNotificationRingPath()
         updateFlashPath()
         synchronizeScrollView()
@@ -4189,26 +4190,16 @@ final class GhosttySurfaceScrollView: NSView {
             overlay.rootView = rootView
             if overlay.superview !== self {
                 overlay.removeFromSuperview()
-                addSubview(overlay)
-                NSLayoutConstraint.activate([
-                    overlay.topAnchor.constraint(equalTo: topAnchor),
-                    overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-                    overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-                ])
+                overlay.frame = bounds
+                addSubview(overlay, positioned: .above, relativeTo: nil)
             }
             return
         }
 
         let overlay = NSHostingView(rootView: rootView)
-        overlay.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(overlay)
-        NSLayoutConstraint.activate([
-            overlay.topAnchor.constraint(equalTo: topAnchor),
-            overlay.bottomAnchor.constraint(equalTo: bottomAnchor),
-            overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
-            overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
-        ])
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay, positioned: .above, relativeTo: nil)
         searchOverlayHostingView = overlay
     }
 
