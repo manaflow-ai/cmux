@@ -5932,16 +5932,7 @@ struct CMUXCLI {
           browser addinitscript <script>
           browser addscript <script>
           browser addstyle <css>
-          browser viewport <width> <height>      (returns not_supported on WKWebView)
-          browser geolocation|geo <lat> <lon>    (returns not_supported on WKWebView)
-          browser offline <true|false>           (returns not_supported on WKWebView)
-          browser trace <start|stop> [path]      (returns not_supported on WKWebView)
-          browser network <route|unroute|requests> [...] (returns not_supported on WKWebView)
-          browser screencast <start|stop>        (returns not_supported on WKWebView)
-          browser input <mouse|keyboard|touch>   (returns not_supported on WKWebView)
           browser identify [--surface <id|ref|index>]
-
-          (legacy browser aliases still supported: open-browser, navigate, browser-back, browser-forward, browser-reload, get-url)
           help
 
         Environment:
