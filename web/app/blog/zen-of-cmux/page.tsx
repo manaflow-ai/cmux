@@ -57,8 +57,9 @@ export default function ZenOfCmuxPage() {
       </p>
 
       <p>
-        cmux is a primitive, not a solution. It gives you a CLI, notifications,
-        workspaces, and splits. cmux doesn&apos;t force you into an opinionated
+        cmux is a primitive, not a solution. It gives you a terminal, a browser,
+        notifications, workspaces, splits, tabs, and a CLI to control all of
+        it. cmux doesn&apos;t force you into an opinionated
         way to use coding agents. What you build with the primitives is yours.
       </p>
 
