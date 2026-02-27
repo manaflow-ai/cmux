@@ -37,7 +37,7 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  ui-tests:
+  tests:
     # Never run self-hosted jobs for fork pull requests.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
@@ -93,8 +93,28 @@ jobs:
           # Remove stale build cache to avoid incremental build errors
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
+          set +e
+          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            -destination "platform=macOS" test 2>&1)
+          EXIT_CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
+
       - name: Run UI tests
         run: |
           set -euo pipefail
-          # Run directly on the self-hosted macOS runner.
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
