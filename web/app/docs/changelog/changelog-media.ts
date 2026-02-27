@@ -27,7 +27,7 @@ export interface VersionMedia {
 
 export const changelogMedia: Record<string, VersionMedia> = {
   "0.61.0": {
-    title: "Tab Colors, Command Palette, Open With",
+    title: "Tab Colors, Command Palette, Pin Workspaces",
     features: [
       {
         title: "Tab Colors",
@@ -48,6 +48,12 @@ export const changelogMedia: Record<string, VersionMedia> = {
         image: "/changelog/0.61.0-open-with.png",
       },
       {
+        title: "Pin Workspaces",
+        description:
+          "Pin a workspace to keep it at the top of the sidebar. Pinned workspaces stay put when other workspaces reorder from notifications or activity.",
+        image: "/changelog/0.61.0-pin-workspace.png",
+      },
+      {
         title: "Workspace Metadata",
         description:
           "The sidebar now shows richer context for each workspace: PR links that open in the browser, listening ports, git branches, and working directories across all panes.",
@@ -56,12 +62,13 @@ export const changelogMedia: Record<string, VersionMedia> = {
     ],
   },
   "0.60.0": {
-    title: "Context Menus, Notification Rings, CJK Input",
+    title: "Tab Context Menu, Notification Rings, CJK Input",
     features: [
       {
         title: "Tab Context Menu",
         description:
-          "Right-click any tab to rename it, close it, mark it as unread, or move it to another workspace. All the tab actions that used to require keyboard shortcuts are now accessible from a menu.",
+          "Right-click any tab in a pane to rename it, close tabs to the left or right, move it to another pane, or create a new terminal or browser tab next to it. You can also zoom a pane to full size and mark tabs as unread.",
+        image: "/changelog/0.60.0-tab-context-menu.png",
       },
       {
         title: "Notification Rings",

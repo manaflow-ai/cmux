@@ -219,7 +219,6 @@ export default function ChangelogPage() {
   return (
     <div className="max-w-[640px]">
       <h1>Changelog</h1>
-      <p>What&apos;s new in cmux.</p>
 
       <div className="mt-8">
         {versions.map((v) => {
