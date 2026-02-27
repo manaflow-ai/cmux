@@ -4628,6 +4628,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
     }
 
+    func testTowerDetected() {
+        let env = environment(existingPaths: ["/Applications/Tower.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
