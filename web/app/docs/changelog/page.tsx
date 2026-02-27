@@ -4,6 +4,16 @@ import path from "path";
 import Image from "next/image";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
+/** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
+function pngDimensions(filePath: string): { width: number; height: number } {
+  const abs = path.join(process.cwd(), "public", filePath);
+  const buf = fs.readFileSync(abs);
+  return {
+    width: buf.readUInt32BE(16),
+    height: buf.readUInt32BE(24),
+  };
+}
+
 export const metadata: Metadata = {
   title: "Changelog",
   description:
@@ -107,17 +117,33 @@ function formatDate(dateStr: string): string {
 }
 
 function HeroImage({ src, version }: { src: string; version: string }) {
+  const { width, height } = pngDimensions(src);
   return (
     <div className="mt-4 mb-6 overflow-hidden rounded-lg border border-border">
       <Image
         src={src}
         alt={`cmux ${version}`}
-        width={1600}
-        height={900}
+        width={width}
+        height={height}
+        sizes="(max-width: 640px) 100vw, 640px"
         className="w-full h-auto"
         priority
       />
     </div>
+  );
+}
+
+function FeatureImage({ src, alt }: { src: string; alt: string }) {
+  const { width, height } = pngDimensions(src);
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      sizes="(max-width: 640px) 100vw, 640px"
+      className="w-full h-auto rounded-lg border border-border mt-3"
+    />
   );
 }
 
@@ -133,13 +159,7 @@ function FeatureList({ media }: { media: VersionMedia }) {
             <span className="text-muted">{feature.description}</span>
           </p>
           {feature.image && (
-            <Image
-              src={feature.image}
-              alt={feature.title}
-              width={1200}
-              height={675}
-              className="w-full h-auto rounded-lg border border-border mt-3"
-            />
+            <FeatureImage src={feature.image} alt={feature.title} />
           )}
         </div>
       ))}
