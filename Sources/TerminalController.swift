@@ -88,6 +88,13 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
+    private final class V2BrowserUndefinedSentinel {}
+
+    private static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    private static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    private static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    private static let v2BrowserEvalEnvelopeTypeValue = "value"
+
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
@@ -96,6 +103,7 @@ class TerminalController {
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
+    private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
     private init() {}
 
@@ -4784,6 +4792,12 @@ class TerminalController {
 
     private func v2NormalizeJSValue(_ value: Any?) -> Any {
         guard let value else { return NSNull() }
+        if value is V2BrowserUndefinedSentinel {
+            return [
+                Self.v2BrowserEvalEnvelopeTypeKey: Self.v2BrowserEvalEnvelopeTypeUndefined,
+                Self.v2BrowserEvalEnvelopeValueKey: NSNull()
+            ]
+        }
         if value is NSNull { return NSNull() }
         if let v = value as? String { return v }
         if let v = value as? NSNumber { return v }
@@ -4806,18 +4820,35 @@ class TerminalController {
         case failure(String)
     }
 
-    private func v2RunJavaScript(_ webView: WKWebView, script: String, timeout: TimeInterval = 5.0) -> V2JavaScriptResult {
+    private func v2RunJavaScript(
+        _ webView: WKWebView,
+        script: String,
+        timeout: TimeInterval = 5.0,
+        preferAsync: Bool = false
+    ) -> V2JavaScriptResult {
         var done = false
         var resultValue: Any?
         var resultError: String?
 
-        webView.evaluateJavaScript(script) { value, error in
-            if let error {
-                resultError = error.localizedDescription
-            } else {
-                resultValue = value
+        if preferAsync, #available(macOS 11.0, *) {
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value):
+                    resultValue = value
+                case .failure(let error):
+                    resultError = error.localizedDescription
+                }
+                done = true
             }
-            done = true
+        } else {
+            webView.evaluateJavaScript(script) { value, error in
+                if let error {
+                    resultError = error.localizedDescription
+                } else {
+                    resultValue = value
+                }
+                done = true
+            }
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -4879,30 +4910,76 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0
     ) -> V2JavaScriptResult {
-        guard let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) else {
-            return v2RunJavaScript(webView, script: script, timeout: timeout)
+        let scriptLiteral = v2JSONLiteral(script)
+        let framePrelude: String
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
+            let selectorLiteral = v2JSONLiteral(frameSelector)
+            framePrelude = """
+            let __cmuxDoc = document;
+            try {
+              const __cmuxFrame = document.querySelector(\(selectorLiteral));
+              if (__cmuxFrame && __cmuxFrame.contentDocument) {
+                __cmuxDoc = __cmuxFrame.contentDocument;
+              }
+            } catch (_) {}
+            """
+        } else {
+            framePrelude = "const __cmuxDoc = document;"
         }
 
-        let selectorLiteral = v2JSONLiteral(frameSelector)
-        let scriptLiteral = v2JSONLiteral(script)
-        let wrapped = """
-        (() => {
-          let __cmuxDoc = document;
-          try {
-            const __cmuxFrame = document.querySelector(\(selectorLiteral));
-            if (__cmuxFrame && __cmuxFrame.contentDocument) {
-              __cmuxDoc = __cmuxFrame.contentDocument;
-            }
-          } catch (_) {}
+        let asyncFunctionBody = """
+        \(framePrelude)
 
-          const __cmuxEvalInFrame = function() {
-            const document = __cmuxDoc;
-            return eval(\(scriptLiteral));
+        const __cmuxMaybeAwait = async (__r) => {
+          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
+            return await __r;
+          }
+          return __r;
+        };
+
+        const __cmuxEvalInFrame = async function() {
+          const document = __cmuxDoc;
+          const __r = eval(\(scriptLiteral));
+          const __value = await __cmuxMaybeAwait(__r);
+          return {
+            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
+            __cmux_v: __value
           };
-          return __cmuxEvalInFrame();
-        })()
+        };
+
+        return await __cmuxEvalInFrame();
         """
-        return v2RunJavaScript(webView, script: wrapped, timeout: timeout)
+
+        let rawResult: V2JavaScriptResult
+        if #available(macOS 11.0, *) {
+            rawResult = v2RunJavaScript(webView, script: asyncFunctionBody, timeout: timeout, preferAsync: true)
+        } else {
+            let evaluateFallback = """
+            (async () => {
+              \(asyncFunctionBody)
+            })()
+            """
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+        }
+
+        switch rawResult {
+        case .failure(let message):
+            return .failure(message)
+        case .success(let value):
+            guard let dict = value as? [String: Any],
+                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
+                return .success(value)
+            }
+
+            switch type {
+            case Self.v2BrowserEvalEnvelopeTypeUndefined:
+                return .success(v2BrowserUndefinedSentinel)
+            case Self.v2BrowserEvalEnvelopeTypeValue:
+                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
+            default:
+                return .success(value)
+            }
+        }
     }
 
     private func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
@@ -6884,99 +6961,26 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEnsureTelemetryHooks(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let script = """
-        (() => {
-          if (window.__cmuxHooksInstalled) return true;
-          window.__cmuxHooksInstalled = true;
+    private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
+    }
 
-          window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
-          const __pushConsole = (level, args) => {
-            try {
-              const text = Array.from(args || []).map((x) => {
-                if (typeof x === 'string') return x;
-                try { return JSON.stringify(x); } catch (_) { return String(x); }
-              }).join(' ');
-              window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
-              if (window.__cmuxConsoleLog.length > 512) {
-                window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
-              }
-            } catch (_) {}
-          };
-
-          const methods = ['log', 'info', 'warn', 'error', 'debug'];
-          for (const m of methods) {
-            const orig = (window.console && window.console[m]) ? window.console[m].bind(window.console) : null;
-            window.console[m] = function(...args) {
-              __pushConsole(m, args);
-              if (orig) return orig(...args);
-            };
-          }
-
-          window.__cmuxErrorLog = window.__cmuxErrorLog || [];
-          window.addEventListener('error', (ev) => {
-            try {
-              const message = String((ev && ev.message) || '');
-              const source = String((ev && ev.filename) || '');
-              const line = Number((ev && ev.lineno) || 0);
-              const col = Number((ev && ev.colno) || 0);
-              window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-          window.addEventListener('unhandledrejection', (ev) => {
-            try {
-              const reason = ev && ev.reason;
-              const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
-              window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-
-          window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
-          window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-          const __pushDialog = (type, message, defaultText) => {
-            window.__cmuxDialogQueue.push({
-              type,
-              message: String(message || ''),
-              default_text: defaultText == null ? null : String(defaultText),
-              timestamp_ms: Date.now()
-            });
-            if (window.__cmuxDialogQueue.length > 128) {
-              window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
-            }
-          };
-
-          window.alert = function(message) {
-            __pushDialog('alert', message, null);
-          };
-          window.confirm = function(message) {
-            __pushDialog('confirm', message, null);
-            return !!window.__cmuxDialogDefaults.confirm;
-          };
-          window.prompt = function(message, defaultValue) {
-            __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
-            const v = window.__cmuxDialogDefaults.prompt;
-            if (v === null || v === undefined) {
-              return defaultValue == null ? '' : String(defaultValue);
-            }
-            return String(v);
-          };
-
-          return true;
-        })()
-        """
-
-        _ = v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0)
+    private func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
     }
 
     private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"

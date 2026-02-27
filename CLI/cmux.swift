@@ -2211,6 +2211,11 @@ struct CMUXCLI {
         }
 
         func displayBrowserValue(_ value: Any) -> String {
+            if let dict = value as? [String: Any],
+               let type = dict["__cmux_t"] as? String,
+               type == "undefined" {
+                return "undefined"
+            }
             if value is NSNull {
                 return "null"
             }

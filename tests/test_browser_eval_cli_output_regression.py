@@ -53,6 +53,8 @@ def main() -> int:
         failures.append("runBrowserCommand() is missing displayBrowserValue() helper")
     else:
         value_block = extract_block(browser_block, "func displayBrowserValue(_ value: Any) -> String")
+        if 'dict["__cmux_t"] as? String' not in value_block or 'type == "undefined"' not in value_block:
+            failures.append("displayBrowserValue() no longer maps __cmux_t=undefined to literal 'undefined'")
         required_guards = [
             "if value is NSNull",
             "if let string = value as? String",
