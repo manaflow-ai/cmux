@@ -2057,6 +2057,50 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
             updateTitlebarText()
+
+            // Startup recovery (#399): if session restore or a race condition leaves the
+            // view in a broken state (empty tabs, no selection, unmounted workspaces),
+            // detect and recover after a short delay.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak tabManager] in
+                guard let tabManager else { return }
+                var didRecover = false
+
+                // Ensure there is at least one workspace.
+                if tabManager.tabs.isEmpty {
+                    tabManager.addWorkspace()
+                    didRecover = true
+                }
+
+                // Ensure selectedTabId points to an existing workspace.
+                if tabManager.selectedTabId == nil || !tabManager.tabs.contains(where: { $0.id == tabManager.selectedTabId }) {
+                    tabManager.selectedTabId = tabManager.tabs.first?.id
+                    didRecover = true
+                }
+
+                // Ensure mountedWorkspaceIds is populated.
+                if mountedWorkspaceIds.isEmpty || !mountedWorkspaceIds.contains(where: { id in tabManager.tabs.contains { $0.id == id } }) {
+                    reconcileMountedWorkspaceIds()
+                    didRecover = true
+                }
+
+                // Ensure sidebar selection is valid.
+                if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+                    selectedTabIds = [selectedId]
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    didRecover = true
+                }
+
+                if didRecover {
+#if DEBUG
+                    dlog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
+#endif
+                    sentryBreadcrumb("startup.recovery", data: [
+                        "tabCount": tabManager.tabs.count,
+                        "selectedTabId": tabManager.selectedTabId?.uuidString ?? "nil",
+                        "mountedCount": mountedWorkspaceIds.count
+                    ])
+                }
+            }
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in

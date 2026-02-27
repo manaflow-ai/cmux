@@ -3417,7 +3417,7 @@ extension TabManager {
             unwireClosedBrowserTracking(for: tab)
         }
 
-        tabs.removeAll(keepingCapacity: false)
+        // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         tabHistory.removeAll()
@@ -3430,6 +3430,10 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
+        // Build the new workspace list locally to avoid intermediate @Published
+        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
+        var newTabs: [Workspace] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
@@ -3442,20 +3446,30 @@ extension TabManager {
             )
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
-            tabs.append(workspace)
+            newTabs.append(workspace)
         }
 
-        if tabs.isEmpty {
-            _ = addWorkspace(select: false)
+        if newTabs.isEmpty {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
+            wireClosedBrowserTracking(for: fallback)
+            newTabs.append(fallback)
         }
 
-        selectedTabId = nil
+        // Determine selection before mutating @Published properties.
+        let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           tabs.indices.contains(selectedWorkspaceIndex) {
-            selectedTabId = tabs[selectedWorkspaceIndex].id
+           newTabs.indices.contains(selectedWorkspaceIndex) {
+            newSelectedId = newTabs[selectedWorkspaceIndex].id
         } else {
-            selectedTabId = tabs.first?.id
+            newSelectedId = newTabs.first?.id
         }
+
+        // Single atomic assignment of @Published properties so SwiftUI observers
+        // never see an intermediate state with empty tabs or nil selection.
+        tabs = newTabs
+        selectedTabId = newSelectedId
 
         if let selectedTabId {
             NotificationCenter.default.post(
