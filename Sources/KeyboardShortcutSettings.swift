@@ -30,6 +30,7 @@ enum KeyboardShortcutSettings {
         case focusDown
         case splitRight
         case splitDown
+        case toggleSplitZoom
         case splitBrowserRight
         case splitBrowserDown
 
@@ -63,6 +64,7 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "Focus Pane Down"
             case .splitRight: return "Split Right"
             case .splitDown: return "Split Down"
+            case .toggleSplitZoom: return "Toggle Pane Zoom"
             case .splitBrowserRight: return "Split Browser Right"
             case .splitBrowserDown: return "Split Browser Down"
             case .openBrowser: return "Open Browser"
@@ -91,6 +93,7 @@ enum KeyboardShortcutSettings {
             case .focusDown: return "shortcut.focusDown"
             case .splitRight: return "shortcut.splitRight"
             case .splitDown: return "shortcut.splitDown"
+            case .toggleSplitZoom: return "shortcut.toggleSplitZoom"
             case .splitBrowserRight: return "shortcut.splitBrowserRight"
             case .splitBrowserDown: return "shortcut.splitBrowserDown"
             case .nextSurface: return "shortcut.nextSurface"
@@ -140,6 +143,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
             case .splitDown:
                 return StoredShortcut(key: "d", command: true, shift: true, option: false, control: false)
+            case .toggleSplitZoom:
+                return StoredShortcut(key: "\r", command: true, shift: true, option: false, control: false)
             case .splitBrowserRight:
                 return StoredShortcut(key: "d", command: true, shift: false, option: true, control: false)
             case .splitBrowserDown:
@@ -220,6 +225,7 @@ enum KeyboardShortcutSettings {
 
     static func splitRightShortcut() -> StoredShortcut { shortcut(for: .splitRight) }
     static func splitDownShortcut() -> StoredShortcut { shortcut(for: .splitDown) }
+    static func toggleSplitZoomShortcut() -> StoredShortcut { shortcut(for: .toggleSplitZoom) }
     static func splitBrowserRightShortcut() -> StoredShortcut { shortcut(for: .splitBrowserRight) }
     static func splitBrowserDownShortcut() -> StoredShortcut { shortcut(for: .splitBrowserDown) }
 
@@ -250,6 +256,8 @@ struct StoredShortcut: Codable, Equatable {
         switch key {
         case "\t":
             keyText = "TAB"
+        case "\r":
+            keyText = "↩"
         default:
             keyText = key.uppercased()
         }
@@ -278,6 +286,8 @@ struct StoredShortcut: Codable, Equatable {
             return .downArrow
         case "\t":
             return .tab
+        case "\r":
+            return KeyEquivalent(Character("\r"))
         default:
             let lowered = key.lowercased()
             guard lowered.count == 1, let character = lowered.first else { return nil }
@@ -318,6 +328,8 @@ struct StoredShortcut: Codable, Equatable {
             return String(Character(scalar))
         case "\t":
             return "\t"
+        case "\r":
+            return "\r"
         default:
             let lowered = key.lowercased()
             guard lowered.count == 1 else { return nil }
@@ -355,6 +367,7 @@ struct StoredShortcut: Codable, Equatable {
         case 125: return "↓" // down arrow
         case 126: return "↑" // up arrow
         case 48: return "\t" // tab
+        case 36, 76: return "\r" // return, keypad enter
         case 33: return "["  // kVK_ANSI_LeftBracket
         case 30: return "]"  // kVK_ANSI_RightBracket
         case 27: return "-"  // kVK_ANSI_Minus

@@ -1855,6 +1855,7 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
+        selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
@@ -1865,6 +1866,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+        tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
@@ -1875,6 +1877,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
+        tab.clearSplitZoom()
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
@@ -2019,10 +2022,18 @@ class TabManager: ObservableObject {
         return foundSplit && allSucceeded
     }
 
-    /// Toggle zoom on a panel - bonsplit doesn't have zoom support
+    /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        // Bonsplit doesn't have zoom support
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.toggleSplitZoom(panelId: surfaceId)
+    }
+
+    /// Toggle zoom for the currently focused panel in the selected workspace.
+    @discardableResult
+    func toggleFocusedSplitZoom() -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return tab.toggleSplitZoom(panelId: focusedPanelId)
     }
 
     private func equalizeSplits(

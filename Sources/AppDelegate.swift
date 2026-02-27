@@ -4957,6 +4957,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
+            _ = tabManager?.toggleFocusedSplitZoom()
+            return true
+        }
+
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
 #if DEBUG
@@ -5570,6 +5575,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
         // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
+        if shortcutKey == "\r" {
+            return event.keyCode == 36 || event.keyCode == 76
+        }
         if shortcutKey == "[" || shortcutKey == "]" {
             switch event.keyCode {
             case 33: // kVK_ANSI_LeftBracket
@@ -5641,6 +5649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "m": return 46  // kVK_ANSI_M
         case ".": return 47  // kVK_ANSI_Period
         case "`": return 50  // kVK_ANSI_Grave
+        case "\r": return 36 // kVK_Return
         default:
             return nil
         }

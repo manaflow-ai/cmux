@@ -1080,6 +1080,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -2900,6 +2901,37 @@ final class Workspace: Identifiable, ObservableObject {
         return newTerminalSurface(inPane: focusedPaneId, focus: focus)
     }
 
+    @discardableResult
+    func clearSplitZoom() -> Bool {
+        bonsplitController.clearPaneZoom()
+    }
+
+    @discardableResult
+    func toggleSplitZoom(panelId: UUID) -> Bool {
+        guard let paneId = paneId(forPanelId: panelId) else { return false }
+        guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        focusPanel(panelId)
+        return true
+    }
+
+    // MARK: - Context Menu Shortcuts
+
+    static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
+        var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
+        let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
+            (.rename, .renameTab),
+            (.toggleZoom, .toggleSplitZoom),
+            (.newTerminalToRight, .newSurface),
+        ]
+        for (contextAction, settingsAction) in mappings {
+            let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
+            if let key = stored.keyEquivalent {
+                shortcuts[contextAction] = KeyboardShortcut(key, modifiers: stored.eventModifiers)
+            }
+        }
+        return shortcuts
+    }
+
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
@@ -4109,6 +4141,9 @@ extension Workspace: BonsplitDelegate {
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
+        case .toggleZoom:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            toggleSplitZoom(panelId: panelId)
         @unknown default:
             break
         }
