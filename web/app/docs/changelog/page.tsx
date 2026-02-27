@@ -307,7 +307,7 @@ export default function ChangelogPage() {
                       {section.heading && (
                         <SectionBadge heading={section.heading} />
                       )}
-                      <ul className="mt-2 mb-0">
+                      <ul className="mt-2 pb-0">
                         {section.items.map((item, j) => (
                           <li key={j} className="text-[14px]">
                             <InlineMarkdown text={item} />
