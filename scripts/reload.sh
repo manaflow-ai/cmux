@@ -327,24 +327,28 @@ else
 fi
 osascript -e "tell application id \"${BUNDLE_ID}\" to activate" || true
 
-# Safety: ensure only one instance is running.
-sleep 0.2
-PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
-if [[ "${#PIDS[@]}" -gt 1 ]]; then
-  NEWEST_PID=""
-  NEWEST_AGE=999999
-  for PID in "${PIDS[@]}"; do
-    AGE="$(ps -o etimes= -p "$PID" | tr -d ' ')"
-    if [[ -n "$AGE" && "$AGE" -lt "$NEWEST_AGE" ]]; then
-      NEWEST_AGE="$AGE"
-      NEWEST_PID="$PID"
-    fi
-  done
-  for PID in "${PIDS[@]}"; do
-    if [[ "$PID" != "$NEWEST_PID" ]]; then
-      kill "$PID" 2>/dev/null || true
-    fi
-  done
+# Safety: keep a single untagged instance, but do not auto-kill tagged runs.
+# Tagged runs are intentionally parallel/isolated and can look like "launch then close"
+# if we aggressively prune processes right after `open`.
+if [[ -z "$TAG" ]]; then
+  sleep 0.2
+  PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
+  if [[ "${#PIDS[@]}" -gt 1 ]]; then
+    NEWEST_PID=""
+    NEWEST_AGE=999999
+    for PID in "${PIDS[@]}"; do
+      AGE="$(ps -o etimes= -p "$PID" | tr -d ' ')"
+      if [[ -n "$AGE" && "$AGE" -lt "$NEWEST_AGE" ]]; then
+        NEWEST_AGE="$AGE"
+        NEWEST_PID="$PID"
+      fi
+    done
+    for PID in "${PIDS[@]}"; do
+      if [[ "$PID" != "$NEWEST_PID" ]]; then
+        kill "$PID" 2>/dev/null || true
+      fi
+    done
+  fi
 fi
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
