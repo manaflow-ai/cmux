@@ -67,7 +67,7 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
 
       - name: Download Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
+        run: xcodebuild -downloadComponent MetalToolchain || echo "Metal toolchain already available or -downloadComponent not supported"
 
       - name: Build GhosttyKit.xcframework
         run: |
