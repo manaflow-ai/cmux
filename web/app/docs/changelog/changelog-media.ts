@@ -51,6 +51,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Workspace Metadata",
         description:
           "Sidebar shows PR links, listening ports, git branches, and working directories across all panes in a workspace.",
+        image: "/changelog/0.61.0-workspace-metadata.png",
       },
     ],
   },
