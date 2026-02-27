@@ -3526,6 +3526,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openRepository",
+                title: constant("Open Folder…"),
+                subtitle: constant("Workspace"),
+                shortcutHint: "⌘O",
+                keywords: ["open", "folder", "repository", "project", "directory"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant("New Tab (Terminal)"),
                 subtitle: constant("Tab"),
@@ -4045,6 +4054,17 @@ struct ContentView: View {
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
+        }
+        registry.register(commandId: "palette.openRepository") {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.title = "Open Folder"
+            panel.prompt = "Open"
+            if panel.runModal() == .OK, let url = panel.url {
+                tabManager.addWorkspace(workingDirectory: url.path)
+            }
         }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)

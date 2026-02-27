@@ -384,6 +384,30 @@ struct cmuxApp: App {
                         activeTabManager.addTab()
                     }
                 }
+
+                splitCommandButton(
+                    title: "Open Folder…",
+                    shortcut: StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
+                ) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.title = "Open Folder"
+                    panel.prompt = "Open"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        if let appDelegate = AppDelegate.shared {
+                            if appDelegate.addWorkspaceInPreferredMainWindow(
+                                workingDirectory: url.path,
+                                debugSource: "menu.openFolder"
+                            ) == nil {
+                                appDelegate.openNewMainWindow(nil)
+                            }
+                        } else {
+                            activeTabManager.addWorkspace(workingDirectory: url.path)
+                        }
+                    }
+                }
             }
 
             // Close tab/workspace
