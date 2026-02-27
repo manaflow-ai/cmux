@@ -120,7 +120,7 @@ function HeroImage({ src, version }: { src: string; version: string }) {
   const { width, height } = pngDimensions(src);
   return (
     <div style={{ paddingTop: 16, paddingBottom: 24 }}>
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="overflow-hidden rounded-lg">
         <Image
           src={src}
           alt={`cmux ${version}`}
@@ -139,7 +139,7 @@ function FeatureImage({ src, alt }: { src: string; alt: string }) {
   const { width, height } = pngDimensions(src);
   return (
     <div style={{ paddingTop: 12 }}>
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="overflow-hidden rounded-lg">
         <Image
           src={src}
           alt={alt}
