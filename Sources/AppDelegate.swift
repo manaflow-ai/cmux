@@ -850,7 +850,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 options.environment = "production"
                 options.debug = false
                 #endif
-                options.sendDefaultPii = true
+                options.sendDefaultPii = false
 
                 // Performance tracing (10% of transactions)
                 options.tracesSampleRate = 0.1
