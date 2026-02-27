@@ -2724,7 +2724,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             dlog("terminal.paste.image path=\(path)")
 #endif
-            terminalSurface?.sendText(path)
+            terminalSurface?.sendText(Self.escapeDropForShell(path))
             return
         }
         _ = performBindingAction("paste_from_clipboard")
