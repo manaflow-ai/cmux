@@ -414,6 +414,37 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(ClaudeCodeIntegrationSettings.hooksEnabled(defaults: defaults))
     }
 
+    func testTelemetryDefaultsToEnabledWhenUnset() {
+        let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: TelemetrySettings.sendAnonymousTelemetryKey)
+        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+    }
+
+    func testTelemetryRespectsStoredPreference() {
+        let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
+        XCTAssertTrue(TelemetrySettings.isEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: TelemetrySettings.sendAnonymousTelemetryKey)
+        XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
