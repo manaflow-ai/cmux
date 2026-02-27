@@ -3506,6 +3506,24 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.installCLI",
+                title: constant("Shell Command: Install 'cmux' in PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["install", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.uninstallCLI",
+                title: constant("Shell Command: Uninstall 'cmux' from PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant("New Tab (Terminal)"),
                 subtitle: constant("Tab"),
@@ -4020,6 +4038,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)
+        }
+        registry.register(commandId: "palette.installCLI") {
+            AppDelegate.shared?.installCmuxCLIInPath(nil)
+        }
+        registry.register(commandId: "palette.uninstallCLI") {
+            AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
             tabManager.newSurface()
