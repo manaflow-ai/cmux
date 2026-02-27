@@ -3530,7 +3530,6 @@ struct SettingsView: View {
         socketPasswordDraft = ""
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
-        sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         KeyboardShortcutSettings.resetAll()
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
