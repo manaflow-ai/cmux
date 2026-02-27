@@ -3083,8 +3083,10 @@ final class Workspace: Identifiable, ObservableObject {
             // layout and view lifecycle changes that free surfaces (#432).
             if terminalPanel.surface.surface != nil {
                 terminalPanel.surface.forceRefresh()
-            } else if isAttached && hasUsableBounds {
+            }
+            if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                needsFollowUpPass = true
             }
         }
 
@@ -3139,7 +3141,8 @@ final class Workspace: Identifiable, ObservableObject {
                 panel.hostedView.reconcileGeometryNow()
                 if panel.surface.surface != nil {
                     panel.surface.forceRefresh()
-                } else {
+                }
+                if panel.surface.surface == nil {
                     panel.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }

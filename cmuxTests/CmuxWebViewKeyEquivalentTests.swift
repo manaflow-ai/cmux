@@ -6761,6 +6761,49 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 
+    func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.reconcileGeometryNow()
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
+
+        hostedView.reconcileGeometryNow()
+        surface.forceRefresh()
+        XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
         weak var weakSurface: TerminalSurface?
 
