@@ -3324,6 +3324,8 @@ struct ContentView: View {
             return .newTab
         case "palette.newWindow":
             return .newWindow
+        case "palette.openFolder":
+            return .openFolder
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -3526,10 +3528,9 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
-                commandId: "palette.openRepository",
+                commandId: "palette.openFolder",
                 title: constant("Open Folder…"),
                 subtitle: constant("Workspace"),
-                shortcutHint: "⌘O",
                 keywords: ["open", "folder", "repository", "project", "directory"]
             )
         )
@@ -4055,7 +4056,7 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
         }
-        registry.register(commandId: "palette.openRepository") {
+        registry.register(commandId: "palette.openFolder") {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
