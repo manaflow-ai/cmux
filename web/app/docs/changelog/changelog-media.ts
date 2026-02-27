@@ -34,25 +34,23 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Open With",
         description:
           "Open your current directory in VS Code, Cursor, Zed, Xcode, Finder, or any other editor directly from the command palette.",
-        // image: "/changelog/0.61.0-open-with.png",
-      },
-      {
-        title: "Command Palette",
-        description:
-          "Cmd+Shift+P opens a searchable palette for actions, settings, and switching between windows and workspaces.",
-        // image: "/changelog/0.61.0-command-palette.png",
+        image: "/changelog/0.61.0-open-with.png",
       },
       {
         title: "Tab Colors",
         description:
           "Right-click any workspace to assign a color. 17 presets plus a custom color picker for visual organization.",
-        // image: "/changelog/0.61.0-tab-colors.png",
+        image: "/changelog/0.61.0-tab-colors.png",
+      },
+      {
+        title: "Command Palette",
+        description:
+          "Cmd+Shift+P opens a searchable palette for actions, settings, and switching between windows and workspaces.",
       },
       {
         title: "Workspace Metadata",
         description:
           "Sidebar shows PR links, listening ports, git branches, and working directories across all panes in a workspace.",
-        // image: "/changelog/0.61.0-workspace-metadata.png",
       },
     ],
   },
