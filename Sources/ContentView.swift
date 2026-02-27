@@ -6792,7 +6792,7 @@ private struct TabItemView: View {
                 }
             }
 
-            Menu("Tab Color") {
+            Menu("Workspace Color") {
                 if tab.customColor != nil {
                     Button {
                         applyTabColor(nil, targetIds: targetIds)
@@ -7401,7 +7401,7 @@ private struct TabItemView: View {
 
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
-        alert.messageText = "Custom Tab Color"
+        alert.messageText = "Custom Workspace Color"
         alert.informativeText = "Enter a hex color in the format #RRGGBB."
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
