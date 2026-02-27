@@ -49,6 +49,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case xcode
     case androidStudio
     case zed
+    case tower
 
     struct DetectionEnvironment {
         let homeDirectoryPath: String
@@ -100,6 +101,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return "Open Current Directory in Android Studio"
         case .zed:
             return "Open Current Directory in Zed"
+        case .tower:
+            return "Open Current Directory in Tower"
         }
     }
 
@@ -130,6 +133,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["android", "studio"]
         case .zed:
             return common + ["zed"]
+        case .tower:
+            return common + ["tower", "git", "client"]
         }
     }
 
@@ -205,6 +210,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
                 "/Applications/Zed Preview.app",
                 "/Applications/Zed Nightly.app",
             ]
+        case .tower:
+            return ["/Applications/Tower.app"]
         }
     }
 
