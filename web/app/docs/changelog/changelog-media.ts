@@ -46,6 +46,7 @@ export const changelogMedia: Record<string, VersionMedia> = {
         title: "Command Palette",
         description:
           "Cmd+Shift+P opens a searchable palette for actions, settings, and switching between windows and workspaces.",
+        image: "/changelog/0.61.0-command-palette.png",
       },
       {
         title: "Workspace Metadata",

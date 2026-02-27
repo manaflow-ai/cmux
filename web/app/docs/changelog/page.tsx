@@ -121,33 +121,26 @@ function HeroImage({ src, version }: { src: string; version: string }) {
   );
 }
 
-function FeatureGrid({ media }: { media: VersionMedia }) {
+function FeatureList({ media }: { media: VersionMedia }) {
   if (!media.features?.length) return null;
 
   return (
-    <div className="mt-4 mb-6 grid gap-3 grid-cols-1 sm:grid-cols-2">
+    <div className="mt-4 space-y-5">
       {media.features.map((feature, i) => (
-        <div
-          key={i}
-          className="rounded-lg border border-border overflow-hidden"
-        >
+        <div key={i}>
+          <p className="!mb-1">
+            <strong>{feature.title}.</strong>{" "}
+            <span className="text-muted">{feature.description}</span>
+          </p>
           {feature.image && (
             <Image
               src={feature.image}
               alt={feature.title}
-              width={800}
-              height={450}
-              className="w-full h-auto border-b border-border"
+              width={1200}
+              height={675}
+              className="w-full h-auto rounded-lg border border-border mt-2"
             />
           )}
-          <div className="px-4 py-3">
-            <div className="text-[14px] font-semibold text-foreground">
-              {feature.title}
-            </div>
-            <div className="text-[13px] text-muted leading-relaxed mt-0.5">
-              {feature.description}
-            </div>
-          </div>
         </div>
       ))}
     </div>
@@ -263,7 +256,7 @@ export default function ChangelogPage() {
                 <HeroImage src={media.hero} version={v.version} />
               )}
 
-              {media && <FeatureGrid media={media} />}
+              {media && <FeatureList media={media} />}
 
               {v.intro && !media?.summary && (
                 <p className="text-[14px] text-muted italic mt-2 mb-0">
