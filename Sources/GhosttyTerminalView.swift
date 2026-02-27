@@ -2701,7 +2701,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let timestamp = formatter.string(from: Date())
-        let filename = "clipboard-\(timestamp).png"
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
         let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
 
         do {
@@ -2739,9 +2739,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
-        case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
+        case #selector(paste(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
                 || Self.clipboardHasImageOnly()
+        case #selector(pasteAsPlainText(_:)):
+            return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
         default:
