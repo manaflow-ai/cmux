@@ -8,6 +8,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
     case bing
+    case kagi
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         case .google: return "Google"
         case .duckduckgo: return "DuckDuckGo"
         case .bing: return "Bing"
+        case .kagi: return "Kagi"
         }
     }
 
@@ -31,6 +33,8 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
             components = URLComponents(string: "https://duckduckgo.com/")
         case .bing:
             components = URLComponents(string: "https://www.bing.com/search")
+        case .kagi:
+            components = URLComponents(string: "https://kagi.com/search")
         }
 
         components?.queryItems = [
@@ -1030,6 +1034,12 @@ actor BrowserSearchSuggestionService {
                 URLQueryItem(name: "query", value: query),
             ]
             url = c?.url
+        case .kagi:
+            var c = URLComponents(string: "https://kagi.com/api/autosuggest")
+            c?.queryItems = [
+                URLQueryItem(name: "q", value: query),
+            ]
+            url = c?.url
         }
 
         guard let url else { return [] }
@@ -1054,7 +1064,7 @@ actor BrowserSearchSuggestionService {
         }
 
         switch engine {
-        case .google, .bing:
+        case .google, .bing, .kagi:
             return parseOSJSON(data: data)
         case .duckduckgo:
             return parseDuckDuckGo(data: data)
