@@ -2452,16 +2452,17 @@ class TerminalController {
                     return
                 }
                 let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors (e.g. "blue") from the built-in palette
+                // Resolve named colors from the effective palette (includes user overrides)
+                let effectivePalette = WorkspaceTabColorSettings.palette()
                 let hex: String
-                if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+                if let entry = effectivePalette.first(where: {
                     $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
                 }) {
                     hex = entry.hex
                 } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
                     hex = normalized
                 } else {
-                    let colorNames = WorkspaceTabColorSettings.defaultPalette.map(\.name)
+                    let colorNames = effectivePalette.map(\.name)
                     result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
                         "named_colors": colorNames
                     ])
