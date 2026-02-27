@@ -55,10 +55,8 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
 
 private enum WindowDragHandleAssociatedObjectKeys {
     private static let suppressionDepthToken = NSObject()
-    private static let topHitResolutionDepthToken = NSObject()
 
     static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
-    static let topHitResolutionDepth = UnsafeRawPointer(Unmanaged.passUnretained(topHitResolutionDepthToken).toOpaque())
 }
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
@@ -142,57 +140,6 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
     return previousMovableState
 }
 
-private enum WindowDragHandleHitTestState {
-    static func depth(window: NSWindow?) -> Int {
-        guard let window,
-              let value = objc_getAssociatedObject(
-                window,
-                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth
-              ) as? NSNumber else {
-            return 0
-        }
-        return value.intValue
-    }
-
-    static func begin(window: NSWindow?) {
-        guard let window else { return }
-        let next = depth(window: window) + 1
-        objc_setAssociatedObject(
-            window,
-            WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
-            NSNumber(value: next),
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        )
-    }
-
-    @discardableResult
-    static func end(window: NSWindow?) -> Int {
-        guard let window else { return 0 }
-        let current = depth(window: window)
-        let next = max(0, current - 1)
-        if next == 0 {
-            objc_setAssociatedObject(
-                window,
-                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
-                nil,
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        } else {
-            objc_setAssociatedObject(
-                window,
-                WindowDragHandleAssociatedObjectKeys.topHitResolutionDepth,
-                NSNumber(value: next),
-                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
-            )
-        }
-        return next
-    }
-
-    static func isResolvingTopHit(window: NSWindow?) -> Bool {
-        depth(window: window) > 0
-    }
-}
-
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
@@ -264,39 +211,6 @@ func windowDragHandleShouldCaptureHit(
         dlog("titlebar.dragHandle.hitTest capture=true reason=noSuperview point=\(windowDragHandleFormatPoint(point))")
         #endif
         return true
-    }
-
-    if let window = dragHandleView.window,
-       let contentView = window.contentView,
-       !WindowDragHandleHitTestState.isResolvingTopHit(window: window) {
-        let pointInWindow = dragHandleView.convert(point, to: nil)
-        let pointInContent = contentView.convert(pointInWindow, from: nil)
-
-        WindowDragHandleHitTestState.begin(window: window)
-        defer {
-            WindowDragHandleHitTestState.end(window: window)
-        }
-        let topHit = contentView.hitTest(pointInContent)
-
-        if let topHit {
-            let ownsTopHit = topHit === dragHandleView || topHit.isDescendant(of: dragHandleView)
-            let topHitBelongsToTitlebarOverlay = topHit === superview || topHit.isDescendant(of: superview)
-            let isPassiveHostHit = windowDragHandleShouldTreatTopHitAsPassiveHost(topHit)
-            #if DEBUG
-            dlog(
-                "titlebar.dragHandle.hitTest capture=\(ownsTopHit) strategy=windowTopHit point=\(windowDragHandleFormatPoint(point)) top=\(type(of: topHit)) inTitlebarOverlay=\(topHitBelongsToTitlebarOverlay) passiveHost=\(isPassiveHostHit)"
-            )
-            #endif
-            if ownsTopHit {
-                return true
-            }
-            // Underlay content can transiently overlap titlebar space (notably browser
-            // chrome/webview layers). Only let top-hits block capture when they belong
-            // to this titlebar overlay stack.
-            if topHitBelongsToTitlebarOverlay && !isPassiveHostHit {
-                return false
-            }
-        }
     }
 
     let siblingSnapshot = Array(superview.subviews.reversed())
