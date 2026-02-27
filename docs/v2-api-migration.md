@@ -89,6 +89,7 @@ Panes:
 - [x] focus_pane -> `pane.focus`
 - [x] list_pane_surfaces -> `pane.surfaces`
 - [x] new_pane -> `pane.create`
+- [x] toggle pane zoom (tmux `resize-pane -Z`) -> `pane.zoom`
 
 Input:
 - [x] send / send_surface -> `surface.send_text`
