@@ -1973,8 +1973,9 @@ struct CMUXCLI {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
+        let (colorOpt, rem3) = parseOption(rem2, name: "--color")
 
-        var positional = rem2
+        var positional = rem3
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -2000,12 +2001,20 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
         }
 
+        let color = colorOpt ?? (action == "set_color" ? (inferredTitle.isEmpty ? nil : inferredTitle) : nil)
+        if action == "set_color", (color?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
+        }
+
         var params: [String: Any] = ["action": action]
         if let workspaceId {
             params["workspace_id"] = workspaceId
         }
         if let title, !title.isEmpty {
             params["title"] = title
+        }
+        if let color, !color.isEmpty {
+            params["color"] = color
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -2021,6 +2030,9 @@ struct CMUXCLI {
         }
         if let index = payload["index"] {
             summaryParts.append("index=\(index)")
+        }
+        if let color = payload["color"] as? String {
+            summaryParts.append("color=\(color)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -3502,16 +3514,26 @@ struct CMUXCLI {
               move-up | move-down | move-top
               close-others | close-above | close-below
               mark-read | mark-unread
+              set-color | clear-color
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
+              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+
+            Named colors:
+              Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
+              Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
               cmux workspace-action --action rename --title "infra"
               cmux workspace-action close-others
+              cmux workspace-action --action set-color --color blue
+              cmux workspace-action --action set-color --color "#C0392B"
+              cmux workspace-action set-color Amber
+              cmux workspace-action clear-color
             """
         case "tab-action":
             return """
@@ -5835,7 +5857,7 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
           list-workspaces
           new-workspace [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

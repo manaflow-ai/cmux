@@ -2526,7 +2526,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -2650,6 +2651,36 @@ class TerminalController {
 
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
+                finish()
+
+            case "set_color":
+                guard let colorRaw = v2String(params, "color"),
+                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+                    return
+                }
+                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Resolve named colors from the effective palette (includes user overrides)
+                let effectivePalette = WorkspaceTabColorSettings.palette()
+                let hex: String
+                if let entry = effectivePalette.first(where: {
+                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
+                }) {
+                    hex = entry.hex
+                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+                    hex = normalized
+                } else {
+                    let colorNames = effectivePalette.map(\.name)
+                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
+                        "named_colors": colorNames
+                    ])
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: hex)
+                finish(["color": hex])
+
+            case "clear_color":
+                tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish()
 
             default:
