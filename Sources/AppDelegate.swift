@@ -37,19 +37,19 @@ enum FinderServicePathResolver {
 }
 
 enum TerminalDirectoryOpenTarget: String, CaseIterable {
-    case vscode
-    case cursor
-    case windsurf
-    case antigravity
-    case finder
-    case terminal
-    case iterm2
-    case ghostty
-    case warp
-    case xcode
     case androidStudio
-    case zed
+    case antigravity
+    case cursor
+    case finder
+    case ghostty
+    case iterm2
+    case terminal
     case tower
+    case vscode
+    case warp
+    case windsurf
+    case xcode
+    case zed
 
     struct DetectionEnvironment {
         let homeDirectoryPath: String
@@ -77,64 +77,64 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     var commandPaletteTitle: String {
         switch self {
-        case .vscode:
-            return "Open Current Directory in VS Code"
-        case .cursor:
-            return "Open Current Directory in Cursor"
-        case .windsurf:
-            return "Open Current Directory in Windsurf"
-        case .antigravity:
-            return "Open Current Directory in Antigravity"
-        case .finder:
-            return "Open Current Directory in Finder"
-        case .terminal:
-            return "Open Current Directory in Terminal"
-        case .iterm2:
-            return "Open Current Directory in iTerm2"
-        case .ghostty:
-            return "Open Current Directory in Ghostty"
-        case .warp:
-            return "Open Current Directory in Warp"
-        case .xcode:
-            return "Open Current Directory in Xcode"
         case .androidStudio:
             return "Open Current Directory in Android Studio"
-        case .zed:
-            return "Open Current Directory in Zed"
+        case .antigravity:
+            return "Open Current Directory in Antigravity"
+        case .cursor:
+            return "Open Current Directory in Cursor"
+        case .finder:
+            return "Open Current Directory in Finder"
+        case .ghostty:
+            return "Open Current Directory in Ghostty"
+        case .iterm2:
+            return "Open Current Directory in iTerm2"
+        case .terminal:
+            return "Open Current Directory in Terminal"
         case .tower:
             return "Open Current Directory in Tower"
+        case .vscode:
+            return "Open Current Directory in VS Code"
+        case .warp:
+            return "Open Current Directory in Warp"
+        case .windsurf:
+            return "Open Current Directory in Windsurf"
+        case .xcode:
+            return "Open Current Directory in Xcode"
+        case .zed:
+            return "Open Current Directory in Zed"
         }
     }
 
     var commandPaletteKeywords: [String] {
         let common = ["terminal", "directory", "open", "ide"]
         switch self {
-        case .vscode:
-            return common + ["vs", "code", "visual", "studio"]
-        case .cursor:
-            return common + ["cursor"]
-        case .windsurf:
-            return common + ["windsurf"]
-        case .antigravity:
-            return common + ["antigravity"]
-        case .finder:
-            return common + ["finder", "file", "manager", "reveal"]
-        case .terminal:
-            return common + ["terminal", "shell"]
-        case .iterm2:
-            return common + ["iterm", "iterm2", "terminal", "shell"]
-        case .ghostty:
-            return common + ["ghostty", "terminal", "shell"]
-        case .warp:
-            return common + ["warp", "terminal", "shell"]
-        case .xcode:
-            return common + ["xcode", "apple"]
         case .androidStudio:
             return common + ["android", "studio"]
-        case .zed:
-            return common + ["zed"]
+        case .antigravity:
+            return common + ["antigravity"]
+        case .cursor:
+            return common + ["cursor"]
+        case .finder:
+            return common + ["finder", "file", "manager", "reveal"]
+        case .ghostty:
+            return common + ["ghostty", "terminal", "shell"]
+        case .iterm2:
+            return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .terminal:
+            return common + ["terminal", "shell"]
         case .tower:
             return common + ["tower", "git", "client"]
+        case .vscode:
+            return common + ["vs", "code", "visual", "studio"]
+        case .warp:
+            return common + ["warp", "terminal", "shell"]
+        case .windsurf:
+            return common + ["windsurf"]
+        case .xcode:
+            return common + ["xcode", "apple"]
+        case .zed:
+            return common + ["zed"]
         }
     }
 
@@ -172,46 +172,46 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     private var applicationBundlePathCandidates: [String] {
         switch self {
-        case .vscode:
-            return [
-                "/Applications/Visual Studio Code.app",
-                "/Applications/Code.app",
-            ]
+        case .androidStudio:
+            return ["/Applications/Android Studio.app"]
+        case .antigravity:
+            return ["/Applications/Antigravity.app"]
         case .cursor:
             return [
                 "/Applications/Cursor.app",
                 "/Applications/Cursor Preview.app",
                 "/Applications/Cursor Nightly.app",
             ]
-        case .windsurf:
-            return ["/Applications/Windsurf.app"]
-        case .antigravity:
-            return ["/Applications/Antigravity.app"]
         case .finder:
             return ["/System/Library/CoreServices/Finder.app"]
-        case .terminal:
-            return ["/System/Applications/Utilities/Terminal.app"]
+        case .ghostty:
+            return ["/Applications/Ghostty.app"]
         case .iterm2:
             return [
                 "/Applications/iTerm.app",
                 "/Applications/iTerm2.app",
             ]
-        case .ghostty:
-            return ["/Applications/Ghostty.app"]
+        case .terminal:
+            return ["/System/Applications/Utilities/Terminal.app"]
+        case .tower:
+            return ["/Applications/Tower.app"]
+        case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
         case .warp:
             return ["/Applications/Warp.app"]
+        case .windsurf:
+            return ["/Applications/Windsurf.app"]
         case .xcode:
             return ["/Applications/Xcode.app"]
-        case .androidStudio:
-            return ["/Applications/Android Studio.app"]
         case .zed:
             return [
                 "/Applications/Zed.app",
                 "/Applications/Zed Preview.app",
                 "/Applications/Zed Nightly.app",
             ]
-        case .tower:
-            return ["/Applications/Tower.app"]
         }
     }
 
