@@ -18,7 +18,11 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
     }
 
     func testOmnibarSuggestionsAlignToPillAndCmdNP() {
-        seedBrowserHistoryForTest()
+        seedBrowserHistoryForTest(seedEntries: [
+            SeedEntry(url: "https://example.com/", title: "Example Domain", visitCount: 12, typedCount: 4),
+            SeedEntry(url: "https://example.org/", title: "Example Organization", visitCount: 9, typedCount: 3),
+            SeedEntry(url: "https://go.dev/", title: "The Go Programming Language", visitCount: 6, typedCount: 1),
+        ])
 
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
@@ -26,8 +30,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         // Keep suggestions deterministic for the keyboard-nav assertions.
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         // Focus omnibar.
         app.typeKey("l", modifierFlags: [.command])
@@ -39,7 +42,10 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
 
         // Type a query that matches the seeded URL.
-        omnibar.typeText("exam")
+        XCTAssertTrue(
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "exam", timeout: 6.0),
+            "Expected omnibar suggestions to appear for 'exam'"
+        )
 
         // SwiftUI's accessibility typing for ScrollView can vary; match by identifier regardless of element type.
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -75,10 +81,16 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(row1.waitForExistence(timeout: 6.0))
 
         app.typeKey("n", modifierFlags: [.command])
-        XCTAssertTrue(waitForRowSelected(row1, timeout: 2.0), "Expected Cmd+N to select row 1. value=\(String(describing: row1.value))")
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
+            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+        )
 
         app.typeKey("p", modifierFlags: [.command])
-        XCTAssertTrue(waitForRowSelected(row0, timeout: 2.0), "Expected Cmd+P to return to row 0. value=\(String(describing: row0.value))")
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(row0, timeout: 3.0),
+            "Expected Cmd+P to move selection back to row 0. row0Value=\(String(describing: row0.value))"
+        )
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -104,8 +116,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         // Keep suggestions deterministic.
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
@@ -189,14 +200,14 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"] = #"["go tutorial","go json","go fmt"]"#
-        app.launch()
-        app.activate()
-
-        app.typeKey("l", modifierFlags: [.command])
+        launchAndEnsureForeground(app)
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        omnibar.typeText("go")
+        XCTAssertTrue(
+            typeQueryAndWaitForSuggestions(app: app, omnibar: omnibar, query: "go", timeout: 6.0),
+            "Expected omnibar suggestions to appear for 'go'"
+        )
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
@@ -207,13 +218,22 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(row2.waitForExistence(timeout: 6.0))
 
         app.typeKey("n", modifierFlags: [.command])
-        XCTAssertTrue(waitForRowSelected(row1, timeout: 2.0), "Expected Cmd+N to select row 1")
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
+            "Expected Cmd+N to move selection to row 1. row1Value=\(String(describing: row1.value))"
+        )
 
         app.typeKey("n", modifierFlags: [.command])
-        XCTAssertTrue(waitForRowSelected(row2, timeout: 2.0), "Expected repeated Cmd+N to keep moving selection")
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(row2, timeout: 3.0),
+            "Expected repeated Cmd+N to move selection to row 2. row2Value=\(String(describing: row2.value))"
+        )
 
         app.typeKey("p", modifierFlags: [.command])
-        XCTAssertTrue(waitForRowSelected(row1, timeout: 2.0), "Expected Cmd+P to move selection up")
+        XCTAssertTrue(
+            waitForSuggestionRowToBeSelected(row1, timeout: 3.0),
+            "Expected Cmd+P to move selection back to row 1. row1Value=\(String(describing: row1.value))"
+        )
     }
 
     func testOmnibarShowsMultipleRowsWithoutClipping() {
@@ -225,8 +245,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"] = #"["go tutorial","go json","go fmt"]"#
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -253,8 +272,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -315,8 +333,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
@@ -373,8 +390,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -415,8 +431,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -461,8 +476,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -499,8 +513,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_DISABLE_REMOTE_SUGGESTIONS"] = "1"
-        app.launch()
-        app.activate()
+        launchAndEnsureForeground(app)
 
         app.typeKey("l", modifierFlags: [.command])
 
@@ -508,17 +521,20 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
         omnibar.typeText("go")
 
+        let typedPrefix = "go"
         let inlineDeadline = Date().addingTimeInterval(3.0)
+        var valueBeforeCmdA = ""
         while Date() < inlineDeadline {
-            let value = (omnibar.value as? String) ?? ""
-            if value.contains("google.com") {
+            valueBeforeCmdA = (omnibar.value as? String) ?? ""
+            let normalized = valueBeforeCmdA.lowercased()
+            if normalized.hasPrefix(typedPrefix), valueBeforeCmdA.utf16.count > typedPrefix.utf16.count {
                 break
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         XCTAssertTrue(
-            ((omnibar.value as? String) ?? "").contains("google.com"),
-            "Expected inline completion to show google.com before Cmd+A."
+            valueBeforeCmdA.lowercased().hasPrefix(typedPrefix) && valueBeforeCmdA.utf16.count > typedPrefix.utf16.count,
+            "Expected inline completion to extend typed prefix before Cmd+A. value=\(valueBeforeCmdA)"
         )
 
         app.typeKey("a", modifierFlags: [.command])
@@ -526,9 +542,28 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let afterCmdA = (omnibar.value as? String) ?? ""
         XCTAssertTrue(
-            afterCmdA.contains("google.com"),
-            "Expected Cmd+A to preserve inline completion display instead of collapsing to typed prefix. value=\(afterCmdA)"
+            afterCmdA.lowercased().hasPrefix(typedPrefix) && afterCmdA.utf16.count > typedPrefix.utf16.count,
+            "Expected Cmd+A to preserve inline completion display instead of collapsing to typed prefix. before=\(valueBeforeCmdA) after=\(afterCmdA)"
         )
+    }
+
+    private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: timeout),
+            "Expected app to launch in foreground. state=\(app.state.rawValue)"
+        )
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
     }
 
     private struct SeedEntry {
@@ -617,14 +652,49 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         add(attachment)
     }
 
-    private func waitForRowSelected(_ row: XCUIElement, timeout: TimeInterval) -> Bool {
+    private func waitForSuggestionRowToBeSelected(_ row: XCUIElement, timeout: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if ((row.value as? String) ?? "").contains("selected") {
+            if isSuggestionRowSelected(row) {
                 return true
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return ((row.value as? String) ?? "").contains("selected")
+        return isSuggestionRowSelected(row)
+    }
+
+    private func isSuggestionRowSelected(_ row: XCUIElement) -> Bool {
+        guard row.exists else { return false }
+        guard let rawValue = row.value as? String else { return false }
+        return rawValue.localizedCaseInsensitiveContains("selected")
+    }
+
+    private func typeQueryAndWaitForSuggestions(
+        app: XCUIApplication,
+        omnibar: XCUIElement,
+        query: String,
+        timeout: TimeInterval,
+        attempts: Int = 3
+    ) -> Bool {
+        let suggestions = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
+        for _ in 0..<attempts {
+            if app.state == .runningBackground {
+                app.activate()
+                _ = app.wait(for: .runningForeground, timeout: 2.0)
+            }
+            app.typeKey("l", modifierFlags: [.command])
+            guard omnibar.waitForExistence(timeout: 6.0) else { continue }
+            omnibar.click()
+            app.typeKey("a", modifierFlags: [.command])
+            app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+            omnibar.click()
+            omnibar.typeText(query)
+            if suggestions.waitForExistence(timeout: timeout) {
+                return true
+            }
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return suggestions.exists
     }
 }

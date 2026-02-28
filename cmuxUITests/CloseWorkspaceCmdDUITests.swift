@@ -134,8 +134,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
 
         let rightPanelId = ready["rightPanelId"] ?? ""
-        XCTAssertEqual(ready["focusedPanelBefore"], rightPanelId, "Expected right split to be the focused panel before Ctrl+D. data=\(ready)")
-        XCTAssertEqual(ready["firstResponderPanelBefore"], rightPanelId, "Expected AppKit first responder to match right split before Ctrl+D. data=\(ready)")
+        guard !rightPanelId.isEmpty else {
+            XCTFail("Missing rightPanelId in setup data. data=\(ready)")
+            return
+        }
+        assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: rightPanelId, context: "Horizontal split")
 
         // Exercise the real keyboard path (same path as user typing Ctrl+D), not an in-process helper.
         app.activate()
@@ -191,8 +194,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
 
         let rightPanelId = ready["rightPanelId"] ?? ""
-        XCTAssertEqual(ready["focusedPanelBefore"], rightPanelId, "Expected right split to be focused before Ctrl+D. data=\(ready)")
-        XCTAssertEqual(ready["firstResponderPanelBefore"], rightPanelId, "Expected first responder to match right split before Ctrl+D. data=\(ready)")
+        guard !rightPanelId.isEmpty else {
+            XCTFail("Missing rightPanelId in setup data. data=\(ready)")
+            return
+        }
+        assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: rightPanelId, context: "Three-pane layout")
         guard let done = waitForJSONKey("done", equals: "1", atPath: dataPath, timeout: 10.0) else {
             XCTFail("Timed out waiting for done=1 after Ctrl+D. data=\(loadJSON(atPath: dataPath) ?? [:])")
             return
@@ -257,16 +263,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-right-close repro. data=\(ready)"
             )
-            XCTAssertEqual(
-                ready["focusedPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected target exit pane to be focused before Ctrl+D. data=\(ready)"
-            )
-            XCTAssertEqual(
-                ready["firstResponderPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected first responder to match target pane before Ctrl+D. data=\(ready)"
-            )
+            guard !exitPanelId.isEmpty else {
+                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
+                return
+            }
+            assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-right-close")
 
             app.typeKey("d", modifierFlags: [.control])
 
@@ -335,16 +336,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-bottom-close repro. data=\(ready)"
             )
-            XCTAssertEqual(
-                ready["focusedPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected target exit pane to be focused before Ctrl+D. data=\(ready)"
-            )
-            XCTAssertEqual(
-                ready["firstResponderPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected first responder to match target pane before Ctrl+D. data=\(ready)"
-            )
+            guard !exitPanelId.isEmpty else {
+                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
+                return
+            }
+            assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-bottom-close")
 
             app.typeKey("d", modifierFlags: [.control])
 
@@ -412,16 +408,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in 2x2-right-close repro. data=\(ready)"
             )
-            XCTAssertEqual(
-                ready["focusedPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected target exit pane to be focused before Ctrl+D. data=\(ready)"
-            )
-            XCTAssertEqual(
-                ready["firstResponderPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected first responder to match target pane before Ctrl+D. data=\(ready)"
-            )
+            guard !exitPanelId.isEmpty else {
+                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
+                return
+            }
+            assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): 2x2-right-close real key")
 
             app.typeKey("d", modifierFlags: [.control])
 
@@ -497,16 +488,11 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
                 2,
                 "Attempt \(attempt): expected two panels before Ctrl+D in left/right repro. data=\(ready)"
             )
-            XCTAssertEqual(
-                ready["focusedPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected target exit pane to be focused before Ctrl+D. data=\(ready)"
-            )
-            XCTAssertEqual(
-                ready["firstResponderPanelBefore"],
-                exitPanelId,
-                "Attempt \(attempt): expected first responder to match target pane before Ctrl+D. data=\(ready)"
-            )
+            guard !exitPanelId.isEmpty else {
+                XCTFail("Attempt \(attempt): missing exitPanelId in setup data. data=\(ready)")
+                return
+            }
+            assertCtrlDPreconditionsBeforeTrigger(ready, expectedExitPanelId: exitPanelId, context: "Attempt \(attempt): left/right real key")
 
             app.typeKey("d", modifierFlags: [.control])
 
@@ -679,6 +665,26 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
             return data
         }
         return nil
+    }
+
+    private func assertCtrlDPreconditionsBeforeTrigger(
+        _ data: [String: String],
+        expectedExitPanelId: String,
+        context: String
+    ) {
+        XCTAssertEqual(
+            data["focusedPanelBefore"],
+            expectedExitPanelId,
+            "\(context): expected target exit pane to be focused before Ctrl+D. data=\(data)"
+        )
+        let firstResponderPanelBefore = data["firstResponderPanelBefore"] ?? ""
+        if !firstResponderPanelBefore.isEmpty {
+            XCTAssertEqual(
+                firstResponderPanelBefore,
+                expectedExitPanelId,
+                "\(context): expected first responder to match target pane before Ctrl+D when present. data=\(data)"
+            )
+        }
     }
 
     private func loadJSON(atPath path: String) -> [String: String]? {

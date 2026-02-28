@@ -20,7 +20,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "cmuxOnly")
         app.launch()
         XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 12.0),
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
@@ -37,7 +37,7 @@ final class AutomationSocketUITests: XCTestCase {
         let app = configuredApp(mode: "off")
         app.launch()
         XCTAssertTrue(
-            app.wait(for: .runningForeground, timeout: 12.0),
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
             "Expected app to launch for socket off test. state=\(app.state.rawValue)"
         )
 
@@ -49,10 +49,23 @@ final class AutomationSocketUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-\(modeKey)", mode]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         // Debug launches require a tag outside reload.sh; provide one in UITests so CI
         // does not fail with "Application ... does not have a process ID".
         app.launchEnvironment["CMUX_TAG"] = launchTag
         return app
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        // On busy UI runners the app can launch backgrounded; activate once before failing.
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
     }
 
     private func waitForSocket(exists: Bool, timeout: TimeInterval) -> Bool {
