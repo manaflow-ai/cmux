@@ -3951,11 +3951,11 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         notificationRingLayer.fillColor = NSColor.clear.cgColor
-        notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.strokeColor = cmuxAccentNSColor().cgColor
         notificationRingLayer.lineWidth = 2.5
         notificationRingLayer.lineJoin = .round
         notificationRingLayer.lineCap = .round
-        notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.shadowColor = cmuxAccentNSColor().cgColor
         notificationRingLayer.shadowOpacity = 0.35
         notificationRingLayer.shadowRadius = 3
         notificationRingLayer.shadowOffset = .zero
@@ -3968,11 +3968,11 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         flashLayer.fillColor = NSColor.clear.cgColor
-        flashLayer.strokeColor = NSColor.systemBlue.cgColor
+        flashLayer.strokeColor = cmuxAccentNSColor().cgColor
         flashLayer.lineWidth = 3
         flashLayer.lineJoin = .round
         flashLayer.lineCap = .round
-        flashLayer.shadowColor = NSColor.systemBlue.cgColor
+        flashLayer.shadowColor = cmuxAccentNSColor().cgColor
         flashLayer.shadowOpacity = 0.6
         flashLayer.shadowRadius = 6
         flashLayer.shadowOffset = .zero
@@ -4145,6 +4145,27 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.onTriggerFlash = handler
     }
 
+    private func resolvedWorkspaceFocusFlashColor() -> NSColor {
+        guard let tabId = surfaceView.tabId,
+              let app = AppDelegate.shared,
+              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+              let workspace = manager.tabs.first(where: { $0.id == tabId }) else {
+            return cmuxAccentNSColor()
+        }
+        return Workspace.resolvedFocusFlashColor(customColorHex: workspace.customColor)
+    }
+
+    private func setFocusFlashColor(_ color: NSColor?) {
+        let resolved = color ?? resolvedWorkspaceFocusFlashColor()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        notificationRingLayer.strokeColor = resolved.cgColor
+        notificationRingLayer.shadowColor = resolved.cgColor
+        flashLayer.strokeColor = resolved.cgColor
+        flashLayer.shadowColor = resolved.cgColor
+        CATransaction.commit()
+    }
+
     func setBackgroundColor(_ color: NSColor) {
         guard let layer = backgroundView.layer else { return }
         CATransaction.begin()
@@ -4170,6 +4191,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        setFocusFlashColor(nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         notificationRingOverlayView.isHidden = !visible
@@ -4392,7 +4414,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func triggerFlash() {
+    func triggerFlash(color: NSColor? = nil) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 #if DEBUG
@@ -4400,6 +4422,7 @@ final class GhosttySurfaceScrollView: NSView {
                 Self.recordFlash(for: surfaceId)
             }
 #endif
+            self.setFocusFlashColor(color)
             self.updateFlashPath()
             self.flashLayer.removeAllAnimations()
             self.flashLayer.opacity = 0

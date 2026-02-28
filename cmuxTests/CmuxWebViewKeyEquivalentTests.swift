@@ -2848,6 +2848,26 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertNotEqual(rendered.hexString(), originalHex)
         XCTAssertGreaterThan(rendered.luminance, base.luminance)
     }
+
+    func testWorkspaceFocusFlashColorUsesCustomHexWhenValid() {
+        let fallback = NSColor(hex: "#112233")!
+        let resolved = Workspace.resolvedFocusFlashColor(
+            customColorHex: " c0392b ",
+            fallback: fallback
+        )
+
+        XCTAssertEqual(resolved.hexString(), "#C0392B")
+    }
+
+    func testWorkspaceFocusFlashColorFallsBackWhenHexIsInvalid() {
+        let fallback = NSColor(hex: "#112233")!
+        let resolved = Workspace.resolvedFocusFlashColor(
+            customColorHex: "not-a-color",
+            fallback: fallback
+        )
+
+        XCTAssertEqual(resolved.hexString(), "#112233")
+    }
 }
 
 final class WorkspaceAutoReorderSettingsTests: XCTestCase {
