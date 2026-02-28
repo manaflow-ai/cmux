@@ -8065,3 +8065,107 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 }
+
+final class TerminalControllerSocketListenerHealthTests: XCTestCase {
+    private func makeTempSocketPath() -> String {
+        "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
+            )
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strcpy(pathBuf, ptr)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
+            )
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
+            )
+        }
+
+        return fd
+    }
+
+    func testSocketListenerHealthRecognizesSocketPath() throws {
+        let path = makeTempSocketPath()
+        let fd = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(fd)
+            unlink(path)
+        }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertTrue(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthRejectsRegularFile() throws {
+        let path = makeTempSocketPath()
+        let url = URL(fileURLWithPath: path)
+        try "not-a-socket".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertFalse(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true
+        )
+        XCTAssertTrue(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, [])
+    }
+
+    func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: false,
+            acceptLoopAlive: false,
+            socketPathMatches: false,
+            socketPathExists: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(
+            health.failureSignals,
+            ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
+        )
+    }
+}

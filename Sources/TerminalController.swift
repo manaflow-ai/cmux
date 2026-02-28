@@ -8,6 +8,26 @@ import WebKit
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+    struct SocketListenerHealth: Sendable {
+        let isRunning: Bool
+        let acceptLoopAlive: Bool
+        let socketPathMatches: Bool
+        let socketPathExists: Bool
+
+        var failureSignals: [String] {
+            var signals: [String] = []
+            if !isRunning { signals.append("not_running") }
+            if !acceptLoopAlive { signals.append("accept_loop_dead") }
+            if !socketPathMatches { signals.append("socket_path_mismatch") }
+            if !socketPathExists { signals.append("socket_missing") }
+            return signals
+        }
+
+        var isHealthy: Bool {
+            failureSignals.isEmpty
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
@@ -344,6 +364,39 @@ class TerminalController {
         return info.kp_eproc.e_ppid
     }
 
+    private nonisolated func socketListenerEventData(
+        stage: String,
+        errnoCode: Int32? = nil,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var data: [String: Any] = [
+            "stage": stage,
+            "path": socketPath,
+            "isRunning": isRunning ? 1 : 0,
+            "acceptLoopAlive": acceptLoopAlive ? 1 : 0,
+            "serverSocket": Int(serverSocket)
+        ]
+        if let errnoCode {
+            data["errno"] = Int(errnoCode)
+            data["errnoDescription"] = String(cString: strerror(errnoCode))
+        }
+        for (key, value) in extra {
+            data[key] = value
+        }
+        return data
+    }
+
+    private nonisolated func reportSocketListenerFailure(
+        message: String,
+        stage: String,
+        errnoCode: Int32? = nil,
+        extra: [String: Any] = [:]
+    ) {
+        let data = socketListenerEventData(stage: stage, errnoCode: errnoCode, extra: extra)
+        sentryBreadcrumb(message, category: "socket", data: data)
+        sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -365,7 +418,13 @@ class TerminalController {
         // Create socket
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to create socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "create_socket",
+                errnoCode: errnoCode
+            )
             return
         }
 
@@ -386,8 +445,14 @@ class TerminalController {
         }
 
         guard bindResult >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to bind socket")
             close(serverSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bind",
+                errnoCode: errnoCode
+            )
             return
         }
 
@@ -395,13 +460,27 @@ class TerminalController {
 
         // Listen
         guard listen(serverSocket, 5) >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to listen on socket")
             close(serverSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "listen",
+                errnoCode: errnoCode
+            )
             return
         }
 
         isRunning = true
         print("TerminalController: Listening on \(socketPath)")
+        sentryBreadcrumb(
+            "socket.listener.listening",
+            category: "socket",
+            data: [
+                "path": socketPath,
+                "mode": accessMode.rawValue
+            ]
+        )
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
@@ -428,6 +507,22 @@ class TerminalController {
         }
     }
 
+    nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
+        let running = isRunning
+        let loopAlive = acceptLoopAlive
+        let pathMatches = socketPath == expectedSocketPath
+
+        var st = stat()
+        let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+
+        return SocketListenerHealth(
+            isRunning: running,
+            acceptLoopAlive: loopAlive,
+            socketPathMatches: pathMatches,
+            socketPathExists: exists
+        )
+    }
+
     nonisolated func stop() {
         isRunning = false
         if serverSocket >= 0 {
@@ -440,7 +535,17 @@ class TerminalController {
     private func applySocketPermissions() {
         let permissions = mode_t(accessMode.socketFilePermissions)
         if chmod(socketPath, permissions) != 0 {
+            let errnoCode = errno
             print("TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(socketPath)")
+            sentryBreadcrumb(
+                "socket.listener.permissions.failed",
+                category: "socket",
+                data: socketListenerEventData(
+                    stage: "chmod",
+                    errnoCode: errnoCode,
+                    extra: ["permissions": String(permissions, radix: 8)]
+                )
+            )
         }
     }
 
@@ -537,9 +642,34 @@ class TerminalController {
 
     private nonisolated func acceptLoop() {
         acceptLoopAlive = true
+        sentryBreadcrumb(
+            "socket.listener.accept_loop.started",
+            category: "socket",
+            data: socketListenerEventData(stage: "accept_loop_start")
+        )
+        var exitReason = "stopped"
+        var lastAcceptErrno: Int32?
         defer {
+            if isRunning && exitReason == "stopped" {
+                exitReason = "unexpected_loop_exit"
+            }
+            let shouldCaptureExit = exitReason != "stopped"
             acceptLoopAlive = false
             isRunning = false
+            if shouldCaptureExit {
+                let data = socketListenerEventData(
+                    stage: "accept_loop_exit",
+                    errnoCode: lastAcceptErrno,
+                    extra: ["reason": exitReason]
+                )
+                sentryBreadcrumb("socket.listener.accept_loop.exited", category: "socket", data: data)
+                sentryCaptureError(
+                    "socket.listener.accept_loop.exited",
+                    category: "socket",
+                    data: data,
+                    contextKey: "socket_listener"
+                )
+            }
         }
 
         var consecutiveFailures = 0
@@ -555,10 +685,24 @@ class TerminalController {
 
             guard clientSocket >= 0 else {
                 if isRunning {
+                    let errnoCode = errno
+                    lastAcceptErrno = errnoCode
                     consecutiveFailures += 1
                     print("TerminalController: Accept failed (\(consecutiveFailures) consecutive)")
+                    if consecutiveFailures == 1 || consecutiveFailures % 10 == 0 {
+                        sentryBreadcrumb(
+                            "socket.listener.accept.failed",
+                            category: "socket",
+                            data: socketListenerEventData(
+                                stage: "accept",
+                                errnoCode: errnoCode,
+                                extra: ["consecutiveFailures": consecutiveFailures]
+                            )
+                        )
+                    }
                     if consecutiveFailures >= 50 {
                         print("TerminalController: Too many consecutive accept failures, exiting accept loop")
+                        exitReason = "too_many_accept_failures"
                         break
                     }
                     usleep(10_000) // 10ms backoff
