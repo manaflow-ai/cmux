@@ -1240,6 +1240,7 @@ struct ContentView: View {
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var cachedCommandPaletteEntries: [CommandPaletteCommand] = []
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
+    @State private var cachedCommandPaletteEntriesFingerprint: Int?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -2808,9 +2809,10 @@ struct ContentView: View {
             commandPaletteScrollTargetAnchor = nil
             // Re-cache entries only when scope changes (e.g. typing ">" switches to commands).
             let currentScope = commandPaletteListScope
-            if currentScope != cachedCommandPaletteScope {
+            let currentFingerprint = commandPaletteEntriesFingerprint(for: currentScope)
+            if currentScope != cachedCommandPaletteScope || currentFingerprint != cachedCommandPaletteEntriesFingerprint {
                 cachedCommandPaletteScope = currentScope
-                refreshCachedCommandPaletteEntries()
+                refreshCachedCommandPaletteEntries(scope: currentScope, fingerprint: currentFingerprint)
             }
             recomputeCommandPaletteResults()
         }
@@ -2955,7 +2957,11 @@ struct ContentView: View {
     }
 
     private var commandPaletteEntries: [CommandPaletteCommand] {
-        switch commandPaletteListScope {
+        commandPaletteEntries(for: commandPaletteListScope)
+    }
+
+    private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
+        switch scope {
         case .commands:
             return commandPaletteCommands()
         case .switcher:
@@ -2965,8 +2971,87 @@ struct ContentView: View {
 
     /// Recompute the base entry list and cache it. Call when the palette opens
     /// or when the underlying data changes (workspace added/removed).
-    private func refreshCachedCommandPaletteEntries() {
-        cachedCommandPaletteEntries = commandPaletteEntries
+    private func refreshCachedCommandPaletteEntries(
+        scope: CommandPaletteListScope? = nil,
+        fingerprint: Int? = nil
+    ) {
+        let resolvedScope = scope ?? commandPaletteListScope
+        cachedCommandPaletteEntries = commandPaletteEntries(for: resolvedScope)
+        cachedCommandPaletteEntriesFingerprint = fingerprint ?? commandPaletteEntriesFingerprint(for: resolvedScope)
+    }
+
+    private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int? {
+        switch scope {
+        case .commands:
+            return nil
+        case .switcher:
+            return commandPaletteSwitcherEntriesFingerprint()
+        }
+    }
+
+    private func commandPaletteSwitcherEntriesFingerprint() -> Int {
+        let windowContexts = commandPaletteSwitcherWindowContexts()
+        var hasher = Hasher()
+        hasher.combine(windowContexts.count)
+
+        for context in windowContexts {
+            hasher.combine(context.windowId)
+            hasher.combine(context.windowLabel ?? "")
+            hasher.combine(context.selectedWorkspaceId)
+            hasher.combine(context.tabManager.tabs.count)
+
+            for workspace in context.tabManager.tabs {
+                hasher.combine(workspace.id)
+                hasher.combine(workspace.title)
+                hasher.combine(workspace.customTitle ?? "")
+                hasher.combine(workspace.currentDirectory)
+                hasher.combine(workspace.focusedPanelId)
+                hasher.combine(workspace.panels.count)
+
+                if let branch = workspace.gitBranch {
+                    hasher.combine(branch.branch)
+                    hasher.combine(branch.isDirty)
+                } else {
+                    hasher.combine("")
+                    hasher.combine(false)
+                }
+
+                let workspacePorts = workspace.listeningPorts.sorted()
+                hasher.combine(workspacePorts.count)
+                for port in workspacePorts {
+                    hasher.combine(port)
+                }
+
+                let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+                hasher.combine(orderedPanelIds.count)
+                for panelId in orderedPanelIds {
+                    hasher.combine(panelId)
+                    hasher.combine(workspace.panelTitle(panelId: panelId) ?? "")
+                    hasher.combine(workspace.panelDirectories[panelId] ?? "")
+
+                    if let panelBranch = workspace.panelGitBranches[panelId] {
+                        hasher.combine(panelBranch.branch)
+                        hasher.combine(panelBranch.isDirty)
+                    } else {
+                        hasher.combine("")
+                        hasher.combine(false)
+                    }
+
+                    let panelPorts = (workspace.surfaceListeningPorts[panelId] ?? []).sorted()
+                    hasher.combine(panelPorts.count)
+                    for port in panelPorts {
+                        hasher.combine(port)
+                    }
+
+                    if let panel = workspace.panels[panelId] {
+                        hasher.combine(panel.panelType.rawValue)
+                        hasher.combine(panel.displayTitle)
+                    }
+                }
+            }
+        }
+
+        return hasher.finalize()
     }
 
     /// Run the search pipeline once against the cached entries and store the
@@ -4656,6 +4741,7 @@ struct ContentView: View {
         cachedCommandPaletteScope = nil
         cachedCommandPaletteEntries = []
         cachedCommandPaletteResults = []
+        cachedCommandPaletteEntriesFingerprint = nil
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
         }
