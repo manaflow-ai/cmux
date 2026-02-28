@@ -5,6 +5,7 @@ import posthog from "posthog-js";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
+import { GitHubStars } from "./github-stars";
 import {
   useMobileDrawer,
   MobileDrawerOverlay,
@@ -138,9 +139,10 @@ export function SiteHeader({
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "mobile_drawer" })}
-            className="hover:text-foreground transition-colors py-1"
+            className="hover:text-foreground transition-colors py-1 inline-flex items-center gap-1.5"
           >
             GitHub
+            <GitHubStars />
           </a>
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import posthog from "posthog-js";
+import { GitHubStars } from "./github-stars";
 
 export function NavLinks() {
   return (
@@ -35,9 +36,10 @@ export function NavLinks() {
         target="_blank"
         rel="noopener noreferrer"
         onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "navbar" })}
-        className="hover:text-foreground transition-colors"
+        className="hover:text-foreground transition-colors inline-flex items-center gap-1.5"
       >
         GitHub
+        <GitHubStars />
       </a>
     </>
   );
