@@ -2045,6 +2045,26 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
         )
     }
 
+    func testZoomInSupportsShiftedLiteralFromDifferentPhysicalKey() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
+            ),
+            .zoomIn
+        )
+
+        XCTAssertNil(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41
+            )
+        )
+    }
+
     func testZoomRequiresCommandWithoutOptionOrControl() {
         XCTAssertNil(browserZoomShortcutAction(flags: [], chars: "=", keyCode: 24))
         XCTAssertNil(browserZoomShortcutAction(flags: [.command, .option], chars: "=", keyCode: 24))
@@ -2105,6 +2125,18 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 flags: [.command],
                 chars: "n",
                 keyCode: 45
+            )
+        )
+    }
+
+    func testRoutesForShiftedLiteralZoomShortcut() {
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
             )
         )
     }
