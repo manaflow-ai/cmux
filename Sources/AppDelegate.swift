@@ -1065,6 +1065,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var socketListenerHealthTimer: DispatchSourceTimer?
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1320,6 +1322,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -1347,6 +1350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        startSocketListenerHealthMonitorIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -1955,6 +1959,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
         TerminalController.shared.stop()
         TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+    }
+
+    private func startSocketListenerHealthMonitorIfNeeded() {
+        guard socketListenerHealthTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.socketListenerHealthCheckInterval,
+            repeating: Self.socketListenerHealthCheckInterval
+        )
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.restartSocketListenerIfNeededForHealthCheck(source: "health.timer")
+            }
+        }
+        timer.resume()
+        socketListenerHealthTimer = timer
+    }
+
+    private func stopSocketListenerHealthMonitor() {
+        socketListenerHealthTimer?.cancel()
+        socketListenerHealthTimer = nil
+    }
+
+    private func restartSocketListenerIfNeededForHealthCheck(source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+        guard !health.isHealthy else { return }
+        sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: [
+            "source": source,
+            "path": config.path,
+            "isRunning": health.isRunning ? 1 : 0,
+            "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
+            "socketPathMatches": health.socketPathMatches ? 1 : 0,
+            "socketPathExists": health.socketPathExists ? 1 : 0
+        ])
+        restartSocketListenerIfEnabled(source: source)
     }
 
     private func disableSuddenTerminationIfNeeded() {

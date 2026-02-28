@@ -8,6 +8,17 @@ import WebKit
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+    struct SocketListenerHealth: Sendable {
+        let isRunning: Bool
+        let acceptLoopAlive: Bool
+        let socketPathMatches: Bool
+        let socketPathExists: Bool
+
+        var isHealthy: Bool {
+            isRunning && acceptLoopAlive && socketPathMatches && socketPathExists
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
@@ -426,6 +437,22 @@ class TerminalController {
         Thread.detachNewThread { [weak self] in
             self?.acceptLoop()
         }
+    }
+
+    nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
+        let running = isRunning
+        let loopAlive = acceptLoopAlive
+        let pathMatches = socketPath == expectedSocketPath
+
+        var st = stat()
+        let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+
+        return SocketListenerHealth(
+            isRunning: running,
+            acceptLoopAlive: loopAlive,
+            socketPathMatches: pathMatches,
+            socketPathExists: exists
+        )
     }
 
     nonisolated func stop() {

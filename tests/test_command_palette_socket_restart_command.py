@@ -81,26 +81,26 @@ def main() -> int:
     )
     require(
         app_delegate,
-        "let mode = SocketControlSettings.effectiveMode(userMode: userMode)",
-        "`restartSocketListener` no longer uses effective socket control mode",
+        "private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {",
+        "Missing shared socket listener configuration helper",
         failures,
     )
     require(
         app_delegate,
-        "let socketPath = SocketControlSettings.socketPath()",
-        "`restartSocketListener` no longer uses configured socket path",
+        'restartSocketListenerIfEnabled(source: "menu.command")',
+        "`restartSocketListener` no longer delegates to restart helper",
         failures,
     )
     require(
         app_delegate,
         "TerminalController.shared.stop()",
-        "`restartSocketListener` no longer stops current listener before restart",
+        "`restartSocketListenerIfEnabled` no longer stops current listener before restart",
         failures,
     )
     require(
         app_delegate,
-        "TerminalController.shared.start(tabManager: tabManager, socketPath: socketPath, accessMode: mode)",
-        "`restartSocketListener` no longer starts listener with current settings",
+        "TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)",
+        "`restartSocketListenerIfEnabled` no longer starts listener with current settings",
         failures,
     )
 
