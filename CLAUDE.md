@@ -10,13 +10,13 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script with a tag to launch the Debug app:
+After making code changes, run the reload script with a tag to launch the Debug app:
 
 ```bash
-./scripts/reload.sh --tag fix-zsh-autosuggestions
+./scripts/reload.sh --tag <your-tag>
 ```
 
-After making code changes, always run the build:
+After making code changes, run the build:
 
 ```bash
 xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
