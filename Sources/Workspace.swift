@@ -1622,19 +1622,25 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+    func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
         SidebarBranchOrdering
             .orderedUniqueBranches(
-                orderedPanelIds: sidebarOrderedPanelIds(),
+                orderedPanelIds: orderedPanelIds,
                 panelBranches: panelGitBranches,
                 fallbackBranch: gitBranch
             )
             .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
     }
 
-    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+        sidebarGitBranchesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    func sidebarBranchDirectoryEntriesInDisplayOrder(
+        orderedPanelIds: [UUID]
+    ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
-            orderedPanelIds: sidebarOrderedPanelIds(),
+            orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: panelDirectories,
             defaultDirectory: currentDirectory,
@@ -1642,12 +1648,20 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+        sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         SidebarBranchOrdering.orderedUniquePullRequests(
-            orderedPanelIds: sidebarOrderedPanelIds(),
+            orderedPanelIds: orderedPanelIds,
             panelPullRequests: panelPullRequests,
             fallbackPullRequest: pullRequest
         )
+    }
+
+    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+        sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {

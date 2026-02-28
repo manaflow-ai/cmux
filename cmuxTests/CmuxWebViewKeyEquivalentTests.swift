@@ -4008,6 +4008,58 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
+    func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
+        let workspace = Workspace()
+        guard let leftFirstPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
+              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
+              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+            XCTFail("Expected panes and panels for precomputed ordering test")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: true)
+        workspace.updatePanelGitBranch(panelId: rightFirstPanel.id, branch: "release/right", isDirty: false)
+
+        workspace.updatePanelDirectory(panelId: leftFirstPanelId, directory: "/repo/left/root")
+        workspace.updatePanelDirectory(panelId: leftSecondPanel.id, directory: "/repo/left/feature")
+        workspace.updatePanelDirectory(panelId: rightFirstPanel.id, directory: "/repo/right/root")
+        workspace.updatePanelDirectory(panelId: rightSecondPanel.id, directory: "/repo/right/extra")
+
+        workspace.updatePanelPullRequest(
+            panelId: leftFirstPanelId,
+            number: 101,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+            status: .open
+        )
+        workspace.updatePanelPullRequest(
+            panelId: rightFirstPanel.id,
+            number: 18,
+            label: "MR",
+            url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+            status: .merged
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+
+        XCTAssertEqual(
+            workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { "\($0.branch)|\($0.isDirty)" },
+            workspace.sidebarGitBranchesInDisplayOrder().map { "\($0.branch)|\($0.isDirty)" }
+        )
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder()
+        )
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarPullRequestsInDisplayOrder()
+        )
+    }
+
     func testClosingPaneDropsBranchesFromClosedSide() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
