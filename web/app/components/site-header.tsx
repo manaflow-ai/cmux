@@ -58,7 +58,7 @@ export function SiteHeader({
 
           {/* Right: GitHub stars + Download + theme + mobile */}
           <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
-            <div className="hidden md:block">
+            <div className="hidden md:flex items-center">
               <GitHubStarsBadge />
             </div>
             <div className="hidden md:block">
