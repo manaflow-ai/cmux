@@ -696,9 +696,7 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
-            print("Usage: cmux <command>")
-            print("")
-            print("No detailed help available for this command.")
+            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
             return
         }
 
@@ -4394,6 +4392,26 @@ struct CMUXCLI {
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
             """
+        // Legacy browser aliases — point users to `cmux browser --help`
+        case "open-browser":
+            return "Legacy alias for 'cmux browser open'. Run 'cmux browser --help' for details."
+        case "navigate":
+            return "Legacy alias for 'cmux browser navigate'. Run 'cmux browser --help' for details."
+        case "browser-back":
+            return "Legacy alias for 'cmux browser back'. Run 'cmux browser --help' for details."
+        case "browser-forward":
+            return "Legacy alias for 'cmux browser forward'. Run 'cmux browser --help' for details."
+        case "browser-reload":
+            return "Legacy alias for 'cmux browser reload'. Run 'cmux browser --help' for details."
+        case "get-url":
+            return "Legacy alias for 'cmux browser get-url'. Run 'cmux browser --help' for details."
+        case "focus-webview":
+            return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
+        case "is-webview-focused":
+            return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+        // rename-window is an alias for rename-workspace
+        case "rename-window":
+            return "Alias for 'cmux rename-workspace'. Run 'cmux rename-workspace --help' for details."
         default:
             return nil
         }
