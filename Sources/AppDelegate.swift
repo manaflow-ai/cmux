@@ -54,10 +54,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     struct DetectionEnvironment {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
+        let isExecutableFileAtPath: (String) -> Bool
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
-            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
         )
     }
 
@@ -139,7 +141,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
-        applicationPath(in: environment) != nil
+        guard let applicationPath = applicationPath(in: environment) else { return false }
+        guard self == .vscode else { return true }
+        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
+            isExecutableAtPath: environment.isExecutableFileAtPath
+        ) != nil
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -247,12 +254,55 @@ enum VSCodeServeWebURLBuilder {
     }
 }
 
+struct VSCodeCLILaunchConfiguration {
+    let executableURL: URL
+    let argumentsPrefix: [String]
+    let environment: [String: String]
+}
+
+enum VSCodeCLILaunchConfigurationBuilder {
+    static func launchConfiguration(
+        vscodeApplicationURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> VSCodeCLILaunchConfiguration? {
+        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
+        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
+
+        var environment = baseEnvironment
+        environment["ELECTRON_RUN_AS_NODE"] = "1"
+        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
+        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
+        if let nodeOptions = environment["NODE_OPTIONS"] {
+            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+        }
+        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
+            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
+        }
+        environment.removeValue(forKey: "NODE_OPTIONS")
+        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+
+        return VSCodeCLILaunchConfiguration(
+            executableURL: codeTunnelURL,
+            argumentsPrefix: [],
+            environment: environment
+        )
+    }
+}
+
 final class VSCodeServeWebController {
     static let shared = VSCodeServeWebController()
+    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
 
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private var serveWebProcess: Process?
+    private var launchingProcess: Process?
     private var serveWebURL: URL?
+    private var pendingCompletions: [(URL?) -> Void] = []
+    private var isLaunching = false
+    private var lifecycleGeneration: UInt64 = 0
 
     private init() {}
 
@@ -267,44 +317,108 @@ final class VSCodeServeWebController {
                 return
             }
 
-            guard let launchResult = self.launchServeWebProcess(vscodeApplicationURL: vscodeApplicationURL) else {
-                DispatchQueue.main.async {
-                    completion(nil)
+            self.pendingCompletions.append(completion)
+            guard !self.isLaunching else { return }
+
+            self.isLaunching = true
+            let launchGeneration = self.lifecycleGeneration
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync {
+                    self.lifecycleGeneration == launchGeneration
                 }
-                return
-            }
+                guard shouldLaunch else {
+                    self.queue.async {
+                        self.isLaunching = false
+                    }
+                    return
+                }
+                let launchResult = self.launchServeWebProcess(vscodeApplicationURL: vscodeApplicationURL)
+                self.queue.async {
+                    self.isLaunching = false
 
-            self.serveWebProcess = launchResult.process
-            self.serveWebURL = launchResult.url
+                    guard self.lifecycleGeneration == launchGeneration else {
+                        if let launchedProcess = launchResult?.process,
+                           self.launchingProcess === launchedProcess {
+                            self.launchingProcess = nil
+                        }
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        let completions = self.pendingCompletions
+                        self.pendingCompletions.removeAll()
+                        DispatchQueue.main.async {
+                            completions.forEach { $0(nil) }
+                        }
+                        return
+                    }
 
-            DispatchQueue.main.async {
-                completion(launchResult.url)
+                    if let launchResult {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = launchResult.process
+                        self.serveWebURL = launchResult.url
+                    } else {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+
+                    let completions = self.pendingCompletions
+                    self.pendingCompletions.removeAll()
+                    let resolvedURL = self.serveWebURL
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(resolvedURL) }
+                    }
+                }
             }
         }
     }
 
     func stop() {
-        queue.async {
-            let process = self.serveWebProcess
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+            self.lifecycleGeneration &+= 1
+            var processes: [Process] = []
+            if let process = self.serveWebProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
             self.serveWebProcess = nil
+            self.launchingProcess = nil
             self.serveWebURL = nil
-            guard let process, process.isRunning else { return }
+            let completions = self.pendingCompletions
+            self.pendingCompletions.removeAll()
+            return (processes, completions)
+        }
+
+        for process in processes where process.isRunning {
             process.terminate()
+        }
+
+        if !completions.isEmpty {
+            DispatchQueue.main.async {
+                completions.forEach { $0(nil) }
+            }
         }
     }
 
     private func launchServeWebProcess(vscodeApplicationURL: URL) -> (process: Process, url: URL)? {
-        guard let executableURL = Self.codeCLIExecutableURL(for: vscodeApplicationURL) else { return nil }
+        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: vscodeApplicationURL
+        ) else { return nil }
 
         let process = Process()
-        process.executableURL = executableURL
-        process.arguments = [
+        process.executableURL = launchConfiguration.executableURL
+        process.arguments = launchConfiguration.argumentsPrefix + [
             "serve-web",
             "--accept-server-license-terms",
             "--host", "127.0.0.1",
             "--port", "0",
             "--connection-token", Self.randomConnectionToken(),
         ]
+        process.environment = launchConfiguration.environment
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -320,15 +434,40 @@ final class VSCodeServeWebController {
         stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
 
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            collector.markProcessExited()
+            self?.queue.async {
+                guard let self else { return }
+                if self.launchingProcess === terminatedProcess {
+                    self.launchingProcess = nil
+                }
+                if self.serveWebProcess === terminatedProcess {
+                    self.serveWebProcess = nil
+                    self.serveWebURL = nil
+                }
+            }
+        }
+
+        queue.sync {
+            self.launchingProcess = process
+        }
+
         do {
             try process.run()
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            queue.sync {
+                if self.launchingProcess === process {
+                    self.launchingProcess = nil
+                }
+            }
             return nil
         }
 
-        guard collector.waitForURL(timeoutSeconds: 10),
+        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
               let serveWebURL = collector.webUIURL else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
@@ -338,26 +477,7 @@ final class VSCodeServeWebController {
             return nil
         }
 
-        process.terminationHandler = { [weak self] terminatedProcess in
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            self?.queue.async {
-                guard let self else { return }
-                if self.serveWebProcess === terminatedProcess {
-                    self.serveWebProcess = nil
-                    self.serveWebURL = nil
-                }
-            }
-        }
-
         return (process, serveWebURL)
-    }
-
-    private static func codeCLIExecutableURL(for vscodeApplicationURL: URL) -> URL? {
-        let executableURL = vscodeApplicationURL
-            .appendingPathComponent("Contents/Resources/app/bin/code", isDirectory: false)
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return nil }
-        return executableURL
     }
 
     private static func randomConnectionToken() -> String {
@@ -365,12 +485,12 @@ final class VSCodeServeWebController {
     }
 }
 
-private final class ServeWebOutputCollector {
+final class ServeWebOutputCollector {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var outputBuffer = ""
     private var resolvedURL: URL?
-    private var didSignalURL = false
+    private var didSignal = false
 
     var webUIURL: URL? {
         lock.lock()
@@ -392,17 +512,26 @@ private final class ServeWebOutputCollector {
             }
             resolvedURL = parsedURL
             outputBuffer.removeAll(keepingCapacity: false)
-            if !didSignalURL {
-                didSignalURL = true
+            if !didSignal {
+                didSignal = true
                 semaphore.signal()
             }
             return
         }
     }
 
+    func markProcessExited() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didSignal else { return }
+        didSignal = true
+        semaphore.signal()
+    }
+
     func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
         if webUIURL != nil { return true }
-        return semaphore.wait(timeout: .now() + timeoutSeconds) == .success
+        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        return webUIURL != nil
     }
 }
 

@@ -4669,7 +4669,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
-            fileExistsAtPath: { existingPaths.contains($0) }
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) }
         )
     }
 
@@ -4677,6 +4678,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let env = environment(
             existingPaths: [
                 "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
                 "/System/Library/CoreServices/Finder.app",
                 "/System/Applications/Utilities/Terminal.app",
                 "/Applications/Zed Preview.app",
@@ -4705,6 +4707,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertTrue(availableTargets.contains(.warp))
         XCTAssertTrue(availableTargets.contains(.androidStudio))
         XCTAssertFalse(availableTargets.contains(.vscode))
+    }
+
+    func testVSCodeRequiresCodeTunnelExecutable() {
+        let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
     }
 
     func testITerm2DetectsLegacyBundleName() {
@@ -4767,6 +4774,86 @@ final class VSCodeServeWebURLBuilderTests: XCTestCase {
             components?.queryItems?.first(where: { $0.name == "folder" })?.value,
             "/Users/tester/New Folder"
         )
+    }
+}
+
+final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
+    func testLaunchConfigurationUsesCodeTunnelBinary() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == expectedExecutablePath }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+    }
+
+    func testLaunchConfigurationMapsNodeEnvironmentVariables() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "NODE_OPTIONS": "--max-old-space-size=4096",
+                "NODE_REPL_EXTERNAL_MODULE": "module-name"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_OPTIONS"], "--max-old-space-size=4096")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"], "module-name")
+        XCTAssertNil(configuration?.environment["NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["NODE_REPL_EXTERNAL_MODULE"])
+    }
+
+    func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "VSCODE_NODE_OPTIONS": "--stale",
+                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
+    }
+}
+
+final class ServeWebOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = ServeWebOutputCollector()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+    }
+
+    func testWaitForURLReturnsTrueWhenURLIsCollected() {
+        let collector = ServeWebOutputCollector()
+        let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data(urlLine.utf8))
+        }
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
     }
 }
 
