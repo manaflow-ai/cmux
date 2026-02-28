@@ -8111,4 +8111,29 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.socketPathExists)
         XCTAssertFalse(health.isHealthy)
     }
+
+    func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true
+        )
+        XCTAssertTrue(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, [])
+    }
+
+    func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: false,
+            acceptLoopAlive: false,
+            socketPathMatches: false,
+            socketPathExists: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(
+            health.failureSignals,
+            ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
+        )
+    }
 }

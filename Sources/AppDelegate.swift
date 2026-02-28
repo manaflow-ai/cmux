@@ -1067,6 +1067,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var socketListenerHealthTimer: DispatchSourceTimer?
     private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
+    private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
+    private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1985,15 +1987,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
         guard let config = socketListenerConfigurationIfEnabled() else { return }
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
-        guard !health.isHealthy else { return }
-        sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: [
+        guard !health.isHealthy else {
+            lastSocketListenerUnhealthyCaptureAt = .distantPast
+            return
+        }
+        let failureSignals = health.failureSignals
+        let data: [String: Any] = [
             "source": source,
             "path": config.path,
             "isRunning": health.isRunning ? 1 : 0,
             "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
             "socketPathMatches": health.socketPathMatches ? 1 : 0,
-            "socketPathExists": health.socketPathExists ? 1 : 0
-        ])
+            "socketPathExists": health.socketPathExists ? 1 : 0,
+            "failureSignals": failureSignals
+        ]
+        sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
+        let now = Date()
+        if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
+            lastSocketListenerUnhealthyCaptureAt = now
+            sentryCaptureWarning(
+                "socket.listener.unhealthy",
+                category: "socket",
+                data: data,
+                contextKey: "socket_listener_health"
+            )
+        }
         restartSocketListenerIfEnabled(source: source)
     }
 
