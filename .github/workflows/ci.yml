@@ -19,6 +19,9 @@ jobs:
       - name: Validate create-dmg version pinning
         run: ./tests/test_ci_create_dmg_pinned.sh
 
+      - name: Validate unit-test SwiftPM retry guard
+        run: ./tests/test_ci_unit_test_spm_retry.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -96,13 +99,31 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
+          run_unit_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              -destination "platform=macOS" test 2>&1
+          }
+
           # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
           # Capture output and fail only if there are unexpected failures.
           set +e
-          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
-            -destination "platform=macOS" test 2>&1)
+          OUTPUT=$(run_unit_tests)
           EXIT_CODE=$?
           set -e
+
+          # SwiftPM binary artifact resolution can occasionally fail on self-hosted
+          # runners with "Could not resolve package dependencies". Retry once after
+          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
+          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+            echo "SwiftPM package resolution failed, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            set +e
+            OUTPUT=$(run_unit_tests)
+            EXIT_CODE=$?
+            set -e
+          fi
+
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
