@@ -127,6 +127,43 @@ enum BrowserThemeSettings {
     }
 }
 
+enum BrowserLinkModifierBehavior: String, CaseIterable, Identifiable {
+    case commandShiftOpensCmuxOptionShiftOpensDefault
+    case commandShiftOpensDefaultOptionShiftOpensCmux
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .commandShiftOpensCmuxOptionShiftOpensDefault:
+            return "Cmd+Shift -> cmux, Option+Shift -> Default"
+        case .commandShiftOpensDefaultOptionShiftOpensCmux:
+            return "Cmd+Shift -> Default, Option+Shift -> cmux"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .commandShiftOpensCmuxOptionShiftOpensDefault:
+            return "Cmd+Shift forces cmux browser, Option+Shift forces your default browser."
+        case .commandShiftOpensDefaultOptionShiftOpensCmux:
+            return "Cmd+Shift forces your default browser, Option+Shift forces cmux browser."
+        }
+    }
+
+    func opensInCmuxBrowser(for modifierFlags: NSEvent.ModifierFlags) -> Bool? {
+        let normalizedFlags = modifierFlags.intersection([.command, .shift, .option, .control])
+        switch normalizedFlags {
+        case [.command, .shift]:
+            return self == .commandShiftOpensCmuxOptionShiftOpensDefault
+        case [.option, .shift]:
+            return self == .commandShiftOpensDefaultOptionShiftOpensCmux
+        default:
+            return nil
+        }
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -136,6 +173,9 @@ enum BrowserLinkOpenSettings {
 
     static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
     static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
+
+    static let linkModifierBehaviorKey = "browserLinkModifierBehavior"
+    static let defaultLinkModifierBehavior: BrowserLinkModifierBehavior = .commandShiftOpensCmuxOptionShiftOpensDefault
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
@@ -169,6 +209,38 @@ enum BrowserLinkOpenSettings {
 
     static func initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: UserDefaults = .standard) -> Bool {
         interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
+    }
+
+    static func linkModifierBehavior(for rawValue: String?) -> BrowserLinkModifierBehavior {
+        guard let rawValue,
+              let behavior = BrowserLinkModifierBehavior(rawValue: rawValue) else {
+            return defaultLinkModifierBehavior
+        }
+        return behavior
+    }
+
+    static func linkModifierBehavior(defaults: UserDefaults = .standard) -> BrowserLinkModifierBehavior {
+        linkModifierBehavior(for: defaults.string(forKey: linkModifierBehaviorKey))
+    }
+
+    static func linkModifierOverrideOpensInCmuxBrowser(
+        modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool? {
+        linkModifierBehavior(defaults: defaults).opensInCmuxBrowser(for: modifierFlags)
+    }
+
+    static func shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+        modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        if let modifierOverride = linkModifierOverrideOpensInCmuxBrowser(
+            modifierFlags: modifierFlags,
+            defaults: defaults
+        ) {
+            return modifierOverride
+        }
+        return openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults)
     }
 
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {

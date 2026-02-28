@@ -2674,6 +2674,8 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
+    @AppStorage(BrowserLinkOpenSettings.linkModifierBehaviorKey)
+    private var linkModifierBehavior = BrowserLinkOpenSettings.defaultLinkModifierBehavior.rawValue
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
@@ -2737,6 +2739,19 @@ struct SettingsView: View {
             get: { browserThemeMode },
             set: { newValue in
                 browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
+            }
+        )
+    }
+
+    private var selectedLinkModifierBehavior: BrowserLinkModifierBehavior {
+        BrowserLinkOpenSettings.linkModifierBehavior(for: linkModifierBehavior)
+    }
+
+    private var linkModifierBehaviorSelection: Binding<String> {
+        Binding(
+            get: { selectedLinkModifierBehavior.rawValue },
+            set: { newValue in
+                linkModifierBehavior = BrowserLinkOpenSettings.linkModifierBehavior(for: newValue).rawValue
             }
         )
     }
@@ -2958,6 +2973,22 @@ struct SettingsView: View {
                             Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Sidebar PR Link Modifier Override",
+                            subtitle: selectedLinkModifierBehavior.summary,
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: linkModifierBehaviorSelection) {
+                                ForEach(BrowserLinkModifierBehavior.allCases) { behavior in
+                                    Text(behavior.displayName).tag(behavior.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -3479,6 +3510,7 @@ struct SettingsView: View {
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
+            linkModifierBehavior = BrowserLinkOpenSettings.linkModifierBehavior(defaults: .standard).rawValue
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
@@ -3534,6 +3566,7 @@ struct SettingsView: View {
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
+        linkModifierBehavior = BrowserLinkOpenSettings.defaultLinkModifierBehavior.rawValue
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText

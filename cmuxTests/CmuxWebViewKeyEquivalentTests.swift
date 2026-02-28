@@ -7636,6 +7636,129 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
     }
+
+    func testLinkModifierBehaviorDefaultsToCommandShiftCmux() {
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierBehavior(defaults: defaults),
+            .commandShiftOpensCmuxOptionShiftOpensDefault
+        )
+    }
+
+    func testLinkModifierBehaviorUsesStoredValue() {
+        defaults.set(
+            BrowserLinkModifierBehavior.commandShiftOpensDefaultOptionShiftOpensCmux.rawValue,
+            forKey: BrowserLinkOpenSettings.linkModifierBehaviorKey
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierBehavior(defaults: defaults),
+            .commandShiftOpensDefaultOptionShiftOpensCmux
+        )
+    }
+
+    func testLinkModifierOverrideMatchesConfiguredBehavior() {
+        defaults.set(
+            BrowserLinkModifierBehavior.commandShiftOpensCmuxOptionShiftOpensDefault.rawValue,
+            forKey: BrowserLinkOpenSettings.linkModifierBehaviorKey
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.command, .shift],
+                defaults: defaults
+            ),
+            true
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.option, .shift],
+                defaults: defaults
+            ),
+            false
+        )
+
+        defaults.set(
+            BrowserLinkModifierBehavior.commandShiftOpensDefaultOptionShiftOpensCmux.rawValue,
+            forKey: BrowserLinkOpenSettings.linkModifierBehaviorKey
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.command, .shift],
+                defaults: defaults
+            ),
+            false
+        )
+        XCTAssertEqual(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.option, .shift],
+                defaults: defaults
+            ),
+            true
+        )
+    }
+
+    func testLinkModifierOverrideIgnoresUnconfiguredModifierSets() {
+        XCTAssertNil(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.shift],
+                defaults: defaults
+            )
+        )
+        XCTAssertNil(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.command],
+                defaults: defaults
+            )
+        )
+        XCTAssertNil(
+            BrowserLinkOpenSettings.linkModifierOverrideOpensInCmuxBrowser(
+                modifierFlags: [.command, .shift, .control],
+                defaults: defaults
+            )
+        )
+    }
+
+    func testShouldOpenSidebarPullRequestLinkInCmuxBrowserFallsBackToToggleWhenNoOverrideModifier() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+                modifierFlags: [],
+                defaults: defaults
+            )
+        )
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+                modifierFlags: [],
+                defaults: defaults
+            )
+        )
+    }
+
+    func testShouldOpenSidebarPullRequestLinkInCmuxBrowserUsesModifierOverride() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        defaults.set(
+            BrowserLinkModifierBehavior.commandShiftOpensCmuxOptionShiftOpensDefault.rawValue,
+            forKey: BrowserLinkOpenSettings.linkModifierBehaviorKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+                modifierFlags: [.command, .shift],
+                defaults: defaults
+            )
+        )
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+        defaults.set(
+            BrowserLinkModifierBehavior.commandShiftOpensDefaultOptionShiftOpensCmux.rawValue,
+            forKey: BrowserLinkOpenSettings.linkModifierBehaviorKey
+        )
+        XCTAssertFalse(
+            BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+                modifierFlags: [.command, .shift],
+                defaults: defaults
+            )
+        )
+    }
 }
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {

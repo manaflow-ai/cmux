@@ -4214,8 +4214,9 @@ struct ContentView: View {
             tabManager.selectPreviousSurface()
         }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
+            let modifierFlags = NSEvent.modifierFlags
             DispatchQueue.main.async {
-                if !openWorkspacePullRequestsInConfiguredBrowser() {
+                if !openWorkspacePullRequestsInConfiguredBrowser(modifierFlags: modifierFlags) {
                     NSSound.beep()
                 }
             }
@@ -4884,13 +4885,18 @@ struct ContentView: View {
         return NSWorkspace.shared.open(url)
     }
 
-    private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {
+    private func openWorkspacePullRequestsInConfiguredBrowser(
+        modifierFlags: NSEvent.ModifierFlags = NSEvent.modifierFlags
+    ) -> Bool {
         guard let workspace = tabManager.selectedWorkspace else { return false }
         let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
         guard !pullRequests.isEmpty else { return false }
 
+        let shouldOpenInCmuxBrowser = BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+            modifierFlags: modifierFlags
+        )
         var openedCount = 0
-        if openSidebarPullRequestLinksInCmuxBrowser {
+        if shouldOpenInCmuxBrowser {
             for pullRequest in pullRequests {
                 if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
                     openedCount += 1
@@ -7054,9 +7060,9 @@ private struct TabItemView: View {
         selection = .tabs
     }
 
-    private func updateSelection() {
+    private func updateSelection(modifierFlags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
         #if DEBUG
-        let mods = NSEvent.modifierFlags
+        let mods = modifierFlags
         var modStr = ""
         if mods.contains(.command) { modStr += "cmd " }
         if mods.contains(.shift) { modStr += "shift " }
@@ -7064,7 +7070,7 @@ private struct TabItemView: View {
         if mods.contains(.control) { modStr += "ctrl " }
         dlog("sidebar.select workspace=\(tab.id.uuidString.prefix(5)) modifiers=\(modStr.isEmpty ? "none" : modStr.trimmingCharacters(in: .whitespaces))")
         #endif
-        let modifiers = NSEvent.modifierFlags
+        let modifiers = modifierFlags
         let isCommand = modifiers.contains(.command)
         let isShift = modifiers.contains(.shift)
 
@@ -7310,8 +7316,12 @@ private struct TabItemView: View {
     }
 
     private func openPullRequestLink(_ url: URL) {
-        updateSelection()
-        if openSidebarPullRequestLinksInCmuxBrowser {
+        let openModifierFlags = NSEvent.modifierFlags
+        updateSelection(modifierFlags: [])
+        let shouldOpenInCmuxBrowser = BrowserLinkOpenSettings.shouldOpenSidebarPullRequestLinkInCmuxBrowser(
+            modifierFlags: openModifierFlags
+        )
+        if shouldOpenInCmuxBrowser {
             if tabManager.openBrowser(
                 inWorkspace: tab.id,
                 url: url,
