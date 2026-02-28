@@ -5,7 +5,7 @@ import posthog from "posthog-js";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
-import { GitHubStars } from "./github-stars";
+import { GitHubStarsBadge } from "./github-stars";
 import {
   useMobileDrawer,
   MobileDrawerOverlay,
@@ -56,8 +56,11 @@ export function SiteHeader({
             <NavLinks />
           </nav>
 
-          {/* Right: Download + theme + mobile */}
-          <div className="flex flex-1 items-center justify-end gap-1 min-w-0">
+          {/* Right: GitHub stars + Download + theme + mobile */}
+          <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
+            <div className="hidden md:block">
+              <GitHubStarsBadge />
+            </div>
             <div className="hidden md:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
@@ -139,10 +142,9 @@ export function SiteHeader({
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "mobile_drawer" })}
-            className="hover:text-foreground transition-colors py-1 inline-flex items-center gap-1.5"
+            className="hover:text-foreground transition-colors py-1"
           >
             GitHub
-            <GitHubStars />
           </a>
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />
