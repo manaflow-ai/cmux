@@ -6437,10 +6437,6 @@ private struct TabItemView: View {
         usesInvertedActiveForeground ? Color.white.opacity(0.8) : cmuxAccentColor()
     }
 
-    private var activeSelectionColor: Color {
-        resolvedCustomTabColor ?? Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme))
-    }
-
     private var shortcutHintEmphasis: Double {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
@@ -6494,7 +6490,6 @@ private struct TabItemView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                 }
-
 
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
@@ -6953,11 +6948,11 @@ private struct TabItemView: View {
     private var backgroundColor: Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
-            if isActive        { return activeSelectionColor }
+            if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
             return Color.clear
         case .solidFill:
-            if isActive { return activeSelectionColor }
+            if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if let custom = resolvedCustomTabColor {
                 if isMultiSelected { return custom.opacity(0.35) }
                 return custom.opacity(0.7)

@@ -296,10 +296,6 @@ struct BrowserPanelView: View {
         )
     }
 
-    private var focusFlashColor: Color {
-        Color(nsColor: panel.focusFlashColor)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             addressBar
@@ -307,8 +303,8 @@ struct BrowserPanelView: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-                .stroke(focusFlashColor.opacity(focusFlashOpacity), lineWidth: 3)
-                .shadow(color: focusFlashColor.opacity(focusFlashOpacity * 0.35), radius: 10)
+                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
                 .padding(FocusFlashPattern.ringInset)
                 .allowsHitTesting(false)
         }

@@ -1313,7 +1313,6 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Increment to request a UI-only flash highlight (e.g. from a keyboard shortcut).
     @Published private(set) var focusFlashToken: Int = 0
-    @Published private(set) var focusFlashColor: NSColor = cmuxAccentNSColor()
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
@@ -1521,8 +1520,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId = newWorkspaceId
     }
 
-    func triggerFlash(color: NSColor? = nil) {
-        focusFlashColor = color ?? cmuxAccentNSColor()
+    func triggerFlash() {
         focusFlashToken &+= 1
     }
 

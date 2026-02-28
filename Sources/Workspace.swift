@@ -2934,23 +2934,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Flash/Notification Support
 
-    nonisolated static func resolvedFocusFlashColor(
-        customColorHex: String?,
-        fallback: NSColor = cmuxAccentNSColor()
-    ) -> NSColor {
-        guard let normalizedHex = customColorHex.flatMap(WorkspaceTabColorSettings.normalizedHex),
-              let color = NSColor(hex: normalizedHex) else {
-            return fallback
-        }
-        return color
-    }
-
-    private var focusFlashColor: NSColor {
-        Self.resolvedFocusFlashColor(customColorHex: customColor)
-    }
-
     func triggerFocusFlash(panelId: UUID) {
-        panels[panelId]?.triggerFlash(color: focusFlashColor)
+        panels[panelId]?.triggerFlash()
     }
 
     func triggerNotificationFocusFlash(
@@ -2966,7 +2951,7 @@ final class Workspace: Identifiable, ObservableObject {
         if requiresSplit && !isSplit {
             return
         }
-        terminalPanel.triggerFlash(color: focusFlashColor)
+        terminalPanel.triggerFlash()
     }
 
     func triggerDebugFlash(panelId: UUID) {

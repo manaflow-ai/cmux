@@ -166,8 +166,8 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.needsConfirmClose()
     }
 
-    func triggerFlash(color: NSColor? = nil) {
-        hostedView.triggerFlash(color: color)
+    func triggerFlash() {
+        hostedView.triggerFlash()
     }
 
     func applyWindowBackgroundIfActive() {
