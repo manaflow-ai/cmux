@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// Type of panel content
 public enum PanelType: String, Codable, Sendable {
@@ -70,7 +71,8 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     func unfocus()
 
     /// Trigger a focus flash animation for this panel.
-    func triggerFlash()
+    /// - Parameter color: Optional override color for this flash.
+    func triggerFlash(color: NSColor?)
 }
 
 /// Extension providing default implementations
