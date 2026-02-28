@@ -9,6 +9,7 @@ enum KeyboardShortcutSettings {
         case newTab
         case newWindow
         case closeWindow
+        case openFolder
         case showNotifications
         case jumpToUnread
         case triggerFlash
@@ -47,6 +48,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return "New Workspace"
             case .newWindow: return "New Window"
             case .closeWindow: return "Close Window"
+            case .openFolder: return "Open Folder"
             case .showNotifications: return "Show Notifications"
             case .jumpToUnread: return "Jump to Latest Unread"
             case .triggerFlash: return "Flash Focused Panel"
@@ -79,6 +81,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return "shortcut.newTab"
             case .newWindow: return "shortcut.newWindow"
             case .closeWindow: return "shortcut.closeWindow"
+            case .openFolder: return "shortcut.openFolder"
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
             case .triggerFlash: return "shortcut.triggerFlash"
@@ -115,6 +118,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .closeWindow:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
+            case .openFolder:
+                return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .showNotifications:
                 return StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
             case .jumpToUnread:

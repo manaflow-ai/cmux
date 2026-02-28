@@ -3324,6 +3324,8 @@ struct ContentView: View {
             return .newTab
         case "palette.newWindow":
             return .newWindow
+        case "palette.openFolder":
+            return .openFolder
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -3522,6 +3524,14 @@ struct ContentView: View {
                 subtitle: constant("CLI"),
                 keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
                 when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openFolder",
+                title: constant("Open Folder…"),
+                subtitle: constant("Workspace"),
+                keywords: ["open", "folder", "repository", "project", "directory"]
             )
         )
         contributions.append(
@@ -4045,6 +4055,20 @@ struct ContentView: View {
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
+        }
+        registry.register(commandId: "palette.openFolder") {
+            // Defer so the command palette dismisses before the modal sheet appears.
+            DispatchQueue.main.async {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.title = "Open Folder"
+                panel.prompt = "Open"
+                if panel.runModal() == .OK, let url = panel.url {
+                    tabManager.addWorkspace(workingDirectory: url.path)
+                }
+            }
         }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)

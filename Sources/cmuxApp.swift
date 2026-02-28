@@ -32,6 +32,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -384,6 +385,27 @@ struct cmuxApp: App {
                         activeTabManager.addTab()
                     }
                 }
+
+                splitCommandButton(title: "Open Folder…", shortcut: openFolderMenuShortcut) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.title = "Open Folder"
+                    panel.prompt = "Open"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        if let appDelegate = AppDelegate.shared {
+                            if appDelegate.addWorkspaceInPreferredMainWindow(
+                                workingDirectory: url.path,
+                                debugSource: "menu.openFolder"
+                            ) == nil {
+                                appDelegate.openNewMainWindow(nil)
+                            }
+                        } else {
+                            activeTabManager.addWorkspace(workingDirectory: url.path)
+                        }
+                    }
+                }
             }
 
             // Close tab/workspace
@@ -643,6 +665,10 @@ struct cmuxApp: App {
 
     private var newWindowMenuShortcut: StoredShortcut {
         decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var openFolderMenuShortcut: StoredShortcut {
+        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
     }
 
     private var showNotificationsMenuShortcut: StoredShortcut {
