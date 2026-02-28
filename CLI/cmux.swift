@@ -3411,6 +3411,12 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "help":
+            return """
+            Usage: cmux help
+
+            Show top-level CLI usage and command list.
+            """
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -3471,13 +3477,13 @@ struct CMUXCLI {
             """
         case "move-workspace-to-window":
             return """
-            Usage: cmux move-workspace-to-window --workspace <id|ref> --window <id|ref>
+            Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
 
             Move a workspace to a different window.
 
             Flags:
-              --workspace <id|ref>   Workspace to move (required)
-              --window <id|ref>      Target window (required)
+              --workspace <id|ref|index>   Workspace to move (required)
+              --window <id|ref|index>      Target window (required)
 
             Example:
               cmux move-workspace-to-window --workspace workspace:2 --window window:1
@@ -3587,7 +3593,7 @@ struct CMUXCLI {
 
             Flags:
               --action <name>              Action name (required if not positional)
-              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; alias: --surface)
+              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)
               --surface <id|ref|index>     Alias for --tab (backward compatibility)
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename (or pass trailing title text)
@@ -3847,24 +3853,24 @@ struct CMUXCLI {
             """
         case "close-workspace":
             return """
-            Usage: cmux close-workspace --workspace <id|ref>
+            Usage: cmux close-workspace --workspace <id|ref|index>
 
             Close the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to close (required)
+              --workspace <id|ref|index>   Workspace to close (required)
 
             Example:
               cmux close-workspace --workspace workspace:2
             """
         case "select-workspace":
             return """
-            Usage: cmux select-workspace --workspace <id|ref>
+            Usage: cmux select-workspace --workspace <id|ref|index>
 
             Select (switch to) the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to select (required)
+              --workspace <id|ref|index>   Workspace to select (required)
 
             Example:
               cmux select-workspace --workspace workspace:2
@@ -3872,13 +3878,13 @@ struct CMUXCLI {
             """
         case "rename-workspace", "rename-window":
             return """
-            Usage: cmux rename-workspace [--workspace <id|ref>] [--] <title>
+            Usage: cmux rename-workspace [--workspace <id|ref|index>] [--] <title>
 
             Rename a workspace. Defaults to the current workspace.
             tmux-compatible alias: rename-window
 
             Flags:
-              --workspace <id|ref>   Workspace to rename (default: current workspace)
+              --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
 
             Example:
               cmux rename-workspace "backend logs"
@@ -4348,7 +4354,8 @@ struct CMUXCLI {
             `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open|open-split|new [url] [--workspace <id|ref>] [--window <id|ref>]
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
+                open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
               goto|navigate <url> [--snapshot-after]
               back|forward|reload [--snapshot-after]
               url|get-url
@@ -4363,8 +4370,15 @@ struct CMUXCLI {
               scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
               screenshot [--out <path>]
               get <url|title|text|html|value|attr|count|box|styles> [...]
+                text|html|value|count|box|styles|attr: [--selector <css> | <css>]
+                attr: [--attr <name> | <name>]
+                styles: [--property <name>]
               is <visible|enabled|checked> [--selector <css> | <css>]
               find <role|text|label|placeholder|alt|title|testid|first|last|nth> [...]
+                role: [--name <text>] [--exact] <role>
+                text|label|placeholder|alt|title|testid: [--exact] <text>
+                first|last: [--selector <css> | <css>]
+                nth: [--index <n> | <n>] [--selector <css> | <css>]
               frame <main|selector> [--selector <css>]
               dialog <accept|dismiss> [text]
               download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
@@ -4382,6 +4396,8 @@ struct CMUXCLI {
               offline <true|false>
               trace <start|stop> [path]
               network <route|unroute|requests> ...
+                route <pattern> [--abort] [--body <text>]
+                unroute <pattern>
               screencast <start|stop>
               input <mouse|keyboard|touch> [args...]
               input_mouse | input_keyboard | input_touch
@@ -4409,9 +4425,6 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
-        // rename-window is an alias for rename-workspace
-        case "rename-window":
-            return "Alias for 'cmux rename-workspace'. Run 'cmux rename-workspace --help' for details."
         default:
             return nil
         }

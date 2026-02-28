@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Regression test: subcommand --help should never execute command dispatch."""
+"""Regression tests for CLI subcommand help coverage and accuracy."""
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,48 @@ def get_repo_root() -> Path:
 def require(content: str, needle: str, message: str, failures: list[str]) -> None:
     if needle not in content:
         failures.append(message)
+
+
+def extract_switch_commands(content: str, start_index: int = 0) -> tuple[set[str], int]:
+    marker = "switch command {"
+    marker_index = content.find(marker, start_index)
+    if marker_index == -1:
+        return set(), -1
+
+    open_brace = content.find("{", marker_index)
+    if open_brace == -1:
+        return set(), -1
+
+    depth = 1
+    cursor = open_brace + 1
+    while cursor < len(content) and depth > 0:
+        char = content[cursor]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        cursor += 1
+
+    block = content[open_brace + 1:cursor - 1]
+    commands: set[str] = set()
+    collecting_case = False
+    case_lines: list[str] = []
+
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("case "):
+            collecting_case = True
+            case_lines = [line]
+        elif collecting_case:
+            case_lines.append(line)
+
+        if collecting_case and ":" in line:
+            case_text = "\n".join(case_lines)
+            commands.update(re.findall(r'"([^"]+)"', case_text))
+            collecting_case = False
+            case_lines = []
+
+    return commands, cursor
 
 
 def main() -> int:
@@ -48,66 +91,45 @@ def main() -> int:
     )
     require(
         content,
-        'print("Usage: cmux <command>")',
-        "Subcommand help fallback usage line is missing",
+        "print(\"Unknown command '\\(command)'. Run 'cmux help' to see available commands.\")",
+        "Subcommand help fallback unknown-command line is missing",
         failures,
     )
     require(
         content,
-        'print("No detailed help available for this command.")',
-        "Subcommand help fallback message is missing",
-        failures,
-    )
-    require(
-        content,
-        "print(\"No detailed help available for this command.\")\n            return",
+        "print(\"Unknown command '\\(command)'. Run 'cmux help' to see available commands.\")\n            return",
         "Subcommand help fallback must return before command execution",
         failures,
     )
 
-    # Commands that must now have dedicated usage text.
-    for needle, message in [
-        ('case "new-window":', "Missing subcommandUsage entry for new-window"),
-        ('case "list-panes":', "Missing subcommandUsage entry for list-panes"),
-        ('case "list-pane-surfaces":', "Missing subcommandUsage entry for list-pane-surfaces"),
-        ('case "surface-health":', "Missing subcommandUsage entry for surface-health"),
-        ('case "trigger-flash":', "Missing subcommandUsage entry for trigger-flash"),
-        ('case "list-panels":', "Missing subcommandUsage entry for list-panels"),
-        ('case "focus-panel":', "Missing subcommandUsage entry for focus-panel"),
-        ('case "set-app-focus":', "Missing subcommandUsage entry for set-app-focus"),
-    ]:
-        require(content, needle, message, failures)
+    dispatch_commands, next_index = extract_switch_commands(content, 0)
+    subcommand_usage_commands, _ = extract_switch_commands(content, next_index if next_index != -1 else 0)
+    if not dispatch_commands:
+        failures.append("Failed to parse main dispatch switch command list")
+    if not subcommand_usage_commands:
+        failures.append("Failed to parse subcommandUsage switch command list")
 
-    # Regression checks for concrete flag coverage that previously regressed.
-    for needle, message in [
-        ("Usage: cmux new-workspace [--command <text>]", "new-workspace help must document --command"),
-        ("--command <text>   Send text+Enter to the new workspace after creation", "new-workspace --command flag description is missing"),
-        ("Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]", "focus-pane help must document positional pane argument support"),
-        ("--before-surface <id|ref|index>", "move/reorder surface help must document --before-surface alias"),
-        ("--after-surface <id|ref|index>", "move/reorder surface help must document --after-surface alias"),
-        ("--before-workspace <id|ref|index>", "reorder-workspace help must document --before-workspace alias"),
-        ("--after-workspace <id|ref|index>", "reorder-workspace help must document --after-workspace alias"),
-        ("Usage: cmux pipe-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <shell-command> | <shell-command>]", "pipe-pane help must document positional command support"),
-        ("Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify> [flags]", "claude-hook help must document accepted subcommand aliases"),
-        ("screenshot [--out <path>]", "browser help must document screenshot output flag"),
-        ("viewport <width> <height>", "browser help must document viewport subcommand"),
-        ("geolocation|geo <latitude> <longitude>", "browser help must document geolocation alias"),
-        ("network <route|unroute|requests> ...", "browser help must document network subcommands"),
-        ("input <mouse|keyboard|touch> [args...]", "browser help must document input subcommand family"),
-    ]:
-        require(content, needle, message, failures)
+    missing_help_entries = sorted(dispatch_commands - subcommand_usage_commands)
+    if missing_help_entries:
+        failures.append(
+            "Missing subcommandUsage entries for dispatch command(s): "
+            + ", ".join(missing_help_entries)
+        )
 
-    # Simple commands should still have a basic one-liner help entry.
+    # Regression checks for concrete help text that previously drifted from dispatch logic.
     for needle, message in [
-        ('case "ping":', "Missing subcommandUsage entry for ping"),
-        ('case "capabilities":', "Missing subcommandUsage entry for capabilities"),
-        ('case "identify":', "Missing subcommandUsage entry for identify"),
-        ('case "list-windows":', "Missing subcommandUsage entry for list-windows"),
-        ('case "current-window":', "Missing subcommandUsage entry for current-window"),
-        ('case "refresh-surfaces":', "Missing subcommandUsage entry for refresh-surfaces"),
-        ('case "current-workspace":', "Missing subcommandUsage entry for current-workspace"),
-        ('case "list-notifications":', "Missing subcommandUsage entry for list-notifications"),
-        ('case "clear-notifications":', "Missing subcommandUsage entry for clear-notifications"),
+        ('case "help":', "Missing subcommandUsage entry for help"),
+        ("Usage: cmux help", "help subcommand usage text is missing"),
+        ("Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>", "move-workspace-to-window help must document index handles"),
+        ("--tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)", "tab-action help must document CMUX_TAB_ID/CMUX_SURFACE_ID fallback"),
+        ("--workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)", "rename-workspace help must document CMUX_WORKSPACE_ID fallback"),
+        ("text|html|value|count|box|styles|attr: [--selector <css> | <css>]", "browser get help must document --selector"),
+        ("attr: [--attr <name> | <name>]", "browser get attr help must document --attr"),
+        ("styles: [--property <name>]", "browser get styles help must document --property"),
+        ("role: [--name <text>] [--exact] <role>", "browser find role help must document --name/--exact"),
+        ("text|label|placeholder|alt|title|testid: [--exact] <text>", "browser find text-like help must document --exact"),
+        ("nth: [--index <n> | <n>] [--selector <css> | <css>]", "browser find nth help must document --index/--selector"),
+        ("route <pattern> [--abort] [--body <text>]", "browser network route help must document --abort/--body"),
     ]:
         require(content, needle, message, failures)
 
@@ -117,7 +139,7 @@ def main() -> int:
             print(f"- {failure}")
         return 1
 
-    print("PASS: CLI subcommand help fallback and usage coverage are present")
+    print("PASS: CLI subcommand help coverage and flag/env documentation are present")
     return 0
 
 
