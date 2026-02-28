@@ -2462,7 +2462,14 @@ class TerminalController {
                 result = .err(code: "invalid_state", message: "Workspace is closing", data: nil)
                 return
             }
-            tabManager.closeWorkspace(ws)
+            let closed = tabManager.closeWorkspace(ws)
+            guard closed else {
+                result = .err(code: "close_failed", message: "Failed to close workspace", data: [
+                    "workspace_id": wsId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                ])
+                return
+            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -10795,8 +10802,7 @@ class TerminalController {
         DispatchQueue.main.sync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }),
                !tab.isWorkspaceClosingTransaction {
-                tabManager.closeWorkspace(tab)
-                success = true
+                success = tabManager.closeWorkspace(tab)
             }
         }
         return success ? "OK" : "ERROR: Tab not found"
