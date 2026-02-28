@@ -33,7 +33,7 @@ export function GitHubStarsBadge() {
       onClick={() =>
         posthog.capture("cmuxterm_github_clicked", { location: "stars_badge" })
       }
-      className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors"
+      className="inline-flex items-center gap-1.5 pr-2 text-sm text-muted hover:text-foreground transition-colors"
     >
       <svg
         width="16"
