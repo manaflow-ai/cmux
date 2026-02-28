@@ -2159,6 +2159,9 @@ final class Workspace: Identifiable, ObservableObject {
             do {
                 markdownPanel = try MarkdownPanel.loadFromDisk(workspaceId: id, fileURL: fileURL)
             } catch {
+#if DEBUG
+                dlog("markdown.load.fail scope=split workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
+#endif
                 return nil
             }
         } else {
@@ -2238,6 +2241,9 @@ final class Workspace: Identifiable, ObservableObject {
                     isPreviewMode: isPreviewMode
                 )
             } catch {
+#if DEBUG
+                dlog("markdown.load.fail scope=surface workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
+#endif
                 return nil
             }
         } else {
