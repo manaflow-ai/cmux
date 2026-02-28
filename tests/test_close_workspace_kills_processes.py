@@ -15,6 +15,7 @@ Expected:
 import os
 import signal
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -77,7 +78,9 @@ def main() -> int:
                 raise cmuxError(f"Expected >=2 surfaces, got {len(surfaces)} ({surfaces})")
 
             for index, (_, surface_id, _) in enumerate(surfaces[:2]):
-                pid_file = Path(f"/tmp/cmux_wsclose_pid_{os.getpid()}_{index}.txt")
+                fd, name = tempfile.mkstemp(prefix="cmux_wsclose_pid_", suffix=".txt")
+                os.close(fd)
+                pid_file = Path(name)
                 pid_files.append(pid_file)
                 pid = _start_probe_process(client, surface_id, pid_file)
                 tracked_pids.append(pid)
