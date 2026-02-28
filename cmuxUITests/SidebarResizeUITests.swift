@@ -13,6 +13,7 @@ final class SidebarResizeUITests: XCTestCase {
         let elements = app.descendants(matching: .any)
         let resizer = elements["SidebarResizer"]
         XCTAssertTrue(resizer.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(waitForElementHittable(resizer, timeout: 5.0), "Expected sidebar resizer to become hittable")
 
         let initialX = resizer.frame.minX
 
@@ -46,9 +47,10 @@ final class SidebarResizeUITests: XCTestCase {
         let elements = app.descendants(matching: .any)
         let resizer = elements["SidebarResizer"]
         XCTAssertTrue(resizer.waitForExistence(timeout: 5.0))
+        XCTAssertTrue(waitForElementHittable(resizer, timeout: 5.0), "Expected sidebar resizer to become hittable")
 
         let start = resizer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let farRight = start.withOffset(CGVector(dx: 5000, dy: 0))
+        let farRight = start.withOffset(CGVector(dx: max(1200, window.frame.width * 2.0), dy: 0))
         start.press(forDuration: 0.1, thenDragTo: farRight)
 
         let windowFrame = window.frame
@@ -61,5 +63,19 @@ final class SidebarResizeUITests: XCTestCase {
             "Expected sidebar max-width clamp to leave substantial terminal width. " +
             "remaining=\(remainingWidth), window=\(windowFrame.width)"
         )
+    }
+
+    private func waitForElementHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if element.exists, element.isHittable {
+                let frame = element.frame
+                if frame.width > 1, frame.height > 1 {
+                    return true
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return false
     }
 }
