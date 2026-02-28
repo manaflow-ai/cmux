@@ -4724,6 +4724,52 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     }
 }
 
+final class VSCodeServeWebURLBuilderTests: XCTestCase {
+    func testExtractWebUIURLParsesServeWebOutput() {
+        let output = """
+        *
+        * Visual Studio Code Server
+        *
+        Web UI available at http://127.0.0.1:5555?tkn=test-token
+        """
+
+        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
+    }
+
+    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/Projects/cmux"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "tkn" })?.value, "test-token")
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "folder" })?.value, "/Users/tester/Projects/cmux")
+    }
+
+    func testOpenFolderURLReplacesExistingFolderQuery() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/New Folder"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(
+            components?.queryItems?.filter { $0.name == "folder" }.count,
+            1
+        )
+        XCTAssertEqual(
+            components?.queryItems?.first(where: { $0.name == "folder" })?.value,
+            "/Users/tester/New Folder"
+        )
+    }
+}
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))

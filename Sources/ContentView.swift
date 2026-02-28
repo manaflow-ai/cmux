@@ -4919,12 +4919,46 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
+        case .vscode:
+            return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
             NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
             return true
         }
+    }
+
+    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL(),
+              let workspace = tabManager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        let sourceTabId = workspace.id
+        let tabManager = tabManager
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: directoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+            guard tabManager.newBrowserSplit(
+                tabId: sourceTabId,
+                fromPanelId: sourcePanelId,
+                orientation: SplitDirection.right.orientation,
+                insertFirst: SplitDirection.right.insertFirst,
+                url: openFolderURL,
+                focus: true
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+        return true
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {

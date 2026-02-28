@@ -94,7 +94,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return "Open Current Directory in Tower"
         case .vscode:
-            return "Open Current Directory in VS Code"
+            return "Open Current Directory in VS Code (Inline)"
         case .warp:
             return "Open Current Directory in Warp"
         case .windsurf:
@@ -126,7 +126,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return common + ["tower", "git", "client"]
         case .vscode:
-            return common + ["vs", "code", "visual", "studio"]
+            return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
         case .windsurf:
@@ -222,6 +222,187 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+enum VSCodeServeWebURLBuilder {
+    static func extractWebUIURL(from output: String) -> URL? {
+        let prefix = "Web UI available at "
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            guard let range = line.range(of: prefix) else { continue }
+            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
+            return url
+        }
+        return nil
+    }
+
+    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
+        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "folder" }
+        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
+        components?.queryItems = queryItems
+        return components?.url
+    }
+}
+
+final class VSCodeServeWebController {
+    static let shared = VSCodeServeWebController()
+
+    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private var serveWebProcess: Process?
+    private var serveWebURL: URL?
+
+    private init() {}
+
+    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        queue.async {
+            if let process = self.serveWebProcess,
+               process.isRunning,
+               let url = self.serveWebURL {
+                DispatchQueue.main.async {
+                    completion(url)
+                }
+                return
+            }
+
+            guard let launchResult = self.launchServeWebProcess(vscodeApplicationURL: vscodeApplicationURL) else {
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+                return
+            }
+
+            self.serveWebProcess = launchResult.process
+            self.serveWebURL = launchResult.url
+
+            DispatchQueue.main.async {
+                completion(launchResult.url)
+            }
+        }
+    }
+
+    func stop() {
+        queue.async {
+            let process = self.serveWebProcess
+            self.serveWebProcess = nil
+            self.serveWebURL = nil
+            guard let process, process.isRunning else { return }
+            process.terminate()
+        }
+    }
+
+    private func launchServeWebProcess(vscodeApplicationURL: URL) -> (process: Process, url: URL)? {
+        guard let executableURL = Self.codeCLIExecutableURL(for: vscodeApplicationURL) else { return nil }
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = [
+            "serve-web",
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "0",
+            "--connection-token", Self.randomConnectionToken(),
+        ]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = ServeWebOutputCollector()
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        do {
+            try process.run()
+        } catch {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: 10),
+              let serveWebURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            return nil
+        }
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            self?.queue.async {
+                guard let self else { return }
+                if self.serveWebProcess === terminatedProcess {
+                    self.serveWebProcess = nil
+                    self.serveWebURL = nil
+                }
+            }
+        }
+
+        return (process, serveWebURL)
+    }
+
+    private static func codeCLIExecutableURL(for vscodeApplicationURL: URL) -> URL? {
+        let executableURL = vscodeApplicationURL
+            .appendingPathComponent("Contents/Resources/app/bin/code", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else { return nil }
+        return executableURL
+    }
+
+    private static func randomConnectionToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+}
+
+private final class ServeWebOutputCollector {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var outputBuffer = ""
+    private var resolvedURL: URL?
+    private var didSignalURL = false
+
+    var webUIURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedURL
+    }
+
+    func append(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolvedURL == nil else { return }
+        outputBuffer.append(text)
+        while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
+            let line = String(outputBuffer[..<newlineIndex])
+            outputBuffer.removeSubrange(...newlineIndex)
+            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
+                continue
+            }
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+            if !didSignalURL {
+                didSignalURL = true
+                semaphore.signal()
+            }
+            return
+        }
+    }
+
+    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
+        if webUIURL != nil { return true }
+        return semaphore.wait(timeout: .now() + timeoutSeconds) == .success
     }
 }
 
@@ -1360,6 +1541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
+        VSCodeServeWebController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
