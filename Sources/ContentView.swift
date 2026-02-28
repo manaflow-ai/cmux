@@ -1240,7 +1240,6 @@ struct ContentView: View {
     @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
     @State private var cachedCommandPaletteEntries: [CommandPaletteCommand] = []
     @State private var cachedCommandPaletteScope: CommandPaletteListScope?
-    @State private var commandPaletteDebounceTask: DispatchWorkItem?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -2813,7 +2812,7 @@ struct ContentView: View {
                 cachedCommandPaletteScope = currentScope
                 refreshCachedCommandPaletteEntries()
             }
-            scheduleCommandPaletteRecompute()
+            recomputeCommandPaletteResults()
         }
         .onChange(of: cachedCommandPaletteResults.count) { _ in
             commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
@@ -3007,17 +3006,6 @@ struct ContentView: View {
             }
     }
 
-    /// Schedule a debounced recomputation of command palette results.
-    /// Coalesces rapid keystrokes within a 50ms window.
-    private func scheduleCommandPaletteRecompute() {
-        commandPaletteDebounceTask?.cancel()
-        let workItem = DispatchWorkItem { [self] in
-            recomputeCommandPaletteResults()
-            commandPaletteDebounceTask = nil
-        }
-        commandPaletteDebounceTask = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
-    }
 
     private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
@@ -4664,9 +4652,7 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
-        // Cancel pending debounce and release cached data.
-        commandPaletteDebounceTask?.cancel()
-        commandPaletteDebounceTask = nil
+        // Release cached data.
         cachedCommandPaletteScope = nil
         cachedCommandPaletteEntries = []
         cachedCommandPaletteResults = []
