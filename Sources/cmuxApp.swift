@@ -317,6 +317,10 @@ struct cmuxApp: App {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
+                Button("Populate 20 Search Test Workspaces") {
+                    appDelegate.populateDebugSearchWorkspaces(nil)
+                }
+
                 Divider()
                 Menu("Debug Windows") {
                     Button("Debug Window Controls…") {
