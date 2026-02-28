@@ -2452,26 +2452,26 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
 
-        var found = false
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": wsId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+        ])
         v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                tabManager.closeWorkspace(ws)
-                found = true
+            guard let ws = tabManager.tabs.first(where: { $0.id == wsId }) else { return }
+            guard !ws.isWorkspaceClosingTransaction else {
+                result = .err(code: "invalid_state", message: "Workspace is closing", data: nil)
+                return
             }
-        }
-
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return found
-            ? .ok([
+            tabManager.closeWorkspace(ws)
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": wsId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
             ])
-            : .err(code: "not_found", message: "Workspace not found", data: [
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-            ])
+        }
+        return result
     }
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
@@ -3089,6 +3089,25 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
+    /// Resolves the target workspace and guards against mid-close mutations.
+    /// Sets `result` to the appropriate error and returns `nil` if the workspace
+    /// is not found or is currently being torn down.
+    private func v2ResolveActiveWorkspace(
+        params: [String: Any],
+        tabManager: TabManager,
+        result: inout V2CallResult
+    ) -> Workspace? {
+        guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            result = .err(code: "not_found", message: "Workspace not found", data: nil)
+            return nil
+        }
+        guard !ws.isWorkspaceClosingTransaction else {
+            result = .err(code: "invalid_state", message: "Workspace is closing", data: nil)
+            return nil
+        }
+        return ws
+    }
+
     private func v2SurfaceList(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3223,10 +3242,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
+            guard let ws = v2ResolveActiveWorkspace(params: params, tabManager: tabManager, result: &result) else { return }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
@@ -3276,10 +3292,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
+            guard let ws = v2ResolveActiveWorkspace(params: params, tabManager: tabManager, result: &result) else { return }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
@@ -3331,10 +3344,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to close surface", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
+            guard let ws = v2ResolveActiveWorkspace(params: params, tabManager: tabManager, result: &result) else { return }
 
             let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let surfaceId else {
@@ -3495,6 +3505,10 @@ class TerminalController {
                 targetPane = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
             }
 
+            if sourceWorkspace.isWorkspaceClosingTransaction || targetWorkspace.isWorkspaceClosingTransaction {
+                result = .err(code: "invalid_state", message: "Workspace is closing", data: nil)
+                return
+            }
             guard let destinationPane = targetPane else {
                 result = .err(code: "not_found", message: "No destination pane", data: nil)
                 return
@@ -4250,10 +4264,7 @@ class TerminalController {
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
+            guard let ws = v2ResolveActiveWorkspace(params: params, tabManager: tabManager, result: &result) else { return }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
             guard let focusedPanelId = ws.focusedPanelId else {
@@ -10782,8 +10793,9 @@ class TerminalController {
 
         var success = false
         DispatchQueue.main.sync {
-            if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
-                tabManager.closeTab(tab)
+            if let tab = tabManager.tabs.first(where: { $0.id == uuid }),
+               !tab.isWorkspaceClosingTransaction {
+                tabManager.closeWorkspace(tab)
                 success = true
             }
         }
@@ -12844,6 +12856,10 @@ class TerminalController {
         DispatchQueue.main.sync {
             guard let tabId = tabManager.selectedTabId,
                   let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                return
+            }
+            guard !tab.isWorkspaceClosingTransaction else {
+                result = "ERROR: Workspace is closing"
                 return
             }
 
