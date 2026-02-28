@@ -1496,6 +1496,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var tabId: UUID
     /// Port ordinal for CMUX_PORT range assignment
     var portOrdinal: Int = 0
+    /// zmx session name to pass to ghostty C API for session persistence
+    var zmxSessionName: String?
+    /// Whether to create the zmx session if it doesn't exist (true = create, false = attach only)
+    var zmxCreate: Bool = true
     /// Snapshotted once per app session so all workspaces use consistent values
     private static let sessionPortBase: Int = {
         let val = UserDefaults.standard.integer(forKey: "cmuxPortBase")
@@ -1850,6 +1854,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 envStorage.append((keyPtr, valuePtr))
                 envVars.append(ghostty_env_var_s(key: keyPtr, value: valuePtr))
             }
+        }
+
+        // zmx session: pass session name and create flag to ghostty
+        var zmxCStr: UnsafeMutablePointer<CChar>?
+        defer { zmxCStr.flatMap { free($0) } }
+        if let name = zmxSessionName {
+            zmxCStr = strdup(name)
+            surfaceConfig.zmx_session = UnsafePointer(zmxCStr)
+            surfaceConfig.zmx_create = zmxCreate
         }
 
         let createSurface = { [self] in

@@ -2693,6 +2693,8 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage(ZmxPersistenceSettings.enabledKey) private var zmxPersistenceEnabled = false
+    @AppStorage(ZmxPersistenceSettings.killOnCloseKey) private var zmxKillOnWorkspaceClose = true
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -3364,6 +3366,37 @@ struct SettingsView: View {
                             .controlSize(.small)
                             .disabled(browserHistoryEntryCount == 0)
                         }
+                    }
+
+                    SettingsSectionHeader(title: "Session Persistence")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Enable zmx Session Persistence",
+                            subtitle: zmxPersistenceEnabled
+                                ? "Terminal sessions survive app restart via zmx."
+                                : "Terminals start fresh on each launch."
+                        ) {
+                            Toggle("", isOn: $zmxPersistenceEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Kill Sessions on Workspace Close",
+                            subtitle: zmxKillOnWorkspaceClose
+                                ? "Closing a workspace terminates its zmx sessions."
+                                : "zmx sessions are preserved when a workspace is closed."
+                        ) {
+                            Toggle("", isOn: $zmxKillOnWorkspaceClose)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                        .disabled(!zmxPersistenceEnabled)
+                    }
+                    if !ZmxSessionProbe.isZmxAvailable() {
+                        SettingsCardNote("Requires zmx to be installed and on PATH.")
                     }
 
                     SettingsSectionHeader(title: "Keyboard Shortcuts")

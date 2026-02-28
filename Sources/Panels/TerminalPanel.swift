@@ -84,7 +84,9 @@ final class TerminalPanel: Panel, ObservableObject {
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
         additionalEnvironment: [String: String] = [:],
-        portOrdinal: Int = 0
+        portOrdinal: Int = 0,
+        zmxSessionName: String? = nil,
+        zmxCreate: Bool = true
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
@@ -94,6 +96,8 @@ final class TerminalPanel: Panel, ObservableObject {
             additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
+        surface.zmxSessionName = zmxSessionName
+        surface.zmxCreate = zmxCreate
         self.init(workspaceId: workspaceId, surface: surface)
     }
 

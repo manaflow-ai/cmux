@@ -648,7 +648,20 @@ class TabManager: ObservableObject {
 #endif
 
     init(initialWorkingDirectory: String? = nil) {
-        addWorkspace(workingDirectory: initialWorkingDirectory)
+        if let snapshot = WorkspaceStatePersistence.load(),
+           !snapshot.workspaces.isEmpty,
+           ZmxPersistenceSettings.isEnabled {
+            let zmxAvailable = ZmxSessionProbe.isZmxAvailable()
+            if !zmxAvailable {
+                WorkspaceStatePersistence.saveSuppressed = true
+                #if DEBUG
+                NSLog("[TabManager] zmx not found — restoring layout without session persistence")
+                #endif
+            }
+            restoreWorkspaces(from: snapshot, zmxEnabled: zmxAvailable)
+        } else {
+            addWorkspace(workingDirectory: initialWorkingDirectory)
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -774,6 +787,7 @@ class TabManager: ObservableObject {
             portOrdinal: ordinal,
             configTemplate: inheritedConfig
         )
+        newWorkspace.tabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
         if insertIndex >= 0 && insertIndex <= tabs.count {
@@ -802,6 +816,45 @@ class TabManager: ObservableObject {
     // Keep addTab as convenience alias
     @discardableResult
     func addTab(select: Bool = true) -> Workspace { addWorkspace(select: select) }
+
+    // MARK: - Workspace State Restore
+
+    private func restoreWorkspaces(from snapshot: WorkspaceStateSnapshot, zmxEnabled: Bool) {
+        for workspaceSnap in snapshot.workspaces {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+
+            let workspace = Workspace(restoring: workspaceSnap, portOrdinal: ordinal)
+            workspace.tabManager = self
+            wireClosedBrowserTracking(for: workspace)
+
+            // Reconstruct the split tree from the snapshot
+            workspace.reconstructSplitTree(from: workspaceSnap.splitTree, zmxEnabled: zmxEnabled)
+
+            tabs.append(workspace)
+
+            // Restore focused pane
+            if let focusedPaneIndex = workspaceSnap.focusedPaneIndex {
+                let tree = workspace.bonsplitController.treeSnapshot()
+                let orderedPanes = SidebarBranchOrdering.orderedPaneIds(tree: tree)
+                if focusedPaneIndex < orderedPanes.count,
+                   let paneUUID = UUID(uuidString: orderedPanes[focusedPaneIndex]) {
+                    workspace.bonsplitController.focusPane(PaneID(id: paneUUID))
+                }
+            }
+
+            // Schedule divider position restoration
+            workspace.applyRestoredDividerPositions(from: workspaceSnap.splitTree)
+        }
+
+        // Restore selected workspace
+        if let selectedIndex = snapshot.selectedWorkspaceIndex,
+           selectedIndex < tabs.count {
+            selectedTabId = tabs[selectedIndex].id
+        } else if let first = tabs.first {
+            selectedTabId = first.id
+        }
+    }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
         guard let workspace = selectedWorkspace else { return nil }
@@ -977,6 +1030,9 @@ class TabManager: ObservableObject {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
+        // Kill zmx sessions if configured
+        workspace.killZmxSessions()
+
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
 
@@ -990,6 +1046,11 @@ class TabManager: ObservableObject {
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
             }
+        }
+
+        // Trigger save after workspace close
+        if ZmxPersistenceSettings.isEnabled {
+            WorkspaceStatePersistence.save(tabManager: self)
         }
     }
 
@@ -1019,6 +1080,7 @@ class TabManager: ObservableObject {
 
     /// Attach an existing workspace to this window.
     func attachWorkspace(_ workspace: Workspace, at index: Int? = nil, select: Bool = true) {
+        workspace.tabManager = self
         wireClosedBrowserTracking(for: workspace)
         let insertIndex: Int = {
             guard let index else { return tabs.count }

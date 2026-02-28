@@ -911,6 +911,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
+    /// When true, split-tree reconstruction is actively resetting/restoring panel layout.
+    private var isReconstructingSplitTree = false
 
     /// Last terminal panel used as an inheritance source (typically last focused terminal).
     private var lastTerminalConfigInheritancePanelId: UUID?
@@ -978,6 +980,17 @@ final class Workspace: Identifiable, ObservableObject {
         get { panelDirectories }
         set { panelDirectories = newValue }
     }
+
+    // MARK: - zmx Session Persistence
+
+    /// Stable identifier for zmx session name derivation (persists across sessions)
+    var zmxStableId: String?
+    /// Panel ID → zmx session name mapping
+    var zmxSessionNames: [UUID: String] = [:]
+    /// Next panel index counter for deterministic session naming
+    private var zmxNextPanelIndex: Int = 0
+    /// Debounce timer for workspace state saves
+    private var saveDebounceTimer: Timer?
 
     private var processTitle: String
 
@@ -1093,6 +1106,9 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
             portOrdinal: portOrdinal
         )
+        if let zmxName = assignZmxSessionName(for: terminalPanel.id) {
+            terminalPanel.surface.zmxSessionName = zmxName
+        }
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
@@ -1113,10 +1129,6 @@ final class Workspace: Identifiable, ObservableObject {
         // Close the default Welcome tab(s)
         for welcomeTabId in welcomeTabIds {
             bonsplitController.closeTab(welcomeTabId)
-        }
-
-        bonsplitController.onExternalTabDrop = { [weak self] request in
-            self?.handleExternalTabDrop(request) ?? false
         }
 
         // Set ourselves as delegate
@@ -1201,6 +1213,7 @@ final class Workspace: Identifiable, ObservableObject {
         let kind: String?
         let isLoading: Bool
         let isPinned: Bool
+        let zmxSessionName: String?
         let directory: String?
         let cachedTitle: String?
         let customTitle: String?
@@ -1860,6 +1873,9 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        if let zmxName = assignZmxSessionName(for: newPanel.id) {
+            newPanel.surface.zmxSessionName = zmxName
+        }
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -1887,6 +1903,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            zmxSessionNames.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
@@ -1930,7 +1947,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
 
-        // Create new terminal panel
+        // Create new terminal panel with optional zmx session
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -1939,6 +1956,9 @@ final class Workspace: Identifiable, ObservableObject {
             additionalEnvironment: startupEnvironment,
             portOrdinal: portOrdinal
         )
+        if let zmxName = assignZmxSessionName(for: newPanel.id) {
+            newPanel.surface.zmxSessionName = zmxName
+        }
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -1954,6 +1974,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            zmxSessionNames.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
@@ -2479,9 +2500,10 @@ final class Workspace: Identifiable, ObservableObject {
         guard panels[panelId] != nil else { return nil }
 #if DEBUG
         let detachStart = ProcessInfo.processInfo.systemUptime
+        let tabDebugId = cmuxExtractUUID(from: tabId)?.uuidString.prefix(5) ?? String(describing: tabId).prefix(5)
         dlog(
             "split.detach.begin ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-            "tab=\(tabId.uuid.uuidString.prefix(5)) activeDetachTxn=\(activeDetachCloseTransactions) " +
+            "tab=\(tabDebugId) activeDetachTxn=\(activeDetachCloseTransactions) " +
             "pendingDetached=\(pendingDetachedSurfaces.count)"
         )
 #endif
@@ -2497,7 +2519,7 @@ final class Workspace: Identifiable, ObservableObject {
 #if DEBUG
             dlog(
                 "split.detach.fail ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-                "tab=\(tabId.uuid.uuidString.prefix(5)) reason=closeTabRejected elapsedMs=\(debugElapsedMs(since: detachStart))"
+                "tab=\(tabDebugId) reason=closeTabRejected elapsedMs=\(debugElapsedMs(since: detachStart))"
             )
 #endif
             return nil
@@ -2507,7 +2529,7 @@ final class Workspace: Identifiable, ObservableObject {
 #if DEBUG
         dlog(
             "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
-            "tab=\(tabId.uuid.uuidString.prefix(5)) transfer=\(detached != nil ? 1 : 0) " +
+            "tab=\(tabDebugId) transfer=\(detached != nil ? 1 : 0) " +
             "elapsedMs=\(debugElapsedMs(since: detachStart))"
         )
 #endif
@@ -2569,6 +2591,14 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             pinnedPanelIds.remove(detached.panelId)
         }
+        if let zmxSessionName = detached.zmxSessionName {
+            zmxSessionNames[detached.panelId] = zmxSessionName
+            if let terminalPanel = detached.panel as? TerminalPanel {
+                terminalPanel.surface.zmxSessionName = zmxSessionName
+            }
+        } else {
+            zmxSessionNames.removeValue(forKey: detached.panelId)
+        }
         if detached.manuallyUnread {
             manualUnreadPanelIds.insert(detached.panelId)
             manualUnreadMarkedAt[detached.panelId] = .distantPast
@@ -2593,6 +2623,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
+            zmxSessionNames.removeValue(forKey: detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
@@ -2624,9 +2655,10 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleTerminalGeometryReconcile()
 
 #if DEBUG
+        let newTabDebugId = cmuxExtractUUID(from: newTabId)?.uuidString.prefix(5) ?? String(describing: newTabId).prefix(5)
         dlog(
             "split.attach.end ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
-            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "tab=\(newTabDebugId) pane=\(paneId.id.uuidString.prefix(5)) " +
             "index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0) " +
             "elapsedMs=\(debugElapsedMs(since: attachStart))"
         )
@@ -2986,6 +3018,9 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        if let zmxName = assignZmxSessionName(for: newPanel.id) {
+            newPanel.surface.zmxSessionName = zmxName
+        }
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -2999,6 +3034,8 @@ final class Workspace: Identifiable, ObservableObject {
             isPinned: false
         ) {
             surfaceIdToPanelId[newTabId] = newPanel.id
+        } else {
+            zmxSessionNames.removeValue(forKey: newPanel.id)
         }
 
         return newPanel
@@ -3346,59 +3383,411 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
-        guard let app = AppDelegate.shared else { return false }
-#if DEBUG
-        let dropStart = ProcessInfo.processInfo.systemUptime
-#endif
+    // MARK: - zmx Session Name Assignment
 
-        let targetPane: PaneID
-        let targetIndex: Int?
-        let splitTarget: (orientation: SplitOrientation, insertFirst: Bool)?
-#if DEBUG
-        let destinationLabel: String
-#endif
+    /// Assign a zmx session name for a panel when persistence is enabled.
+    func assignZmxSessionName(for panelId: UUID) -> String? {
+        guard ZmxPersistenceSettings.isEnabled else { return nil }
+        let stableId = zmxStableId ?? id.uuidString
+        if zmxStableId == nil { zmxStableId = stableId }
+        let name = ZmxSessionNaming.sessionName(workspaceStableId: stableId, panelIndex: zmxNextPanelIndex)
+        zmxNextPanelIndex += 1
+        zmxSessionNames[panelId] = name
+        return name
+    }
 
-        switch request.destination {
-        case .insert(let paneId, let index):
-            targetPane = paneId
-            targetIndex = index
-            splitTarget = nil
-#if DEBUG
-            destinationLabel = "insert pane=\(paneId.id.uuidString.prefix(5)) index=\(index.map(String.init) ?? "nil")"
-#endif
-        case .split(let paneId, let orientation, let insertFirst):
-            targetPane = paneId
-            targetIndex = nil
-            splitTarget = (orientation, insertFirst)
-#if DEBUG
-            destinationLabel = "split pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation.rawValue) insertFirst=\(insertFirst ? 1 : 0)"
-#endif
+    /// Rehydrate zmxNextPanelIndex from existing session names to prevent collisions.
+    func rehydrateZmxPanelIndex() {
+        var maxIndex = -1
+        for name in zmxSessionNames.values {
+            if let idx = ZmxSessionNaming.parseIndex(from: name), idx > maxIndex {
+                maxIndex = idx
+            }
+        }
+        zmxNextPanelIndex = maxIndex + 1
+    }
+
+    // MARK: - Snapshot Generation
+
+    /// Generate a complete workspace snapshot for persistence.
+    func generateSnapshot() -> WorkspaceSnapshot {
+        let tree = bonsplitController.treeSnapshot()
+        let splitTreeSnapshot = snapshotFromExternalTree(tree)
+
+        // Compute focused pane index: flatten tree panes in order, find the focused one
+        let focusedPaneIndex: Int? = {
+            guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+            let orderedPaneIds = SidebarBranchOrdering.orderedPaneIds(tree: tree)
+            return orderedPaneIds.firstIndex(of: focusedPaneId.id.uuidString)
+        }()
+
+        return WorkspaceSnapshot(
+            stableId: zmxStableId ?? id.uuidString,
+            title: title,
+            customTitle: customTitle,
+            customColor: customColor,
+            isPinned: isPinned,
+            currentDirectory: currentDirectory,
+            splitTree: splitTreeSnapshot,
+            focusedPaneIndex: focusedPaneIndex
+        )
+    }
+
+    /// Convert bonsplit's ExternalTreeNode to our Codable SplitTreeSnapshot.
+    private func snapshotFromExternalTree(_ node: ExternalTreeNode) -> SplitTreeSnapshot {
+        switch node {
+        case .pane(let paneNode):
+            let paneId = UUID(uuidString: paneNode.id)
+            let tabs = paneId.flatMap { pid in bonsplitController.tabs(inPane: PaneID(id: pid)) } ?? []
+            let selectedTabId = paneNode.selectedTabId
+
+            let panelSnapshots: [PanelSnapshot] = tabs.compactMap { tab in
+                guard let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
+                guard let panel = panels[panelId] else { return nil }
+
+                let zmxName = zmxSessionNames[panelId]
+                let directory = panelDirectories[panelId]
+                let custom = panelCustomTitles[panelId]
+                let pinned = pinnedPanelIds.contains(panelId)
+
+                if let browser = panel as? BrowserPanel {
+                    return PanelSnapshot(
+                        type: .browser,
+                        zmxSessionName: nil,
+                        directory: nil,
+                        customTitle: custom,
+                        isPinned: pinned,
+                        browserURL: browser.currentURL?.absoluteString
+                    )
+                } else {
+                    return PanelSnapshot(
+                        type: .terminal,
+                        zmxSessionName: zmxName,
+                        directory: directory,
+                        customTitle: custom,
+                        isPinned: pinned,
+                        browserURL: nil
+                    )
+                }
+            }
+
+            let selectedPanelIndex: Int? = {
+                guard let selectedId = selectedTabId else { return nil }
+                // Find the selected tab's position among the external pane tabs,
+                // which correspond 1:1 to the panelSnapshots array.
+                guard let idx = paneNode.tabs.firstIndex(where: { $0.id == selectedId }) else { return nil }
+                return idx < panelSnapshots.count ? idx : nil
+            }()
+
+            return .pane(PaneSnapshot(panels: panelSnapshots, selectedPanelIndex: selectedPanelIndex))
+
+        case .split(let splitNode):
+            return .split(SplitNodeSnapshot(
+                orientation: splitNode.orientation,
+                dividerPosition: splitNode.dividerPosition,
+                first: snapshotFromExternalTree(splitNode.first),
+                second: snapshotFromExternalTree(splitNode.second)
+            ))
+        }
+    }
+
+    // MARK: - Restore from Snapshot
+
+    /// Create a workspace by restoring from a saved snapshot.
+    convenience init(restoring snapshot: WorkspaceSnapshot, portOrdinal: Int) {
+        self.init(title: snapshot.title, workingDirectory: snapshot.currentDirectory, portOrdinal: portOrdinal)
+
+        // Apply snapshot metadata
+        customTitle = snapshot.customTitle
+        customColor = snapshot.customColor
+        isPinned = snapshot.isPinned
+        zmxStableId = snapshot.stableId
+    }
+
+    private func resetPanelMetadataForRestore() {
+        panelSubscriptions.removeAll()
+        panelDirectories.removeAll()
+        panelTitles.removeAll()
+        panelCustomTitles.removeAll()
+        pinnedPanelIds.removeAll()
+        manualUnreadPanelIds.removeAll()
+        manualUnreadMarkedAt.removeAll()
+        panelGitBranches.removeAll()
+        gitBranch = nil
+        surfaceListeningPorts.removeAll()
+        listeningPorts.removeAll()
+        surfaceTTYNames.removeAll()
+        zmxSessionNames.removeAll()
+        terminalInheritanceFontPointsByPanelId.removeAll()
+        lastTerminalConfigInheritancePanelId = nil
+    }
+
+    private func forceCloseAllTabsForRestore() -> Bool {
+        let maxCloseIterations = 256
+        var closeIterations = 0
+
+        while let tabId = bonsplitController.allTabIds.first {
+            if closeIterations >= maxCloseIterations {
+                return false
+            }
+            closeIterations += 1
+
+            forceCloseTabIds.insert(tabId)
+            if !bonsplitController.closeTab(tabId) {
+                forceCloseTabIds.remove(tabId)
+                return false
+            }
         }
 
-        #if DEBUG
-        dlog(
-            "split.externalDrop.begin ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "sourcePane=\(request.sourcePaneId.id.uuidString.prefix(5)) destination=\(destinationLabel)"
-        )
-        #endif
-        let moved = app.moveBonsplitTab(
-            tabId: request.tabId.uuid,
-            toWorkspace: id,
-            targetPane: targetPane,
-            targetIndex: targetIndex,
-            splitTarget: splitTarget,
-            focus: true,
-            focusWindow: true
-        )
-#if DEBUG
-        dlog(
-            "split.externalDrop.end ws=\(id.uuidString.prefix(5)) tab=\(request.tabId.uuid.uuidString.prefix(5)) " +
-            "moved=\(moved ? 1 : 0) elapsedMs=\(debugElapsedMs(since: dropStart))"
-        )
-#endif
-        return moved
+        return true
     }
+
+    /// Reconstruct the split tree from a snapshot, creating panels as needed.
+    /// - Parameter zmxEnabled: Whether zmx sessions should be used (false = create fresh terminals)
+    func reconstructSplitTree(from snapshot: SplitTreeSnapshot, zmxEnabled: Bool) {
+        isReconstructingSplitTree = true
+        defer { isReconstructingSplitTree = false }
+
+        // Close all existing tabs/panels (including the default one from init).
+        // Force-close bypasses pinned/confirm-close guards during restore.
+        guard forceCloseAllTabsForRestore() else {
+#if DEBUG
+            NSLog("[Workspace] reconstructSplitTree: failed to close all existing tabs; aborting restore")
+#endif
+            pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
+            zmxSessionNames = zmxSessionNames.filter { panels[$0.key] != nil }
+            rehydrateZmxPanelIndex()
+            return
+        }
+
+        panels.removeAll()
+        surfaceIdToPanelId.removeAll()
+        resetPanelMetadataForRestore()
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+
+        rebuildNode(snapshot, inPane: nil, zmxEnabled: zmxEnabled)
+
+        // Rehydrate zmx index from restored session names
+        rehydrateZmxPanelIndex()
+    }
+
+    /// Recursively rebuild the split tree from a snapshot.
+    private func rebuildNode(_ node: SplitTreeSnapshot, inPane targetPane: PaneID?, zmxEnabled: Bool) {
+        switch node {
+        case .pane(let paneSnapshot):
+            let pane = targetPane ?? bonsplitController.allPaneIds.first
+            guard let pane else { return }
+
+            for (index, panelSnap) in paneSnapshot.panels.enumerated() {
+                switch panelSnap.type {
+                case .terminal:
+                    let zmxName = zmxEnabled ? panelSnap.zmxSessionName : nil
+                    let zmxCreate: Bool
+                    if let zmxName, zmxEnabled {
+                        zmxCreate = !ZmxSessionProbe.isSessionAlive(zmxName)
+                    } else {
+                        zmxCreate = true
+                    }
+
+                    let panel = TerminalPanel(
+                        workspaceId: id,
+                        context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                        workingDirectory: panelSnap.directory,
+                        portOrdinal: portOrdinal,
+                        zmxSessionName: zmxName,
+                        zmxCreate: zmxCreate
+                    )
+                    panels[panel.id] = panel
+                    panelTitles[panel.id] = panel.displayTitle
+
+                    if let zmxName {
+                        zmxSessionNames[panel.id] = zmxName
+                    }
+                    if let directory = panelSnap.directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !directory.isEmpty {
+                        panelDirectories[panel.id] = directory
+                    }
+                    if panelSnap.isPinned {
+                        pinnedPanelIds.insert(panel.id)
+                    }
+                    if let custom = panelSnap.customTitle {
+                        panelCustomTitles[panel.id] = custom
+                    }
+
+                    if index == 0 {
+                        // First panel replaces the welcome tab in the existing pane
+                        if let tabId = bonsplitController.createTab(
+                            title: panel.displayTitle,
+                            icon: "terminal.fill",
+                            kind: SurfaceKind.terminal,
+                            isDirty: false,
+                            isPinned: panelSnap.isPinned,
+                            inPane: pane
+                        ) {
+                            surfaceIdToPanelId[tabId] = panel.id
+                        }
+                    } else {
+                        if let tabId = bonsplitController.createTab(
+                            title: panel.displayTitle,
+                            icon: "terminal.fill",
+                            kind: SurfaceKind.terminal,
+                            isDirty: false,
+                            isPinned: panelSnap.isPinned,
+                            inPane: pane
+                        ) {
+                            surfaceIdToPanelId[tabId] = panel.id
+                        }
+                    }
+
+                case .browser:
+                    let url = panelSnap.browserURL.flatMap { URL(string: $0) }
+                    let panel = BrowserPanel(workspaceId: id, initialURL: url)
+                    panels[panel.id] = panel
+                    panelTitles[panel.id] = panel.displayTitle
+
+                    if panelSnap.isPinned {
+                        pinnedPanelIds.insert(panel.id)
+                    }
+                    if let custom = panelSnap.customTitle {
+                        panelCustomTitles[panel.id] = custom
+                    }
+
+                    if let tabId = bonsplitController.createTab(
+                        title: panel.displayTitle,
+                        icon: panel.displayIcon,
+                        kind: SurfaceKind.browser,
+                        isDirty: false,
+                        isPinned: panelSnap.isPinned,
+                        inPane: pane
+                    ) {
+                        surfaceIdToPanelId[tabId] = panel.id
+                    }
+                }
+            }
+
+            // Restore selected tab
+            if let selectedIdx = paneSnapshot.selectedPanelIndex,
+               selectedIdx < paneSnapshot.panels.count {
+                let tabs = bonsplitController.tabs(inPane: pane)
+                if selectedIdx < tabs.count {
+                    bonsplitController.selectTab(tabs[selectedIdx].id)
+                }
+            }
+
+        case .split(let splitSnap):
+            // We need a pane to split. If no target, use the first available pane.
+            let pane = targetPane ?? bonsplitController.allPaneIds.first
+            guard let pane else { return }
+
+            // Build the first child into the existing pane
+            rebuildNode(splitSnap.first, inPane: pane, zmxEnabled: zmxEnabled)
+
+            // Create a placeholder tab for the new pane, then split
+            let placeholderPanel = TerminalPanel(
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                portOrdinal: portOrdinal
+            )
+            let placeholderTab = Bonsplit.Tab(
+                title: "Restoring...",
+                icon: "terminal.fill",
+                kind: SurfaceKind.terminal,
+                isDirty: false,
+                isPinned: false
+            )
+            surfaceIdToPanelId[placeholderTab.id] = placeholderPanel.id
+            panels[placeholderPanel.id] = placeholderPanel
+
+            let orientation: SplitOrientation = splitSnap.orientation == "vertical" ? .vertical : .horizontal
+            guard let newPaneId = bonsplitController.splitPane(pane, orientation: orientation, withTab: placeholderTab) else {
+                // Cleanup on failure
+                panels.removeValue(forKey: placeholderPanel.id)
+                surfaceIdToPanelId.removeValue(forKey: placeholderTab.id)
+                return
+            }
+
+            // Remove the placeholder and build the second child into the new pane
+            bonsplitController.closeTab(placeholderTab.id)
+            panels.removeValue(forKey: placeholderPanel.id)
+            surfaceIdToPanelId.removeValue(forKey: placeholderTab.id)
+
+            rebuildNode(splitSnap.second, inPane: newPaneId, zmxEnabled: zmxEnabled)
+        }
+    }
+
+    // MARK: - Divider Position Restoration
+
+    /// Apply saved divider positions with readiness-based retry.
+    /// Uses bounded exponential backoff: 50ms, 100ms, 200ms, 400ms (max 5 attempts).
+    func applyRestoredDividerPositions(from snapshot: SplitTreeSnapshot, attempt: Int = 0) {
+        let maxAttempts = 5
+        guard attempt < maxAttempts else { return }
+
+        let liveTree = bonsplitController.treeSnapshot()
+        let success = applyDividerPositionsRecursive(saved: snapshot, live: liveTree)
+
+        if !success {
+            let delays: [TimeInterval] = [0.05, 0.1, 0.2, 0.4, 0.4]
+            let delay = delays[min(attempt, delays.count - 1)]
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.applyRestoredDividerPositions(from: snapshot, attempt: attempt + 1)
+            }
+        }
+    }
+
+    /// Walk saved and live trees in parallel, applying divider positions.
+    /// Returns true if all positions were successfully applied.
+    @discardableResult
+    private func applyDividerPositionsRecursive(saved: SplitTreeSnapshot, live: ExternalTreeNode) -> Bool {
+        switch (saved, live) {
+        case (.split(let savedSplit), .split(let liveSplit)):
+            guard let splitUUID = UUID(uuidString: liveSplit.id) else { return false }
+            bonsplitController.setDividerPosition(
+                CGFloat(savedSplit.dividerPosition),
+                forSplit: splitUUID,
+                fromExternal: true
+            )
+            let firstOk = applyDividerPositionsRecursive(saved: savedSplit.first, live: liveSplit.first)
+            let secondOk = applyDividerPositionsRecursive(saved: savedSplit.second, live: liveSplit.second)
+            return firstOk && secondOk
+        case (.pane, .pane):
+            return true
+        default:
+            // Structure mismatch — saved tree doesn't match live tree
+            return false
+        }
+    }
+
+    // MARK: - zmx Session Cleanup
+
+    /// Kill all zmx sessions for this workspace (used on workspace close when configured).
+    func killZmxSessions() {
+        guard ZmxPersistenceSettings.killOnWorkspaceClose else { return }
+        for name in zmxSessionNames.values {
+            ZmxSessionProbe.killSession(name)
+        }
+    }
+
+    // MARK: - Debounced Save
+
+    /// Schedule a debounced workspace state save. No-op when persistence is disabled.
+    func scheduleSave() {
+        guard ZmxPersistenceSettings.isEnabled, !isReconstructingSplitTree else { return }
+        saveDebounceTimer?.invalidate()
+        saveDebounceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                guard let tabManager = self.tabManager else { return }
+                WorkspaceStatePersistence.save(tabManager: tabManager)
+            }
+        }
+    }
+
+    /// Weak reference to the TabManager that owns this workspace.
+    /// Set by TabManager when the workspace is added.
+    weak var tabManager: TabManager?
 
 }
 
@@ -3685,7 +4074,7 @@ extension Workspace: BonsplitDelegate {
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
             scheduleTerminalGeometryReconcile()
-            if !isDetaching {
+            if !isDetaching && !isReconstructingSplitTree {
                 scheduleFocusReconcile()
             }
             return
@@ -3710,6 +4099,7 @@ extension Workspace: BonsplitDelegate {
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
+                zmxSessionName: zmxSessionNames[panelId],
                 directory: panelDirectories[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
@@ -3730,6 +4120,7 @@ extension Workspace: BonsplitDelegate {
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        zmxSessionNames.removeValue(forKey: panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
@@ -3745,7 +4136,7 @@ extension Workspace: BonsplitDelegate {
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
-            if isDetaching {
+            if isDetaching || isReconstructingSplitTree {
                 scheduleTerminalGeometryReconcile()
                 return
             }
@@ -3781,9 +4172,10 @@ extension Workspace: BonsplitDelegate {
             normalizePinnedTabs(in: pane)
         }
         scheduleTerminalGeometryReconcile()
-        if !isDetaching {
+        if !isDetaching && !isReconstructingSplitTree {
             scheduleFocusReconcile()
         }
+        scheduleSave()
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -3842,6 +4234,7 @@ extension Workspace: BonsplitDelegate {
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
+        scheduleSave()
     }
 
     func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
@@ -3863,7 +4256,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
-        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        let shouldScheduleFocusReconcile = !isDetachingCloseTransaction && !isReconstructingSplitTree
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
@@ -3875,6 +4268,7 @@ extension Workspace: BonsplitDelegate {
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
+                zmxSessionNames.removeValue(forKey: panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
@@ -3899,6 +4293,7 @@ extension Workspace: BonsplitDelegate {
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
+        scheduleSave()
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
@@ -4057,6 +4452,9 @@ extension Workspace: BonsplitDelegate {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        if let zmxName = assignZmxSessionName(for: newPanel.id) {
+            newPanel.surface.zmxSessionName = zmxName
+        }
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -4071,6 +4469,7 @@ extension Workspace: BonsplitDelegate {
         ) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
+            zmxSessionNames.removeValue(forKey: newPanel.id)
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return
         }
@@ -4094,6 +4493,7 @@ extension Workspace: BonsplitDelegate {
             self.scheduleTerminalGeometryReconcile()
             self.scheduleFocusReconcile()
         }
+        scheduleSave()
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
@@ -4105,6 +4505,7 @@ extension Workspace: BonsplitDelegate {
         default:
             _ = newTerminalSurface(inPane: pane)
         }
+        scheduleSave()
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -4120,8 +4521,6 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToRight(of: tab.id, inPane: pane))
         case .closeOthers:
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
-        case .move:
-            promptMovePanel(tabId: tab.id)
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
@@ -4146,7 +4545,11 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
         @unknown default:
-            break
+            // Compatibility path for Bonsplit versions that expose a "move"
+            // action in raw-value form but not as a typed enum case.
+            if action.rawValue == "move" {
+                promptMovePanel(tabId: tab.id)
+            }
         }
     }
 
@@ -4156,6 +4559,7 @@ extension Workspace: BonsplitDelegate {
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
+        scheduleSave()
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.

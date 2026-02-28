@@ -31,6 +31,7 @@
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
 		A5001407 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001417 /* WorkspaceContentView.swift */; };
+		A5001700 /* WorkspaceStatePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701 /* WorkspaceStatePersistence.swift */; };
 			A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 			A5001094 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001091 /* NotificationsPage.swift */; };
 			A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
@@ -167,6 +168,7 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
+		A5001701 /* WorkspaceStatePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStatePersistence.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A5001091 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
@@ -331,6 +333,7 @@
 					A5001511 /* UITestRecorder.swift */,
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
+				A5001701 /* WorkspaceStatePersistence.swift */,
 				A5001417 /* WorkspaceContentView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
@@ -570,6 +573,7 @@
 						A5001501 /* UITestRecorder.swift in Sources */,
 						A5001521 /* PostHogAnalytics.swift in Sources */,
 						A5001406 /* Workspace.swift in Sources */,
+				A5001700 /* WorkspaceStatePersistence.swift in Sources */,
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,

@@ -9,6 +9,11 @@ cd "$PROJECT_DIR"
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
 
+if [ ! -d "vendor/bonsplit" ]; then
+    echo "==> vendor/bonsplit missing after submodule init; cloning fallback..."
+    git clone --depth 1 https://github.com/manaflow-ai/bonsplit.git vendor/bonsplit
+fi
+
 echo "==> Checking for zig..."
 if ! command -v zig &> /dev/null; then
     echo "Error: zig is not installed."
@@ -58,7 +63,7 @@ else
         echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
         (
             cd ghostty
-            zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+            zig build -Demit-xcframework=true -Demit-macos-app=false -Doptimize=ReleaseFast
         )
         # Stamp the build output with the SHA it was built from
         echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
