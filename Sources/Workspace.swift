@@ -2212,10 +2212,8 @@ final class Workspace: Identifiable, ObservableObject {
 
             // Fallback path: if close did not complete in time, terminate processes tied to the
             // panel's TTY and retry close once more before declaring failure.
-            let fallbackSignaled = forceTerminateTerminalProcessesForWorkspaceClose(panelId: panelId)
-            if fallbackSignaled {
-                _ = closePanel(panelId, force: true)
-            }
+            _ = forceTerminateTerminalProcessesForWorkspaceClose(panelId: panelId)
+            _ = closePanel(panelId, force: true)
 
             if waitForPanelClose(panelId, timeout: 0.6) {
                 closedCount += 1
