@@ -2981,6 +2981,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         weak var panel: BrowserPanel?
         weak var webView: WKWebView?
         var attachRetryWorkItem: DispatchWorkItem?
+        var deferredHierarchyMutationWorkItem: DispatchWorkItem?
         var attachRetryCount: Int = 0
         var attachGeneration: Int = 0
         var usesWindowPortal: Bool = false
@@ -3139,6 +3140,24 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.onGeometryChanged = nil
     }
 
+    private static func cancelDeferredHierarchyMutation(coordinator: Coordinator) {
+        coordinator.deferredHierarchyMutationWorkItem?.cancel()
+        coordinator.deferredHierarchyMutationWorkItem = nil
+    }
+
+    private static func scheduleDeferredHierarchyMutation(
+        coordinator: Coordinator,
+        _ mutation: @escaping () -> Void
+    ) {
+        cancelDeferredHierarchyMutation(coordinator: coordinator)
+        let work = DispatchWorkItem {
+            coordinator.deferredHierarchyMutationWorkItem = nil
+            mutation()
+        }
+        coordinator.deferredHierarchyMutationWorkItem = work
+        DispatchQueue.main.async(execute: work)
+    }
+
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) {
         guard let host = nsView as? HostContainerView else { return }
 
@@ -3263,6 +3282,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let retryInterval: TimeInterval = 1.0 / 60.0
         // Don't schedule multiple overlapping retries.
         guard coordinator.attachRetryWorkItem == nil else { return }
+        cancelDeferredHierarchyMutation(coordinator: coordinator)
 
         let work = DispatchWorkItem { [weak host, weak webView] in
             coordinator.attachRetryWorkItem = nil
@@ -3335,8 +3355,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let webView = panel.webView
-        context.coordinator.panel = panel
-        context.coordinator.webView = webView
+        let coordinator = context.coordinator
+        coordinator.panel = panel
+        coordinator.webView = webView
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
@@ -3345,7 +3366,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         let shouldUseWindowPortal = panel.shouldPreserveWebViewAttachmentDuringTransientHide()
         if shouldUseWindowPortal {
-            context.coordinator.usesWindowPortal = true
+            coordinator.usesWindowPortal = true
+            Self.cancelDeferredHierarchyMutation(coordinator: coordinator)
             Self.clearPortalCallbacks(for: nsView)
             updateUsingWindowPortal(nsView, context: context, webView: webView)
             Self.applyFocus(
@@ -3358,10 +3380,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             return
         }
 
-        if context.coordinator.usesWindowPortal {
+        if coordinator.usesWindowPortal {
             BrowserWindowPortalRegistry.detach(webView: webView)
-            context.coordinator.usesWindowPortal = false
-            context.coordinator.lastPortalHostId = nil
+            coordinator.usesWindowPortal = false
+            coordinator.lastPortalHostId = nil
         }
         Self.clearPortalCallbacks(for: nsView)
 
@@ -3390,8 +3412,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             Self.logDevToolsState(
                 panel,
                 event: "detach.beforeSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
+                generation: coordinator.attachGeneration,
+                retryCount: coordinator.attachRetryCount,
                 details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
@@ -3400,54 +3422,60 @@ struct WebViewRepresentable: NSViewRepresentable {
             Self.logDevToolsState(
                 panel,
                 event: "detach.afterSync",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
+                generation: coordinator.attachGeneration,
+                retryCount: coordinator.attachRetryCount,
                 details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
+            coordinator.attachRetryWorkItem?.cancel()
+            coordinator.attachRetryWorkItem = nil
+            coordinator.attachRetryCount = 0
+            coordinator.attachGeneration += 1
+            let generation = coordinator.attachGeneration
+            Self.scheduleDeferredHierarchyMutation(coordinator: coordinator) { [weak nsView, weak webView] in
+                guard coordinator.attachGeneration == generation else { return }
+                guard let nsView, let webView else { return }
 
-            // Resign focus if WebKit currently owns first responder.
-            if let window = webView.window ?? nsView.window {
-                let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
-                if state.needsResign {
-                    #if DEBUG
-                    Self.logDevToolsState(
-                        panel,
-                        event: "detach.resignFirstResponder",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
-                        details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
-                    )
-                    #endif
-                    window.makeFirstResponder(nil)
+                // Resign focus if WebKit currently owns first responder.
+                if let window = webView.window ?? nsView.window {
+                    let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
+                    if state.needsResign {
+                        #if DEBUG
+                        Self.logDevToolsState(
+                            panel,
+                            event: "detach.resignFirstResponder",
+                            generation: generation,
+                            retryCount: coordinator.attachRetryCount,
+                            details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
+                        )
+                        #endif
+                        window.makeFirstResponder(nil)
+                    }
                 }
-            }
 
-            if webView.superview != nil {
-                webView.removeFromSuperview()
+                if webView.superview != nil {
+                    webView.removeFromSuperview()
+                }
+                nsView.subviews.forEach { $0.removeFromSuperview() }
+                #if DEBUG
+                Self.logDevToolsState(
+                    panel,
+                    event: "detach.done",
+                    generation: generation,
+                    retryCount: coordinator.attachRetryCount,
+                    details: Self.attachContext(webView: webView, host: nsView)
+                )
+                #endif
             }
-            nsView.subviews.forEach { $0.removeFromSuperview() }
-            #if DEBUG
-            Self.logDevToolsState(
-                panel,
-                event: "detach.done",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
-                details: Self.attachContext(webView: webView, host: nsView)
-            )
-            #endif
             return
         }
 
         if webView.superview !== nsView {
             // Cancel any pending retry; we'll reschedule if needed.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachGeneration += 1
+            coordinator.attachRetryWorkItem?.cancel()
+            coordinator.attachRetryWorkItem = nil
+            coordinator.attachGeneration += 1
+            let generation = coordinator.attachGeneration
 
             if let window = webView.window ?? nsView.window {
                 let state = Self.firstResponderResignState(window.firstResponder, webView: webView)
@@ -3456,8 +3484,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     Self.logDevToolsState(
                         panel,
                         event: "attach.reparent.resignFirstResponder.begin",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
                         details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags
                     )
                     #endif
@@ -3466,8 +3494,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     Self.logDevToolsState(
                         panel,
                         event: "attach.reparent.resignFirstResponder.end",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
                         details: Self.attachContext(webView: webView, host: nsView) + " " + state.flags + " resigned=\(resigned ? 1 : 0)"
                     )
                     #endif
@@ -3483,8 +3511,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     Self.logDevToolsState(
                         panel,
                         event: "attach.defer.requestRefresh",
-                        generation: context.coordinator.attachGeneration,
-                        retryCount: context.coordinator.attachRetryCount,
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
                         details: Self.attachContext(webView: webView, host: nsView)
                     )
                     #endif
@@ -3493,8 +3521,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 Self.logDevToolsState(
                     panel,
                     event: "attach.defer.offWindow",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
+                    generation: generation,
+                    retryCount: coordinator.attachRetryCount,
                     details: Self.attachContext(webView: webView, host: nsView)
                 )
                 #endif
@@ -3502,37 +3530,54 @@ struct WebViewRepresentable: NSViewRepresentable {
                     webView,
                     panel: panel,
                     to: nsView,
-                    coordinator: context.coordinator,
-                    generation: context.coordinator.attachGeneration
+                    coordinator: coordinator,
+                    generation: generation
                 )
             } else {
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate.begin",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
-                Self.attachWebView(webView, to: nsView)
-                panel.restoreDeveloperToolsAfterAttachIfNeeded()
-                #if DEBUG
-                Self.logDevToolsState(
-                    panel,
-                    event: "attach.immediate",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
-                    details: Self.attachContext(webView: webView, host: nsView)
-                )
-                #endif
+                Self.scheduleDeferredHierarchyMutation(coordinator: coordinator) { [weak nsView, weak webView] in
+                    guard coordinator.attachGeneration == generation else { return }
+                    guard let nsView, let webView else { return }
+
+                    guard nsView.window != nil else {
+                        Self.scheduleAttachRetry(
+                            webView,
+                            panel: panel,
+                            to: nsView,
+                            coordinator: coordinator,
+                            generation: generation
+                        )
+                        return
+                    }
+
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "attach.immediate.begin",
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView)
+                    )
+                    #endif
+                    Self.attachWebView(webView, to: nsView)
+                    panel.restoreDeveloperToolsAfterAttachIfNeeded()
+                    #if DEBUG
+                    Self.logDevToolsState(
+                        panel,
+                        event: "attach.immediate",
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
+                        details: Self.attachContext(webView: webView, host: nsView)
+                    )
+                    #endif
+                }
             }
         } else {
             // Already attached; no need for any pending retry.
-            context.coordinator.attachRetryWorkItem?.cancel()
-            context.coordinator.attachRetryWorkItem = nil
-            context.coordinator.attachRetryCount = 0
-            context.coordinator.attachGeneration += 1
+            coordinator.attachRetryWorkItem?.cancel()
+            coordinator.attachRetryWorkItem = nil
+            coordinator.attachRetryCount = 0
+            coordinator.attachGeneration += 1
+            Self.cancelDeferredHierarchyMutation(coordinator: coordinator)
             let hadPendingRefresh = panel.hasPendingDeveloperToolsRefreshAfterAttach()
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
             #if DEBUG
@@ -3540,16 +3585,16 @@ struct WebViewRepresentable: NSViewRepresentable {
                 Self.logDevToolsState(
                     panel,
                     event: "attach.alreadyAttached.consumePendingRefresh",
-                    generation: context.coordinator.attachGeneration,
-                    retryCount: context.coordinator.attachRetryCount,
+                    generation: coordinator.attachGeneration,
+                    retryCount: coordinator.attachRetryCount,
                     details: Self.attachContext(webView: webView, host: nsView)
                 )
             }
             Self.logDevToolsState(
                 panel,
                 event: "attach.alreadyAttached",
-                generation: context.coordinator.attachGeneration,
-                retryCount: context.coordinator.attachRetryCount,
+                generation: coordinator.attachGeneration,
+                retryCount: coordinator.attachRetryCount,
                 details: Self.attachContext(webView: webView, host: nsView)
             )
             #endif
@@ -3612,6 +3657,7 @@ struct WebViewRepresentable: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         coordinator.attachRetryWorkItem?.cancel()
         coordinator.attachRetryWorkItem = nil
+        cancelDeferredHierarchyMutation(coordinator: coordinator)
         coordinator.attachRetryCount = 0
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
@@ -3681,18 +3727,24 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         if webView.superview === nsView {
-            webView.removeFromSuperview()
-            #if DEBUG
-            if let panel {
-                logDevToolsState(
-                    panel,
-                    event: "dismantle.detached",
-                    generation: coordinator.attachGeneration,
-                    retryCount: coordinator.attachRetryCount,
-                    details: attachContext(webView: webView, host: nsView)
-                )
+            let generation = coordinator.attachGeneration
+            scheduleDeferredHierarchyMutation(coordinator: coordinator) { [weak webView, weak nsView] in
+                guard coordinator.attachGeneration == generation else { return }
+                guard let webView, let nsView else { return }
+                guard webView.superview === nsView else { return }
+                webView.removeFromSuperview()
+                #if DEBUG
+                if let panel {
+                    logDevToolsState(
+                        panel,
+                        event: "dismantle.detached",
+                        generation: generation,
+                        retryCount: coordinator.attachRetryCount,
+                        details: attachContext(webView: webView, host: nsView)
+                    )
+                }
+                #endif
             }
-            #endif
         }
     }
 }
