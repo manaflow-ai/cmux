@@ -2133,6 +2133,47 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    private func loadOrCreateMarkdownPanel(
+        fileURL: URL?,
+        initialText: String?,
+        lastSavedText: String?,
+        isPreviewMode: Bool,
+        scope: String
+    ) -> MarkdownPanel? {
+        if let initialText {
+            return MarkdownPanel(
+                workspaceId: id,
+                fileURL: fileURL,
+                text: initialText,
+                isPreviewMode: isPreviewMode,
+                lastSavedText: lastSavedText ?? initialText
+            )
+        }
+
+        if let fileURL {
+            do {
+                return try MarkdownPanel.loadFromDisk(
+                    workspaceId: id,
+                    fileURL: fileURL,
+                    isPreviewMode: isPreviewMode
+                )
+            } catch {
+#if DEBUG
+                dlog("markdown.load.fail scope=\(scope) workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
+#endif
+                return nil
+            }
+        }
+
+        return MarkdownPanel(
+            workspaceId: id,
+            fileURL: nil,
+            text: "",
+            isPreviewMode: isPreviewMode,
+            lastSavedText: ""
+        )
+    }
+
     /// Create a new markdown panel split.
     @discardableResult
     func newMarkdownSplit(
@@ -2154,19 +2195,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel: MarkdownPanel
-        if let fileURL {
-            do {
-                markdownPanel = try MarkdownPanel.loadFromDisk(workspaceId: id, fileURL: fileURL)
-            } catch {
-#if DEBUG
-                dlog("markdown.load.fail scope=split workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
-#endif
-                return nil
-            }
-        } else {
-            markdownPanel = MarkdownPanel(workspaceId: id, fileURL: nil, text: "", isPreviewMode: false, lastSavedText: "")
-        }
+        guard let markdownPanel = loadOrCreateMarkdownPanel(
+            fileURL: fileURL,
+            initialText: nil,
+            lastSavedText: nil,
+            isPreviewMode: false,
+            scope: "split"
+        ) else { return nil }
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
         if let directory = markdownPanel.fileURL?.deletingLastPathComponent().path,
@@ -2225,37 +2260,13 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> MarkdownPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let markdownPanel: MarkdownPanel
-        if let initialText {
-            markdownPanel = MarkdownPanel(
-                workspaceId: id,
-                fileURL: fileURL,
-                text: initialText,
-                isPreviewMode: isPreviewMode,
-                lastSavedText: lastSavedText ?? initialText
-            )
-        } else if let fileURL {
-            do {
-                markdownPanel = try MarkdownPanel.loadFromDisk(
-                    workspaceId: id,
-                    fileURL: fileURL,
-                    isPreviewMode: isPreviewMode
-                )
-            } catch {
-#if DEBUG
-                dlog("markdown.load.fail scope=surface workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
-#endif
-                return nil
-            }
-        } else {
-            markdownPanel = MarkdownPanel(
-                workspaceId: id,
-                fileURL: nil,
-                text: "",
-                isPreviewMode: isPreviewMode,
-                lastSavedText: ""
-            )
-        }
+        guard let markdownPanel = loadOrCreateMarkdownPanel(
+            fileURL: fileURL,
+            initialText: initialText,
+            lastSavedText: lastSavedText,
+            isPreviewMode: isPreviewMode,
+            scope: "surface"
+        ) else { return nil }
 
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
