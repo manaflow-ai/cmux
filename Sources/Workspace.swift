@@ -2190,6 +2190,7 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
+            panelDirectories.removeValue(forKey: markdownPanel.id)
             return nil
         }
 
