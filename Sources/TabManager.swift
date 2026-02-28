@@ -1855,6 +1855,7 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
+        selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
@@ -1865,6 +1866,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+        tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
@@ -1875,6 +1877,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
+        tab.clearSplitZoom()
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
@@ -2006,15 +2009,66 @@ class TabManager: ObservableObject {
 
     /// Equalize splits - not directly supported by bonsplit
     func equalizeSplits(tabId: UUID) -> Bool {
-        // Bonsplit doesn't have a built-in equalize feature
-        // This would require manually setting all divider positions to 0.5
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        var foundSplit = false
+        var allSucceeded = true
+        equalizeSplits(
+            in: tab.bonsplitController.treeSnapshot(),
+            controller: tab.bonsplitController,
+            foundSplit: &foundSplit,
+            allSucceeded: &allSucceeded
+        )
+        return foundSplit && allSucceeded
     }
 
-    /// Toggle zoom on a panel - bonsplit doesn't have zoom support
+    /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        // Bonsplit doesn't have zoom support
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.toggleSplitZoom(panelId: surfaceId)
+    }
+
+    /// Toggle zoom for the currently focused panel in the selected workspace.
+    @discardableResult
+    func toggleFocusedSplitZoom() -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return tab.toggleSplitZoom(panelId: focusedPanelId)
+    }
+
+    private func equalizeSplits(
+        in node: ExternalTreeNode,
+        controller: BonsplitController,
+        foundSplit: inout Bool,
+        allSucceeded: inout Bool
+    ) {
+        switch node {
+        case .pane:
+            return
+        case .split(let splitNode):
+            foundSplit = true
+            guard let splitId = UUID(uuidString: splitNode.id) else {
+                allSucceeded = false
+                return
+            }
+
+            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+                allSucceeded = false
+            }
+
+            equalizeSplits(
+                in: splitNode.first,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+            equalizeSplits(
+                in: splitNode.second,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+        }
     }
 
     /// Close a surface/panel
@@ -3410,7 +3464,7 @@ extension TabManager {
             unwireClosedBrowserTracking(for: tab)
         }
 
-        tabs.removeAll(keepingCapacity: false)
+        // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         tabHistory.removeAll()
@@ -3423,6 +3477,10 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
+        // Build the new workspace list locally to avoid intermediate @Published
+        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
+        var newTabs: [Workspace] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
@@ -3435,20 +3493,30 @@ extension TabManager {
             )
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
-            tabs.append(workspace)
+            newTabs.append(workspace)
         }
 
-        if tabs.isEmpty {
-            _ = addWorkspace(select: false)
+        if newTabs.isEmpty {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
+            wireClosedBrowserTracking(for: fallback)
+            newTabs.append(fallback)
         }
 
-        selectedTabId = nil
+        // Determine selection before mutating @Published properties.
+        let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           tabs.indices.contains(selectedWorkspaceIndex) {
-            selectedTabId = tabs[selectedWorkspaceIndex].id
+           newTabs.indices.contains(selectedWorkspaceIndex) {
+            newSelectedId = newTabs[selectedWorkspaceIndex].id
         } else {
-            selectedTabId = tabs.first?.id
+            newSelectedId = newTabs.first?.id
         }
+
+        // Single atomic assignment of @Published properties so SwiftUI observers
+        // never see an intermediate state with empty tabs or nil selection.
+        tabs = newTabs
+        selectedTabId = newSelectedId
 
         if let selectedTabId {
             NotificationCenter.default.post(

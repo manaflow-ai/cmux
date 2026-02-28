@@ -16,14 +16,14 @@ if ! grep -Fq "$EXPECTED_IF" "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
-  /^  ui-tests:/ { in_ui_tests=1; next }
-  in_ui_tests && /^  [^[:space:]]/ { in_ui_tests=0 }
-  in_ui_tests && /runs-on: self-hosted/ { saw_self_hosted=1 }
-  in_ui_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
+  /^  tests:/ { in_tests=1; next }
+  in_tests && /^  [^[:space:]]/ { in_tests=0 }
+  in_tests && /runs-on: self-hosted/ { saw_self_hosted=1 }
+  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
   END { exit !(saw_self_hosted && saw_guard) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-tests block must keep both self-hosted and fork guard"
+  echo "FAIL: tests block must keep both self-hosted and fork guard"
   exit 1
 fi
 
-echo "PASS: ui-tests self-hosted fork guard is present"
+echo "PASS: tests self-hosted fork guard is present"

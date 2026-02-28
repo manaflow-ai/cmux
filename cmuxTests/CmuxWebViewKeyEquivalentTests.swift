@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3343,6 +3344,52 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerEqualizeSplitsTests: XCTestCase {
+    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
+            XCTFail("Expected nested split setup to succeed")
+            return
+        }
+
+        let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertGreaterThanOrEqual(initialSplits.count, 2, "Expected at least two split nodes in nested layout")
+
+        for (index, split) in initialSplits.enumerated() {
+            guard let splitId = UUID(uuidString: split.id) else {
+                XCTFail("Expected split ID to be a UUID")
+                return
+            }
+            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+            XCTAssertTrue(
+                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
+                "Expected to seed divider position for split \(splitId)"
+            )
+        }
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(equalizedSplits.count, initialSplits.count)
+        for split in equalizedSplits {
+            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+        }
+    }
+
+    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+        }
+    }
+}
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()
@@ -4604,6 +4651,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     func testITerm2DetectsLegacyBundleName() {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
+    }
+
+    func testTowerDetected() {
+        let env = environment(existingPaths: ["/Applications/Tower.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
@@ -6106,7 +6158,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class ReentrantDragHandleView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
-            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown)
+            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: self.window)
             return shouldCapture ? self : nil
         }
     }
@@ -6117,7 +6169,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Empty titlebar space should drag the window"
         )
     }
@@ -6131,10 +6183,10 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(folderIconHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive titlebar controls should receive the mouse event"
         )
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
@@ -6146,7 +6198,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         hidden.isHidden = true
         container.addSubview(hidden)
 
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleDoesNotCaptureOutsideBounds() {
@@ -6154,7 +6206,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         let dragHandle = NSView(frame: container.bounds)
         container.addSubview(dragHandle)
 
-        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleSkipsCaptureForPassivePointerEvents() {
@@ -6167,6 +6219,67 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
+        let point = NSPoint(x: 180, y: 18)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        container.addSubview(dragHandle)
+
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { foreignWindow.orderOut(nil) }
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: nil
+            ),
+            "Launch activation events without a matching window should not trigger drag-handle hierarchy walk"
+        )
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: foreignWindow
+            ),
+            "Left mouse-down events for a different window should be treated as passive"
+        )
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Left mouse-down events for this window should still capture empty titlebar space"
+        )
     }
 
     func testPassiveHostingTopHitClassification() {
@@ -6183,7 +6296,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Passive host wrappers should not block titlebar drag capture"
         )
     }
@@ -6199,7 +6312,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive controls inside passive host wrappers should still receive hits"
         )
     }
@@ -6244,7 +6357,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         nestedContainer.addSubview(nestedDragHandle)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle),
+            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
 
@@ -6252,11 +6365,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
         probe.autoresizingMask = [.width, .height]
         probe.onHitTest = {
-            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle)
+            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow)
         }
         outerContainer.addSubview(probe)
 
-        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle)
+        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle, eventType: .leftMouseDown, eventWindow: outerWindow)
 
         XCTAssertEqual(
             nestedCaptureResult,
@@ -6275,7 +6388,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(mutatingSibling)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
         )
     }
@@ -6303,7 +6416,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown),
+            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown, eventWindow: window),
             "Reentrant same-window top-hit resolution should not trigger exclusivity crashes"
         )
     }
@@ -6596,6 +6709,75 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private final class ScrollProbeSurfaceView: GhosttyNSView {
+        private(set) var scrollWheelCallCount = 0
+
+        override func scrollWheel(with event: NSEvent) {
+            scrollWheelCallCount += 1
+        }
+    }
+
+    func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = ScrollProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+        XCTAssertFalse(
+            scrollView.acceptsFirstResponder,
+            "Host scroll view should not become first responder and steal terminal shortcuts"
+        )
+
+        _ = window.makeFirstResponder(nil)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+
+        XCTAssertEqual(
+            surfaceView.scrollWheelCallCount,
+            1,
+            "Trackpad wheel events should be forwarded directly to Ghostty surface scrolling"
+        )
+        XCTAssertTrue(
+            window.firstResponder === surfaceView,
+            "Scroll wheel handling should keep keyboard focus on terminal surface"
+        )
+    }
+
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
@@ -6671,6 +6853,49 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.reconcileGeometryNow()
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
+
+        hostedView.reconcileGeometryNow()
+        surface.forceRefresh()
+        XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {

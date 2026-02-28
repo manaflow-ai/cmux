@@ -1111,6 +1111,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -3090,6 +3091,37 @@ final class Workspace: Identifiable, ObservableObject {
         return newTerminalSurface(inPane: focusedPaneId, focus: focus)
     }
 
+    @discardableResult
+    func clearSplitZoom() -> Bool {
+        bonsplitController.clearPaneZoom()
+    }
+
+    @discardableResult
+    func toggleSplitZoom(panelId: UUID) -> Bool {
+        guard let paneId = paneId(forPanelId: panelId) else { return false }
+        guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        focusPanel(panelId)
+        return true
+    }
+
+    // MARK: - Context Menu Shortcuts
+
+    static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
+        var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
+        let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
+            (.rename, .renameTab),
+            (.toggleZoom, .toggleSplitZoom),
+            (.newTerminalToRight, .newSurface),
+        ]
+        for (contextAction, settingsAction) in mappings {
+            let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
+            if let key = stored.keyEquivalent {
+                shortcuts[contextAction] = KeyboardShortcut(key, modifiers: stored.eventModifiers)
+            }
+        }
+        return shortcuts
+    }
+
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
@@ -3278,10 +3310,14 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             hostedView.reconcileGeometryNow()
-            if hasSurface {
+            // Re-check surface after reconcileGeometryNow() which can trigger AppKit
+            // layout and view lifecycle changes that free surfaces (#432).
+            if terminalPanel.surface.surface != nil {
                 terminalPanel.surface.forceRefresh()
-            } else if isAttached && hasUsableBounds {
+            }
+            if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                needsFollowUpPass = true
             }
         }
 
@@ -3336,7 +3372,8 @@ final class Workspace: Identifiable, ObservableObject {
                 panel.hostedView.reconcileGeometryNow()
                 if panel.surface.surface != nil {
                     panel.surface.forceRefresh()
-                } else {
+                }
+                if panel.surface.surface == nil {
                     panel.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
@@ -4195,15 +4232,16 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // Get the focused terminal in the original pane to inherit config from
-        guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,
-              let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
-              terminalPanel(for: sourcePanelId) != nil else { return }
+        // Mirror Cmd+D behavior: split buttons should always seed a terminal in the new pane.
+        // When the focused source is a browser, inherit terminal config from nearby terminals
+        // (or fall back to defaults) instead of leaving an empty selector pane.
+        let sourceTabId = controller.selectedTab(inPane: originalPane)?.id
+        let sourcePanelId = sourceTabId.flatMap { panelIdFromSurfaceId($0) }
 
 #if DEBUG
         dlog(
             "split.didSplit.autoCreate pane=\(newPane.id.uuidString.prefix(5)) " +
-            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.uuidString.prefix(5))"
+            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.map { String($0.uuidString.prefix(5)) } ?? "none")"
         )
 #endif
 
@@ -4305,6 +4343,9 @@ extension Workspace: BonsplitDelegate {
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
+        case .toggleZoom:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            toggleSplitZoom(panelId: panelId)
         @unknown default:
             break
         }

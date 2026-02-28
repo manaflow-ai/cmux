@@ -1385,6 +1385,7 @@ struct ContentView: View {
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
+        static let workspaceHasSplits = "workspace.hasSplits"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -2056,6 +2057,50 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
             updateTitlebarText()
+
+            // Startup recovery (#399): if session restore or a race condition leaves the
+            // view in a broken state (empty tabs, no selection, unmounted workspaces),
+            // detect and recover after a short delay.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak tabManager] in
+                guard let tabManager else { return }
+                var didRecover = false
+
+                // Ensure there is at least one workspace.
+                if tabManager.tabs.isEmpty {
+                    tabManager.addWorkspace()
+                    didRecover = true
+                }
+
+                // Ensure selectedTabId points to an existing workspace.
+                if tabManager.selectedTabId == nil || !tabManager.tabs.contains(where: { $0.id == tabManager.selectedTabId }) {
+                    tabManager.selectedTabId = tabManager.tabs.first?.id
+                    didRecover = true
+                }
+
+                // Ensure mountedWorkspaceIds is populated.
+                if mountedWorkspaceIds.isEmpty || !mountedWorkspaceIds.contains(where: { id in tabManager.tabs.contains { $0.id == id } }) {
+                    reconcileMountedWorkspaceIds()
+                    didRecover = true
+                }
+
+                // Ensure sidebar selection is valid.
+                if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+                    selectedTabIds = [selectedId]
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    didRecover = true
+                }
+
+                if didRecover {
+#if DEBUG
+                    dlog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
+#endif
+                    sentryBreadcrumb("startup.recovery", data: [
+                        "tabCount": tabManager.tabs.count,
+                        "selectedTabId": tabManager.selectedTabId?.uuidString ?? "nil",
+                        "mountedCount": mountedWorkspaceIds.count
+                    ])
+                }
+            }
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -3287,6 +3332,8 @@ struct ContentView: View {
             return .newTab
         case "palette.newWindow":
             return .newWindow
+        case "palette.openFolder":
+            return .openFolder
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -3323,6 +3370,10 @@ struct ContentView: View {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.toggleSplitZoom":
+            return .toggleSplitZoom
+        case "palette.triggerFlash":
+            return .triggerFlash
         default:
             return nil
         }
@@ -3380,6 +3431,10 @@ struct ContentView: View {
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasSplits,
+                workspace.bonsplitController.allPaneIds.count > 1
             )
         }
 
@@ -3463,6 +3518,32 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.installCLI",
+                title: constant("Shell Command: Install 'cmux' in PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["install", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.uninstallCLI",
+                title: constant("Shell Command: Uninstall 'cmux' from PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openFolder",
+                title: constant("Open Folder…"),
+                subtitle: constant("Workspace"),
+                keywords: ["open", "folder", "repository", "project", "directory"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant("New Tab (Terminal)"),
                 subtitle: constant("Tab"),
@@ -3528,6 +3609,14 @@ struct ContentView: View {
                 title: constant("Toggle Sidebar"),
                 subtitle: constant("Layout"),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.triggerFlash",
+                title: constant("Flash Focused Panel"),
+                subtitle: constant("View"),
+                keywords: ["flash", "highlight", "focus", "panel"]
             )
         )
         contributions.append(
@@ -3946,6 +4035,27 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleSplitZoom",
+                title: constant("Toggle Pane Zoom"),
+                subtitle: constant("Terminal Layout"),
+                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.equalizeSplits",
+                title: constant("Equalize Splits"),
+                subtitle: workspaceSubtitle,
+                keywords: ["split", "equalize", "balance", "divider", "layout"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
 
         return contributions
     }
@@ -3954,8 +4064,28 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
         }
+        registry.register(commandId: "palette.openFolder") {
+            // Defer so the command palette dismisses before the modal sheet appears.
+            DispatchQueue.main.async {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.title = "Open Folder"
+                panel.prompt = "Open"
+                if panel.runModal() == .OK, let url = panel.url {
+                    tabManager.addWorkspace(workingDirectory: url.path)
+                }
+            }
+        }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)
+        }
+        registry.register(commandId: "palette.installCLI") {
+            AppDelegate.shared?.installCmuxCLIInPath(nil)
+        }
+        registry.register(commandId: "palette.uninstallCLI") {
+            AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
             tabManager.newSurface()
@@ -3992,6 +4122,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.triggerFlash") {
+            tabManager.triggerFocusFlash()
         }
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
@@ -4187,6 +4320,18 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             _ = tabManager.createBrowserSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.toggleSplitZoom") {
+            if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.equalizeSplits") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  tabManager.equalizeSplits(tabId: workspace.id) else {
+                NSSound.beep()
+                return
+            }
         }
     }
 
@@ -6692,7 +6837,7 @@ private struct TabItemView: View {
                 }
             }
 
-            Menu("Tab Color") {
+            Menu("Workspace Color") {
                 if tab.customColor != nil {
                     Button {
                         applyTabColor(nil, targetIds: targetIds)
@@ -7301,7 +7446,7 @@ private struct TabItemView: View {
 
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
-        alert.messageText = "Custom Tab Color"
+        alert.messageText = "Custom Workspace Color"
         alert.informativeText = "Enter a hex color in the format #RRGGBB."
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
@@ -7457,6 +7602,11 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
+        if isActive,
+           let raw = entry.color,
+           Color(hex: raw) != nil {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+        }
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }

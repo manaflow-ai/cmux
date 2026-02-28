@@ -19,6 +19,7 @@ final class PostHogAnalytics {
     private var activeCheckTimer: Timer?
 
     private var isEnabled: Bool {
+        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
         return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"

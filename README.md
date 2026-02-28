@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Features
@@ -107,6 +107,16 @@ The main additions are the sidebar and notification system. The sidebar has vert
 The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
 
 Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+
+## The Zen of cmux
+
+cmux is not prescriptive about how developers hold their tools. It's a terminal and browser with a CLI, and the rest is up to you.
+
+cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours.
+
+The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first.
+
+Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
 
 ## Keyboard Shortcuts
 
@@ -228,6 +238,15 @@ cmux does **not** restore live process state inside terminal apps. For example, 
  </picture>
 </a>
 
+## Contributing
+
+Ways to get involved:
+
+- Follow us on X for updates [@manaflowai](https://x.com/manaflowai) or [@lawrencecchen](https://x.com/lawrencecchen)
+- Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
+- Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
+- Let me know what you're building with cmux
+
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
@@ -235,6 +254,19 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
+
+## Founder's Edition
+
+cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
+
+**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
+
+- **Prioritized feature requests/bug fixes**
+- **Early access: cmux AI that gives you context on every workspace, tab and panel**
+- **Early access: iOS app with terminals synced between desktop and phone**
+- **Early access: Cloud VMs**
+- **Early access: Voice mode**
+- **My personal iMessage/WhatsApp**
 
 ## License
 

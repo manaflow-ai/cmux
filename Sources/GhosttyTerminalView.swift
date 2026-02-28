@@ -372,14 +372,16 @@ class GhosttyApp {
                 lastReportedUptime: lastScrollLagReportUptime,
                 cooldown: scrollLagReportCooldownSeconds
             ) {
-                SentrySDK.capture(message: "Scroll lag detected") { scope in
-                    scope.setLevel(.warning)
-                    scope.setContext(value: [
-                        "samples": samples,
-                        "avg_ms": String(format: "%.2f", avgLag),
-                        "max_ms": String(format: "%.2f", maxLag),
-                        "threshold_ms": threshold
-                    ], key: "scroll_lag")
+                if TelemetrySettings.enabledForCurrentLaunch {
+                    SentrySDK.capture(message: "Scroll lag detected") { scope in
+                        scope.setLevel(.warning)
+                        scope.setContext(value: [
+                            "samples": samples,
+                            "avg_ms": String(format: "%.2f", avgLag),
+                            "max_ms": String(format: "%.2f", maxLag),
+                            "threshold_ms": threshold
+                        ], key: "scroll_lag")
+                    }
                 }
                 lastScrollLagReportUptime = nowUptime
             }
@@ -2005,16 +2007,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Force a full size recalculation and surface redraw.
     func forceRefresh() {
-	        let hasSurface = surface != nil
-	        let viewState: String
-	        if let view = attachedView {
-	            let inWindow = view.window != nil
-	            let bounds = view.bounds
-	            let metalOK = (view.layer as? CAMetalLayer) != nil
-	            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
-	        } else {
-	            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
-	        }
+        let hasSurface = surface != nil
+        let viewState: String
+        if let view = attachedView {
+            let inWindow = view.window != nil
+            let bounds = view.bounds
+            let metalOK = (view.layer as? CAMetalLayer) != nil
+            viewState = "inWindow=\(inWindow) bounds=\(bounds) metalOK=\(metalOK) hasSurface=\(hasSurface)"
+        } else {
+            viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
+        }
         #if DEBUG
         let ts = ISO8601DateFormatter().string(from: Date())
         let line = "[\(ts)] forceRefresh: \(id) \(viewState)\n"
@@ -2026,21 +2028,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else {
             FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
         }
-	        #endif
-        guard let surface,
-              let view = attachedView,
+        #endif
+        guard let view = attachedView,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
             return
         }
+        guard let currentSurface = self.surface else { return }
+
+        // Re-read self.surface before each ghostty call to guard against the surface
+        // being freed during wake-from-sleep geometry reconciliation (issue #432).
+        // The surface can be invalidated between calls when AppKit layout triggers
+        // view lifecycle changes (e.g., forceRefreshSurface → layout → deinit → free).
 
         // Reassert display id on topology churn (split close/reparent) before forcing a refresh.
         // This avoids a first-run stuck-vsync state where Ghostty believes vsync is active
         // but callbacks have not resumed for the current display.
         if let displayID = (view.window?.screen ?? NSScreen.main)?.displayID,
            displayID != 0 {
-            ghostty_surface_set_display_id(surface, displayID)
+            ghostty_surface_set_display_id(currentSurface, displayID)
         }
 
         view.forceRefreshSurface()
@@ -2169,11 +2176,36 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return ghostty_surface_has_selection(surface)
     }
 
+#if DEBUG
+    /// Test-only helper to deterministically simulate a released runtime surface.
+    @MainActor
+    func releaseSurfaceForTesting() {
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        guard let surfaceToFree = surface else {
+            callbackContext?.release()
+            return
+        }
+
+        surface = nil
+        ghostty_surface_free(surfaceToFree)
+        callbackContext?.release()
+    }
+#endif
+
     deinit {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
-        guard let surface else {
+        // Nil out the surface pointer so any in-flight closures (e.g. geometry
+        // reconcile dispatched via DispatchQueue.main.async) that read self.surface
+        // before this object is fully deallocated will see nil and bail out,
+        // rather than passing a freed pointer to ghostty_surface_refresh (#432).
+        let surfaceToFree = surface
+        surface = nil
+
+        guard let surfaceToFree else {
             callbackContext?.release()
             return
         }
@@ -2182,7 +2214,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // callback userdata until surface free completes so callbacks never dereference
         // a deallocated view pointer.
         Task { @MainActor in
-            ghostty_surface_free(surface)
+            ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
         }
     }
@@ -2231,6 +2263,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
+    static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -3123,20 +3156,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Rendering is driven by Ghostty's wakeups/renderer.
     }
 
+    @discardableResult
+    private func sendGhosttyKey(_ surface: ghostty_surface_t, _ keyEvent: ghostty_input_key_s) -> Bool {
+#if DEBUG
+        Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
+#endif
+        return ghostty_surface_key(surface, keyEvent)
+    }
+
     override func keyUp(with event: NSEvent) {
-        guard let surface = surface else {
+        guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
         }
 
-        var keyEvent = ghostty_input_key_s()
+        // Build release events from the same translation path as keyDown so
+        // consumers that depend on precise key identity (for example Space
+        // hold/release flows) receive consistent metadata.
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
         keyEvent.action = GHOSTTY_ACTION_RELEASE
-        keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.text = nil
         keyEvent.composing = false
-        _ = ghostty_surface_key(surface, keyEvent)
+        _ = sendGhosttyKey(surface, keyEvent)
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -3700,23 +3741,23 @@ extension Notification.Name {
 private final class GhosttyScrollView: NSScrollView {
     weak var surfaceView: GhosttyNSView?
 
+    // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
+    override var acceptsFirstResponder: Bool { false }
+
     override func scrollWheel(with event: NSEvent) {
         guard let surfaceView else {
             super.scrollWheel(with: event)
             return
         }
 
-        if let surface = surfaceView.terminalSurface?.surface,
-           ghostty_surface_mouse_captured(surface) {
-            GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: mouseCaptured -> surface scroll")
-            if window?.firstResponder !== surfaceView {
-                window?.makeFirstResponder(surfaceView)
-            }
-            surfaceView.scrollWheel(with: event)
-        } else {
-            GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: super scroll")
-            super.scrollWheel(with: event)
+        // Route wheel gestures to the terminal surface so Ghostty handles scrollback.
+        // Letting NSScrollView consume these events moves the wrapper viewport itself,
+        // which causes pane-content drift instead of terminal scrollback movement.
+        GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
+        if window?.firstResponder !== surfaceView {
+            window?.makeFirstResponder(surfaceView)
         }
+        surfaceView.scrollWheel(with: event)
     }
 }
 
@@ -4541,11 +4582,16 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #if DEBUG
-    /// Sends a synthetic Ctrl+D key press directly to the surface view.
+    /// Sends a synthetic key press/release pair directly to the surface view.
     /// This exercises the same key path as real keyboard input (ghostty_surface_key),
-    /// unlike `sendText`, which bypasses key translation.
+    /// unlike sendText, which bypasses key translation.
     @discardableResult
-    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
+    func debugSendSyntheticKeyPressAndReleaseForUITest(
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> Bool {
         guard let window else { return false }
         window.makeFirstResponder(surfaceView)
 
@@ -4557,10 +4603,10 @@ final class GhosttySurfaceScrollView: NSView {
             timestamp: timestamp,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "\u{04}",
-            charactersIgnoringModifiers: "d",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
-            keyCode: 2
+            keyCode: keyCode
         ) else { return false }
 
         guard let keyUp = NSEvent.keyEvent(
@@ -4570,15 +4616,28 @@ final class GhosttySurfaceScrollView: NSView {
             timestamp: timestamp + 0.001,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: "\u{04}",
-            charactersIgnoringModifiers: "d",
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
             isARepeat: false,
-            keyCode: 2
+            keyCode: keyCode
         ) else { return false }
 
         surfaceView.keyDown(with: keyDown)
         surfaceView.keyUp(with: keyUp)
         return true
+    }
+
+    /// Sends a synthetic Ctrl+D key press directly to the surface view.
+    /// This exercises the same key path as real keyboard input (ghostty_surface_key),
+    /// unlike `sendText`, which bypasses key translation.
+    @discardableResult
+    func sendSyntheticCtrlDForUITest(modifierFlags: NSEvent.ModifierFlags = [.control]) -> Bool {
+        debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: "\u{04}",
+            charactersIgnoringModifiers: "d",
+            keyCode: 2,
+            modifierFlags: modifierFlags
+        )
     }
     #endif
 
@@ -4977,10 +5036,33 @@ final class GhosttySurfaceScrollView: NSView {
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     private func synchronizeCoreSurface() {
-        let width = scrollView.contentSize.width
+        let width = max(0, scrollView.contentSize.width - overlayScrollbarInsetWidth())
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return }
         surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
+    }
+
+    /// Reserve overlay scrollbar gutter so wrapped text never sits underneath a visible scroller.
+    private func overlayScrollbarInsetWidth() -> CGFloat {
+        guard scrollView.hasVerticalScroller, scrollView.scrollerStyle == .overlay else { return 0 }
+
+        // If AppKit already reserved non-content width in `contentSize`, avoid double-subtraction.
+        let alreadyReserved = max(0, scrollView.bounds.width - scrollView.contentSize.width)
+        if alreadyReserved > 0.5 { return 0 }
+
+        let fallback = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        guard let verticalScroller = scrollView.verticalScroller else { return fallback }
+
+        let measuredWidth = verticalScroller.frame.width
+        if measuredWidth > 0 {
+            return max(measuredWidth, fallback)
+        }
+
+        let controlSizeWidth = NSScroller.scrollerWidth(
+            for: verticalScroller.controlSize,
+            scrollerStyle: .overlay
+        )
+        return max(controlSizeWidth, fallback)
     }
 
     private func updateNotificationRingPath() {

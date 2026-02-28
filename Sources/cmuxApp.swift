@@ -32,6 +32,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -56,6 +57,7 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
@@ -311,7 +313,7 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
-                Button("Open Workspaces for All Tab Colors") {
+                Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
@@ -381,6 +383,27 @@ struct cmuxApp: App {
                         }
                     } else {
                         activeTabManager.addTab()
+                    }
+                }
+
+                splitCommandButton(title: "Open Folder…", shortcut: openFolderMenuShortcut) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.title = "Open Folder"
+                    panel.prompt = "Open"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        if let appDelegate = AppDelegate.shared {
+                            if appDelegate.addWorkspaceInPreferredMainWindow(
+                                workingDirectory: url.path,
+                                debugSource: "menu.openFolder"
+                            ) == nil {
+                                appDelegate.openNewMainWindow(nil)
+                            }
+                        } else {
+                            activeTabManager.addWorkspace(workingDirectory: url.path)
+                        }
                     }
                 }
 
@@ -648,6 +671,10 @@ struct cmuxApp: App {
 
     private var newWindowMenuShortcut: StoredShortcut {
         decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var openFolderMenuShortcut: StoredShortcut {
+        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
     }
 
     private var showNotificationsMenuShortcut: StoredShortcut {
@@ -2620,6 +2647,21 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum TelemetrySettings {
+    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+    static let defaultSendAnonymousTelemetry = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
+            return defaultSendAnonymousTelemetry
+        }
+        return defaults.bool(forKey: sendAnonymousTelemetryKey)
+    }
+
+    // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
+    static let enabledForCurrentLaunch = isEnabled()
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -2628,6 +2670,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
+    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2667,6 +2711,7 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
@@ -2757,7 +2802,7 @@ struct SettingsView: View {
         do {
             try SocketControlPasswordStore.savePassword(trimmed)
             socketPasswordDraft = ""
-            socketPasswordStatusMessage = "Password saved to keychain."
+            socketPasswordStatusMessage = "Password saved."
             socketPasswordStatusIsError = false
         } catch {
             socketPasswordStatusMessage = "Failed to save password (\(error.localizedDescription))."
@@ -2827,6 +2872,19 @@ struct SettingsView: View {
                             subtitle: "Show unread count on app icon (Dock and Cmd+Tab)."
                         ) {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Send anonymous telemetry",
+                            subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
+                                ? "Change takes effect on next launch."
+                                : "Share anonymized crash and usage data to help improve cmux."
+                        ) {
+                            Toggle("", isOn: $sendAnonymousTelemetry)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -2970,7 +3028,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
+                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below.")
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
                             if index > 0 {
@@ -3069,7 +3127,7 @@ struct SettingsView: View {
                             SettingsCardRow(
                                 "Socket Password",
                                 subtitle: hasSocketPasswordConfigured
-                                    ? "Stored in login keychain."
+                                    ? "Stored in Application Support."
                                     : "No password set. External clients will be blocked until one is configured."
                             ) {
                                 HStack(spacing: 8) {
@@ -3476,6 +3534,7 @@ struct SettingsView: View {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue

@@ -88,6 +88,13 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
+    private final class V2BrowserUndefinedSentinel {}
+
+    private static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    private static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    private static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    private static let v2BrowserEvalEnvelopeTypeValue = "value"
+
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
@@ -96,6 +103,7 @@ class TerminalController {
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
+    private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
     private init() {}
 
@@ -459,7 +467,7 @@ class TerminalController {
         guard lowered == "auth" || lowered.hasPrefix("auth ") else {
             return nil
         }
-        guard SocketControlPasswordStore.hasConfiguredPassword() else {
+        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return "ERROR: Password mode is enabled but no socket password is configured in Settings."
         }
 
@@ -472,7 +480,7 @@ class TerminalController {
         guard !provided.isEmpty else {
             return "ERROR: Missing password. Usage: auth <password>"
         }
-        guard SocketControlPasswordStore.verify(password: provided) else {
+        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return "ERROR: Invalid password"
         }
         authenticated = true
@@ -496,7 +504,7 @@ class TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
         }
 
-        guard SocketControlPasswordStore.hasConfiguredPassword() else {
+        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
                 id: id,
                 code: "auth_unconfigured",
@@ -504,7 +512,7 @@ class TerminalController {
             )
         }
 
-        guard SocketControlPasswordStore.verify(password: provided) else {
+        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
             return v2Error(id: id, code: "auth_failed", message: "Invalid password")
         }
         authenticated = true
@@ -1032,6 +1040,8 @@ class TerminalController {
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
+        case "system.tree":
+            return v2Result(id: id, self.v2SystemTree(params: params))
         case "auth.login":
             return v2Ok(
                 id: id,
@@ -1412,6 +1422,7 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
+            "system.tree",
             "auth.login",
             "window.list",
             "window.current",
@@ -1675,6 +1686,203 @@ class TerminalController {
             "socket_path": socketPath,
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
+        ]
+    }
+
+    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let includeAllWindows = v2Bool(params, "all_windows") ?? false
+
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+        let identifyPayload = v2Identify(params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+
+        var windowNodes: [[String: Any]] = []
+        var workspaceFound = (workspaceFilter == nil)
+
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            let summaries = app.listMainWindowSummaries()
+            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+
+                if let workspaceFilter {
+                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
+                        continue
+                    }
+                    let workspace = manager.tabs[workspaceIndex]
+                    let workspaceNode = v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                    windowNodes = [
+                        v2TreeWindowNode(
+                            summary: summary,
+                            index: windowIndex,
+                            workspaceNodes: [workspaceNode]
+                        )
+                    ]
+                    workspaceFound = true
+                    break
+                }
+
+                if !includeAllWindows && summary.windowId != defaultWindowId {
+                    continue
+                }
+
+                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+
+                windowNodes.append(
+                    v2TreeWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodesForWindow
+                    )
+                )
+            }
+        }
+
+        if let workspaceFilter, !workspaceFound {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: [
+                    "workspace_id": workspaceFilter.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+
+        return .ok([
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "windows": windowNodes
+        ])
+    }
+
+    private func v2TreeWindowNode(
+        summary: AppDelegate.MainWindowSummary,
+        index: Int,
+        workspaceNodes: [[String: Any]]
+    ) -> [String: Any] {
+        return [
+            "id": summary.windowId.uuidString,
+            "ref": v2Ref(kind: .window, uuid: summary.windowId),
+            "index": index,
+            "key": summary.isKeyWindow,
+            "visible": summary.isVisible,
+            "workspace_count": workspaceNodes.count,
+            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "workspaces": workspaceNodes
+        ]
+    }
+
+    private func v2TreeWorkspaceNode(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        for paneId in paneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = tabIndex
+                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+            }
+        }
+
+        var surfacesByPane: [UUID: [[String: Any]]] = [:]
+        let focusedSurfaceId = workspace.focusedPanelId
+        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+            let paneUUID = paneByPanelId[panel.id]
+            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
+
+            var item: [String: Any] = [
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": surfaceIndex,
+                "type": panel.panelType.rawValue,
+                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                "focused": panel.id == focusedSurfaceId,
+                "selected": selectedInPane,
+                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
+                "pane_id": v2OrNull(paneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id])
+            ]
+
+            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+                item["url"] = browserPanel.currentURL?.absoluteString ?? ""
+            } else {
+                item["url"] = NSNull()
+            }
+            if let paneUUID {
+                surfacesByPane[paneUUID, default: []].append(item)
+            }
+        }
+
+        for paneUUID in surfacesByPane.keys {
+            surfacesByPane[paneUUID]?.sort {
+                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
+                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
+
+            return [
+                "id": paneId.id.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "index": paneIndex,
+                "focused": paneId == focusedPaneId,
+                "surface_ids": surfaceUUIDs.map { $0.uuidString },
+                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
+                "surface_count": surfaceUUIDs.count,
+                "surfaces": surfacesByPane[paneId.id] ?? []
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "panes": panes
         ]
     }
 
@@ -4598,6 +4806,12 @@ class TerminalController {
 
     private func v2NormalizeJSValue(_ value: Any?) -> Any {
         guard let value else { return NSNull() }
+        if value is V2BrowserUndefinedSentinel {
+            return [
+                Self.v2BrowserEvalEnvelopeTypeKey: Self.v2BrowserEvalEnvelopeTypeUndefined,
+                Self.v2BrowserEvalEnvelopeValueKey: NSNull()
+            ]
+        }
         if value is NSNull { return NSNull() }
         if let v = value as? String { return v }
         if let v = value as? NSNumber { return v }
@@ -4620,18 +4834,35 @@ class TerminalController {
         case failure(String)
     }
 
-    private func v2RunJavaScript(_ webView: WKWebView, script: String, timeout: TimeInterval = 5.0) -> V2JavaScriptResult {
+    private func v2RunJavaScript(
+        _ webView: WKWebView,
+        script: String,
+        timeout: TimeInterval = 5.0,
+        preferAsync: Bool = false
+    ) -> V2JavaScriptResult {
         var done = false
         var resultValue: Any?
         var resultError: String?
 
-        webView.evaluateJavaScript(script) { value, error in
-            if let error {
-                resultError = error.localizedDescription
-            } else {
-                resultValue = value
+        if preferAsync, #available(macOS 11.0, *) {
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value):
+                    resultValue = value
+                case .failure(let error):
+                    resultError = error.localizedDescription
+                }
+                done = true
             }
-            done = true
+        } else {
+            webView.evaluateJavaScript(script) { value, error in
+                if let error {
+                    resultError = error.localizedDescription
+                } else {
+                    resultValue = value
+                }
+                done = true
+            }
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -4693,30 +4924,76 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0
     ) -> V2JavaScriptResult {
-        guard let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) else {
-            return v2RunJavaScript(webView, script: script, timeout: timeout)
+        let scriptLiteral = v2JSONLiteral(script)
+        let framePrelude: String
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
+            let selectorLiteral = v2JSONLiteral(frameSelector)
+            framePrelude = """
+            let __cmuxDoc = document;
+            try {
+              const __cmuxFrame = document.querySelector(\(selectorLiteral));
+              if (__cmuxFrame && __cmuxFrame.contentDocument) {
+                __cmuxDoc = __cmuxFrame.contentDocument;
+              }
+            } catch (_) {}
+            """
+        } else {
+            framePrelude = "const __cmuxDoc = document;"
         }
 
-        let selectorLiteral = v2JSONLiteral(frameSelector)
-        let scriptLiteral = v2JSONLiteral(script)
-        let wrapped = """
-        (() => {
-          let __cmuxDoc = document;
-          try {
-            const __cmuxFrame = document.querySelector(\(selectorLiteral));
-            if (__cmuxFrame && __cmuxFrame.contentDocument) {
-              __cmuxDoc = __cmuxFrame.contentDocument;
-            }
-          } catch (_) {}
+        let asyncFunctionBody = """
+        \(framePrelude)
 
-          const __cmuxEvalInFrame = function() {
-            const document = __cmuxDoc;
-            return eval(\(scriptLiteral));
+        const __cmuxMaybeAwait = async (__r) => {
+          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
+            return await __r;
+          }
+          return __r;
+        };
+
+        const __cmuxEvalInFrame = async function() {
+          const document = __cmuxDoc;
+          const __r = eval(\(scriptLiteral));
+          const __value = await __cmuxMaybeAwait(__r);
+          return {
+            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
+            __cmux_v: __value
           };
-          return __cmuxEvalInFrame();
-        })()
+        };
+
+        return await __cmuxEvalInFrame();
         """
-        return v2RunJavaScript(webView, script: wrapped, timeout: timeout)
+
+        let rawResult: V2JavaScriptResult
+        if #available(macOS 11.0, *) {
+            rawResult = v2RunJavaScript(webView, script: asyncFunctionBody, timeout: timeout, preferAsync: true)
+        } else {
+            let evaluateFallback = """
+            (async () => {
+              \(asyncFunctionBody)
+            })()
+            """
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+        }
+
+        switch rawResult {
+        case .failure(let message):
+            return .failure(message)
+        case .success(let value):
+            guard let dict = value as? [String: Any],
+                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
+                return .success(value)
+            }
+
+            switch type {
+            case Self.v2BrowserEvalEnvelopeTypeUndefined:
+                return .success(v2BrowserUndefinedSentinel)
+            case Self.v2BrowserEvalEnvelopeTypeValue:
+                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
+            default:
+                return .success(value)
+            }
+        }
     }
 
     private func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
@@ -6698,99 +6975,26 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEnsureTelemetryHooks(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let script = """
-        (() => {
-          if (window.__cmuxHooksInstalled) return true;
-          window.__cmuxHooksInstalled = true;
+    private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
+    }
 
-          window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
-          const __pushConsole = (level, args) => {
-            try {
-              const text = Array.from(args || []).map((x) => {
-                if (typeof x === 'string') return x;
-                try { return JSON.stringify(x); } catch (_) { return String(x); }
-              }).join(' ');
-              window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
-              if (window.__cmuxConsoleLog.length > 512) {
-                window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
-              }
-            } catch (_) {}
-          };
-
-          const methods = ['log', 'info', 'warn', 'error', 'debug'];
-          for (const m of methods) {
-            const orig = (window.console && window.console[m]) ? window.console[m].bind(window.console) : null;
-            window.console[m] = function(...args) {
-              __pushConsole(m, args);
-              if (orig) return orig(...args);
-            };
-          }
-
-          window.__cmuxErrorLog = window.__cmuxErrorLog || [];
-          window.addEventListener('error', (ev) => {
-            try {
-              const message = String((ev && ev.message) || '');
-              const source = String((ev && ev.filename) || '');
-              const line = Number((ev && ev.lineno) || 0);
-              const col = Number((ev && ev.colno) || 0);
-              window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-          window.addEventListener('unhandledrejection', (ev) => {
-            try {
-              const reason = ev && ev.reason;
-              const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
-              window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-
-          window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
-          window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-          const __pushDialog = (type, message, defaultText) => {
-            window.__cmuxDialogQueue.push({
-              type,
-              message: String(message || ''),
-              default_text: defaultText == null ? null : String(defaultText),
-              timestamp_ms: Date.now()
-            });
-            if (window.__cmuxDialogQueue.length > 128) {
-              window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
-            }
-          };
-
-          window.alert = function(message) {
-            __pushDialog('alert', message, null);
-          };
-          window.confirm = function(message) {
-            __pushDialog('confirm', message, null);
-            return !!window.__cmuxDialogDefaults.confirm;
-          };
-          window.prompt = function(message, defaultValue) {
-            __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
-            const v = window.__cmuxDialogDefaults.prompt;
-            if (v === null || v === undefined) {
-              return defaultValue == null ? '' : String(defaultValue);
-            }
-            return String(v);
-          };
-
-          return true;
-        })()
-        """
-
-        _ = v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0)
+    private func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
     }
 
     private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
@@ -11835,6 +12039,23 @@ class TerminalController {
         }
         let isDirty = parsed.options["status"]?.lowercased() == "dirty"
 
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.updatePanelGitBranch(panelId: scope.panelId, branch: branch, isDirty: isDirty)
+            }
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -11876,6 +12097,24 @@ class TerminalController {
 
     private func clearGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
+
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.clearPanelGitBranch(panelId: scope.panelId)
+            }
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
