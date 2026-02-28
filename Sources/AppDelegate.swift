@@ -5048,7 +5048,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
+        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // (e.g., split that doesn't properly blur the address bar). If the first responder
+        // is a terminal surface, the address bar can't be focused.
+        if browserAddressBarFocusedPanelId != nil,
+           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+#if DEBUG
+            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+#endif
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+        }
+
+        // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
+        // suggestion navigation, and avoid opening command palette switcher.
+        // Scope the omnibar check to the shortcut's routed window context so a
+        // focused omnibar in another window does not suppress Cmd+P here.
+        let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let isCommandP = !hasFocusedAddressBarInShortcutContext
+            && normalizedFlags == [.command]
+            && (chars == "p" || event.keyCode == 35)
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
@@ -5141,18 +5160,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
-        }
-
-        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
-        // (e.g., split that doesn't properly blur the address bar). If the first responder
-        // is a terminal surface, the address bar can't be focused.
-        if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
-#if DEBUG
-            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
-#endif
-            browserAddressBarFocusedPanelId = nil
-            stopBrowserOmnibarSelectionRepeat()
         }
 
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
@@ -5705,6 +5712,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
         browserAddressBarFocusedPanelId
+    }
+
+    private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
+        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event),
+              let workspace = context.tabManager.selectedWorkspace,
+              workspace.browserPanel(for: panelId) != nil else {
+            return nil
+        }
+        return panelId
     }
 
     @discardableResult
