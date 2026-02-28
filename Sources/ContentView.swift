@@ -1237,6 +1237,10 @@ struct ContentView: View {
     @State private var commandPaletteScrollTargetIndex: Int?
     @State private var commandPaletteScrollTargetAnchor: UnitPoint?
     @State private var commandPaletteRestoreFocusTarget: CommandPaletteRestoreFocusTarget?
+    @State private var cachedCommandPaletteResults: [CommandPaletteSearchResult] = []
+    @State private var cachedCommandPaletteEntries: [CommandPaletteCommand] = []
+    @State private var cachedCommandPaletteScope: CommandPaletteListScope?
+    @State private var commandPaletteDebounceTask: DispatchWorkItem?
     @State private var commandPaletteUsageHistoryByCommandId: [String: CommandPaletteUsageEntry] = [:]
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
@@ -2658,7 +2662,7 @@ struct ContentView: View {
     }
 
     private var commandPaletteCommandListView: some View {
-        let visibleResults = Array(commandPaletteResults)
+        let visibleResults = cachedCommandPaletteResults
         let selectedIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
@@ -2769,8 +2773,6 @@ struct ContentView: View {
                     }
                 }
                 .scrollTargetLayout()
-                // Force a fresh row tree per query so rendered labels/actions stay in lockstep.
-                .id(commandPaletteQuery)
             }
             .frame(height: commandPaletteListHeight)
             .scrollPosition(
@@ -2805,12 +2807,18 @@ struct ContentView: View {
             commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
-            syncCommandPaletteDebugStateForObservedWindow()
+            // Re-cache entries only when scope changes (e.g. typing ">" switches to commands).
+            let currentScope = commandPaletteListScope
+            if currentScope != cachedCommandPaletteScope {
+                cachedCommandPaletteScope = currentScope
+                refreshCachedCommandPaletteEntries()
+            }
+            scheduleCommandPaletteRecompute()
         }
-        .onChange(of: visibleResults.count) { _ in
-            commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
-            updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
-            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResults.count {
+        .onChange(of: cachedCommandPaletteResults.count) { _ in
+            commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: cachedCommandPaletteResults.count)
+            updateCommandPaletteScrollTarget(resultCount: cachedCommandPaletteResults.count, animated: false)
+            if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= cachedCommandPaletteResults.count {
                 commandPaletteHoveredResultIndex = nil
             }
             syncCommandPaletteDebugStateForObservedWindow()
@@ -2956,8 +2964,16 @@ struct ContentView: View {
         }
     }
 
-    private var commandPaletteResults: [CommandPaletteSearchResult] {
-        let entries = commandPaletteEntries
+    /// Recompute the base entry list and cache it. Call when the palette opens
+    /// or when the underlying data changes (workspace added/removed).
+    private func refreshCachedCommandPaletteEntries() {
+        cachedCommandPaletteEntries = commandPaletteEntries
+    }
+
+    /// Run the search pipeline once against the cached entries and store the
+    /// result in `cachedCommandPaletteResults`.
+    private func recomputeCommandPaletteResults() {
+        let entries = cachedCommandPaletteEntries
         let query = commandPaletteQueryForMatching
         let queryIsEmpty = query.isEmpty
 
@@ -2983,12 +2999,24 @@ struct ContentView: View {
                 )
             }
 
-        return results
+        cachedCommandPaletteResults = results
             .sorted { lhs, rhs in
                 if lhs.score != rhs.score { return lhs.score > rhs.score }
                 if lhs.command.rank != rhs.command.rank { return lhs.command.rank < rhs.command.rank }
                 return lhs.command.title.localizedCaseInsensitiveCompare(rhs.command.title) == .orderedAscending
             }
+    }
+
+    /// Schedule a debounced recomputation of command palette results.
+    /// Coalesces rapid keystrokes within a 50ms window.
+    private func scheduleCommandPaletteRecompute() {
+        commandPaletteDebounceTask?.cancel()
+        let workItem = DispatchWorkItem { [self] in
+            recomputeCommandPaletteResults()
+            commandPaletteDebounceTask = nil
+        }
+        commandPaletteDebounceTask = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
     }
 
     private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
@@ -4399,7 +4427,7 @@ struct ContentView: View {
     }
 
     private func moveCommandPaletteSelection(by delta: Int) {
-        let count = commandPaletteResults.count
+        let count = cachedCommandPaletteResults.count
         guard count > 0 else {
             NSSound.beep()
             return
@@ -4463,7 +4491,7 @@ struct ContentView: View {
     }
 
     private func runSelectedCommandPaletteResult(visibleResults: [CommandPaletteSearchResult]? = nil) {
-        let visibleResults = visibleResults ?? Array(commandPaletteResults)
+        let visibleResults = visibleResults ?? cachedCommandPaletteResults
         guard !visibleResults.isEmpty else {
             NSSound.beep()
             return
@@ -4551,7 +4579,7 @@ struct ContentView: View {
     private func syncCommandPaletteDebugStateForObservedWindow() {
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
         AppDelegate.shared?.setCommandPaletteVisible(isCommandPalettePresented, for: window)
-        let visibleResultCount = commandPaletteResults.count
+        let visibleResultCount = cachedCommandPaletteResults.count
         let selectedIndex = isCommandPalettePresented ? commandPaletteSelectedIndex(resultCount: visibleResultCount) : 0
         AppDelegate.shared?.setCommandPaletteSelectionIndex(selectedIndex, for: window)
         AppDelegate.shared?.setCommandPaletteSnapshot(commandPaletteDebugSnapshot(), for: window)
@@ -4570,7 +4598,7 @@ struct ContentView: View {
             mode = "rename_confirm"
         }
 
-        let rows = Array(commandPaletteResults.prefix(20)).map { result in
+        let rows = Array(cachedCommandPaletteResults.prefix(20)).map { result in
             CommandPaletteDebugResultRow(
                 commandId: result.command.id,
                 title: result.command.title,
@@ -4615,6 +4643,10 @@ struct ContentView: View {
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
+        // Cache entries and compute results immediately on open (no debounce).
+        cachedCommandPaletteScope = commandPaletteListScope
+        refreshCachedCommandPaletteEntries()
+        recomputeCommandPaletteResults()
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
     }
@@ -4632,6 +4664,12 @@ struct ContentView: View {
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
+        // Cancel pending debounce and release cached data.
+        commandPaletteDebounceTask?.cancel()
+        commandPaletteDebounceTask = nil
+        cachedCommandPaletteScope = nil
+        cachedCommandPaletteEntries = []
+        cachedCommandPaletteResults = []
         if let window = observedWindow {
             _ = window.makeFirstResponder(nil)
         }
