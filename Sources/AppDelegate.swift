@@ -4310,13 +4310,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Keep the test hermetic: ensure the app does not accidentally pass using a persisted
             // KeyboardShortcutSettings override instead of the Ghostty config-trigger path.
             UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusLeftKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusRightKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusUpKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusDownKey)
         } else {
             // For this UI test we want a letter-based shortcut (Cmd+Ctrl+H) to drive pane navigation,
             // since arrow keys can't be recorded by the shortcut recorder.
-            let shortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
-            if let data = try? JSONEncoder().encode(shortcut) {
-                UserDefaults.standard.set(data, forKey: KeyboardShortcutSettings.focusLeftKey)
-            }
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "h", command: true, shift: false, option: false, control: true),
+                for: .focusLeft
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "l", command: true, shift: false, option: false, control: true),
+                for: .focusRight
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "k", command: true, shift: false, option: false, control: true),
+                for: .focusUp
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "j", command: true, shift: false, option: false, control: true),
+                for: .focusDown
+            )
         }
 
         installGotoSplitUITestFocusObserversIfNeeded()

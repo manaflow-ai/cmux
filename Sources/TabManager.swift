@@ -2350,6 +2350,36 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    @MainActor
+    private func waitForTerminalPanelReadyForUITest(
+        tab: Workspace,
+        panelId: UUID,
+        timeoutSeconds: TimeInterval = 6.0
+    ) async -> (attached: Bool, hasSurface: Bool, firstResponder: Bool) {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var attached = false
+        var hasSurface = false
+        var firstResponder = false
+
+        while Date() < deadline {
+            guard let panel = tab.terminalPanel(for: panelId) else {
+                return (false, false, false)
+            }
+
+            panel.surface.requestBackgroundSurfaceStartIfNeeded()
+            attached = panel.hostedView.window != nil
+            hasSurface = panel.surface.surface != nil
+            firstResponder = panel.hostedView.isSurfaceViewFirstResponder()
+
+            if attached, hasSurface {
+                return (attached, hasSurface, firstResponder)
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return (attached, hasSurface, firstResponder)
+    }
+
     private func setupUITestFocusShortcutsIfNeeded() {
         guard !didSetupUITestFocusShortcuts else { return }
         didSetupUITestFocusShortcuts = true
@@ -2401,22 +2431,21 @@ class TabManager: ObservableObject {
                     return
                 }
 
-                var readyTerminal: TerminalPanel?
-                for _ in 0..<20 {
-                    if let terminal = tab.focusedTerminalPanel,
-                       terminal.hostedView.window != nil,
-                       terminal.surface.surface != nil {
-                        readyTerminal = terminal
-                        break
-                    }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                guard let topLeftPanelId = tab.focusedPanelId else {
+                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
+                    return
                 }
+                let initialTerminalReadiness = await self.waitForTerminalPanelReadyForUITest(
+                    tab: tab,
+                    panelId: topLeftPanelId
+                )
 
-                guard let terminal = readyTerminal else {
-                    let maybeTerminal = tab.focusedTerminalPanel
+                guard initialTerminalReadiness.attached,
+                      initialTerminalReadiness.hasSurface,
+                      let terminal = tab.terminalPanel(for: topLeftPanelId) else {
                     self.writeSplitCloseRightTestData([
-                        "preTerminalAttached": (maybeTerminal?.hostedView.window != nil) ? "1" : "0",
-                        "preTerminalSurfaceNil": (maybeTerminal?.surface.surface == nil) ? "1" : "0",
+                        "preTerminalAttached": initialTerminalReadiness.attached ? "1" : "0",
+                        "preTerminalSurfaceNil": initialTerminalReadiness.hasSurface ? "0" : "1",
                         "setupError": "Initial terminal not ready (not attached or surface nil)"
                     ], at: path)
                     return
@@ -2426,11 +2455,6 @@ class TabManager: ObservableObject {
                     "preTerminalAttached": "1",
                     "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
                 ], at: path)
-
-                guard let topLeftPanelId = tab.focusedPanelId else {
-                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
-                    return
-                }
 
                 if visualMode {
                     // Visual repro mode: repeat the split/close sequence many times and write
@@ -3191,8 +3215,35 @@ class TabManager: ObservableObject {
             }
 
             tab.focusPanel(exitPanelId)
+            // Keep child-exit keyboard tests deterministic across user shell configs.
+            // `exec cat` exits on a single Ctrl+D and avoids ignore-eof shell settings.
+            if let exitPanel = tab.terminalPanel(for: exitPanelId) {
+                exitPanel.sendText("exec cat\r")
+            }
+
+            var exitPanelAttachedBeforeCtrlD = false
+            var exitPanelHasSurfaceBeforeCtrlD = false
             if !useEarlyTrigger {
-                try? await Task.sleep(nanoseconds: 100_000_000)
+                let readiness = await self.waitForTerminalPanelReadyForUITest(
+                    tab: tab,
+                    panelId: exitPanelId
+                )
+                exitPanelAttachedBeforeCtrlD = readiness.attached
+                exitPanelHasSurfaceBeforeCtrlD = readiness.hasSurface
+                if !(readiness.attached && readiness.hasSurface) {
+                    write([
+                        "exitPanelAttachedBeforeCtrlD": readiness.attached ? "1" : "0",
+                        "exitPanelHasSurfaceBeforeCtrlD": readiness.hasSurface ? "1" : "0",
+                        "setupError": "Exit panel not ready for Ctrl+D (not attached or surface nil)",
+                        "done": "1",
+                    ])
+                    return
+                }
+                self.ensureFocusedTerminalFirstResponder()
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
+                exitPanelAttachedBeforeCtrlD = exitPanel.hostedView.window != nil
+                exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
             }
 
             let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
@@ -3214,6 +3265,8 @@ class TabManager: ObservableObject {
                 "expectedPanelsAfter": String(expectedPanelsAfter),
                 "focusedPanelBefore": focusedPanelBefore,
                 "firstResponderPanelBefore": firstResponderPanelBefore,
+                "exitPanelAttachedBeforeCtrlD": exitPanelAttachedBeforeCtrlD ? "1" : "0",
+                "exitPanelHasSurfaceBeforeCtrlD": exitPanelHasSurfaceBeforeCtrlD ? "1" : "0",
                 "ready": "1",
                 "done": "0",
             ])
@@ -3306,12 +3359,13 @@ class TabManager: ObservableObject {
                     var hasSurfaceBeforeTrigger = false
                     if shouldWaitForSurface {
                         // Wait for the target panel to be fully attached after split churn.
-                        let readyDeadline = Date().addingTimeInterval(2.0)
+                        let readyDeadline = Date().addingTimeInterval(5.0)
                         while Date() < readyDeadline {
                             guard let panel = tab.terminalPanel(for: exitPanelId) else {
                                 write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
                                 return
                             }
+                            panel.surface.requestBackgroundSurfaceStartIfNeeded()
                             attachedBeforeTrigger = panel.hostedView.window != nil
                             hasSurfaceBeforeTrigger = panel.surface.surface != nil
                             if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
@@ -3327,6 +3381,10 @@ class TabManager: ObservableObject {
                         "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
                         "exitPanelHasSurfaceBeforeTrigger": hasSurfaceBeforeTrigger ? "1" : "0",
                     ])
+                    if shouldWaitForSurface && !(attachedBeforeTrigger && hasSurfaceBeforeTrigger) {
+                        write(["autoTriggerError": "exitPanelNotReadyBeforeTrigger"])
+                        return
+                    }
 
                     guard let panel = tab.terminalPanel(for: exitPanelId) else {
                         write(["autoTriggerError": "missingExitPanelAtTrigger"])

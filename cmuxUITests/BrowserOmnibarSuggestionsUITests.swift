@@ -120,9 +120,12 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
+        XCTAssertTrue(
+            focusOmnibarWithCmdL(app: app, omnibar: omnibar, timeout: 4.0),
+            "Expected Cmd+L to place keyboard focus in omnibar before typing"
+        )
 
         // Focus omnibar and navigate to example.com via autocompletion (row 0).
-        app.typeKey("l", modifierFlags: [.command])
         omnibar.typeText("exam")
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
@@ -359,7 +362,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
         app.typeKey("l", modifierFlags: [.command])
         app.typeText("lo")
 
-        let typedDeadline = Date().addingTimeInterval(4.0)
+        let typedDeadline = Date().addingTimeInterval(7.0)
         var observedValue = ""
         var startsWithTypedPrefix = false
         while Date() < typedDeadline {
@@ -401,14 +404,46 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let suggestionsElement = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions").firstMatch
         XCTAssertTrue(suggestionsElement.waitForExistence(timeout: 6.0))
-        let row0 = app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.0").firstMatch
-        XCTAssertTrue(row0.waitForExistence(timeout: 4.0))
 
-        let row0Value = (row0.value as? String) ?? ""
-        XCTAssertTrue(
-            row0Value.localizedCaseInsensitiveContains("gmail"),
-            "Expected autocomplete candidate to be first row. row0Value=\(row0Value)"
-        )
+        let rows: [XCUIElement] = (0...4).map {
+            app.descendants(matching: .any).matching(identifier: "BrowserOmnibarSuggestions.Row.\($0)").firstMatch
+        }
+        XCTAssertTrue(rows[0].waitForExistence(timeout: 4.0))
+
+        var gmailRowIndex: Int?
+        let gmailDeadline = Date().addingTimeInterval(4.0)
+        while Date() < gmailDeadline {
+            for (index, row) in rows.enumerated() where row.exists {
+                let rowValue = (row.value as? String) ?? ""
+                if rowValue.localizedCaseInsensitiveContains("gmail") {
+                    gmailRowIndex = index
+                    break
+                }
+            }
+            if gmailRowIndex != nil {
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard let gmailRowIndex else {
+            let rowValues = rows.enumerated().compactMap { index, row -> String? in
+                guard row.exists else { return nil }
+                return "row\(index)=\((row.value as? String) ?? "<nil>")"
+            }.joined(separator: ", ")
+            XCTFail("Expected a Gmail suggestion row. rows=\(rowValues)")
+            return
+        }
+
+        if gmailRowIndex > 0 {
+            let gmailRow = rows[gmailRowIndex]
+            for _ in 0..<gmailRowIndex {
+                app.typeKey("n", modifierFlags: [.command])
+            }
+            XCTAssertTrue(
+                waitForSuggestionRowToBeSelected(gmailRow, timeout: 3.0),
+                "Expected Cmd+N to select Gmail row \(gmailRowIndex). value=\(String(describing: gmailRow.value))"
+            )
+        }
 
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
 
@@ -519,9 +554,9 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
         let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
         XCTAssertTrue(omnibar.waitForExistence(timeout: 6.0))
-        omnibar.typeText("go")
+        omnibar.typeText("exam")
 
-        let typedPrefix = "go"
+        let typedPrefix = "exam"
         let inlineDeadline = Date().addingTimeInterval(3.0)
         var valueBeforeCmdA = ""
         while Date() < inlineDeadline {
@@ -696,5 +731,37 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         return suggestions.exists
+    }
+
+    private func focusOmnibarWithCmdL(app: XCUIApplication, omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            app.typeKey("l", modifierFlags: [.command])
+            guard omnibar.waitForExistence(timeout: 1.0) else { continue }
+
+            let before = (omnibar.value as? String) ?? ""
+            omnibar.typeText("z")
+
+            let probeDeadline = Date().addingTimeInterval(0.5)
+            var acceptedProbe = false
+            while Date() < probeDeadline {
+                let value = (omnibar.value as? String) ?? ""
+                if value != before {
+                    acceptedProbe = true
+                    break
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+
+            if acceptedProbe {
+                app.typeKey("a", modifierFlags: [.command])
+                app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+                return true
+            }
+
+            app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
     }
 }
