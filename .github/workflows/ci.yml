@@ -115,11 +115,11 @@ jobs:
       - name: Run UI tests
         run: |
           set -euo pipefail
-          # UI tests may fail to activate the app on headless runners.
-          # Treat exit code 65 with 0 unexpected failures as pass.
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
           set +e
-          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test 2>&1)
+          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-ci -configuration Debug \
+            -destination "platform=macOS" -only-testing:cmuxUITests test 2>&1)
           EXIT_CODE=$?
           set -e
           echo "$OUTPUT"
