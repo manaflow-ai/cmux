@@ -2263,11 +2263,12 @@ final class Workspace: Identifiable, ObservableObject {
 
         let processInfos = ttyProcessInfos(forTTY: ttyName)
         let appPid = Int32(ProcessInfo.processInfo.processIdentifier)
+        let appPgid = getpgrp()
         let trackedPids = Set(processInfos.map(\.pid).filter { $0 > 1 && $0 != appPid })
         var targetProcessGroups = Set(
             processInfos
                 .map(\.processGroupId)
-                .filter { $0 > 1 && $0 != appPid }
+                .filter { $0 > 1 && $0 != appPgid }
         )
         guard !trackedPids.isEmpty, !targetProcessGroups.isEmpty else {
 #if DEBUG
@@ -2287,7 +2288,7 @@ final class Workspace: Identifiable, ObservableObject {
                 refreshedInfos
                     .filter { remainingPids.contains($0.pid) }
                     .map(\.processGroupId)
-                    .filter { $0 > 1 }
+                    .filter { $0 > 1 && $0 != appPgid }
             )
             if !targetProcessGroups.isEmpty {
                 signalProcessGroups(targetProcessGroups, signal: SIGKILL)
