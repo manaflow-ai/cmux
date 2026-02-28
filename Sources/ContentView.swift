@@ -5133,17 +5133,64 @@ enum CommandPaletteSwitcherSearchIndexer {
 
         let standardized = (trimmed as NSString).standardizingPath
         let canonical = standardized.isEmpty ? trimmed : standardized
-        let abbreviated = (canonical as NSString).abbreviatingWithTildeInPath
+        let abbreviated = homeRelativePathForSearch(canonicalPath: canonical)
+            ?? (canonical as NSString).abbreviatingWithTildeInPath
+        let basename = URL(fileURLWithPath: canonical, isDirectory: true).lastPathComponent
+        let includeAllSegments = (detail == .surface)
+        let segmentTokens = directorySegmentTokensForSearch(
+            path: abbreviated,
+            includeAllSegments: includeAllSegments
+        )
+
         switch detail {
         case .workspace:
-            return uniqueNormalizedPreservingOrder([trimmed, canonical, abbreviated])
-        case .surface:
-            let basename = URL(fileURLWithPath: canonical, isDirectory: true).lastPathComponent
-            let components = canonical.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
+            // Keep workspace-level path matching coarse so short queries don't
+            // match every home directory entry via `/Users/<name>/...`.
             return uniqueNormalizedPreservingOrder(
-                [trimmed, canonical, abbreviated, basename] + components
+                [basename, abbreviated] + Array(segmentTokens.prefix(3))
+            )
+        case .surface:
+            return uniqueNormalizedPreservingOrder(
+                [basename, abbreviated] + segmentTokens
             )
         }
+    }
+
+    private static func homeRelativePathForSearch(canonicalPath: String) -> String? {
+        let standardizedHome = (NSHomeDirectory() as NSString).standardizingPath
+        guard !standardizedHome.isEmpty else { return nil }
+        if canonicalPath == standardizedHome { return "~" }
+
+        let homePrefix = standardizedHome.hasSuffix("/")
+            ? standardizedHome
+            : "\(standardizedHome)/"
+        guard canonicalPath.hasPrefix(homePrefix) else { return nil }
+
+        let relative = String(canonicalPath.dropFirst(homePrefix.count))
+        guard !relative.isEmpty else { return "~" }
+        return "~/\(relative)"
+    }
+
+    private static func directorySegmentTokensForSearch(
+        path: String,
+        includeAllSegments: Bool
+    ) -> [String] {
+        let rawSegments = (path as NSString).pathComponents.filter { component in
+            !component.isEmpty && component != "/" && component != "~"
+        }
+        let maxSegments = includeAllSegments ? 4 : 2
+        let relevantSegments = Array(rawSegments.suffix(maxSegments))
+
+        var tokens: [String] = []
+        for segment in relevantSegments {
+            tokens.append(segment)
+            tokens.append(
+                contentsOf: segment
+                    .components(separatedBy: metadataDelimiters)
+                    .filter { !$0.isEmpty }
+            )
+        }
+        return uniqueNormalizedPreservingOrder(tokens)
     }
 
     private static func branchTokensForSearch(
