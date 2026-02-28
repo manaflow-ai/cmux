@@ -633,9 +633,6 @@ final class FileDropOverlayView: NSView {
               let themeFrame = contentView.superview else { return "-" }
 
         let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
-        isHidden = true
-        defer { isHidden = false }
-
         guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
         var chain: [String] = []
         var current: NSView? = hit

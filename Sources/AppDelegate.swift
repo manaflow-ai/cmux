@@ -1012,6 +1012,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
+    private static let darkDockIconAssetName = "DockIconDark"
     private static let serviceErrorNoPath = NSString(string: "Could not load any folder path from the clipboard.")
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
@@ -4785,6 +4786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            self?.applyApplicationIconTheme()
         }
     }
 
@@ -6249,8 +6251,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        if let icon = NSImage(named: NSImage.applicationIconName) {
-            NSApplication.shared.applicationIconImage = icon
+        applyApplicationIconTheme()
+    }
+
+    func refreshApplicationIconTheme() {
+        applyApplicationIconTheme()
+    }
+
+    private func applyApplicationIconTheme(defaults: UserDefaults = .standard) {
+        let mode = AppIconThemeSettings.mode(defaults: defaults)
+        let useDarkIcon = mode == .dark
+
+        if useDarkIcon,
+           let darkIcon = NSImage(named: Self.darkDockIconAssetName) {
+            NSApplication.shared.applicationIconImage = darkIcon
+            return
+        }
+
+        if let defaultIcon = NSImage(named: NSImage.applicationIconName) {
+            NSApplication.shared.applicationIconImage = defaultIcon
         }
     }
 

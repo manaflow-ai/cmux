@@ -619,6 +619,7 @@ struct cmuxApp: App {
             appearanceMode = mode.rawValue
         }
         Self.applyAppearance(mode)
+        AppDelegate.shared?.refreshApplicationIconTheme()
     }
 
     private static func applyAppearance(_ mode: AppearanceMode) {
@@ -2601,6 +2602,52 @@ enum AppearanceSettings {
     }
 }
 
+enum AppIconThemeMode: String, CaseIterable, Identifiable {
+    case `default` = "default"
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .default:
+            return "Default"
+        case .dark:
+            return "Dark"
+        }
+    }
+}
+
+enum AppIconThemeSettings {
+    static let modeKey = "appIconThemeMode"
+    static let defaultMode: AppIconThemeMode = .default
+
+    static func mode(for rawValue: String?) -> AppIconThemeMode {
+        switch rawValue {
+        case AppIconThemeMode.dark.rawValue:
+            return .dark
+        case AppIconThemeMode.default.rawValue:
+            return .default
+        // Migrate previous values from earlier implementation.
+        case AppearanceMode.dark.rawValue:
+            return .dark
+        case AppearanceMode.light.rawValue, AppearanceMode.system.rawValue, AppearanceMode.auto.rawValue:
+            return .default
+        default:
+            return defaultMode
+        }
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> AppIconThemeMode {
+        let stored = defaults.string(forKey: modeKey)
+        let resolved = mode(for: stored)
+        if stored != resolved.rawValue {
+            defaults.set(resolved.rawValue, forKey: modeKey)
+        }
+        return resolved
+    }
+}
+
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
     static let defaultWarnBeforeQuit = true
@@ -2661,6 +2708,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @AppStorage(AppIconThemeSettings.modeKey) private var appIconThemeMode = AppIconThemeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -2726,6 +2774,28 @@ struct SettingsView: View {
 
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var selectedAppIconThemeMode: AppIconThemeMode {
+        AppIconThemeSettings.mode(for: appIconThemeMode)
+    }
+
+    private var appIconThemeModeSelection: Binding<String> {
+        Binding(
+            get: { selectedAppIconThemeMode.rawValue },
+            set: { appIconThemeMode = AppIconThemeSettings.mode(for: $0).rawValue }
+        )
+    }
+
+    private var appIconPreviewDefaultImage: NSImage {
+        NSImage(named: "DockIconDefaultPreview")
+            ?? NSImage(named: NSImage.applicationIconName)
+            ?? NSImage()
+    }
+
+    private var appIconPreviewDarkImage: NSImage {
+        NSImage(named: "DockIconDark")
+            ?? appIconPreviewDefaultImage
     }
 
     private var selectedBrowserThemeMode: BrowserThemeMode {
@@ -2835,6 +2905,31 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            "macOS Icon",
+                            subtitle: "Choose which icon appears in Dock and Cmd+Tab."
+                        ) {
+                            HStack(spacing: 10) {
+                                AppIconOptionButton(
+                                    label: AppIconThemeMode.default.displayName,
+                                    image: appIconPreviewDefaultImage,
+                                    isSelected: selectedAppIconThemeMode == .default
+                                ) {
+                                    appIconThemeModeSelection.wrappedValue = AppIconThemeMode.default.rawValue
+                                }
+
+                                AppIconOptionButton(
+                                    label: AppIconThemeMode.dark.displayName,
+                                    image: appIconPreviewDarkImage,
+                                    isSelected: selectedAppIconThemeMode == .dark
+                                ) {
+                                    appIconThemeModeSelection.wrappedValue = AppIconThemeMode.dark.rawValue
+                                }
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             "New Workspace Placement",
                             subtitle: selectedWorkspacePlacement.description,
                             controlWidth: pickerColumnWidth
@@ -2915,7 +3010,8 @@ struct SettingsView: View {
                             "Sidebar Branch Layout",
                             subtitle: sidebarBranchVerticalLayout
                                 ? "Vertical: each branch appears on its own line."
-                                : "Inline: all branches share one line."
+                                : "Inline: all branches share one line.",
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $sidebarBranchVerticalLayout) {
                                 Text("Vertical").tag(true)
@@ -3492,6 +3588,9 @@ struct SettingsView: View {
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
         }
+        .onChange(of: appIconThemeMode) { _, _ in
+            AppDelegate.shared?.refreshApplicationIconTheme()
+        }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             reloadWorkspaceTabColorSettings()
         }
@@ -3526,6 +3625,7 @@ struct SettingsView: View {
 
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
+        appIconThemeMode = AppIconThemeSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
@@ -3720,6 +3820,44 @@ private struct SettingsCardDivider: View {
         Rectangle()
             .fill(Color(nsColor: NSColor.separatorColor).opacity(0.5))
             .frame(height: 1)
+    }
+}
+
+private struct AppIconOptionButton: View {
+    let label: String
+    let image: NSImage
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 32, height: 32)
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                Text(label)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+            }
+            .frame(width: 82)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(isSelected ? 0.78 : 0.45))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(
+                        Color(nsColor: isSelected ? .controlAccentColor : .separatorColor).opacity(isSelected ? 0.9 : 0.55),
+                        lineWidth: isSelected ? 1.4 : 1
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .accessibilityLabel("macOS Icon \(label)")
     }
 }
 
