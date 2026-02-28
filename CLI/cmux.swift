@@ -696,6 +696,10 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
+            print("Usage: cmux <command>")
+            print("")
+            print("No detailed help available for this command.")
+            return
         }
 
         let client = SocketClient(path: socketPath)
@@ -3394,10 +3398,48 @@ struct CMUXCLI {
         throw CLIError(message: "Unable to resolve surface ID")
     }
 
-    /// Return the help/usage text for a subcommand, or nil if the command has no
-    /// dedicated help (e.g. simple no-arg commands like `ping`).
+    /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "ping":
+            return """
+            Usage: cmux ping
+
+            Check connectivity to the cmux socket server.
+            """
+        case "capabilities":
+            return """
+            Usage: cmux capabilities
+
+            Print server capabilities as JSON.
+            """
+        case "identify":
+            return """
+            Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
+
+            Print server identity and caller context details.
+            """
+        case "list-windows":
+            return """
+            Usage: cmux list-windows
+
+            List open windows.
+            """
+        case "current-window":
+            return """
+            Usage: cmux current-window
+
+            Print the currently selected window ID.
+            """
+        case "new-window":
+            return """
+            Usage: cmux new-window
+
+            Create a new window.
+
+            Example:
+              cmux new-window
+            """
         case "focus-window":
             return """
             Usage: cmux focus-window --window <id|ref|index>
@@ -3584,6 +3626,33 @@ struct CMUXCLI {
               cmux new-split right
               cmux new-split down --workspace workspace:1
             """
+        case "list-panes":
+            return """
+            Usage: cmux list-panes [--workspace <id|ref>]
+
+            List panes in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panes
+              cmux list-panes --workspace workspace:2
+            """
+        case "list-pane-surfaces":
+            return """
+            Usage: cmux list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
+
+            List surfaces in a pane.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>        Restrict to a specific pane (default: focused pane)
+
+            Example:
+              cmux list-pane-surfaces
+              cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
+            """
         case "tree":
             return """
             Usage: cmux tree [flags]
@@ -3685,6 +3754,67 @@ struct CMUXCLI {
               cmux drag-surface-to-split --surface surface:1 right
               cmux drag-surface-to-split --panel surface:2 down
             """
+        case "refresh-surfaces":
+            return """
+            Usage: cmux refresh-surfaces
+
+            Refresh surface snapshots for the focused workspace.
+            """
+        case "surface-health":
+            return """
+            Usage: cmux surface-health [--workspace <id|ref>]
+
+            List health details for surfaces in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux surface-health
+              cmux surface-health --workspace workspace:2
+            """
+        case "trigger-flash":
+            return """
+            Usage: cmux trigger-flash [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+
+            Trigger the unread flash indicator for a surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --panel <id|ref>       Alias for --surface
+
+            Example:
+              cmux trigger-flash
+              cmux trigger-flash --workspace workspace:2 --surface surface:3
+            """
+        case "list-panels":
+            return """
+            Usage: cmux list-panels [--workspace <id|ref>]
+
+            List surfaces (panels) in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panels
+              cmux list-panels --workspace workspace:2
+            """
+        case "focus-panel":
+            return """
+            Usage: cmux focus-panel --panel <id|ref> [--workspace <id|ref>]
+
+            Focus a specific panel (surface).
+
+            Flags:
+              --panel <id|ref>       Panel/surface to focus (required)
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux focus-panel --panel surface:2
+              cmux focus-panel --panel surface:5 --workspace workspace:2
+            """
         case "close-workspace":
             return """
             Usage: cmux close-workspace --workspace <id|ref>
@@ -3723,6 +3853,12 @@ struct CMUXCLI {
             Example:
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
+            """
+        case "current-workspace":
+            return """
+            Usage: cmux current-workspace
+
+            Print the currently selected workspace ID.
             """
         case "capture-pane":
             return """
@@ -3845,6 +3981,18 @@ struct CMUXCLI {
             Example:
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+            """
+        case "list-notifications":
+            return """
+            Usage: cmux list-notifications
+
+            List queued notifications.
+            """
+        case "clear-notifications":
+            return """
+            Usage: cmux clear-notifications
+
+            Clear all queued notifications.
             """
         case "set-status":
             return """
@@ -3969,6 +4117,16 @@ struct CMUXCLI {
             Example:
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
+            """
+        case "set-app-focus":
+            return """
+            Usage: cmux set-app-focus <active|inactive|clear>
+
+            Override app focus state for notification routing tests.
+
+            Example:
+              cmux set-app-focus inactive
+              cmux set-app-focus clear
             """
         case "claude-hook":
             return """
