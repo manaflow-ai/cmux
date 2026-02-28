@@ -104,6 +104,17 @@ struct GhosttyConfig {
             }
         }
 
+        // cmux theme override takes precedence over ghostty config
+        if let override = TerminalThemeSettings.effectiveThemeName() {
+            let available = Self.availableThemeNames(
+                environment: ProcessInfo.processInfo.environment,
+                bundleResourceURL: Bundle.main.resourceURL
+            )
+            if available.contains(override) {
+                config.theme = override
+            }
+        }
+
         // Load theme if specified
         if let themeName = config.theme {
             config.loadTheme(
@@ -407,6 +418,54 @@ struct GhosttyConfig {
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths
+    }
+
+    /// Returns sorted list of available Ghostty theme names by scanning theme directories.
+    static func availableThemeNames(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleResourceURL: URL? = Bundle.main.resourceURL
+    ) -> [String] {
+        var themeDirs: [String] = []
+
+        func appendDir(_ path: String?) {
+            guard let path else { return }
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty, !themeDirs.contains(expanded) else { return }
+            themeDirs.append(expanded)
+        }
+
+        if let resourcesDir = environment["GHOSTTY_RESOURCES_DIR"] {
+            appendDir(URL(fileURLWithPath: resourcesDir).appendingPathComponent("themes").path)
+        }
+        appendDir(bundleResourceURL?.appendingPathComponent("ghostty/themes").path)
+        if let xdgDataDirs = environment["XDG_DATA_DIRS"] {
+            for dataDir in xdgDataDirs.split(separator: ":").map(String.init) {
+                guard !dataDir.isEmpty else { continue }
+                appendDir(URL(fileURLWithPath: dataDir).appendingPathComponent("ghostty/themes").path)
+            }
+        }
+        appendDir("/Applications/Ghostty.app/Contents/Resources/ghostty/themes")
+        appendDir("~/.config/ghostty/themes")
+        appendDir("~/Library/Application Support/com.mitchellh.ghostty/themes")
+
+        let fm = FileManager.default
+        var seen = Set<String>()
+        var names: [String] = []
+
+        for dir in themeDirs {
+            guard let entries = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for entry in entries {
+                guard !entry.hasPrefix("."), !seen.contains(entry) else { continue }
+                let fullPath = (dir as NSString).appendingPathComponent(entry)
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: fullPath, isDirectory: &isDirectory), !isDirectory.boolValue else { continue }
+                seen.insert(entry)
+                names.append(entry)
+            }
+        }
+
+        names.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        return names
     }
 
     private static func readConfigFile(at path: String) -> String? {

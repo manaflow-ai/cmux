@@ -2655,6 +2655,22 @@ enum AppIconSettings {
     }
 }
 
+enum TerminalThemeSettings {
+    static let themeKey = "terminalTheme"
+
+    /// Returns the user-selected theme name, or nil if no override (use ghostty config).
+    /// Validates the stored value contains only safe characters (alphanumeric, hyphens,
+    /// underscores, spaces, dots, parens) to prevent path traversal or config injection.
+    static func effectiveThemeName(defaults: UserDefaults = .standard) -> String? {
+        guard let raw = defaults.string(forKey: themeKey) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_. ()"))
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return nil }
+        return trimmed
+    }
+}
+
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
     static let defaultWarnBeforeQuit = true
@@ -2761,6 +2777,8 @@ struct SettingsView: View {
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
+    @AppStorage(TerminalThemeSettings.themeKey) private var terminalTheme = ""
+    @State private var availableThemes: [String] = []
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
@@ -3067,6 +3085,24 @@ struct SettingsView: View {
                             Toggle("", isOn: $sidebarShowMetadata)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Terminal")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Terminal Theme",
+                            subtitle: "Overrides the theme in your Ghostty config.",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: $terminalTheme) {
+                                Text("Default (Ghostty Config)").tag("")
+                                ForEach(availableThemes, id: \.self) { name in
+                                    Text(name).tag(name)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
                         }
                     }
 
@@ -3547,12 +3583,17 @@ struct SettingsView: View {
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
+            availableThemes = GhosttyConfig.availableThemeNames()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             if browserInsecureHTTPAllowlistDraft == oldValue {
                 browserInsecureHTTPAllowlistDraft = newValue
             }
+        }
+        .onChange(of: terminalTheme) { _ in
+            GhosttyConfig.invalidateLoadCache()
+            GhosttyApp.shared.reloadConfiguration(source: "settings.terminalTheme")
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
@@ -3618,6 +3659,7 @@ struct SettingsView: View {
         sidebarShowLog = true
         sidebarShowProgress = true
         sidebarShowMetadata = true
+        terminalTheme = ""
         showOpenAccessConfirmation = false
         pendingOpenAccessMode = nil
         socketPasswordDraft = ""

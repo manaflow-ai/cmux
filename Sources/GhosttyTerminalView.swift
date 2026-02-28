@@ -626,7 +626,25 @@ class GhosttyApp {
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
+        loadCmuxThemeOverrideIfNeeded(config)
         ghostty_config_finalize(config)
+    }
+
+    private func loadCmuxThemeOverrideIfNeeded(_ config: ghostty_config_t) {
+        guard let themeName = TerminalThemeSettings.effectiveThemeName() else { return }
+        let available = GhosttyConfig.availableThemeNames()
+        guard available.contains(themeName) else { return }
+        let tmpPath = "/tmp/cmux-theme-override-\(UUID().uuidString).conf"
+        let content = "theme = \(themeName)\n"
+        do {
+            try content.write(toFile: tmpPath, atomically: true, encoding: .utf8)
+            tmpPath.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+            try FileManager.default.removeItem(atPath: tmpPath)
+        } catch {
+            NSLog("cmux: failed to apply theme override: %@", error.localizedDescription)
+        }
     }
 
     static func shouldLoadLegacyGhosttyConfig(
