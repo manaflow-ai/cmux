@@ -3239,10 +3239,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         // createWebViewWith is only called when the page requests a new window,
         // so always treat as new-tab intent regardless of modifiers/button.
-        let shouldOpenInNewTab = true
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -3251,8 +3249,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
-            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
-            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+            "openInNewTab=1"
         )
 #endif
         if let url = navigationAction.request.url {
@@ -3267,25 +3264,19 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 return nil
             }
             if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent =
-                    shouldOpenInNewTab ? .newTab : .currentTab
+                let intent: BrowserInsecureHTTPNavigationIntent = .newTab
 #if DEBUG
                 dlog(
-                    "browser.nav.createWebView.action kind=requestNavigation intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                    "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
                     "url=\(url.absoluteString)"
                 )
 #endif
                 requestNavigation(navigationAction.request, intent)
-            } else if shouldOpenInNewTab {
+            } else {
 #if DEBUG
                 dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
 #endif
                 openInNewTab?(url)
-            } else {
-#if DEBUG
-                dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
-#endif
-                webView.load(navigationAction.request)
             }
         }
         return nil
