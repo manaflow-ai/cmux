@@ -931,6 +931,26 @@ final class SocketControlSettingsTests: XCTestCase {
         )
     }
 
+    func testXCTestInjectBundleLaunchIgnoresLaunchTagGate() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["XCInjectBundle": "/tmp/fake.xctest"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
+
+    func testXCTestDyldLaunchIgnoresLaunchTagGate() {
+        XCTAssertFalse(
+            SocketControlSettings.shouldBlockUntaggedDebugLaunch(
+                environment: ["DYLD_INSERT_LIBRARIES": "/usr/lib/libXCTestBundleInject.dylib"],
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                isDebugBuild: true
+            )
+        )
+    }
+
     func testXCUITestLaunchEnvironmentIgnoresLaunchTagGate() {
         // XCUITest launches the app as a separate process without XCTest env vars.
         // The app receives CMUX_UI_TEST_* vars via XCUIApplication.launchEnvironment.

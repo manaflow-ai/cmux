@@ -384,12 +384,19 @@ struct SocketControlSettings {
             "XCTestConfigurationFilePath",
             "XCTestBundlePath",
             "XCTestSessionIdentifier",
+            "XCInjectBundle",
             "XCInjectBundleInto",
         ]
-        return indicators.contains { key in
+        if indicators.contains(where: { key in
             guard let value = environment[key] else { return false }
             return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            return true
         }
+        if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+            return true
+        }
+        return false
     }
 
     static func socketPath(
