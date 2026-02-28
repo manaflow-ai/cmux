@@ -3149,7 +3149,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if shouldOpenInNewTab {
+            if shouldOpenInNewTab || navigationAction.targetFrame == nil {
                 intent = .newTab
             } else {
                 intent = .currentTab
@@ -3192,14 +3192,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() without explicit new-tab intent — navigate in-place.
+        // target=_blank or window.open() — open in a new tab.
         if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
+           let url = navigationAction.request.url {
 #if DEBUG
-            let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
-            dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
+            dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")
 #endif
-            browserLoadRequest(navigationAction.request, in: webView)
+            openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
@@ -3306,7 +3305,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click and middle-click open in a new tab; regular target=_blank navigates in-place.
+    /// createWebViewWith is only called when the page requests a new window
+    /// (window.open(), target=_blank, etc.). Always open in a new tab.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
@@ -3314,12 +3314,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
+        // createWebViewWith is only called when the page requests a new window,
+        // so always treat as new-tab intent regardless of modifiers/button.
+        let shouldOpenInNewTab = true
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
