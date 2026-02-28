@@ -399,6 +399,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
     "applewebdata",
     "blob",
     "data",
+    "file",
     "http",
     "https",
     "javascript",
@@ -2045,6 +2046,9 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            return url
+        }
+        if scheme == "file", url.isFileURL, !url.path.isEmpty {
             return url
         }
         return nil

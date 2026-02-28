@@ -7708,6 +7708,19 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolutionTests: XCTestCase {
+    func testResolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        XCTAssertTrue(resolved.isFileURL)
+        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testRejectsNonWebNonFileScheme() {
+        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
+        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    }
+}
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -7726,6 +7739,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let http = try XCTUnwrap(URL(string: "http://example.com"))
         let about = try XCTUnwrap(URL(string: "about:blank"))
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
@@ -7734,6 +7748,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(http))
         XCTAssertFalse(browserShouldOpenURLExternally(about))
         XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
