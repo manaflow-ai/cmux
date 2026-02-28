@@ -231,6 +231,7 @@ struct BrowserPanelView: View {
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var lastHandledAddressBarFocusRequestId: UUID?
     @State private var isBrowserThemeMenuPresented = false
+    @State private var ghosttyBackgroundGeneration: Int = 0
     // Keep this below half of the compact omnibar height so it reads as a squircle,
     // not a capsule.
     private let omnibarPillCornerRadius: CGFloat = 10
@@ -273,6 +274,11 @@ struct BrowserPanelView: View {
 
     private var browserThemeMode: BrowserThemeMode {
         BrowserThemeSettings.mode(for: browserThemeModeRaw)
+    }
+
+    private var browserChromeBackground: Color {
+        _ = ghosttyBackgroundGeneration
+        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
     }
 
     private var browserChromeBackgroundColor: NSColor {
@@ -454,6 +460,9 @@ struct BrowserPanelView: View {
                 addressBarFocused = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            ghosttyBackgroundGeneration &+= 1
+        }
     }
 
     private var addressBar: some View {
@@ -471,7 +480,7 @@ struct BrowserPanelView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, addressBarVerticalPadding)
-        .background(Color(nsColor: browserChromeBackgroundColor))
+        .background(browserChromeBackground)
         // Keep the omnibar stack above WKWebView so the suggestions popup is visible.
         .zIndex(1)
         .environment(\.colorScheme, browserChromeColorScheme)
