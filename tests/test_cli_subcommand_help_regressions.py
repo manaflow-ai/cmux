@@ -78,6 +78,25 @@ def main() -> int:
     ]:
         require(content, needle, message, failures)
 
+    # Regression checks for concrete flag coverage that previously regressed.
+    for needle, message in [
+        ("Usage: cmux new-workspace [--command <text>]", "new-workspace help must document --command"),
+        ("--command <text>   Send text+Enter to the new workspace after creation", "new-workspace --command flag description is missing"),
+        ("Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]", "focus-pane help must document positional pane argument support"),
+        ("--before-surface <id|ref|index>", "move/reorder surface help must document --before-surface alias"),
+        ("--after-surface <id|ref|index>", "move/reorder surface help must document --after-surface alias"),
+        ("--before-workspace <id|ref|index>", "reorder-workspace help must document --before-workspace alias"),
+        ("--after-workspace <id|ref|index>", "reorder-workspace help must document --after-workspace alias"),
+        ("Usage: cmux pipe-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <shell-command> | <shell-command>]", "pipe-pane help must document positional command support"),
+        ("Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify> [flags]", "claude-hook help must document accepted subcommand aliases"),
+        ("screenshot [--out <path>]", "browser help must document screenshot output flag"),
+        ("viewport <width> <height>", "browser help must document viewport subcommand"),
+        ("geolocation|geo <latitude> <longitude>", "browser help must document geolocation alias"),
+        ("network <route|unroute|requests> ...", "browser help must document network subcommands"),
+        ("input <mouse|keyboard|touch> [args...]", "browser help must document input subcommand family"),
+    ]:
+        require(content, needle, message, failures)
+
     # Simple commands should still have a basic one-liner help entry.
     for needle, message in [
         ('case "ping":', "Missing subcommandUsage entry for ping"),
