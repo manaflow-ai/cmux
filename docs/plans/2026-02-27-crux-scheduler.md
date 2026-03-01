@@ -59,6 +59,11 @@ Task structure guidelines:
   - list tests as SEPARATE checklist items, not bundled with implementation
 -->
 
+### Task 0: Create feature branch from main
+- [ ] `git checkout main && git pull`
+- [ ] `git checkout -b feat/crux-scheduler-impl`
+- [ ] verify clean working tree with `git status`
+
 ### Task 1: Browser kill-switch via UserDefaults guards
 - [ ] register `browserEnabled` default (true) in `Sources/cmuxApp.swift` init (lines 49-60)
 - [ ] add `@AppStorage("browserEnabled")` in `Sources/ContentView.swift` for reactive SwiftUI
