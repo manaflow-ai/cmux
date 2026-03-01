@@ -1265,7 +1265,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     /// The underlying web view
-    let webView: WKWebView
+    private(set) var webView: WKWebView
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -1386,47 +1386,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.browserThemeMode = BrowserThemeSettings.mode()
 
-        // Configure web view
-        let config = WKWebViewConfiguration()
-        config.processPool = BrowserPanel.sharedProcessPool
-        // Keep data-store scoping at workspace granularity so remote proxy settings
-        // do not leak into local workspaces.
-        if #available(macOS 14.0, *) {
-            config.websiteDataStore = WKWebsiteDataStore(forIdentifier: workspaceId)
-        } else {
-            config.websiteDataStore = .default()
-        }
-
-        // Enable developer extras (DevTools)
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-
-        // Enable JavaScript
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
-        config.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.telemetryHookBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
-        )
-
-        // Set up web view
-        let webView = CmuxWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
-
-        // Required for Web Inspector support on recent WebKit SDKs.
-        if #available(macOS 13.3, *) {
-            webView.isInspectable = true
-        }
-
-        // Match the empty-page background to the terminal theme so newly-created browsers
-        // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
-
-        // Always present as Safari.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
-
+        let webView = Self.makeWebView(for: workspaceId)
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
         self.insecureHTTPAlertWindowProvider = { [weak webView] in
@@ -1535,7 +1495,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
+        guard workspaceId != newWorkspaceId else { return }
         workspaceId = newWorkspaceId
+        rebindWebViewDataStoreIfNeeded()
     }
 
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
@@ -1569,6 +1531,98 @@ final class BrowserPanel: Panel, ObservableObject {
         let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
         let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
         store.proxyConfigurations = [socks, connect]
+    }
+
+    private static func makeWebView(for workspaceId: UUID) -> CmuxWebView {
+        let config = WKWebViewConfiguration()
+        config.processPool = BrowserPanel.sharedProcessPool
+        // Keep data-store scoping at workspace granularity so remote proxy settings
+        // do not leak into local workspaces.
+        if #available(macOS 14.0, *) {
+            config.websiteDataStore = WKWebsiteDataStore(forIdentifier: workspaceId)
+        } else {
+            config.websiteDataStore = .default()
+        }
+
+        // Enable developer extras (DevTools)
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+
+        // Enable JavaScript
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+
+        let webView = CmuxWebView(frame: .zero, configuration: config)
+        webView.allowsBackForwardNavigationGestures = true
+
+        // Required for Web Inspector support on recent WebKit SDKs.
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+
+        // Match the empty-page background to the terminal theme so newly-created browsers
+        // don't flash white before content loads.
+        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+
+        // Always present as Safari.
+        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        return webView
+    }
+
+    private func rebindWebViewDataStoreIfNeeded() {
+        guard #available(macOS 14.0, *) else { return }
+
+        let oldWebView = webView
+        let restoreURL = oldWebView.url ?? currentURL
+        let restorePageZoom = oldWebView.pageZoom
+        let shouldRestoreNavigation = shouldRenderWebView
+            && restoreURL?.absoluteString != blankURLString
+
+        oldWebView.stopLoading()
+        oldWebView.navigationDelegate = nil
+        oldWebView.uiDelegate = nil
+        if let oldCmuxWebView = oldWebView as? CmuxWebView {
+            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
+        }
+        BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        oldWebView.removeFromSuperview()
+
+        webViewObservers.removeAll()
+        cancellables.removeAll()
+
+        let replacement = Self.makeWebView(for: workspaceId)
+        replacement.pageZoom = restorePageZoom
+        replacement.navigationDelegate = navigationDelegate
+        replacement.uiDelegate = uiDelegate
+        replacement.onContextMenuDownloadStateChanged = { [weak self] downloading in
+            if downloading {
+                self?.beginDownloadActivity()
+            } else {
+                self?.endDownloadActivity()
+            }
+        }
+
+        objectWillChange.send()
+        webView = replacement
+        insecureHTTPAlertWindowProvider = { [weak self] in
+            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        nativeCanGoBack = false
+        nativeCanGoForward = false
+        estimatedProgress = 0
+        refreshNavigationAvailability()
+        setupObservers()
+        applyRemoteProxyConfigurationIfAvailable()
+
+        if shouldRestoreNavigation, let restoreURL {
+            replacement.load(browserPreparedNavigationRequest(URLRequest(url: restoreURL)))
+        }
     }
 
     func triggerFlash() {

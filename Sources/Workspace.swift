@@ -1068,6 +1068,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         private let connection: NWConnection
         private let rpcClient: WorkspaceRemoteDaemonRPCClient
         private let queue: DispatchQueue
+        private let readQueue: DispatchQueue
         private let onClose: (UUID) -> Void
 
         private var isClosed = false
@@ -1086,6 +1087,10 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             self.connection = connection
             self.rpcClient = rpcClient
             self.queue = queue
+            self.readQueue = DispatchQueue(
+                label: "com.cmux.remote-ssh.daemon-tunnel.proxy-read.\(UUID().uuidString)",
+                qos: .utility
+            )
             self.onClose = onClose
         }
 
@@ -1350,19 +1355,34 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         }
 
         private func scheduleRemoteReadLoop() {
-            queue.async { [weak self] in
-                self?.pollRemoteOnce()
+            guard let streamID else { return }
+            readQueue.async { [weak self] in
+                self?.pollRemoteOnce(streamID: streamID)
             }
         }
 
-        private func pollRemoteOnce() {
+        private func pollRemoteOnce(streamID: String) {
+            let readResult: Result<(data: Data, eof: Bool), Error>
+            do {
+                readResult = .success(try rpcClient.readStream(streamID: streamID, maxBytes: 32768, timeoutMs: 250))
+            } catch {
+                readResult = .failure(error)
+            }
+
+            queue.async { [weak self] in
+                self?.handleRemoteReadResult(streamID: streamID, result: readResult)
+            }
+        }
+
+        private func handleRemoteReadResult(streamID: String, result: Result<(data: Data, eof: Bool), Error>) {
             guard !isClosed else { return }
-            guard let streamID else { return }
+            guard self.streamID == streamID else { return }
 
             let readResult: (data: Data, eof: Bool)
-            do {
-                readResult = try rpcClient.readStream(streamID: streamID, maxBytes: 32768, timeoutMs: 250)
-            } catch {
+            switch result {
+            case .success(let value):
+                readResult = value
+            case .failure(let error):
                 close(reason: "proxy.read failed: \(error.localizedDescription)")
                 return
             }
@@ -1869,6 +1889,7 @@ private final class WorkspaceRemoteSessionController {
     private let queueKey = DispatchSpecificKey<Void>()
     private weak var workspace: Workspace?
     private let configuration: WorkspaceRemoteConfiguration
+    private let controllerID: UUID
 
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
@@ -1879,9 +1900,10 @@ private final class WorkspaceRemoteSessionController {
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
 
-    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
+    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
         self.workspace = workspace
         self.configuration = configuration
+        self.controllerID = controllerID
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -1898,7 +1920,7 @@ private final class WorkspaceRemoteSessionController {
             stopAllLocked()
             return
         }
-        queue.sync {
+        queue.async { [self] in
             stopAllLocked()
         }
     }
@@ -2050,8 +2072,10 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
+        let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyRemoteConnectionStateUpdate(
                 state,
                 detail: detail,
@@ -2068,6 +2092,7 @@ private final class WorkspaceRemoteSessionController {
         capabilities: [String] = [],
         remotePath: String? = nil
     ) {
+        let controllerID = self.controllerID
         let status = WorkspaceRemoteDaemonStatus(
             state: state,
             detail: detail,
@@ -2078,6 +2103,7 @@ private final class WorkspaceRemoteSessionController {
         )
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyRemoteDaemonStatusUpdate(
                 status,
                 target: workspace.remoteDisplayTarget ?? "remote host"
@@ -2086,15 +2112,19 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
+        let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyRemoteProxyEndpointUpdate(endpoint)
         }
     }
 
     private func publishPortsSnapshotLocked() {
+        let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
             workspace.applyRemotePortsSnapshot(
                 detected: [],
                 forwarded: [],
@@ -2210,6 +2240,14 @@ private final class WorkspaceRemoteSessionController {
         }
         if process.isRunning {
             process.terminate()
+            let terminateDeadline = Date().addingTimeInterval(2.0)
+            while process.isRunning && Date() < terminateDeadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
             throw NSError(domain: "cmux.remote.process", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "\(URL(fileURLWithPath: executable).lastPathComponent) timed out after \(Int(timeout))s",
             ])
@@ -2227,12 +2265,20 @@ private final class WorkspaceRemoteSessionController {
         let version = Self.remoteDaemonVersion()
         let remotePath = Self.remoteDaemonPath(version: version, goOS: platform.goOS, goArch: platform.goArch)
 
-        if try !remoteDaemonExistsLocked(remotePath: remotePath) {
+        let hadExistingBinary = try remoteDaemonExistsLocked(remotePath: remotePath)
+        if !hadExistingBinary {
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
         }
 
-        return try helloRemoteDaemonLocked(remotePath: remotePath)
+        var hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+        if hadExistingBinary, !hello.capabilities.contains("proxy.stream") {
+            let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
+            try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
+            hello = try helloRemoteDaemonLocked(remotePath: remotePath)
+        }
+
+        return hello
     }
 
     private func resolveRemotePlatformLocked() throws -> RemotePlatform {
@@ -3033,6 +3079,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
+    fileprivate var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
     private var remoteLastPortConflictFingerprint: String?
@@ -3215,6 +3262,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     deinit {
+        activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
     }
 
@@ -3833,8 +3881,10 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastPortConflictFingerprint = nil
         recomputeListeningPorts()
 
-        remoteSessionController?.stop()
+        let previousController = remoteSessionController
+        activeRemoteSessionControllerID = nil
         remoteSessionController = nil
+        previousController?.stop()
         applyRemoteProxyEndpointUpdate(nil)
 
         guard autoConnect else {
@@ -3843,7 +3893,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         remoteConnectionState = .connecting
-        let controller = WorkspaceRemoteSessionController(workspace: self, configuration: configuration)
+        let controllerID = UUID()
+        let controller = WorkspaceRemoteSessionController(
+            workspace: self,
+            configuration: configuration,
+            controllerID: controllerID
+        )
+        activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
         controller.start()
     }
@@ -3854,8 +3910,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
-        remoteSessionController?.stop()
+        let previousController = remoteSessionController
+        activeRemoteSessionControllerID = nil
         remoteSessionController = nil
+        previousController?.stop()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
         remotePortConflicts = []

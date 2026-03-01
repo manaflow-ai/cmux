@@ -2172,8 +2172,7 @@ struct CMUXCLI {
             if let port = sshOptions.port {
                 configureParams["port"] = port
             }
-            if let identityFile = sshOptions.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !identityFile.isEmpty {
+            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
                 configureParams["identity_file"] = identityFile
             }
             if !remoteSSHOptions.isEmpty {
@@ -2301,8 +2300,7 @@ struct CMUXCLI {
         if let port = options.port {
             parts += ["-p", String(port)]
         }
-        if let identityFile = options.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !identityFile.isEmpty {
+        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
             parts += ["-i", identityFile]
         }
         for option in effectiveSSHOptions {
@@ -2391,6 +2389,19 @@ fi
 
     private func defaultSSHControlPathTemplate() -> String {
         "/tmp/cmux-ssh-\(getuid())-%C"
+    }
+
+    private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
+        guard let rawPath else { return nil }
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasPrefix("~") {
+            let expanded = (trimmed as NSString).expandingTildeInPath
+            if !expanded.isEmpty {
+                return expanded
+            }
+        }
+        return trimmed
     }
 
     private func shellQuote(_ value: String) -> String {

@@ -1567,11 +1567,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
-        var mergedEnvironment = additionalEnvironment
-        for (key, value) in initialEnvironmentOverrides {
-            mergedEnvironment[key] = value
-        }
-        self.initialEnvironmentOverrides = mergedEnvironment
+        self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(
+            base: additionalEnvironment,
+            overrides: initialEnvironmentOverrides
+        )
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.
@@ -1588,6 +1587,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }
+
+    private static func mergedNormalizedEnvironment(
+        base: [String: String],
+        overrides: [String: String]
+    ) -> [String: String] {
+        var merged: [String: String] = [:]
+        merged.reserveCapacity(base.count + overrides.count)
+        for (rawKey, value) in base {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        for (rawKey, value) in overrides {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        return merged
+    }
+
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
@@ -1846,10 +1865,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if !initialEnvironmentOverrides.isEmpty {
-            for (keyRaw, valueRaw) in initialEnvironmentOverrides {
-                let key = keyRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !key.isEmpty else { continue }
-                env[key] = valueRaw
+            for (key, value) in initialEnvironmentOverrides {
+                env[key] = value
             }
         }
 
