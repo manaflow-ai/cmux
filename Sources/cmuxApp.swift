@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Darwin
+import Bonsplit
 
 @main
 struct cmuxApp: App {
@@ -13,6 +14,15 @@ struct cmuxApp: App {
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
+    @AppStorage(KeyboardShortcutSettings.Action.toggleSidebar.defaultsKey) private var toggleSidebarShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.newTab.defaultsKey) private var newWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.newWindow.defaultsKey) private var newWindowShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.showNotifications.defaultsKey) private var showNotificationsShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.nextSurface.defaultsKey) private var nextSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.prevSurface.defaultsKey) private var prevSurfaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey) private var nextWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
@@ -21,9 +31,16 @@ struct cmuxApp: App {
     private var showBrowserJavaScriptConsoleShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
+            Self.terminateForMissingLaunchTag()
+        }
+
         Self.configureGhosttyEnvironment()
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -40,11 +57,20 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+    }
+
+    private static func terminateForMissingLaunchTag() -> Never {
+        let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+        NSLog("%@", message)
+        Darwin.exit(64)
     }
 
     private static func configureGhosttyEnvironment() {
@@ -172,7 +198,7 @@ struct cmuxApp: App {
                     applyAppearance()
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
                         DispatchQueue.main.async {
-                            showSettingsPanel()
+                            appDelegate.openPreferencesWindow(debugSource: "uiTestShowSettings")
                         }
                     }
                 }
@@ -187,7 +213,7 @@ struct cmuxApp: App {
         .commands {
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
-                    showSettingsPanel()
+                    appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
@@ -200,7 +226,7 @@ struct cmuxApp: App {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
                 Button("Reload Configuration") {
-                    GhosttyApp.shared.reloadConfiguration()
+                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
                 Divider()
@@ -257,11 +283,11 @@ struct cmuxApp: App {
                     Divider()
                 }
 
-                Button("Show Notifications") {
+                splitCommandButton(title: "Show Notifications", shortcut: showNotificationsMenuShortcut) {
                     showNotificationsPopover()
                 }
 
-                Button("Jump to Latest Unread") {
+                splitCommandButton(title: "Jump to Latest Unread", shortcut: jumpToUnreadMenuShortcut) {
                     appDelegate.jumpToLatestUnread()
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
@@ -285,6 +311,10 @@ struct cmuxApp: App {
 
                 Button("New Tab With Large Scrollback") {
                     appDelegate.openDebugScrollbackTab(nil)
+                }
+
+                Button("Open Workspaces for All Workspace Colors") {
+                    appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
                 Divider()
@@ -337,18 +367,63 @@ struct cmuxApp: App {
 
             // New tab commands
             CommandGroup(replacing: .newItem) {
-                Button("New Window") {
+                splitCommandButton(title: "New Window", shortcut: newWindowMenuShortcut) {
                     appDelegate.openNewMainWindow(nil)
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
 
-                Button("New Workspace") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).addTab()
+                splitCommandButton(title: "New Workspace", shortcut: newWorkspaceMenuShortcut) {
+                    if let appDelegate = AppDelegate.shared {
+                        if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
+#if DEBUG
+                            FocusLogStore.shared.append(
+                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
+                            )
+#endif
+                            appDelegate.openNewMainWindow(nil)
+                        }
+                    } else {
+                        activeTabManager.addTab()
+                    }
+                }
+
+                splitCommandButton(title: "Open Folder…", shortcut: openFolderMenuShortcut) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.title = "Open Folder"
+                    panel.prompt = "Open"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        if let appDelegate = AppDelegate.shared {
+                            if appDelegate.addWorkspaceInPreferredMainWindow(
+                                workingDirectory: url.path,
+                                debugSource: "menu.openFolder"
+                            ) == nil {
+                                appDelegate.openNewMainWindow(nil)
+                            }
+                        } else {
+                            activeTabManager.addWorkspace(workingDirectory: url.path)
+                        }
+                    }
                 }
             }
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
+                Button("Go to Workspace or Tab…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command])
+
+                Button("Command Palette…") {
+                    let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+                    NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Divider()
+
                 // Terminal semantics:
                 // Cmd+W closes the focused tab (with confirmation if needed). If this is the last
                 // tab in the last workspace, it closes the window.
@@ -357,107 +432,119 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
+                Button("Close Other Tabs in Pane") {
+                    closeOtherTabsInFocusedPane()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
+
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
                 // is the last workspace, it closes the window.
-                Button("Close Workspace") {
+                splitCommandButton(title: "Close Workspace", shortcut: closeWorkspaceMenuShortcut) {
                     closeTabOrWindow()
                 }
-                .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                Button("Reopen Closed Browser Panel") {
+                    _ = activeTabManager.reopenMostRecentlyClosedBrowserPanel()
+                }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             }
 
             // Find
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).startSearch()
+                        activeTabManager.startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
 
                     Button("Find Next") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findNext()
+                        activeTabManager.findNext()
                     }
                     .keyboardShortcut("g", modifiers: .command)
 
                     Button("Find Previous") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).findPrevious()
+                        activeTabManager.findPrevious()
                     }
                     .keyboardShortcut("g", modifiers: [.command, .shift])
 
                     Divider()
 
                     Button("Hide Find Bar") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).hideFind()
+                        activeTabManager.hideFind()
                     }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).isFindVisible))
+                    .disabled(!(activeTabManager.isFindVisible))
 
                     Divider()
 
                     Button("Use Selection for Find") {
-                        (AppDelegate.shared?.tabManager ?? tabManager).searchSelection()
+                        activeTabManager.searchSelection()
                     }
                     .keyboardShortcut("e", modifiers: .command)
-                    .disabled(!((AppDelegate.shared?.tabManager ?? tabManager).canUseSelectionForFind))
+                    .disabled(!(activeTabManager.canUseSelectionForFind))
                 }
             }
 
             // Tab navigation
             CommandGroup(after: .toolbar) {
-                Button("Toggle Sidebar") {
-                    sidebarState.toggle()
+                splitCommandButton(title: "Toggle Sidebar", shortcut: toggleSidebarMenuShortcut) {
+                    if AppDelegate.shared?.toggleSidebarInActiveMainWindow() != true {
+                        sidebarState.toggle()
+                    }
                 }
 
                 Divider()
 
-                Button("Next Surface") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextSurface()
+                splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
+                    activeTabManager.selectNextSurface()
                 }
 
-                Button("Previous Surface") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousSurface()
+                splitCommandButton(title: "Previous Surface", shortcut: prevSurfaceMenuShortcut) {
+                    activeTabManager.selectPreviousSurface()
                 }
 
                 Button("Back") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goBack()
+                    activeTabManager.focusedBrowserPanel?.goBack()
                 }
                 .keyboardShortcut("[", modifiers: .command)
 
                 Button("Forward") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.goForward()
+                    activeTabManager.focusedBrowserPanel?.goForward()
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
                 Button("Reload Page") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).focusedBrowserPanel?.reload()
+                    activeTabManager.focusedBrowserPanel?.reload()
                 }
                 .keyboardShortcut("r", modifiers: .command)
 
                 splitCommandButton(title: "Toggle Developer Tools", shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.toggleDeveloperToolsFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 splitCommandButton(title: "Show JavaScript Console", shortcut: showBrowserJavaScriptConsoleMenuShortcut) {
-                    let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                    let manager = activeTabManager
                     if !manager.showJavaScriptConsoleFocusedBrowser() {
                         NSSound.beep()
                     }
                 }
 
                 Button("Zoom In") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomInFocusedBrowser()
+                    _ = activeTabManager.zoomInFocusedBrowser()
                 }
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button("Zoom Out") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).zoomOutFocusedBrowser()
+                    _ = activeTabManager.zoomOutFocusedBrowser()
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
                 Button("Actual Size") {
-                    _ = (AppDelegate.shared?.tabManager ?? tabManager).resetZoomFocusedBrowser()
+                    _ = activeTabManager.resetZoomFocusedBrowser()
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
@@ -465,12 +552,16 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
-                Button("Next Workspace") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectNextTab()
+                splitCommandButton(title: "Next Workspace", shortcut: nextWorkspaceMenuShortcut) {
+                    activeTabManager.selectNextTab()
                 }
 
-                Button("Previous Workspace") {
-                    (AppDelegate.shared?.tabManager ?? tabManager).selectPreviousTab()
+                splitCommandButton(title: "Previous Workspace", shortcut: prevWorkspaceMenuShortcut) {
+                    activeTabManager.selectPreviousTab()
+                }
+
+                splitCommandButton(title: "Rename Workspace…", shortcut: renameWorkspaceMenuShortcut) {
+                    _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
                 Divider()
@@ -496,7 +587,7 @@ struct cmuxApp: App {
                 // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button("Workspace \(number)") {
-                        let manager = (AppDelegate.shared?.tabManager ?? tabManager)
+                        let manager = activeTabManager
                         if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
                         }
@@ -506,11 +597,11 @@ struct cmuxApp: App {
 
                 Divider()
 
-                Button("Jump to Latest Unread") {
+                splitCommandButton(title: "Jump to Latest Unread", shortcut: jumpToUnreadMenuShortcut) {
                     AppDelegate.shared?.jumpToLatestUnread()
                 }
 
-                Button("Show Notifications") {
+                splitCommandButton(title: "Show Notifications", shortcut: showNotificationsMenuShortcut) {
                     showNotificationsPopover()
                 }
             }
@@ -519,11 +610,6 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private func showSettingsPanel() {
-        SettingsWindowController.shared.show()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -569,6 +655,58 @@ struct cmuxApp: App {
         decodeShortcut(from: splitRightShortcutData, fallback: KeyboardShortcutSettings.Action.splitRight.defaultShortcut)
     }
 
+    private var toggleSidebarMenuShortcut: StoredShortcut {
+        decodeShortcut(from: toggleSidebarShortcutData, fallback: KeyboardShortcutSettings.Action.toggleSidebar.defaultShortcut)
+    }
+
+    private var newWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: newWorkspaceShortcutData, fallback: KeyboardShortcutSettings.Action.newTab.defaultShortcut)
+    }
+
+    private var newWindowMenuShortcut: StoredShortcut {
+        decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var openFolderMenuShortcut: StoredShortcut {
+        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
+    }
+
+    private var showNotificationsMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: showNotificationsShortcutData,
+            fallback: KeyboardShortcutSettings.Action.showNotifications.defaultShortcut
+        )
+    }
+
+    private var jumpToUnreadMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: jumpToUnreadShortcutData,
+            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
+        )
+    }
+
+    private var nextSurfaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: nextSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.nextSurface.defaultShortcut)
+    }
+
+    private var prevSurfaceMenuShortcut: StoredShortcut {
+        decodeShortcut(from: prevSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.prevSurface.defaultShortcut)
+    }
+
+    private var nextWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: nextWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.nextSidebarTab.defaultShortcut
+        )
+    }
+
+    private var prevWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: prevWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        )
+    }
+
     private var splitDownMenuShortcut: StoredShortcut {
         decodeShortcut(from: splitDownShortcutData, fallback: KeyboardShortcutSettings.Action.splitDown.defaultShortcut)
     }
@@ -601,8 +739,28 @@ struct cmuxApp: App {
         )
     }
 
+    private var renameWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: renameWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        )
+    }
+
+    private var closeWorkspaceMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: closeWorkspaceShortcutData,
+            fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         NotificationMenuSnapshotBuilder.make(notifications: notificationStore.notifications)
+    }
+
+    private var activeTabManager: TabManager {
+        AppDelegate.shared?.synchronizeActiveMainWindowContext(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        ) ?? tabManager
     }
 
     private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
@@ -642,48 +800,12 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private func splitCommandButton(title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
-        if let key = keyEquivalent(for: shortcut) {
+        if let key = shortcut.keyEquivalent {
             Button(title, action: action)
-                .keyboardShortcut(key, modifiers: eventModifiers(for: shortcut))
+                .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
             Button(title, action: action)
         }
-    }
-
-    private func keyEquivalent(for shortcut: StoredShortcut) -> KeyEquivalent? {
-        switch shortcut.key {
-        case "←":
-            return .leftArrow
-        case "→":
-            return .rightArrow
-        case "↑":
-            return .upArrow
-        case "↓":
-            return .downArrow
-        case "\t":
-            return .tab
-        default:
-            let lowered = shortcut.key.lowercased()
-            guard lowered.count == 1, let character = lowered.first else { return nil }
-            return KeyEquivalent(character)
-        }
-    }
-
-    private func eventModifiers(for shortcut: StoredShortcut) -> EventModifiers {
-        var modifiers: EventModifiers = []
-        if shortcut.command {
-            modifiers.insert(.command)
-        }
-        if shortcut.shift {
-            modifiers.insert(.shift)
-        }
-        if shortcut.option {
-            modifiers.insert(.option)
-        }
-        if shortcut.control {
-            modifiers.insert(.control)
-        }
-        return modifiers
     }
 
     private func closePanelOrWindow() {
@@ -692,11 +814,15 @@ struct cmuxApp: App {
             window.performClose(nil)
             return
         }
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentPanelWithConfirmation()
+        activeTabManager.closeCurrentPanelWithConfirmation()
+    }
+
+    private func closeOtherTabsInFocusedPane() {
+        activeTabManager.closeOtherTabsInFocusedPaneWithConfirmation()
     }
 
     private func closeTabOrWindow() {
-        (AppDelegate.shared?.tabManager ?? tabManager).closeCurrentTabWithConfirmation()
+        activeTabManager.closeCurrentTabWithConfirmation()
     }
 
     private func showNotificationsPopover() {
@@ -1178,6 +1304,8 @@ private enum DebugWindowConfigSnapshot {
         sidebarTintHex=\(stringValue(defaults, key: "sidebarTintHex", fallback: "#000000"))
         sidebarTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "sidebarTintOpacity", fallback: 0.18)))
         sidebarCornerRadius=\(String(format: "%.1f", doubleValue(defaults, key: "sidebarCornerRadius", fallback: 0.0)))
+        sidebarBranchVerticalLayout=\(boolValue(defaults, key: SidebarBranchLayoutSettings.key, fallback: SidebarBranchLayoutSettings.defaultVerticalLayout))
+        sidebarActiveTabIndicatorStyle=\(stringValue(defaults, key: SidebarActiveTabIndicatorSettings.styleKey, fallback: SidebarActiveTabIndicatorSettings.defaultStyle.rawValue))
         shortcutHintSidebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintXKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintX)))
         shortcutHintSidebarYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.sidebarHintYKey, fallback: ShortcutHintDebugSettings.defaultSidebarHintY)))
         shortcutHintTitlebarXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.titlebarHintXKey, fallback: ShortcutHintDebugSettings.defaultTitlebarHintX)))
@@ -1274,6 +1402,8 @@ private struct DebugWindowControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("debugTitlebarLeadingExtra") private var titlebarLeadingExtra: Double = 0
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var browserDevToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
     @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var browserDevToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
@@ -1284,6 +1414,17 @@ private struct DebugWindowControlsView: View {
 
     private var selectedDevToolsColorOption: BrowserDevToolsIconColorOption {
         BrowserDevToolsIconColorOption(rawValue: browserDevToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    }
+
+    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
     }
 
     var body: some View {
@@ -1346,6 +1487,22 @@ private struct DebugWindowControlsView: View {
                             Button("Copy Hint Config") {
                                 copyShortcutHintConfig()
                             }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Active Workspace Indicator") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Style", selection: sidebarIndicatorStyleSelection) {
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+                        .pickerStyle(.menu)
+
+                        Button("Reset Indicator Style") {
+                            sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
                         }
                     }
                     .padding(.top, 2)
@@ -1577,7 +1734,7 @@ private struct AcknowledgmentsView: View {
     }
 }
 
-private final class SettingsWindowController: NSWindowController, NSWindowDelegate {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
     private init() {
@@ -1604,11 +1761,17 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
 
     func show() {
         guard let window else { return }
+#if DEBUG
+        dlog("settings.window.show requested isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+#endif
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         if !window.isVisible {
             window.center()
         }
         window.makeKeyAndOrderFront(nil)
+#if DEBUG
+        dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
+#endif
     }
 }
 
@@ -1744,6 +1907,7 @@ private struct SidebarDebugView: View {
     @AppStorage("sidebarState") private var sidebarState = SidebarStateOption.followWindow.rawValue
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
+    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -1751,6 +1915,19 @@ private struct SidebarDebugView: View {
     @AppStorage(ShortcutHintDebugSettings.paneHintXKey) private var paneShortcutHintXOffset = ShortcutHintDebugSettings.defaultPaneHintX
     @AppStorage(ShortcutHintDebugSettings.paneHintYKey) private var paneShortcutHintYOffset = ShortcutHintDebugSettings.defaultPaneHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+
+    private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
 
     var body: some View {
         ScrollView {
@@ -1852,6 +2029,27 @@ private struct SidebarDebugView: View {
                     .padding(.top, 2)
                 }
 
+                GroupBox("Active Workspace Indicator") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Style", selection: sidebarIndicatorStyleSelection) {
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Workspace Metadata") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Render branch list vertically", isOn: $sidebarBranchVerticalLayout)
+                        Text("When enabled, each branch appears on its own line in the sidebar.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+
                 HStack(spacing: 12) {
                     Button("Reset Tint") {
                         sidebarTintOpacity = 0.62
@@ -1868,6 +2066,9 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Hints") {
                         resetShortcutHintOffsets()
+                    }
+                    Button("Reset Active Indicator") {
+                        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
                     }
                 }
 
@@ -1935,6 +2136,8 @@ private struct SidebarDebugView: View {
         sidebarTintHex=\(sidebarTintHex)
         sidebarTintOpacity=\(String(format: "%.2f", sidebarTintOpacity))
         sidebarCornerRadius=\(String(format: "%.1f", sidebarCornerRadius))
+        sidebarBranchVerticalLayout=\(sidebarBranchVerticalLayout)
+        sidebarActiveTabIndicatorStyle=\(sidebarActiveTabIndicatorStyle)
         shortcutHintSidebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset)))
         shortcutHintSidebarYOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)))
         shortcutHintTitlebarXOffset=\(String(format: "%.1f", ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)))
@@ -2398,9 +2601,37 @@ enum AppearanceSettings {
     }
 }
 
+enum QuitWarningSettings {
+    static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
+    static let defaultWarnBeforeQuit = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: warnBeforeQuitKey) == nil {
+            return defaultWarnBeforeQuit
+        }
+        return defaults.bool(forKey: warnBeforeQuitKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: warnBeforeQuitKey)
+    }
+}
+
+enum CommandPaletteRenameSelectionSettings {
+    static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
+    static let defaultSelectAllOnFocus = true
+
+    static func selectAllOnFocusEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: selectAllOnFocusKey) == nil {
+            return defaultSelectAllOnFocus
+        }
+        return defaults.bool(forKey: selectAllOnFocusKey)
+    }
+}
+
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
-    static let defaultHooksEnabled = false
+    static let defaultHooksEnabled = true
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
@@ -2408,6 +2639,21 @@ enum ClaudeCodeIntegrationSettings {
         }
         return defaults.bool(forKey: hooksEnabledKey)
     }
+}
+
+enum TelemetrySettings {
+    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+    static let defaultSendAnonymousTelemetry = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
+            return defaultSendAnonymousTelemetry
+        }
+        return defaults.bool(forKey: sendAnonymousTelemetryKey)
+    }
+
+    // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
+    static let enabledForCurrentLaunch = isEnabled()
 }
 
 struct SettingsView: View {
@@ -2418,30 +2664,104 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
+    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+    @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+    private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
+    private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
+    private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
+    @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
+    @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
+    private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+    @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
+    @AppStorage("sidebarShowLog") private var sidebarShowLog = true
+    @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
+    @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
     @State private var settingsTitleLeadingInset: CGFloat = 92
     @State private var showClearBrowserHistoryConfirmation = false
+    @State private var showOpenAccessConfirmation = false
+    @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @State private var socketPasswordDraft = ""
+    @State private var socketPasswordStatusMessage: String?
+    @State private var socketPasswordStatusIsError = false
+    @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
+    @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+    @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
     }
 
+    private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
+        SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
+    }
+
+    private var sidebarIndicatorStyleSelection: Binding<String> {
+        Binding(
+            get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
+            set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
     private var selectedSocketControlMode: SocketControlMode {
         SocketControlSettings.migrateMode(socketControlMode)
+    }
+
+    private var selectedBrowserThemeMode: BrowserThemeMode {
+        BrowserThemeSettings.mode(for: browserThemeMode)
+    }
+
+    private var browserThemeModeSelection: Binding<String> {
+        Binding(
+            get: { browserThemeMode },
+            set: { newValue in
+                browserThemeMode = BrowserThemeSettings.mode(for: newValue).rawValue
+            }
+        )
+    }
+
+    private var socketModeSelection: Binding<String> {
+        Binding(
+            get: { socketControlMode },
+            set: { newValue in
+                let normalized = SocketControlSettings.migrateMode(newValue)
+                if normalized == .allowAll && selectedSocketControlMode != .allowAll {
+                    pendingOpenAccessMode = normalized
+                    showOpenAccessConfirmation = true
+                    return
+                }
+                socketControlMode = normalized.rawValue
+                if normalized != .password {
+                    socketPasswordStatusMessage = nil
+                    socketPasswordStatusIsError = false
+                }
+            }
+        )
+    }
+
+    private var hasSocketPasswordConfigured: Bool {
+        SocketControlPasswordStore.hasConfiguredPassword()
     }
 
     private var browserHistorySubtitle: String {
@@ -2463,6 +2783,37 @@ struct SettingsView: View {
         guard let baseline = topBlurBaselineOffset else { return 0 }
         let reveal = (baseline - offset) / 24
         return Double(min(max(reveal, 0), 1))
+    }
+
+    private func saveSocketPassword() {
+        let trimmed = socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            socketPasswordStatusMessage = "Enter a password first."
+            socketPasswordStatusIsError = true
+            return
+        }
+
+        do {
+            try SocketControlPasswordStore.savePassword(trimmed)
+            socketPasswordDraft = ""
+            socketPasswordStatusMessage = "Password saved."
+            socketPasswordStatusIsError = false
+        } catch {
+            socketPasswordStatusMessage = "Failed to save password (\(error.localizedDescription))."
+            socketPasswordStatusIsError = true
+        }
+    }
+
+    private func clearSocketPassword() {
+        do {
+            try SocketControlPasswordStore.clearPassword()
+            socketPasswordDraft = ""
+            socketPasswordStatusMessage = "Password cleared."
+            socketPasswordStatusIsError = false
+        } catch {
+            socketPasswordStatusMessage = "Failed to clear password (\(error.localizedDescription))."
+            socketPasswordStatusIsError = true
+        }
     }
 
     var body: some View {
@@ -2518,6 +2869,231 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Send anonymous telemetry",
+                            subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
+                                ? "Change takes effect on next launch."
+                                : "Share anonymized crash and usage data to help improve cmux."
+                        ) {
+                            Toggle("", isOn: $sendAnonymousTelemetry)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Warn Before Quit",
+                            subtitle: warnBeforeQuitShortcut
+                                ? "Show a confirmation before quitting with Cmd+Q."
+                                : "Cmd+Q quits immediately without confirmation."
+                        ) {
+                            Toggle("", isOn: $warnBeforeQuitShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Rename Selects Existing Name",
+                            subtitle: commandPaletteRenameSelectAllOnFocus
+                                ? "Command Palette rename starts with all text selected."
+                                : "Command Palette rename keeps the caret at the end."
+                        ) {
+                            Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Sidebar Branch Layout",
+                            subtitle: sidebarBranchVerticalLayout
+                                ? "Vertical: each branch appears on its own line."
+                                : "Inline: all branches share one line."
+                        ) {
+                            Picker("", selection: $sidebarBranchVerticalLayout) {
+                                Text("Vertical").tag(true)
+                                Text("Inline").tag(false)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Branch + Directory in Sidebar",
+                            subtitle: "Display the built-in git branch and working-directory row."
+                        ) {
+                            Toggle("", isOn: $sidebarShowBranchDirectory)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Pull Requests in Sidebar",
+                            subtitle: "Display review items (PR/MR/etc.) with status, number, and clickable link."
+                        ) {
+                            Toggle("", isOn: $sidebarShowPullRequest)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Open Sidebar PR Links in cmux Browser",
+                            subtitle: openSidebarPullRequestLinksInCmuxBrowser
+                                ? "Clicks open inside cmux browser."
+                                : "Clicks open in your default browser."
+                        ) {
+                            Toggle("", isOn: $openSidebarPullRequestLinksInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Listening Ports in Sidebar",
+                            subtitle: "Display detected listening ports for the active workspace."
+                        ) {
+                            Toggle("", isOn: $sidebarShowPorts)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Latest Log in Sidebar",
+                            subtitle: "Display the latest imperative log/status message."
+                        ) {
+                            Toggle("", isOn: $sidebarShowLog)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Progress in Sidebar",
+                            subtitle: "Display the built-in progress bar from set_progress."
+                        ) {
+                            Toggle("", isOn: $sidebarShowProgress)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Show Custom Metadata in Sidebar",
+                            subtitle: "Display custom metadata from report_meta/set_status and report_meta_block."
+                        ) {
+                            Toggle("", isOn: $sidebarShowMetadata)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    SettingsSectionHeader(title: "Workspace Colors")
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Workspace Color Indicator",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: sidebarIndicatorStyleSelection) {
+                                ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                    Text(style.displayName).tag(style.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below.")
+
+                        ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
+                            if index > 0 {
+                                SettingsCardDivider()
+                            }
+                            SettingsCardRow(
+                                entry.name,
+                                subtitle: "Base: \(baseTabColorHex(for: entry.name))"
+                            ) {
+                                HStack(spacing: 8) {
+                                    ColorPicker(
+                                        "",
+                                        selection: defaultTabColorBinding(for: entry.name),
+                                        supportsOpacity: false
+                                    )
+                                    .labelsHidden()
+                                    .frame(width: 38)
+
+                                    Text(entry.hex)
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 76, alignment: .trailing)
+                                }
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        if workspaceTabCustomColors.isEmpty {
+                            SettingsCardNote("Custom colors: none yet. Use \"Choose Custom Color...\" from a workspace context menu.")
+                        } else {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("Custom Colors")
+                                    .font(.system(size: 13, weight: .semibold))
+
+                                ForEach(workspaceTabCustomColors, id: \.self) { hex in
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
+                                            .frame(width: 11, height: 11)
+
+                                        Text(hex)
+                                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+
+                                        Spacer(minLength: 8)
+
+                                        Button("Remove") {
+                                            removeWorkspaceCustomColor(hex)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Reset Palette",
+                            subtitle: "Restore built-in defaults and clear all custom colors."
+                        ) {
+                            Button("Reset") {
+                                resetWorkspaceTabColors()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
                     }
 
                     SettingsSectionHeader(title: "Automation")
@@ -2527,7 +3103,7 @@ struct SettingsView: View {
                             subtitle: selectedSocketControlMode.description,
                             controlWidth: pickerColumnWidth
                         ) {
-                            Picker("", selection: $socketControlMode) {
+                            Picker("", selection: socketModeSelection) {
                                 ForEach(SocketControlMode.uiCases) { mode in
                                     Text(mode.displayName).tag(mode.rawValue)
                                 }
@@ -2539,8 +3115,51 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Controls access to the local Unix socket for programmatic control. In \"cmux processes only\" mode, only processes spawned inside cmux terminals can connect.")
-                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH.")
+                        SettingsCardNote("Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model.")
+                        if selectedSocketControlMode == .password {
+                            SettingsCardDivider()
+                            SettingsCardRow(
+                                "Socket Password",
+                                subtitle: hasSocketPasswordConfigured
+                                    ? "Stored in Application Support."
+                                    : "No password set. External clients will be blocked until one is configured."
+                            ) {
+                                HStack(spacing: 8) {
+                                    SecureField("Password", text: $socketPasswordDraft)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 170)
+                                    Button(hasSocketPasswordConfigured ? "Change" : "Set") {
+                                        saveSocketPassword()
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(socketPasswordDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                    if hasSocketPasswordConfigured {
+                                        Button("Clear") {
+                                            clearSocketPassword()
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                    }
+                                }
+                            }
+                            if let message = socketPasswordStatusMessage {
+                                Text(message)
+                                    .font(.caption)
+                                    .foregroundStyle(socketPasswordStatusIsError ? Color.red : Color.secondary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.bottom, 8)
+                            }
+                        }
+                        if selectedSocketControlMode == .allowAll {
+                            SettingsCardDivider()
+                            Text("Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging.")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                        }
+                        SettingsCardNote("Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds).")
                     }
 
                     SettingsCard {
@@ -2608,6 +3227,24 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            "Browser Theme",
+                            subtitle: selectedBrowserThemeMode == .system
+                                ? "System follows app and macOS appearance."
+                                : "\(selectedBrowserThemeMode.displayName) forces that color scheme for compatible pages.",
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: browserThemeModeSelection) {
+                                ForEach(BrowserThemeMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             "Open Terminal Links in cmux Browser",
                             subtitle: "When off, links clicked in terminal output open in your default browser."
                         ) {
@@ -2616,13 +3253,24 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
 
-                        if openTerminalLinksInCmuxBrowser {
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Intercept open http(s) in Terminal",
+                            subtitle: "When off, `open https://...` and `open http://...` always use your default browser."
+                        ) {
+                            Toggle("", isOn: $interceptTerminalOpenCommandInCmuxBrowser)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsCardDivider()
 
                             VStack(alignment: .leading, spacing: 6) {
                                 SettingsCardRow(
                                     "Hosts to Open in Embedded Browser",
-                                    subtitle: "When you click links in terminal output, only these hosts open in cmux. Other hosts open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all links in cmux."
+                                    subtitle: "Applies to terminal link clicks and intercepted `open https://...` calls. Only these hosts open in cmux. Others open in your default browser. One host or wildcard per line (for example: example.com, *.internal.example). Leave empty to open all hosts in cmux."
                                 ) {
                                     EmptyView()
                                 }
@@ -2830,8 +3478,10 @@ struct SettingsView: View {
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
+            browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
+            reloadWorkspaceTabColorSettings()
         }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
@@ -2841,6 +3491,9 @@ struct SettingsView: View {
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
             browserHistoryEntryCount = entries.count
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            reloadWorkspaceTabColorSettings()
         }
         .confirmationDialog(
             "Clear browser history?",
@@ -2854,23 +3507,94 @@ struct SettingsView: View {
         } message: {
             Text("This removes visited-page suggestions from the browser omnibar.")
         }
+        .confirmationDialog(
+            "Enable full open access?",
+            isPresented: $showOpenAccessConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Enable Full Open Access", role: .destructive) {
+                socketControlMode = (pendingOpenAccessMode ?? .allowAll).rawValue
+                pendingOpenAccessMode = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingOpenAccessMode = nil
+            }
+        } message: {
+            Text("This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk.")
+        }
     }
 
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
+        interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+        warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+        sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarShowBranchDirectory = true
+        sidebarShowPullRequest = true
+        openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+        sidebarShowPorts = true
+        sidebarShowLog = true
+        sidebarShowProgress = true
+        sidebarShowMetadata = true
+        showOpenAccessConfirmation = false
+        pendingOpenAccessMode = nil
+        socketPasswordDraft = ""
+        socketPasswordStatusMessage = nil
+        socketPasswordStatusIsError = false
         KeyboardShortcutSettings.resetAll()
+        WorkspaceTabColorSettings.reset()
+        reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
+    }
+
+    private func defaultTabColorBinding(for name: String) -> Binding<Color> {
+        Binding(
+            get: {
+                let hex = WorkspaceTabColorSettings.defaultColorHex(named: name)
+                return Color(nsColor: NSColor(hex: hex) ?? .systemBlue)
+            },
+            set: { newValue in
+                let hex = NSColor(newValue).hexString()
+                WorkspaceTabColorSettings.setDefaultColor(named: name, hex: hex)
+                reloadWorkspaceTabColorSettings()
+            }
+        )
+    }
+
+    private func baseTabColorHex(for name: String) -> String {
+        WorkspaceTabColorSettings.defaultPalette
+            .first(where: { $0.name == name })?
+            .hex ?? "#1565C0"
+    }
+
+    private func removeWorkspaceCustomColor(_ hex: String) {
+        WorkspaceTabColorSettings.removeCustomColor(hex)
+        reloadWorkspaceTabColorSettings()
+    }
+
+    private func resetWorkspaceTabColors() {
+        WorkspaceTabColorSettings.reset()
+        reloadWorkspaceTabColorSettings()
+    }
+
+    private func reloadWorkspaceTabColorSettings() {
+        workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+        workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {

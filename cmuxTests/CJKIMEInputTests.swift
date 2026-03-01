@@ -642,6 +642,73 @@ final class CJKIMECompositionSequenceTests: XCTestCase {
     }
 }
 
+// MARK: - IME firstRect placement and sizing
+
+/// Regression tests for IME candidate/preedit anchor rectangle reporting.
+/// If width/height are discarded here, macOS can place preedit UI incorrectly.
+final class CJKIMEFirstRectTests: XCTestCase {
+
+    func testFirstRectUsesIMEProvidedWidthAndHeight() {
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let view = GhosttyNSView(frame: frame)
+        view.cellSize = CGSize(width: 10, height: 20)
+        view.setIMEPointForTesting(x: 120, y: 240, width: 64, height: 26)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 800, height: 600),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = NSView(frame: frame)
+        window.contentView = content
+        content.addSubview(view)
+        view.frame = frame
+
+        defer {
+            view.clearIMEPointForTesting()
+            window.orderOut(nil)
+        }
+
+        let rect = view.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)
+
+        let expectedViewRect = NSRect(x: 120, y: frame.height - 240, width: 64, height: 26)
+        let expectedScreenRect = window.convertToScreen(view.convert(expectedViewRect, to: nil))
+
+        XCTAssertEqual(rect.origin.x, expectedScreenRect.origin.x, accuracy: 0.001)
+        XCTAssertEqual(rect.origin.y, expectedScreenRect.origin.y, accuracy: 0.001)
+        XCTAssertEqual(rect.width, 64, accuracy: 0.001)
+        XCTAssertEqual(rect.height, 26, accuracy: 0.001)
+    }
+
+    func testFirstRectFallsBackToCellHeightWhenIMEHeightIsZero() {
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 480)
+        let view = GhosttyNSView(frame: frame)
+        view.cellSize = CGSize(width: 9, height: 18)
+        view.setIMEPointForTesting(x: 80, y: 120, width: 36, height: 0)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let content = NSView(frame: frame)
+        window.contentView = content
+        content.addSubview(view)
+        view.frame = frame
+
+        defer {
+            view.clearIMEPointForTesting()
+            window.orderOut(nil)
+        }
+
+        let rect = view.firstRect(forCharacterRange: NSRange(location: 0, length: 1), actualRange: nil)
+        XCTAssertEqual(rect.width, 36, accuracy: 0.001)
+        XCTAssertEqual(rect.height, 18, accuracy: 0.001)
+    }
+}
+
 // MARK: - Key text accumulator during CJK IME composition
 
 /// Tests that the keyTextAccumulator correctly manages text during the keyDown
@@ -692,5 +759,74 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
         // insertText with nil accumulator and no surface/currentEvent is a no-op,
         // but the important thing is that it doesn't crash or accumulate.
         XCTAssertNil(view.keyTextAccumulatorForTesting)
+    }
+}
+
+// MARK: - Space release regression (Codex hold-to-talk in cmux)
+
+@MainActor
+final class GhosttySpaceReleaseRegressionTests: XCTestCase {
+    func testSyntheticSpaceReleaseCarriesUnshiftedCodepoint() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        var releaseEvent: ghostty_input_key_s?
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            if keyEvent.action == GHOSTTY_ACTION_RELEASE, keyEvent.keycode == 49 {
+                releaseEvent = keyEvent
+            }
+        }
+
+        let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: " ",
+            charactersIgnoringModifiers: " ",
+            keyCode: 49
+        )
+        XCTAssertTrue(sent, "Expected synthetic Space key press/release to be dispatched")
+
+        guard let releaseEvent else {
+            XCTFail("Expected to capture synthetic Space key release event")
+            return
+        }
+
+        XCTAssertEqual(releaseEvent.action, GHOSTTY_ACTION_RELEASE)
+        XCTAssertEqual(releaseEvent.keycode, 49)
+        XCTAssertEqual(releaseEvent.unshifted_codepoint, " ".unicodeScalars.first!.value)
+        XCTAssertEqual(releaseEvent.consumed_mods.rawValue, GHOSTTY_MODS_NONE.rawValue)
+        XCTAssertFalse(releaseEvent.composing)
+        XCTAssertNil(releaseEvent.text)
     }
 }

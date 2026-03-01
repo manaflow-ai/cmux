@@ -95,7 +95,24 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
+- **Terminal find layering contract:** `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), not from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
+
+## Socket command threading policy
+
+- Do not use `DispatchQueue.main.sync` for high-frequency socket telemetry commands (`report_*`, `ports_kick`, status/progress/log metadata updates).
+- For telemetry hot paths:
+  - Parse and validate arguments off-main.
+  - Dedupe/coalesce off-main first.
+  - Schedule minimal UI/model mutation with `DispatchQueue.main.async` only when needed.
+- Commands that directly manipulate AppKit/Ghostty UI state (focus/select/open/close/send key/input, list/current queries requiring exact synchronous snapshot) are allowed to run on main actor.
+- If adding a new socket command, default to off-main handling; require an explicit reason in code comments when main-thread execution is necessary.
+
+## Socket focus policy
+
+- Socket/CLI commands must not steal macOS app focus (no app activation/window raising side effects).
+- Only explicit focus-intent commands may mutate in-app focus/selection (`window.focus`, `workspace.select/next/previous/last`, `surface.focus`, `pane.focus/last`, browser focus commands, and v1 focus equivalents).
+- All non-focus commands should preserve current user focus context while still applying data/model changes.
 
 ## E2E mac UI tests
 
@@ -150,7 +167,7 @@ git commit -m "Update ghostty submodule"
 Use the `/release` command to prepare a new release. This will:
 1. Determine the new version (bumps minor by default)
 2. Gather commits since the last tag and update the changelog
-3. Update `CHANGELOG.md` and `docs-site/content/docs/changelog.mdx`
+3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
 5. Commit, tag, and push
 
@@ -179,4 +196,4 @@ Notes:
 - The release asset is `cmux-macos.dmg` attached to the tag.
 - README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
-- Changelog: always update both `CHANGELOG.md` and the docs-site version.
+- Changelog: update `CHANGELOG.md`; docs changelog is rendered from it.

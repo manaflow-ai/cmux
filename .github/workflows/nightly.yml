@@ -15,6 +15,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CREATE_DMG_VERSION: 8.0.0
+
 jobs:
   decide:
     runs-on: ubuntu-latest
@@ -25,7 +28,7 @@ jobs:
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
         with:
@@ -84,7 +87,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
@@ -112,7 +115,7 @@ jobs:
         run: |
           brew update
           brew install zig
-          npm install --global create-dmg
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Build GhosttyKit.xcframework
         run: |
@@ -190,6 +193,12 @@ jobs:
           fi
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$APP_PLIST"
 
+          # Use an immutable DMG filename in appcast URLs so old appcasts keep
+          # pointing at matching archives while nightly assets roll forward.
+          NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
+          echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
+
           # Embed commit SHA for bug reports
           /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$APP_PLIST"
@@ -198,6 +207,7 @@ jobs:
           echo "Nightly bundle ID: com.cmuxterm.app.nightly"
           echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
+          echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
 
       - name: Import signing cert
@@ -283,6 +293,23 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
 
+          # Keep a stable filename for humans and an immutable filename used
+          # by appcast URLs to prevent signature/asset mismatch races.
+          cp "$DMG_RELEASE" "$NIGHTLY_DMG_IMMUTABLE"
+
+      - name: Upload dSYMs to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          brew install getsentry/tools/sentry-cli || true
+          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+
       - name: Generate Sparkle appcast (nightly)
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -291,7 +318,7 @@ jobs:
             echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
             exit 1
           fi
-          ./scripts/sparkle_generate_appcast.sh cmux-nightly-macos.dmg nightly appcast.xml
+          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
 
       - name: Move nightly tag to built commit
         run: |
@@ -302,7 +329,7 @@ jobs:
           git push origin refs/tags/nightly --force
 
       - name: Publish nightly release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: nightly
           name: Nightly
@@ -315,6 +342,7 @@ jobs:
 
             [Download cmux-nightly-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
           files: |
+            cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
           overwrite_files: true

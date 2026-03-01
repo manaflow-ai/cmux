@@ -13,11 +13,13 @@ final class PostHogAnalytics {
     private let host = "https://us.i.posthog.com"
 
     private let lastActiveDayUTCKey = "posthog.lastActiveDayUTC"
+    private let lastActiveHourUTCKey = "posthog.lastActiveHourUTC"
 
     private var didStart = false
     private var activeCheckTimer: Timer?
 
     private var isEnabled: Bool {
+        guard TelemetrySettings.enabledForCurrentLaunch else { return false }
 #if DEBUG
         // Avoid polluting production analytics while iterating locally.
         return ProcessInfo.processInfo.environment["CMUX_POSTHOG_ENABLE"] == "1"
@@ -39,8 +41,9 @@ final class PostHogAnalytics {
 
         PostHogSDK.shared.setup(config)
 
-        // Tag every event so PostHog can distinguish desktop from web.
-        PostHogSDK.shared.register(["platform": "cmuxterm"])
+        // Tag every event so PostHog can distinguish desktop from web and
+        // break events down by released app version/build.
+        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
 
         // The SDK automatically generates and persists an anonymous distinct ID.
 
@@ -53,6 +56,7 @@ final class PostHogAnalytics {
             guard let self else { return }
             guard NSApp.isActive else { return }
             self.trackDailyActive(reason: "activeTimer")
+            self.trackHourlyActive(reason: "activeTimer")
         }
     }
 
@@ -68,18 +72,53 @@ final class PostHogAnalytics {
 
         defaults.set(today, forKey: lastActiveDayUTCKey)
 
-        PostHogSDK.shared.capture("cmux_daily_active", properties: [
-            "day_utc": today,
-            "reason": reason,
-        ])
+        PostHogSDK.shared.capture(
+            "cmux_daily_active",
+            properties: Self.dailyActiveProperties(
+                dayUTC: today,
+                reason: reason,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
+            )
+        )
 
         // For DAU we care more about delivery than batching.
         PostHogSDK.shared.flush()
     }
 
+    func trackHourlyActive(reason: String) {
+        startIfNeeded()
+        guard didStart else { return }
+
+        let hour = utcHourString(Date())
+        let defaults = UserDefaults.standard
+        if defaults.string(forKey: lastActiveHourUTCKey) == hour {
+            return
+        }
+
+        defaults.set(hour, forKey: lastActiveHourUTCKey)
+
+        PostHogSDK.shared.capture(
+            "cmux_hourly_active",
+            properties: Self.hourlyActiveProperties(
+                hourUTC: hour,
+                reason: reason,
+                infoDictionary: Bundle.main.infoDictionary ?? [:]
+            )
+        )
+    }
+
     func flush() {
         guard didStart else { return }
         PostHogSDK.shared.flush()
+    }
+
+    private func utcHourString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .iso8601)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd'T'HH"
+        return formatter.string(from: date)
     }
 
     private func utcDayString(_ date: Date) -> String {
@@ -89,5 +128,48 @@ final class PostHogAnalytics {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        var properties: [String: Any] = ["platform": "cmuxterm"]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated static func dailyActiveProperties(
+        dayUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        var properties: [String: Any] = [
+            "day_utc": dayUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated static func hourlyActiveProperties(
+        hourUTC: String,
+        reason: String,
+        infoDictionary: [String: Any]
+    ) -> [String: Any] {
+        var properties: [String: Any] = [
+            "hour_utc": hourUTC,
+            "reason": reason,
+        ]
+        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        return properties
+    }
+
+    nonisolated private static func versionProperties(infoDictionary: [String: Any]) -> [String: Any] {
+        var properties: [String: Any] = [:]
+        if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
+            properties["app_version"] = value
+        }
+        if let value = infoDictionary["CFBundleVersion"] as? String, !value.isEmpty {
+            properties["app_build"] = value
+        }
+        return properties
     }
 }

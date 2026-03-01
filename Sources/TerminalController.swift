@@ -8,6 +8,26 @@ import WebKit
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+    struct SocketListenerHealth: Sendable {
+        let isRunning: Bool
+        let acceptLoopAlive: Bool
+        let socketPathMatches: Bool
+        let socketPathExists: Bool
+
+        var failureSignals: [String] {
+            var signals: [String] = []
+            if !isRunning { signals.append("not_running") }
+            if !acceptLoopAlive { signals.append("accept_loop_dead") }
+            if !socketPathMatches { signals.append("socket_path_mismatch") }
+            if !socketPathExists { signals.append("socket_missing") }
+            return signals
+        }
+
+        var isHealthy: Bool {
+            failureSignals.isEmpty
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = "/tmp/cmux.sock"
@@ -18,6 +38,37 @@ class TerminalController {
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
     private let myPid = getpid()
+    private nonisolated(unsafe) static var socketCommandPolicyDepth: Int = 0
+    private nonisolated(unsafe) static var socketCommandFocusAllowanceStack: [Bool] = []
+    private nonisolated static let socketCommandPolicyLock = NSLock()
+
+    private static let focusIntentV1Commands: Set<String> = [
+        "focus_window",
+        "select_workspace",
+        "focus_surface",
+        "focus_pane",
+        "focus_surface_by_panel",
+        "focus_webview",
+        "focus_notification",
+        "activate_app"
+    ]
+
+    private static let focusIntentV2Methods: Set<String> = [
+        "window.focus",
+        "workspace.select",
+        "workspace.next",
+        "workspace.previous",
+        "workspace.last",
+        "surface.focus",
+        "pane.focus",
+        "pane.last",
+        "browser.focus_webview",
+        "browser.focus",
+        "browser.tab.switch",
+        "debug.command_palette.toggle",
+        "debug.notification.focus",
+        "debug.app.activate"
+    ]
 
     private enum V2HandleKind: String, CaseIterable {
         case window
@@ -57,6 +108,13 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
+    private final class V2BrowserUndefinedSentinel {}
+
+    private static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    private static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    private static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    private static let v2BrowserEvalEnvelopeTypeValue = "value"
+
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
@@ -65,8 +123,186 @@ class TerminalController {
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
+    private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
     private init() {}
+
+    nonisolated static func shouldSuppressSocketCommandActivation() -> Bool {
+        socketCommandPolicyLock.lock()
+        defer { socketCommandPolicyLock.unlock() }
+        return socketCommandPolicyDepth > 0
+    }
+
+    nonisolated static func socketCommandAllowsInAppFocusMutations() -> Bool {
+        allowsInAppFocusMutationsForActiveSocketCommand()
+    }
+
+    private nonisolated static func allowsInAppFocusMutationsForActiveSocketCommand() -> Bool {
+        socketCommandPolicyLock.lock()
+        defer { socketCommandPolicyLock.unlock() }
+        return socketCommandFocusAllowanceStack.last ?? false
+    }
+
+    private static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool) -> Bool {
+        if isV2 {
+            return focusIntentV2Methods.contains(commandKey)
+        }
+        return focusIntentV1Commands.contains(commandKey)
+    }
+
+    private func withSocketCommandPolicy<T>(commandKey: String, isV2: Bool, _ body: () -> T) -> T {
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(commandKey: commandKey, isV2: isV2)
+        Self.socketCommandPolicyLock.lock()
+        Self.socketCommandPolicyDepth += 1
+        Self.socketCommandFocusAllowanceStack.append(allowsFocusMutation)
+        Self.socketCommandPolicyLock.unlock()
+        defer {
+            Self.socketCommandPolicyLock.lock()
+            if !Self.socketCommandFocusAllowanceStack.isEmpty {
+                _ = Self.socketCommandFocusAllowanceStack.popLast()
+            }
+            Self.socketCommandPolicyDepth = max(0, Self.socketCommandPolicyDepth - 1)
+            Self.socketCommandPolicyLock.unlock()
+        }
+        return body()
+    }
+
+    private func socketCommandAllowsInAppFocusMutations() -> Bool {
+        Self.allowsInAppFocusMutationsForActiveSocketCommand()
+    }
+
+    private func v2FocusAllowed(requested: Bool = true) -> Bool {
+        requested && socketCommandAllowsInAppFocusMutations()
+    }
+
+    private func v2MaybeFocusWindow(for tabManager: TabManager) {
+        guard socketCommandAllowsInAppFocusMutations(),
+              let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
+        _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+        setActiveTabManager(tabManager)
+    }
+
+    private func v2MaybeSelectWorkspace(_ tabManager: TabManager, workspace: Workspace) {
+        guard socketCommandAllowsInAppFocusMutations() else { return }
+        if tabManager.selectedTabId != workspace.id {
+            tabManager.selectWorkspace(workspace)
+        }
+    }
+
+    nonisolated static func shouldReplaceStatusEntry(
+        current: SidebarStatusEntry?,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: SidebarMetadataFormat
+    ) -> Bool {
+        guard let current else { return true }
+        return current.key != key ||
+            current.value != value ||
+            current.icon != icon ||
+            current.color != color ||
+            current.url != url ||
+            current.priority != priority ||
+            current.format != format
+    }
+
+    nonisolated static func shouldReplaceMetadataBlock(
+        current: SidebarMetadataBlock?,
+        key: String,
+        markdown: String,
+        priority: Int
+    ) -> Bool {
+        guard let current else { return true }
+        return current.key != key || current.markdown != markdown || current.priority != priority
+    }
+
+    nonisolated static func shouldReplaceProgress(
+        current: SidebarProgressState?,
+        value: Double,
+        label: String?
+    ) -> Bool {
+        guard let current else { return true }
+        return current.value != value || current.label != label
+    }
+
+    nonisolated static func shouldReplaceGitBranch(
+        current: SidebarGitBranchState?,
+        branch: String,
+        isDirty: Bool
+    ) -> Bool {
+        guard let current else { return true }
+        return current.branch != branch || current.isDirty != isDirty
+    }
+
+    nonisolated static func shouldReplacePullRequest(
+        current: SidebarPullRequestState?,
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus
+    ) -> Bool {
+        guard let current else { return true }
+        return current.number != number || current.label != label || current.url != url || current.status != status
+    }
+
+    nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
+        let currentSorted = Array(Set(current ?? [])).sorted()
+        let nextSorted = Array(Set(next)).sorted()
+        return currentSorted != nextSorted
+    }
+
+    private struct SocketSurfaceKey: Hashable {
+        let workspaceId: UUID
+        let panelId: UUID
+    }
+
+    private final class SocketFastPathState: @unchecked Sendable {
+        private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
+        private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
+        private let maxTrackedDirectories = 4096
+
+        func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedDirectories[key] == directory {
+                    return false
+                }
+                if lastReportedDirectories.count >= maxTrackedDirectories {
+                    lastReportedDirectories.removeAll(keepingCapacity: true)
+                }
+                lastReportedDirectories[key] = directory
+                return true
+            }
+        }
+    }
+
+    private static let socketFastPathState = SocketFastPathState()
+
+    nonisolated static func explicitSocketScope(
+        options: [String: String]
+    ) -> (workspaceId: UUID, panelId: UUID)? {
+        guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !tabRaw.isEmpty,
+              let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !panelRaw.isEmpty,
+              let workspaceId = UUID(uuidString: tabRaw),
+              let panelId = UUID(uuidString: panelRaw) else {
+            return nil
+        }
+        return (workspaceId, panelId)
+    }
+
+    nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return directory }
+        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
+            return url.path
+        }
+        return trimmed
+    }
 
     /// Update which window's TabManager receives socket commands.
     /// This is used when the user switches between multiple terminal windows.
@@ -128,6 +364,39 @@ class TerminalController {
         return info.kp_eproc.e_ppid
     }
 
+    private nonisolated func socketListenerEventData(
+        stage: String,
+        errnoCode: Int32? = nil,
+        extra: [String: Any] = [:]
+    ) -> [String: Any] {
+        var data: [String: Any] = [
+            "stage": stage,
+            "path": socketPath,
+            "isRunning": isRunning ? 1 : 0,
+            "acceptLoopAlive": acceptLoopAlive ? 1 : 0,
+            "serverSocket": Int(serverSocket)
+        ]
+        if let errnoCode {
+            data["errno"] = Int(errnoCode)
+            data["errnoDescription"] = String(cString: strerror(errnoCode))
+        }
+        for (key, value) in extra {
+            data[key] = value
+        }
+        return data
+    }
+
+    private nonisolated func reportSocketListenerFailure(
+        message: String,
+        stage: String,
+        errnoCode: Int32? = nil,
+        extra: [String: Any] = [:]
+    ) {
+        let data = socketListenerEventData(stage: stage, errnoCode: errnoCode, extra: extra)
+        sentryBreadcrumb(message, category: "socket", data: data)
+        sentryCaptureError(message, category: "socket", data: data, contextKey: "socket_listener")
+    }
+
     func start(tabManager: TabManager, socketPath: String, accessMode: SocketControlMode) {
         self.tabManager = tabManager
         self.accessMode = accessMode
@@ -135,6 +404,7 @@ class TerminalController {
         if isRunning {
             if self.socketPath == socketPath && acceptLoopAlive {
                 self.accessMode = accessMode
+                applySocketPermissions()
                 return
             }
             stop()
@@ -148,7 +418,13 @@ class TerminalController {
         // Create socket
         serverSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard serverSocket >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to create socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "create_socket",
+                errnoCode: errnoCode
+            )
             return
         }
 
@@ -169,23 +445,42 @@ class TerminalController {
         }
 
         guard bindResult >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to bind socket")
             close(serverSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bind",
+                errnoCode: errnoCode
+            )
             return
         }
 
-        // Restrict socket to owner only (0600)
-        chmod(socketPath, 0o600)
+        applySocketPermissions()
 
         // Listen
         guard listen(serverSocket, 5) >= 0 else {
+            let errnoCode = errno
             print("TerminalController: Failed to listen on socket")
             close(serverSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "listen",
+                errnoCode: errnoCode
+            )
             return
         }
 
         isRunning = true
         print("TerminalController: Listening on \(socketPath)")
+        sentryBreadcrumb(
+            "socket.listener.listening",
+            category: "socket",
+            data: [
+                "path": socketPath,
+                "mode": accessMode.rawValue
+            ]
+        )
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
@@ -194,7 +489,14 @@ class TerminalController {
                 guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
                 let validSurfaceIds = Set(workspace.panels.keys)
                 guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+                let nextPorts = Array(Set(ports)).sorted()
+                let currentPorts = workspace.surfaceListeningPorts[panelId] ?? []
+                guard currentPorts != nextPorts else { return }
+                if nextPorts.isEmpty {
+                    workspace.surfaceListeningPorts.removeValue(forKey: panelId)
+                } else {
+                    workspace.surfaceListeningPorts[panelId] = nextPorts
+                }
                 workspace.recomputeListeningPorts()
             }
         }
@@ -203,6 +505,22 @@ class TerminalController {
         Thread.detachNewThread { [weak self] in
             self?.acceptLoop()
         }
+    }
+
+    nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
+        let running = isRunning
+        let loopAlive = acceptLoopAlive
+        let pathMatches = socketPath == expectedSocketPath
+
+        var st = stat()
+        let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+
+        return SocketListenerHealth(
+            isRunning: running,
+            acceptLoopAlive: loopAlive,
+            socketPathMatches: pathMatches,
+            socketPathExists: exists
+        )
     }
 
     nonisolated func stop() {
@@ -214,11 +532,144 @@ class TerminalController {
         unlink(socketPath)
     }
 
+    private func applySocketPermissions() {
+        let permissions = mode_t(accessMode.socketFilePermissions)
+        if chmod(socketPath, permissions) != 0 {
+            let errnoCode = errno
+            print("TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(socketPath)")
+            sentryBreadcrumb(
+                "socket.listener.permissions.failed",
+                category: "socket",
+                data: socketListenerEventData(
+                    stage: "chmod",
+                    errnoCode: errnoCode,
+                    extra: ["permissions": String(permissions, radix: 8)]
+                )
+            )
+        }
+    }
+
+    private func writeSocketResponse(_ response: String, to socket: Int32) {
+        let payload = response + "\n"
+        payload.withCString { ptr in
+            _ = write(socket, ptr, strlen(ptr))
+        }
+    }
+
+    private func passwordAuthRequiredResponse(for command: String) -> String {
+        let message = "Authentication required. Send auth <password> first."
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return "ERROR: Authentication required — send auth <password> first"
+        }
+        let id = dict["id"]
+        return v2Error(id: id, code: "auth_required", message: message)
+    }
+
+    private func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        let lowered = command.lowercased()
+        guard lowered == "auth" || lowered.hasPrefix("auth ") else {
+            return nil
+        }
+        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+            return "ERROR: Password mode is enabled but no socket password is configured in Settings."
+        }
+
+        let provided: String
+        if lowered == "auth" {
+            provided = ""
+        } else {
+            provided = String(command.dropFirst(5))
+        }
+        guard !provided.isEmpty else {
+            return "ERROR: Missing password. Usage: auth <password>"
+        }
+        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+            return "ERROR: Invalid password"
+        }
+        authenticated = true
+        return "OK: Authenticated"
+    }
+
+    private func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        guard command.hasPrefix("{"),
+              let data = command.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+            return nil
+        }
+        let id = dict["id"]
+        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard method == "auth.login" else {
+            return nil
+        }
+
+        guard let params = dict["params"] as? [String: Any],
+              let provided = params["password"] as? String else {
+            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+        }
+
+        guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
+            return v2Error(
+                id: id,
+                code: "auth_unconfigured",
+                message: "Password mode is enabled but no socket password is configured in Settings."
+            )
+        }
+
+        guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
+            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
+        }
+        authenticated = true
+        return v2Ok(id: id, result: ["authenticated": true])
+    }
+
+    private func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+        guard accessMode.requiresPasswordAuth else {
+            return nil
+        }
+        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+            return v2Response
+        }
+        if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
+            return v1Response
+        }
+        if !authenticated {
+            return passwordAuthRequiredResponse(for: command)
+        }
+        return nil
+    }
+
     private nonisolated func acceptLoop() {
         acceptLoopAlive = true
+        sentryBreadcrumb(
+            "socket.listener.accept_loop.started",
+            category: "socket",
+            data: socketListenerEventData(stage: "accept_loop_start")
+        )
+        var exitReason = "stopped"
+        var lastAcceptErrno: Int32?
         defer {
+            if isRunning && exitReason == "stopped" {
+                exitReason = "unexpected_loop_exit"
+            }
+            let shouldCaptureExit = exitReason != "stopped"
             acceptLoopAlive = false
             isRunning = false
+            if shouldCaptureExit {
+                let data = socketListenerEventData(
+                    stage: "accept_loop_exit",
+                    errnoCode: lastAcceptErrno,
+                    extra: ["reason": exitReason]
+                )
+                sentryBreadcrumb("socket.listener.accept_loop.exited", category: "socket", data: data)
+                sentryCaptureError(
+                    "socket.listener.accept_loop.exited",
+                    category: "socket",
+                    data: data,
+                    contextKey: "socket_listener"
+                )
+            }
         }
 
         var consecutiveFailures = 0
@@ -234,10 +685,24 @@ class TerminalController {
 
             guard clientSocket >= 0 else {
                 if isRunning {
+                    let errnoCode = errno
+                    lastAcceptErrno = errnoCode
                     consecutiveFailures += 1
                     print("TerminalController: Accept failed (\(consecutiveFailures) consecutive)")
+                    if consecutiveFailures == 1 || consecutiveFailures % 10 == 0 {
+                        sentryBreadcrumb(
+                            "socket.listener.accept.failed",
+                            category: "socket",
+                            data: socketListenerEventData(
+                                stage: "accept",
+                                errnoCode: errnoCode,
+                                extra: ["consecutiveFailures": consecutiveFailures]
+                            )
+                        )
+                    }
                     if consecutiveFailures >= 50 {
                         print("TerminalController: Too many consecutive accept failures, exiting accept loop")
+                        exitReason = "too_many_accept_failures"
                         break
                     }
                     usleep(10_000) // 10ms backoff
@@ -263,7 +728,7 @@ class TerminalController {
         defer { close(socket) }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
-        // In allowAll mode (env-var only), skip the ancestry check.
+        // Other modes allow external clients and apply separate auth controls.
         if accessMode == .cmuxOnly {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
@@ -293,6 +758,7 @@ class TerminalController {
 
         var buffer = [UInt8](repeating: 0, count: 4096)
         var pending = ""
+        var authenticated = false
 
         while isRunning {
             let bytesRead = read(socket, &buffer, buffer.count - 1)
@@ -307,11 +773,13 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                let response = processCommand(trimmed)
-                let payload = response + "\n"
-                payload.withCString { ptr in
-                    _ = write(socket, ptr, strlen(ptr))
+                if let authResponse = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
+                    writeSocketResponse(authResponse, to: socket)
+                    continue
                 }
+
+                let response = processCommand(trimmed)
+                writeSocketResponse(response, to: socket)
             }
         }
     }
@@ -331,9 +799,17 @@ class TerminalController {
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
-        switch cmd {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        let response = withSocketCommandPolicy(commandKey: cmd, isV2: false) {
+            switch cmd {
         case "ping":
             return "PONG"
+
+        case "auth":
+            return "OK: Authentication not required"
 
         case "list_windows":
             return listWindows()
@@ -413,11 +889,29 @@ class TerminalController {
         case "set_status":
             return setStatus(args)
 
+        case "report_meta":
+            return reportMeta(args)
+
+        case "report_meta_block":
+            return reportMetaBlock(args)
+
         case "clear_status":
             return clearStatus(args)
 
+        case "clear_meta":
+            return clearMeta(args)
+
+        case "clear_meta_block":
+            return clearMetaBlock(args)
+
         case "list_status":
             return listStatus(args)
+
+        case "list_meta":
+            return listMeta(args)
+
+        case "list_meta_blocks":
+            return listMetaBlocks(args)
 
         case "log":
             return appendLog(args)
@@ -439,6 +933,15 @@ class TerminalController {
 
         case "clear_git_branch":
             return clearGitBranch(args)
+
+        case "report_pr":
+            return reportPullRequest(args)
+
+        case "report_review":
+            return reportPullRequest(args)
+
+        case "clear_pr":
+            return clearPullRequest(args)
 
         case "report_ports":
             return reportPorts(args)
@@ -621,6 +1124,19 @@ class TerminalController {
         default:
             return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
         }
+        }
+
+        #if DEBUG
+        if cmd == "new_workspace" || cmd == "send" || cmd == "send_surface" {
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let status = response.hasPrefix("OK") ? "ok" : "err"
+            dlog(
+                "socket.v1 cmd=\(cmd) status=\(status) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+            )
+        }
+        #endif
+
+        return response
     }
 
     // MARK: - V2 JSON Socket Protocol
@@ -655,7 +1171,12 @@ class TerminalController {
         v2MainSync { self.v2RefreshKnownRefs() }
 
 
-        switch method {
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+
+        let response = withSocketCommandPolicy(commandKey: method, isV2: true) {
+            switch method {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
@@ -663,6 +1184,16 @@ class TerminalController {
 
         case "system.identify":
             return v2Ok(id: id, result: v2Identify(params: params))
+        case "system.tree":
+            return v2Result(id: id, self.v2SystemTree(params: params))
+        case "auth.login":
+            return v2Ok(
+                id: id,
+                result: [
+                    "authenticated": true,
+                    "required": accessMode.requiresPasswordAuth
+                ]
+            )
 
         // Windows
         case "window.list":
@@ -968,6 +1499,28 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugType(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
+        case "debug.command_palette.toggle":
+            return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
+        case "debug.command_palette.rename_tab.open":
+            return v2Result(id: id, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
+        case "debug.command_palette.visible":
+            return v2Result(id: id, self.v2DebugCommandPaletteVisible(params: params))
+        case "debug.command_palette.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
+        case "debug.command_palette.results":
+            return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.rename_input.interact":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
+        case "debug.command_palette.rename_input.delete_backward":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputDeleteBackward(params: params))
+        case "debug.command_palette.rename_input.selection":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelection(params: params))
+        case "debug.command_palette.rename_input.select_all":
+            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
+        case "debug.browser.address_bar_focused":
+            return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
+        case "debug.sidebar.visible":
+            return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
             return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
         case "debug.terminal.read_text":
@@ -1001,6 +1554,19 @@ class TerminalController {
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
+        }
+
+        #if DEBUG
+        if method == "workspace.create" || method == "surface.send_text" {
+            let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+            let status = response.contains("\"ok\":true") ? "ok" : "err"
+            dlog(
+                "socket.v2 method=\(method) status=\(status) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+            )
+        }
+        #endif
+
+        return response
     }
 
     private func v2Capabilities() -> [String: Any] {
@@ -1008,6 +1574,8 @@ class TerminalController {
             "system.ping",
             "system.capabilities",
             "system.identify",
+            "system.tree",
+            "auth.login",
             "window.list",
             "window.current",
             "window.focus",
@@ -1154,6 +1722,17 @@ class TerminalController {
             "debug.shortcut.simulate",
             "debug.type",
             "debug.app.activate",
+            "debug.command_palette.toggle",
+            "debug.command_palette.rename_tab.open",
+            "debug.command_palette.visible",
+            "debug.command_palette.selection",
+            "debug.command_palette.results",
+            "debug.command_palette.rename_input.interact",
+            "debug.command_palette.rename_input.delete_backward",
+            "debug.command_palette.rename_input.selection",
+            "debug.command_palette.rename_input.select_all",
+            "debug.browser.address_bar_focused",
+            "debug.sidebar.visible",
             "debug.terminal.is_focused",
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
@@ -1263,6 +1842,203 @@ class TerminalController {
             "socket_path": socketPath,
             "focused": focused.isEmpty ? NSNull() : focused,
             "caller": v2OrNull(resolvedCaller)
+        ]
+    }
+
+    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let includeAllWindows = v2Bool(params, "all_windows") ?? false
+
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+        let identifyPayload = v2Identify(params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+
+        var windowNodes: [[String: Any]] = []
+        var workspaceFound = (workspaceFilter == nil)
+
+        v2MainSync {
+            guard let app = AppDelegate.shared else { return }
+            let summaries = app.listMainWindowSummaries()
+            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+
+            for (windowIndex, summary) in summaries.enumerated() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+
+                if let workspaceFilter {
+                    guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
+                        continue
+                    }
+                    let workspace = manager.tabs[workspaceIndex]
+                    let workspaceNode = v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                    windowNodes = [
+                        v2TreeWindowNode(
+                            summary: summary,
+                            index: windowIndex,
+                            workspaceNodes: [workspaceNode]
+                        )
+                    ]
+                    workspaceFound = true
+                    break
+                }
+
+                if !includeAllWindows && summary.windowId != defaultWindowId {
+                    continue
+                }
+
+                let workspaceNodesForWindow = manager.tabs.enumerated().map { workspaceIndex, workspace in
+                    v2TreeWorkspaceNode(
+                        workspace: workspace,
+                        index: workspaceIndex,
+                        selected: workspace.id == manager.selectedTabId
+                    )
+                }
+
+                windowNodes.append(
+                    v2TreeWindowNode(
+                        summary: summary,
+                        index: windowIndex,
+                        workspaceNodes: workspaceNodesForWindow
+                    )
+                )
+            }
+        }
+
+        if let workspaceFilter, !workspaceFound {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: [
+                    "workspace_id": workspaceFilter.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+
+        return .ok([
+            "active": focused.isEmpty ? (NSNull() as Any) : focused,
+            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "windows": windowNodes
+        ])
+    }
+
+    private func v2TreeWindowNode(
+        summary: AppDelegate.MainWindowSummary,
+        index: Int,
+        workspaceNodes: [[String: Any]]
+    ) -> [String: Any] {
+        return [
+            "id": summary.windowId.uuidString,
+            "ref": v2Ref(kind: .window, uuid: summary.windowId),
+            "index": index,
+            "key": summary.isKeyWindow,
+            "visible": summary.isVisible,
+            "workspace_count": workspaceNodes.count,
+            "selected_workspace_id": v2OrNull(summary.selectedWorkspaceId?.uuidString),
+            "selected_workspace_ref": v2Ref(kind: .workspace, uuid: summary.selectedWorkspaceId),
+            "workspaces": workspaceNodes
+        ]
+    }
+
+    private func v2TreeWorkspaceNode(
+        workspace: Workspace,
+        index: Int,
+        selected: Bool
+    ) -> [String: Any] {
+        var paneByPanelId: [UUID: UUID] = [:]
+        var indexInPaneByPanelId: [UUID: Int] = [:]
+        var selectedInPaneByPanelId: [UUID: Bool] = [:]
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        for paneId in paneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            for (tabIndex, tab) in tabs.enumerated() {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { continue }
+                paneByPanelId[panelId] = paneId.id
+                indexInPaneByPanelId[panelId] = tabIndex
+                selectedInPaneByPanelId[panelId] = (tab.id == selectedTab?.id)
+            }
+        }
+
+        var surfacesByPane: [UUID: [[String: Any]]] = [:]
+        let focusedSurfaceId = workspace.focusedPanelId
+        for (surfaceIndex, panel) in orderedPanels(in: workspace).enumerated() {
+            let paneUUID = paneByPanelId[panel.id]
+            let selectedInPane = selectedInPaneByPanelId[panel.id] ?? false
+
+            var item: [String: Any] = [
+                "id": panel.id.uuidString,
+                "ref": v2Ref(kind: .surface, uuid: panel.id),
+                "index": surfaceIndex,
+                "type": panel.panelType.rawValue,
+                "title": workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
+                "focused": panel.id == focusedSurfaceId,
+                "selected": selectedInPane,
+                "selected_in_pane": v2OrNull(selectedInPaneByPanelId[panel.id]),
+                "pane_id": v2OrNull(paneUUID?.uuidString),
+                "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                "index_in_pane": v2OrNull(indexInPaneByPanelId[panel.id])
+            ]
+
+            if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
+                item["url"] = browserPanel.currentURL?.absoluteString ?? ""
+            } else {
+                item["url"] = NSNull()
+            }
+            if let paneUUID {
+                surfacesByPane[paneUUID, default: []].append(item)
+            }
+        }
+
+        for paneUUID in surfacesByPane.keys {
+            surfacesByPane[paneUUID]?.sort {
+                let lhs = ($0["index_in_pane"] as? Int) ?? ($0["index"] as? Int) ?? Int.max
+                let rhs = ($1["index_in_pane"] as? Int) ?? ($1["index"] as? Int) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let focusedPaneId = workspace.bonsplitController.focusedPaneId
+        let panes: [[String: Any]] = paneIds.enumerated().map { paneIndex, paneId in
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let surfaceUUIDs: [UUID] = tabs.compactMap { workspace.panelIdFromSurfaceId($0.id) }
+            let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+            let selectedSurfaceUUID = selectedTab.flatMap { workspace.panelIdFromSurfaceId($0.id) }
+
+            return [
+                "id": paneId.id.uuidString,
+                "ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "index": paneIndex,
+                "focused": paneId == focusedPaneId,
+                "surface_ids": surfaceUUIDs.map { $0.uuidString },
+                "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
+                "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
+                "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
+                "surface_count": surfaceUUIDs.count,
+                "surfaces": surfacesByPane[paneId.id] ?? []
+            ]
+        }
+
+        return [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "index": index,
+            "title": workspace.title,
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "panes": panes
         ]
     }
 
@@ -1614,8 +2390,9 @@ class TerminalController {
         guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
             return .err(code: "internal_error", message: "Failed to create window", data: nil)
         }
-        // The new window should become key, but setActiveTabManager defensively.
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        // Keep active routing stable unless this command is explicitly focus-intent.
+        if socketCommandAllowsInAppFocusMutations(),
+           let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return .ok([
@@ -1689,14 +2466,25 @@ class TerminalController {
         }
 
         var newId: UUID?
+        let shouldFocus = v2FocusAllowed()
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 workingDirectory: workingDirectory,
                 initialTerminalCommand: initialCommand,
-                initialTerminalEnvironment: initialEnv
+                initialTerminalEnvironment: initialEnv,
+                select: shouldFocus
             )
             newId = ws.id
         }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        dlog(
+            "socket.workspace.create focus=\(shouldFocus ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+        )
+        #endif
 
         guard let newId else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
@@ -1720,12 +2508,8 @@ class TerminalController {
         var success = false
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                // If this workspace belongs to another window, bring it forward so focus is visible.
-                if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                    _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                    setActiveTabManager(tabManager)
-                }
-                tabManager.selectWorkspace(ws)
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
                 success = true
             }
         }
@@ -1811,7 +2595,7 @@ class TerminalController {
         guard let windowId = v2UUID(params, "window_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to move workspace", data: nil)
         v2MainSync {
@@ -1931,10 +2715,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No workspace selected", data: nil)
         v2MainSync {
             guard tabManager.selectedTabId != nil else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.selectNextTab()
             guard let workspaceId = tabManager.selectedTabId else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -1956,10 +2737,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No workspace selected", data: nil)
         v2MainSync {
             guard tabManager.selectedTabId != nil else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.selectPreviousTab()
             guard let workspaceId = tabManager.selectedTabId else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -1981,10 +2759,7 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "No previous workspace in history", data: nil)
         v2MainSync {
             guard let before = tabManager.selectedTabId else { return }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
+            v2MaybeFocusWindow(for: tabManager)
             tabManager.navigateBack()
             guard let after = tabManager.selectedTabId, after != before else { return }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -2335,7 +3110,7 @@ class TerminalController {
             "close_left", "close_right", "close_others",
             "new_terminal_right", "new_browser_right",
             "reload", "duplicate",
-            "pin", "unpin", "mark_unread"
+            "pin", "unpin", "mark_read", "mark_unread"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown tab action", data: [
@@ -2348,6 +3123,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
+            let allowFocusMutation = v2FocusAllowed()
 
             let surfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "tab_id") ?? workspace.focusedPanelId
             guard let surfaceId else {
@@ -2449,6 +3225,10 @@ class TerminalController {
                 workspace.setPanelPinned(panelId: surfaceId, pinned: false)
                 finish(["pinned": false])
 
+            case "mark_read", "mark_as_read":
+                workspace.markPanelRead(surfaceId)
+                finish()
+
             case "mark_unread", "mark_as_unread":
                 workspace.markPanelUnread(surfaceId)
                 finish()
@@ -2473,7 +3253,7 @@ class TerminalController {
                 guard let newPanel = workspace.newBrowserSurface(
                     inPane: paneId,
                     url: browserPanel.currentURL,
-                    focus: true
+                    focus: allowFocusMutation
                 ) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
@@ -2494,7 +3274,7 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: true) else {
+                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: allowFocusMutation) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
@@ -2521,7 +3301,7 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: true) else {
+                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: allowFocusMutation) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
@@ -2632,7 +3412,7 @@ class TerminalController {
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "index": index,
                     "type": panel.panelType.rawValue,
-                    "title": panel.displayTitle,
+                    "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "focused": panel.id == focusedSurfaceId,
                     "pane_id": v2OrNull(paneUUID?.uuidString),
                     "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
@@ -2708,15 +3488,8 @@ class TerminalController {
                 return
             }
 
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-
-            // Make sure the workspace is selected so focus effects apply to the visible UI.
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             guard ws.panels[surfaceId] != nil else {
                 result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
@@ -2744,13 +3517,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let targetSurfaceId else {
@@ -2762,7 +3530,12 @@ class TerminalController {
                 return
             }
 
-            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
+            if let newId = tabManager.newSplit(
+                tabId: ws.id,
+                surfaceId: targetSurfaceId,
+                direction: direction,
+                focus: v2FocusAllowed()
+            ) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
@@ -2797,13 +3570,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let paneUUID = v2UUID(params, "pane_id")
             let paneId: PaneID? = {
@@ -2820,9 +3588,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: true)?.id
+                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
             } else {
-                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: true)?.id
+                newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
 
             guard let newPanelId else {
@@ -2940,7 +3708,7 @@ class TerminalController {
         let beforeSurfaceId = v2UUID(params, "before_surface_id")
         let afterSurfaceId = v2UUID(params, "after_surface_id")
         let explicitIndex = v2Int(params, "index")
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         let anchorCount = (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
         if anchorCount > 1 {
@@ -3051,16 +3819,15 @@ class TerminalController {
                     ?? sourceWorkspace.bonsplitController.focusedPaneId
                     ?? sourceWorkspace.bonsplitController.allPaneIds.first
                 if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: true)
+                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
                 return
             }
 
             if focus {
-                _ = app.focusMainWindow(windowId: targetWindowId)
-                setActiveTabManager(targetTabManager)
-                targetTabManager.selectWorkspace(targetWorkspace)
+                v2MaybeFocusWindow(for: targetTabManager)
+                v2MaybeSelectWorkspace(targetTabManager, workspace: targetWorkspace)
             }
 
             result = .ok([
@@ -3230,24 +3997,38 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
-                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
-                return
+            #if DEBUG
+            let sendStart = ProcessInfo.processInfo.systemUptime
+            #endif
+            let queued: Bool
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(text, surface: surface)
+                // Ensure we present a new frame after injecting input so snapshot-based tests (and
+                // socket-driven agents) can observe the updated terminal without requiring a focus
+                // change to trigger a draw.
+                terminalPanel.surface.forceRefresh()
+                queued = false
+            } else {
+                // Avoid blocking the main actor waiting for view/surface attachment.
+                terminalPanel.sendText(text)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                queued = true
             }
-
-            for char in text {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
-            }
-            // Ensure we present a new frame after injecting input so snapshot-based tests (and
-            // socket-driven agents) can observe the updated terminal without requiring a focus
-            // change to trigger a draw.
-            terminalPanel.surface.forceRefresh()
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            #if DEBUG
+            let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
+            dlog(
+                "socket.surface.send_text workspace=\(ws.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+            )
+            #endif
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "queued": queued,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ])
         }
         return result
     }
@@ -3275,7 +4056,7 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
                 return
             }
@@ -3438,6 +4219,154 @@ class TerminalController {
         return "OK \(base64)"
     }
 
+    private struct PasteboardItemSnapshot {
+        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
+    nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed),
+           url.isFileURL,
+           !url.path.isEmpty {
+            return url.path
+        }
+        return trimmed.hasPrefix("/") ? trimmed : nil
+    }
+
+    nonisolated static func shouldRemoveExportedScreenFile(
+        fileURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Bool {
+        let standardizedFile = fileURL.standardizedFileURL
+        let temporary = temporaryDirectory.standardizedFileURL
+        return standardizedFile.path.hasPrefix(temporary.path + "/")
+    }
+
+    nonisolated static func shouldRemoveExportedScreenDirectory(
+        fileURL: URL,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Bool {
+        let directory = fileURL.deletingLastPathComponent().standardizedFileURL
+        let temporary = temporaryDirectory.standardizedFileURL
+        return directory.path.hasPrefix(temporary.path + "/")
+    }
+
+    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        guard let items = pasteboard.pasteboardItems else { return [] }
+        return items.map { item in
+            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
+                guard let data = item.data(forType: type) else { return nil }
+                return (type: type, data: data)
+            }
+            return PasteboardItemSnapshot(representations: representations)
+        }
+    }
+
+    private func restorePasteboardItems(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        _ = pasteboard.clearContents()
+        guard !snapshots.isEmpty else { return }
+
+        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
+            guard !snapshot.representations.isEmpty else { return nil }
+            let item = NSPasteboardItem()
+            for representation in snapshot.representations {
+                item.setData(representation.data, forType: representation.type)
+            }
+            return item
+        }
+        guard !restoredItems.isEmpty else { return }
+        _ = pasteboard.writeObjects(restoredItems)
+    }
+
+    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let firstURL = urls.first,
+           firstURL.isFileURL {
+            return firstURL.path
+        }
+        if let value = pasteboard.string(forType: .string) {
+            return value
+        }
+        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
+    }
+
+    private func readTerminalTextFromVTExportForSnapshot(
+        terminalPanel: TerminalPanel,
+        lineLimit: Int?
+    ) -> String? {
+        // read_text strips style state; VT export keeps ANSI escape sequences.
+        let pasteboard = NSPasteboard.general
+        let snapshot = snapshotPasteboardItems(pasteboard)
+        defer {
+            restorePasteboardItems(snapshot, to: pasteboard)
+        }
+
+        let initialChangeCount = pasteboard.changeCount
+        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+            return nil
+        }
+        guard pasteboard.changeCount != initialChangeCount else {
+            return nil
+        }
+        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
+            return nil
+        }
+
+        let fileURL = URL(fileURLWithPath: exportedPath)
+        defer {
+            if Self.shouldRemoveExportedScreenFile(fileURL: fileURL) {
+                try? FileManager.default.removeItem(at: fileURL)
+                if Self.shouldRemoveExportedScreenDirectory(fileURL: fileURL) {
+                    try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+                }
+            }
+        }
+
+        guard let data = try? Data(contentsOf: fileURL),
+              var output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        if let lineLimit {
+            output = tailTerminalLines(output, maxLines: lineLimit)
+        }
+        return output
+    }
+
+    func readTerminalTextForSnapshot(
+        terminalPanel: TerminalPanel,
+        includeScrollback: Bool = false,
+        lineLimit: Int? = nil
+    ) -> String? {
+        if includeScrollback,
+           let vtOutput = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               lineLimit: lineLimit
+           ) {
+            return vtOutput
+        }
+
+        let response = readTerminalTextBase64(
+            terminalPanel: terminalPanel,
+            includeScrollback: includeScrollback,
+            lineLimit: lineLimit
+        )
+        guard response.hasPrefix("OK ") else { return nil }
+        let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if base64.isEmpty {
+            return ""
+        }
+        guard let data = Data(base64Encoded: base64),
+              let decoded = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return decoded
+    }
+
     private func v2SurfaceTriggerFlash(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3450,14 +4379,9 @@ class TerminalController {
                 return
             }
 
-            // Ensure the flash is visible in the active UI.
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            // Only explicit focus-intent commands may mutate selection state.
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let surfaceId else {
@@ -3538,13 +4462,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
             ws.bonsplitController.focusPane(paneId)
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok(["window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "pane_id": paneId.id.uuidString, "pane_ref": v2Ref(kind: .pane, uuid: paneId.id)])
@@ -3625,13 +4544,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
             guard let focusedPanelId = ws.focusedPanelId else {
                 result = .err(code: "not_found", message: "No focused surface to split", data: nil)
                 return
@@ -3639,9 +4553,20 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = ws.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
+                newPanelId = ws.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: v2FocusAllowed()
+                )?.id
             } else {
-                newPanelId = ws.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
+                newPanelId = ws.newTerminalSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: v2FocusAllowed()
+                )?.id
             }
 
             guard let newPanelId else {
@@ -3858,7 +4783,7 @@ class TerminalController {
         if sourcePaneUUID == targetPaneUUID {
             return .err(code: "invalid_params", message: "pane_id and target_pane_id must be different", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to swap panes", data: nil)
         v2MainSync {
@@ -3941,7 +4866,7 @@ class TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let focus = v2Bool(params, "focus") ?? true
+        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to break pane", data: nil)
         v2MainSync {
@@ -3982,7 +4907,7 @@ class TerminalController {
                 return
             }
 
-            let destinationWorkspace = tabManager.addWorkspace()
+            let destinationWorkspace = tabManager.addWorkspace(select: focus)
             guard let destinationPane = destinationWorkspace.bonsplitController.focusedPaneId
                 ?? destinationWorkspace.bonsplitController.allPaneIds.first else {
                 if let sourcePaneForRollback {
@@ -3990,7 +4915,7 @@ class TerminalController {
                         detached,
                         inPane: sourcePaneForRollback,
                         atIndex: sourceIndex,
-                        focus: true
+                        focus: focus
                     )
                 }
                 result = .err(code: "internal_error", message: "Destination workspace has no pane", data: nil)
@@ -4003,15 +4928,11 @@ class TerminalController {
                         detached,
                         inPane: sourcePaneForRollback,
                         atIndex: sourceIndex,
-                        focus: true
+                        focus: focus
                     )
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to new workspace", data: nil)
                 return
-            }
-
-            if !focus {
-                tabManager.selectWorkspace(sourceWorkspace)
             }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
@@ -4305,6 +5226,12 @@ class TerminalController {
 
     private func v2NormalizeJSValue(_ value: Any?) -> Any {
         guard let value else { return NSNull() }
+        if value is V2BrowserUndefinedSentinel {
+            return [
+                Self.v2BrowserEvalEnvelopeTypeKey: Self.v2BrowserEvalEnvelopeTypeUndefined,
+                Self.v2BrowserEvalEnvelopeValueKey: NSNull()
+            ]
+        }
         if value is NSNull { return NSNull() }
         if let v = value as? String { return v }
         if let v = value as? NSNumber { return v }
@@ -4327,18 +5254,35 @@ class TerminalController {
         case failure(String)
     }
 
-    private func v2RunJavaScript(_ webView: WKWebView, script: String, timeout: TimeInterval = 5.0) -> V2JavaScriptResult {
+    private func v2RunJavaScript(
+        _ webView: WKWebView,
+        script: String,
+        timeout: TimeInterval = 5.0,
+        preferAsync: Bool = false
+    ) -> V2JavaScriptResult {
         var done = false
         var resultValue: Any?
         var resultError: String?
 
-        webView.evaluateJavaScript(script) { value, error in
-            if let error {
-                resultError = error.localizedDescription
-            } else {
-                resultValue = value
+        if preferAsync, #available(macOS 11.0, *) {
+            webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { result in
+                switch result {
+                case .success(let value):
+                    resultValue = value
+                case .failure(let error):
+                    resultError = error.localizedDescription
+                }
+                done = true
             }
-            done = true
+        } else {
+            webView.evaluateJavaScript(script) { value, error in
+                if let error {
+                    resultError = error.localizedDescription
+                } else {
+                    resultValue = value
+                }
+                done = true
+            }
         }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -4400,30 +5344,76 @@ class TerminalController {
         script: String,
         timeout: TimeInterval = 5.0
     ) -> V2JavaScriptResult {
-        guard let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) else {
-            return v2RunJavaScript(webView, script: script, timeout: timeout)
+        let scriptLiteral = v2JSONLiteral(script)
+        let framePrelude: String
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
+            let selectorLiteral = v2JSONLiteral(frameSelector)
+            framePrelude = """
+            let __cmuxDoc = document;
+            try {
+              const __cmuxFrame = document.querySelector(\(selectorLiteral));
+              if (__cmuxFrame && __cmuxFrame.contentDocument) {
+                __cmuxDoc = __cmuxFrame.contentDocument;
+              }
+            } catch (_) {}
+            """
+        } else {
+            framePrelude = "const __cmuxDoc = document;"
         }
 
-        let selectorLiteral = v2JSONLiteral(frameSelector)
-        let scriptLiteral = v2JSONLiteral(script)
-        let wrapped = """
-        (() => {
-          let __cmuxDoc = document;
-          try {
-            const __cmuxFrame = document.querySelector(\(selectorLiteral));
-            if (__cmuxFrame && __cmuxFrame.contentDocument) {
-              __cmuxDoc = __cmuxFrame.contentDocument;
-            }
-          } catch (_) {}
+        let asyncFunctionBody = """
+        \(framePrelude)
 
-          const __cmuxEvalInFrame = function() {
-            const document = __cmuxDoc;
-            return eval(\(scriptLiteral));
+        const __cmuxMaybeAwait = async (__r) => {
+          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
+            return await __r;
+          }
+          return __r;
+        };
+
+        const __cmuxEvalInFrame = async function() {
+          const document = __cmuxDoc;
+          const __r = eval(\(scriptLiteral));
+          const __value = await __cmuxMaybeAwait(__r);
+          return {
+            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
+            __cmux_v: __value
           };
-          return __cmuxEvalInFrame();
-        })()
+        };
+
+        return await __cmuxEvalInFrame();
         """
-        return v2RunJavaScript(webView, script: wrapped, timeout: timeout)
+
+        let rawResult: V2JavaScriptResult
+        if #available(macOS 11.0, *) {
+            rawResult = v2RunJavaScript(webView, script: asyncFunctionBody, timeout: timeout, preferAsync: true)
+        } else {
+            let evaluateFallback = """
+            (async () => {
+              \(asyncFunctionBody)
+            })()
+            """
+            rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout)
+        }
+
+        switch rawResult {
+        case .failure(let message):
+            return .failure(message)
+        case .success(let value):
+            guard let dict = value as? [String: Any],
+                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
+                return .success(value)
+            }
+
+            switch type {
+            case Self.v2BrowserEvalEnvelopeTypeUndefined:
+                return .success(v2BrowserUndefinedSentinel)
+            case Self.v2BrowserEvalEnvelopeTypeValue:
+                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
+            default:
+                return .success(value)
+            }
+        }
     }
 
     private func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
@@ -4549,13 +5539,8 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
@@ -4573,11 +5558,16 @@ class TerminalController {
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: v2FocusAllowed())
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+                createdPanel = ws.newBrowserSplit(
+                    from: sourceSurfaceId,
+                    orientation: .horizontal,
+                    url: url,
+                    focus: v2FocusAllowed()
+                )
             }
 
             guard let browserPanelId = createdPanel?.id else {
@@ -5832,13 +6822,8 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager),
                   let browserPanel = ws.browserPanel(for: surfaceId) else { return }
 
-            if let windowId = v2ResolveWindowId(tabManager: tabManager) {
-                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-                setActiveTabManager(tabManager)
-            }
-            if tabManager.selectedTabId != ws.id {
-                tabManager.selectWorkspace(ws)
-            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             browserPanel.suppressOmnibarAutofocus(for: 1.0)
@@ -6410,99 +7395,26 @@ class TerminalController {
         }
     }
 
-    private func v2BrowserEnsureTelemetryHooks(surfaceId: UUID, browserPanel: BrowserPanel) {
-        let script = """
-        (() => {
-          if (window.__cmuxHooksInstalled) return true;
-          window.__cmuxHooksInstalled = true;
+    private func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
+    }
 
-          window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
-          const __pushConsole = (level, args) => {
-            try {
-              const text = Array.from(args || []).map((x) => {
-                if (typeof x === 'string') return x;
-                try { return JSON.stringify(x); } catch (_) { return String(x); }
-              }).join(' ');
-              window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
-              if (window.__cmuxConsoleLog.length > 512) {
-                window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
-              }
-            } catch (_) {}
-          };
-
-          const methods = ['log', 'info', 'warn', 'error', 'debug'];
-          for (const m of methods) {
-            const orig = (window.console && window.console[m]) ? window.console[m].bind(window.console) : null;
-            window.console[m] = function(...args) {
-              __pushConsole(m, args);
-              if (orig) return orig(...args);
-            };
-          }
-
-          window.__cmuxErrorLog = window.__cmuxErrorLog || [];
-          window.addEventListener('error', (ev) => {
-            try {
-              const message = String((ev && ev.message) || '');
-              const source = String((ev && ev.filename) || '');
-              const line = Number((ev && ev.lineno) || 0);
-              const col = Number((ev && ev.colno) || 0);
-              window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-          window.addEventListener('unhandledrejection', (ev) => {
-            try {
-              const reason = ev && ev.reason;
-              const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
-              window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
-              if (window.__cmuxErrorLog.length > 512) {
-                window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
-              }
-            } catch (_) {}
-          });
-
-          window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
-          window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
-          const __pushDialog = (type, message, defaultText) => {
-            window.__cmuxDialogQueue.push({
-              type,
-              message: String(message || ''),
-              default_text: defaultText == null ? null : String(defaultText),
-              timestamp_ms: Date.now()
-            });
-            if (window.__cmuxDialogQueue.length > 128) {
-              window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
-            }
-          };
-
-          window.alert = function(message) {
-            __pushDialog('alert', message, null);
-          };
-          window.confirm = function(message) {
-            __pushDialog('confirm', message, null);
-            return !!window.__cmuxDialogDefaults.confirm;
-          };
-          window.prompt = function(message, defaultValue) {
-            __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
-            const v = window.__cmuxDialogDefaults.prompt;
-            if (v === null || v === undefined) {
-              return defaultValue == null ? '' : String(defaultValue);
-            }
-            return String(v);
-          };
-
-          return true;
-        })()
-        """
-
-        _ = v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0)
+    private func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel) {
+        _ = v2RunJavaScript(
+            browserPanel.webView,
+            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            timeout: 5.0
+        )
     }
 
     private func v2BrowserDialogRespond(params: [String: Any], accept: Bool) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            v2BrowserEnsureDialogHooks(browserPanel: browserPanel)
             let text = v2String(params, "text") ?? v2String(params, "prompt_text")
             let acceptLiteral = accept ? "true" : "false"
             let textLiteral = text.map(v2JSONLiteral) ?? "null"
@@ -6948,7 +7860,7 @@ class TerminalController {
                     "id": panel.id.uuidString,
                     "ref": v2Ref(kind: .surface, uuid: panel.id),
                     "index": index,
-                    "title": panel.displayTitle,
+                    "title": ws.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                     "url": panel.currentURL?.absoluteString ?? "",
                     "focused": panel.id == ws.focusedPanelId,
                     "pane_id": v2OrNull(ws.paneId(forPanelId: panel.id)?.id.uuidString),
@@ -6993,7 +7905,7 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: true) else {
+            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: v2FocusAllowed()) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -7529,6 +8441,294 @@ class TerminalController {
         return resp == "OK" ? .ok([:]) : .err(code: "internal_error", message: resp, data: nil)
     }
 
+    private func v2DebugToggleCommandPalette(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: ["window_id": requestedWindowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugOpenCommandPaletteRenameTabInput(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
+    private func v2DebugCommandPaletteSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visible = false
+        var selectedIndex = 0
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex)
+        ])
+    }
+
+    private func v2DebugCommandPaletteResults(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        let requestedLimit = params["limit"] as? Int
+        let limit = max(1, min(100, requestedLimit ?? 20))
+
+        var visible = false
+        var selectedIndex = 0
+        var snapshot = CommandPaletteDebugSnapshot.empty
+
+        DispatchQueue.main.sync {
+            visible = AppDelegate.shared?.isCommandPaletteVisible(windowId: windowId) ?? false
+            selectedIndex = AppDelegate.shared?.commandPaletteSelectionIndex(windowId: windowId) ?? 0
+            snapshot = AppDelegate.shared?.commandPaletteSnapshot(windowId: windowId) ?? .empty
+        }
+
+        let rows = Array(snapshot.results.prefix(limit)).map { row in
+            [
+                "command_id": row.commandId,
+                "title": row.title,
+                "shortcut_hint": v2OrNull(row.shortcutHint),
+                "trailing_label": v2OrNull(row.trailingLabel),
+                "score": row.score
+            ] as [String: Any]
+        }
+
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible,
+            "selected_index": max(0, selectedIndex),
+            "query": snapshot.query,
+            "mode": snapshot.mode,
+            "results": rows
+        ])
+    }
+
+    private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputInteractionRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputDeleteBackward(params: [String: Any]) -> V2CallResult {
+        let requestedWindowId = v2UUID(params, "window_id")
+        var result: V2CallResult = .ok([:])
+        DispatchQueue.main.sync {
+            let targetWindow: NSWindow?
+            if let requestedWindowId {
+                guard let window = AppDelegate.shared?.mainWindow(for: requestedWindowId) else {
+                    result = .err(
+                        code: "not_found",
+                        message: "Window not found",
+                        data: [
+                            "window_id": requestedWindowId.uuidString,
+                            "window_ref": v2Ref(kind: .window, uuid: requestedWindowId)
+                        ]
+                    )
+                    return
+                }
+                targetWindow = window
+            } else {
+                targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
+            }
+            NotificationCenter.default.post(name: .commandPaletteRenameInputDeleteBackwardRequested, object: targetWindow)
+        }
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelection(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "focused": false,
+            "selection_location": 0,
+            "selection_length": 0,
+            "text_length": 0
+        ])
+
+        DispatchQueue.main.sync {
+            guard let window = AppDelegate.shared?.mainWindow(for: windowId) else {
+                result = .err(
+                    code: "not_found",
+                    message: "Window not found",
+                    data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+                )
+                return
+            }
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+                return
+            }
+            let selectedRange = editor.selectedRange()
+            let textLength = (editor.string as NSString).length
+            result = .ok([
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "focused": true,
+                "selection_location": max(0, selectedRange.location),
+                "selection_length": max(0, selectedRange.length),
+                "text_length": max(0, textLength)
+            ])
+        }
+
+        return result
+    }
+
+    private func v2DebugCommandPaletteRenameInputSelectAll(params: [String: Any]) -> V2CallResult {
+        if let rawEnabled = params["enabled"] {
+            guard let enabled = rawEnabled as? Bool else {
+                return .err(
+                    code: "invalid_params",
+                    message: "enabled must be a bool",
+                    data: ["enabled": rawEnabled]
+                )
+            }
+            DispatchQueue.main.sync {
+                UserDefaults.standard.set(
+                    enabled,
+                    forKey: CommandPaletteRenameSelectionSettings.selectAllOnFocusKey
+                )
+            }
+        }
+
+        var enabled = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        DispatchQueue.main.sync {
+            enabled = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
+        }
+
+        return .ok([
+            "enabled": enabled
+        ])
+    }
+
+    private func v2DebugBrowserAddressBarFocused(params: [String: Any]) -> V2CallResult {
+        let requestedSurfaceId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id")
+        var focusedSurfaceId: UUID?
+        DispatchQueue.main.sync {
+            focusedSurfaceId = AppDelegate.shared?.focusedBrowserAddressBarPanelId()
+        }
+
+        var payload: [String: Any] = [
+            "focused_surface_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_surface_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused_panel_id": v2OrNull(focusedSurfaceId?.uuidString),
+            "focused_panel_ref": v2Ref(kind: .surface, uuid: focusedSurfaceId),
+            "focused": focusedSurfaceId != nil
+        ]
+
+        if let requestedSurfaceId {
+            payload["surface_id"] = requestedSurfaceId.uuidString
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["panel_id"] = requestedSurfaceId.uuidString
+            payload["panel_ref"] = v2Ref(kind: .surface, uuid: requestedSurfaceId)
+            payload["focused"] = (focusedSurfaceId == requestedSurfaceId)
+        }
+
+        return .ok(payload)
+    }
+
+    private func v2DebugSidebarVisible(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        var visibility: Bool?
+        DispatchQueue.main.sync {
+            visibility = AppDelegate.shared?.sidebarVisibility(windowId: windowId)
+        }
+        guard let visible = visibility else {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: ["window_id": windowId.uuidString, "window_ref": v2Ref(kind: .window, uuid: windowId)]
+            )
+        }
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "visible": visible
+        ])
+    }
+
     private func v2DebugIsTerminalFocused(params: [String: Any]) -> V2CallResult {
         guard let surfaceId = v2String(params, "surface_id") else {
             return .err(code: "invalid_params", message: "Missing surface_id", data: nil)
@@ -7797,6 +8997,7 @@ class TerminalController {
 
         Available commands:
           ping                        - Check if server is running
+          auth <password>             - Authenticate this connection (required in password mode)
           list_workspaces             - List all workspaces with IDs
           new_workspace               - Create a new workspace
           select_workspace <id|index> - Select workspace by ID or index (0-based)
@@ -7833,16 +9034,25 @@ class TerminalController {
           clear_notifications             - Clear all notifications
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
-          set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X] - Set a status entry
+          set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
+          report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
+          report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
           clear_status <key> [--tab=X] - Remove a status entry
+          clear_meta <key> [--tab=X] - Remove sidebar metadata entry
+          clear_meta_block <key> [--tab=X] - Remove sidebar markdown block
           list_status [--tab=X]   - List all status entries
+          list_meta [--tab=X]     - List sidebar metadata entries
+          list_meta_blocks [--tab=X] - List sidebar markdown blocks
           log [--level=X] [--source=X] [--tab=X] -- <message> - Append a log entry
           clear_log [--tab=X]     - Clear log entries
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
           clear_progress [--tab=X] - Clear progress bar
-          report_git_branch <branch> [--status=dirty] [--tab=X] - Report git branch
-          clear_git_branch [--tab=X] - Clear git branch
+          report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
+          clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
+          report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request / review item
+          report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
+          clear_pr [--tab=X] [--panel=Y] - Clear pull request
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
@@ -7901,6 +9111,37 @@ class TerminalController {
     }
 
 #if DEBUG
+    private func debugShortcutName(for action: KeyboardShortcutSettings.Action) -> String {
+        let snakeCase = action.rawValue.replacingOccurrences(
+            of: "([a-z0-9])([A-Z])",
+            with: "$1_$2",
+            options: .regularExpression
+        )
+        return snakeCase.lowercased()
+    }
+
+    private func debugShortcutAction(named rawName: String) -> KeyboardShortcutSettings.Action? {
+        let normalized = rawName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let snakeCaseName = debugShortcutName(for: action)
+            if normalized == snakeCaseName || normalized == snakeCaseName.replacingOccurrences(of: "_", with: "") {
+                return action
+            }
+        }
+        return nil
+    }
+
+    private func debugShortcutSupportedNames() -> String {
+        KeyboardShortcutSettings.Action.allCases
+            .map(debugShortcutName(for:))
+            .sorted()
+            .joined(separator: ", ")
+    }
+
     private func setShortcut(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -7908,29 +9149,15 @@ class TerminalController {
             return "ERROR: Usage: set_shortcut <name> <combo|clear>"
         }
 
-        let name = parts[0].lowercased()
+        let name = parts[0]
         let combo = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let defaultsKey: String?
-        switch name {
-        case "focus_left", "focusleft":
-            defaultsKey = KeyboardShortcutSettings.focusLeftKey
-        case "focus_right", "focusright":
-            defaultsKey = KeyboardShortcutSettings.focusRightKey
-        case "focus_up", "focusup":
-            defaultsKey = KeyboardShortcutSettings.focusUpKey
-        case "focus_down", "focusdown":
-            defaultsKey = KeyboardShortcutSettings.focusDownKey
-        default:
-            defaultsKey = nil
-        }
-
-        guard let defaultsKey else {
-            return "ERROR: Unknown shortcut name. Supported: focus_left, focus_right, focus_up, focus_down"
+        guard let action = debugShortcutAction(named: name) else {
+            return "ERROR: Unknown shortcut name. Supported: \(debugShortcutSupportedNames())"
         }
 
         if combo.lowercased() == "clear" || combo.lowercased() == "default" || combo.lowercased() == "reset" {
-            UserDefaults.standard.removeObject(forKey: defaultsKey)
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             return "OK"
         }
 
@@ -7948,7 +9175,7 @@ class TerminalController {
         guard let data = try? JSONEncoder().encode(shortcut) else {
             return "ERROR: Failed to encode shortcut"
         }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        UserDefaults.standard.set(data, forKey: action.defaultsKey)
         return "OK"
     }
 
@@ -7967,17 +9194,24 @@ class TerminalController {
 	
 	        var result = "ERROR: Failed to create event"
 	        DispatchQueue.main.sync {
-	            // Tests can run while the app is activating (no keyWindow yet). Prefer a visible
-	            // window to keep input simulation deterministic in debug builds.
-	            let targetWindow = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first
+	            // Prefer the current active-tab-manager window so shortcut simulation stays
+	            // scoped to the intended window even when NSApp.keyWindow is stale.
+	            let targetWindow: NSWindow? = {
+	                if let activeTabManager = self.tabManager,
+	                   let windowId = AppDelegate.shared?.windowId(for: activeTabManager),
+	                   let window = AppDelegate.shared?.mainWindow(for: windowId) {
+	                    return window
+	                }
+	                return NSApp.keyWindow
+	                    ?? NSApp.mainWindow
+	                    ?? NSApp.windows.first(where: { $0.isVisible })
+	                    ?? NSApp.windows.first
+	            }()
 	            if let targetWindow {
 	                NSApp.activate(ignoringOtherApps: true)
 	                targetWindow.makeKeyAndOrderFront(nil)
 	            }
-	            let windowNumber = (NSApp.keyWindow ?? targetWindow)?.windowNumber ?? 0
+	            let windowNumber = targetWindow?.windowNumber ?? 0
 	            guard let keyDownEvent = NSEvent.keyEvent(
 	                with: .keyDown,
 	                location: .zero,
@@ -8056,20 +9290,20 @@ class TerminalController {
         // Socket commands are line-based; allow callers to express control chars with backslash escapes.
         let text = unescapeSocketText(raw)
 
-	        var result = "ERROR: No window"
-	        DispatchQueue.main.sync {
-	            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
-	            // fail during key window transitions.
-	            guard let window = NSApp.keyWindow
-	                ?? NSApp.mainWindow
-	                ?? NSApp.windows.first(where: { $0.isVisible })
-	                ?? NSApp.windows.first else { return }
-	            NSApp.activate(ignoringOtherApps: true)
-	            window.makeKeyAndOrderFront(nil)
-	            guard let fr = window.firstResponder else {
-	                result = "ERROR: No first responder"
-	                return
-	            }
+        var result = "ERROR: No window"
+        DispatchQueue.main.sync {
+            // Like simulate_shortcut, prefer a visible window so debug automation doesn't
+            // fail during key window transitions.
+            guard let window = NSApp.keyWindow
+                ?? NSApp.mainWindow
+                ?? NSApp.windows.first(where: { $0.isVisible })
+                ?? NSApp.windows.first else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            guard let fr = window.firstResponder else {
+                result = "ERROR: No first responder"
+                return
+            }
 
             if let client = fr as? NSTextInputClient {
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -8077,7 +9311,22 @@ class TerminalController {
                 return
             }
 
-            // Fall back to the responder chain insertText action.
+            // If workspace handoff temporarily leaves a non-terminal first responder,
+            // route debug typing to the selected terminal's focused panel directly.
+            if let tabManager,
+               let tabId = tabManager.selectedTabId,
+               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
+               let panelId = tab.focusedPanelId,
+               let terminalPanel = tab.terminalPanel(for: panelId),
+               !terminalPanel.hostedView.isSurfaceViewFirstResponder() {
+                // Match Enter semantics expected by tests/debug tooling when bypassing AppKit.
+                let directText = text.replacingOccurrences(of: "\n", with: "\r")
+                terminalPanel.surface.sendText(directText)
+                result = "OK"
+                return
+            }
+
+            // Fall back to the responder-chain insertText action.
             (fr as? NSResponder)?.insertText(text)
             result = "OK"
         }
@@ -8670,6 +9919,10 @@ class TerminalController {
         let charactersIgnoringModifiers: String
 
         switch keyToken.lowercased() {
+        case "esc", "escape":
+            storedKey = "\u{1b}"
+            keyCode = UInt16(kVK_Escape)
+            charactersIgnoringModifiers = storedKey
         case "left":
             storedKey = "←"
             keyCode = 123
@@ -8689,6 +9942,10 @@ class TerminalController {
         case "enter", "return":
             storedKey = "\r"
             keyCode = UInt16(kVK_Return)
+            charactersIgnoringModifiers = storedKey
+        case "backspace", "delete", "del":
+            storedKey = "\u{7f}"
+            keyCode = UInt16(kVK_Delete)
             charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()
@@ -8828,7 +10085,8 @@ class TerminalController {
         guard let windowId = v2MainSync({ AppDelegate.shared?.createMainWindow() }) else {
             return "ERROR: Failed to create window"
         }
-        if let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
+        if socketCommandAllowsInAppFocusMutations(),
+           let tm = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) {
             setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
@@ -8848,6 +10106,7 @@ class TerminalController {
         guard let windowId = UUID(uuidString: parts[1]) else { return "ERROR: Invalid window id" }
 
         var ok = false
+        let focus = socketCommandAllowsInAppFocusMutations()
         v2MainSync {
             guard let srcTM = AppDelegate.shared?.tabManagerFor(tabId: wsId),
                   let dstTM = AppDelegate.shared?.tabManagerFor(windowId: windowId),
@@ -8855,9 +10114,11 @@ class TerminalController {
                 ok = false
                 return
             }
-            dstTM.attachWorkspace(ws, select: true)
-            _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            setActiveTabManager(dstTM)
+            dstTM.attachWorkspace(ws, select: focus)
+            if focus {
+                _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
+                setActiveTabManager(dstTM)
+            }
             ok = true
         }
 
@@ -8882,10 +10143,20 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
         var newTabId: UUID?
+        let focus = socketCommandAllowsInAppFocusMutations()
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
         DispatchQueue.main.sync {
-            tabManager.addTab()
-            newTabId = tabManager.selectedTabId
+            let workspace = tabManager.addTab(select: focus)
+            newTabId = workspace.id
         }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        dlog(
+            "socket.new_workspace focus=\(focus ? 1 : 0) ms=\(String(format: "%.2f", elapsedMs)) main=\(Thread.isMainThread ? 1 : 0)"
+        )
+        #endif
         return "OK \(newTabId?.uuidString ?? "unknown")"
     }
 
@@ -8929,7 +10200,12 @@ class TerminalController {
                 return
             }
 
-            if let newPanelId = tabManager.newSplit(tabId: tabId, surfaceId: targetSurface, direction: direction) {
+            if let newPanelId = tabManager.newSplit(
+                tabId: tabId,
+                surfaceId: targetSurface,
+                direction: direction,
+                focus: socketCommandAllowsInAppFocusMutations()
+            ) {
                 result = "OK \(newPanelId.uuidString)"
             }
         }
@@ -9865,6 +11141,69 @@ class TerminalController {
         sendKeyEvent(surface: surface, keycode: 0, text: text)
     }
 
+    enum SocketTextChunk: Equatable {
+        case text(String)
+        case control(UnicodeScalar)
+    }
+
+    nonisolated static func socketTextChunks(_ text: String) -> [SocketTextChunk] {
+        guard !text.isEmpty else { return [] }
+
+        var chunks: [SocketTextChunk] = []
+        chunks.reserveCapacity(8)
+        var bufferedText = ""
+        bufferedText.reserveCapacity(text.count)
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
+            chunks.append(.text(bufferedText))
+            bufferedText.removeAll(keepingCapacity: true)
+        }
+
+        for scalar in text.unicodeScalars {
+            if isSocketControlScalar(scalar) {
+                flushBufferedText()
+                chunks.append(.control(scalar))
+            } else {
+                bufferedText.unicodeScalars.append(scalar)
+            }
+        }
+        flushBufferedText()
+        return chunks
+    }
+
+    private nonisolated static func isSocketControlScalar(_ scalar: UnicodeScalar) -> Bool {
+        switch scalar.value {
+        case 0x0A, 0x0D, 0x09, 0x1B, 0x7F:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func sendSocketText(_ text: String, surface: ghostty_surface_t) {
+        let chunks = Self.socketTextChunks(text)
+        #if DEBUG
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        #endif
+        for chunk in chunks {
+            switch chunk {
+            case .text(let value):
+                sendTextEvent(surface: surface, text: value)
+            case .control(let scalar):
+                _ = handleControlScalar(scalar, surface: surface)
+            }
+        }
+        #if DEBUG
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000.0
+        if elapsedMs >= 8 || chunks.count > 1 {
+            dlog(
+                "socket.send_text.inject chars=\(text.count) chunks=\(chunks.count) ms=\(String(format: "%.2f", elapsedMs))"
+            )
+        }
+        #endif
+    }
+
     private func handleControlScalar(_ scalar: UnicodeScalar, surface: ghostty_surface_t) -> Bool {
         switch scalar.value {
         case 0x0A, 0x0D:
@@ -9967,15 +11306,6 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -9983,13 +11313,11 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -10007,20 +11335,18 @@ class TerminalController {
 
         var success = false
         DispatchQueue.main.sync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
+            if let surface = terminalPanel.surface.surface {
+                sendSocketText(unescaped, surface: surface)
+            } else {
+                terminalPanel.sendText(unescaped)
+                terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             success = true
         }
@@ -10041,11 +11367,7 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }
@@ -10067,11 +11389,11 @@ class TerminalController {
         var success = false
         var error: String?
         DispatchQueue.main.sync {
-            guard resolveTerminalPanel(from: target, tabManager: tabManager) != nil else {
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
                 return
             }
-            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 2.0) else {
+            guard let surface = terminalPanel.surface.surface else {
                 error = "ERROR: Surface not ready"
                 return
             }
@@ -10089,6 +11411,7 @@ class TerminalController {
 
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         var result = "ERROR: Failed to create browser panel"
         DispatchQueue.main.sync {
@@ -10098,7 +11421,12 @@ class TerminalController {
                 return
             }
 
-            if let browserPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: .horizontal, url: url)?.id {
+            if let browserPanelId = tab.newBrowserSplit(
+                from: focusedPanelId,
+                orientation: .horizontal,
+                url: url,
+                focus: shouldFocus
+            )?.id {
                 result = "OK \(browserPanelId.uuidString)"
             }
         }
@@ -10500,6 +11828,7 @@ class TerminalController {
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         var result = "ERROR: Failed to create pane"
         DispatchQueue.main.sync {
@@ -10511,9 +11840,20 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst, url: url)?.id
+                newPanelId = tab.newBrowserSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    url: url,
+                    focus: shouldFocus
+                )?.id
             } else {
-                newPanelId = tab.newTerminalSplit(from: focusedPanelId, orientation: orientation, insertFirst: insertFirst)?.id
+                newPanelId = tab.newTerminalSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: shouldFocus
+                )?.id
             }
 
             if let id = newPanelId {
@@ -10689,21 +12029,104 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private func setStatus(_ args: String) -> String {
+    private func resolveTabIdForSidebarMutation(
+        reportArgs: String,
+        options: [String: String]
+    ) -> (tabId: UUID?, error: String?) {
+        var tabId: UUID?
+        DispatchQueue.main.sync {
+            if let tab = resolveTabForReport(reportArgs) {
+                tabId = tab.id
+            }
+        }
+        if let tabId {
+            return (tabId, nil)
+        }
+        let error = options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        return (nil, error)
+    }
+
+    private func tabForSidebarMutation(id: UUID) -> Tab? {
+        if let tab = tabManager?.tabs.first(where: { $0.id == id }) {
+            return tab
+        }
+        if let otherManager = AppDelegate.shared?.tabManagerFor(tabId: id) {
+            return otherManager.tabs.first(where: { $0.id == id })
+        }
+        return nil
+    }
+
+    private func parseSidebarMetadataFormat(_ raw: String) -> SidebarMetadataFormat? {
+        switch raw.lowercased() {
+        case "plain":
+            return .plain
+        case "markdown", "md":
+            return .markdown
+        default:
+            return nil
+        }
+    }
+
+    private func normalizedOptionValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
         guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptionsNoStop(args)
-        guard parsed.positional.count >= 2 else {
-            return "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--tab=X]"
-        }
+        guard parsed.positional.count >= 2 else { return missingError }
+
         let key = parsed.positional[0]
         let value = parsed.positional[1...].joined(separator: " ")
-        let icon = parsed.options["icon"]
-        let color = parsed.options["color"]
+        let icon = normalizedOptionValue(parsed.options["icon"])
+        let color = normalizedOptionValue(parsed.options["color"])
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        let formatRaw = normalizedOptionValue(parsed.options["format"]) ?? SidebarMetadataFormat.plain.rawValue
+        guard let format = parseSidebarMetadataFormat(formatRaw) else {
+            return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
+        }
+
+        let priority: Int
+        if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
+            guard let parsedPriority = Int(rawPriority) else {
+                return "ERROR: Invalid metadata priority '\(rawPriority)' — must be an integer"
+            }
+            priority = max(-9999, min(9999, parsedPriority))
+        } else {
+            priority = 0
+        }
+
+        let parsedURL: URL?
+        if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
+            guard let candidate = URL(string: rawURL),
+                  let scheme = candidate.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
+            }
+            parsedURL = candidate
+        } else {
+            parsedURL = nil
+        }
+
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            guard Self.shouldReplaceStatusEntry(
+                current: tab.statusEntries[key],
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: parsedURL,
+                priority: priority,
+                format: format
+            ) else {
                 return
             }
             tab.statusEntries[key] = SidebarStatusEntry(
@@ -10711,15 +12134,19 @@ class TerminalController {
                 value: value,
                 icon: icon,
                 color: color,
-                timestamp: Date())
+                url: parsedURL,
+                priority: priority,
+                format: format,
+                timestamp: Date()
+            )
         }
-        return result
+        return "OK"
     }
 
-    private func clearStatus(_ args: String) -> String {
+    private func clearSidebarMetadata(_ args: String, usage: String) -> String {
         let parsed = parseOptions(args)
         guard let key = parsed.positional.first, parsed.positional.count == 1 else {
-            return "ERROR: Missing status key — usage: clear_status <key> [--tab=X]"
+            return "ERROR: Missing metadata key — usage: \(usage)"
         }
 
         var result = "OK"
@@ -10735,24 +12162,173 @@ class TerminalController {
         return result
     }
 
-    private func listStatus(_ args: String) -> String {
+    private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {
+        var line = "\(entry.key)=\(entry.value)"
+        if let icon = entry.icon { line += " icon=\(icon)" }
+        if let color = entry.color { line += " color=\(color)" }
+        if let url = entry.url { line += " url=\(url.absoluteString)" }
+        if entry.priority != 0 { line += " priority=\(entry.priority)" }
+        if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        return line
+    }
+
+    private func listSidebarMetadata(_ args: String, emptyMessage: String) -> String {
         var result = ""
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
                 result = "ERROR: Tab not found"
                 return
             }
-            if tab.statusEntries.isEmpty {
-                result = "No status entries"
+            let entries = tab.sidebarStatusEntriesInDisplayOrder()
+            if entries.isEmpty {
+                result = emptyMessage
                 return
             }
-            let lines = tab.statusEntries.values.sorted(by: { $0.key < $1.key }).map { entry in
-                var line = "\(entry.key)=\(entry.value)"
-                if let icon = entry.icon { line += " icon=\(icon)" }
-                if let color = entry.color { line += " color=\(color)" }
-                return line
+            result = entries.map(sidebarMetadataLine).joined(separator: "\n")
+        }
+        return result
+    }
+
+    private func setStatus(_ args: String) -> String {
+        upsertSidebarMetadata(
+            args,
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+        )
+    }
+
+    private func reportMeta(_ args: String) -> String {
+        upsertSidebarMetadata(
+            args,
+            missingError: "ERROR: Missing metadata key or value — usage: report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
+        )
+    }
+
+    private func clearStatus(_ args: String) -> String {
+        clearSidebarMetadata(args, usage: "clear_status <key> [--tab=X]")
+    }
+
+    private func clearMeta(_ args: String) -> String {
+        clearSidebarMetadata(args, usage: "clear_meta <key> [--tab=X]")
+    }
+
+    private func listStatus(_ args: String) -> String {
+        listSidebarMetadata(args, emptyMessage: "No status entries")
+    }
+
+    private func listMeta(_ args: String) -> String {
+        listSidebarMetadata(args, emptyMessage: "No metadata entries")
+    }
+
+    private func splitMetadataBlockArgs(_ args: String) -> (optionsPart: String, markdownPart: String?) {
+        guard let separatorRange = args.range(of: " -- ") else {
+            return (args, nil)
+        }
+        let optionsPart = String(args[..<separatorRange.lowerBound])
+        let markdownPart = String(args[separatorRange.upperBound...])
+        return (optionsPart, markdownPart)
+    }
+
+    private func sidebarMetadataBlockLine(_ block: SidebarMetadataBlock) -> String {
+        var line = "\(block.key)=\(block.markdown.replacingOccurrences(of: "\n", with: "\\n"))"
+        if block.priority != 0 { line += " priority=\(block.priority)" }
+        return line
+    }
+
+    private func reportMetaBlock(_ args: String) -> String {
+        guard tabManager != nil else { return "ERROR: TabManager not available" }
+
+        let parts = splitMetadataBlockArgs(args)
+        let parsed = parseOptionsNoStop(parts.optionsPart)
+        guard let key = parsed.positional.first, !key.isEmpty else {
+            return "ERROR: Missing metadata block key — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let markdown: String
+        if let raw = parts.markdownPart {
+            markdown = raw
+        } else if parsed.positional.count >= 2 {
+            markdown = parsed.positional.dropFirst().joined(separator: " ")
+        } else {
+            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let normalizedMarkdown = markdown
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\t", with: "\t")
+
+        let trimmedMarkdown = normalizedMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedMarkdown.isEmpty else {
+            return "ERROR: Missing metadata markdown — usage: report_meta_block <key> [--priority=N] [--tab=X] -- <markdown>"
+        }
+
+        let priority: Int
+        if let rawPriority = normalizedOptionValue(parsed.options["priority"]) {
+            guard let parsedPriority = Int(rawPriority) else {
+                return "ERROR: Invalid metadata block priority '\(rawPriority)' — must be an integer"
             }
-            result = lines.joined(separator: "\n")
+            priority = max(-9999, min(9999, parsedPriority))
+        } else {
+            priority = 0
+        }
+
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: parts.optionsPart, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            guard Self.shouldReplaceMetadataBlock(
+                current: tab.metadataBlocks[key],
+                key: key,
+                markdown: normalizedMarkdown,
+                priority: priority
+            ) else {
+                return
+            }
+            tab.metadataBlocks[key] = SidebarMetadataBlock(
+                key: key,
+                markdown: normalizedMarkdown,
+                priority: priority,
+                timestamp: Date()
+            )
+        }
+        return "OK"
+    }
+
+    private func clearMetaBlock(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let key = parsed.positional.first, parsed.positional.count == 1 else {
+            return "ERROR: Missing metadata block key — usage: clear_meta_block <key> [--tab=X]"
+        }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            if tab.metadataBlocks.removeValue(forKey: key) == nil {
+                result = "OK (key not found)"
+            }
+        }
+        return result
+    }
+
+    private func listMetaBlocks(_ args: String) -> String {
+        var result = ""
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = "ERROR: Tab not found"
+                return
+            }
+            let blocks = tab.sidebarMetadataBlocksInDisplayOrder()
+            if blocks.isEmpty {
+                result = "No metadata blocks"
+                return
+            }
+            result = blocks.map(sidebarMetadataBlockLine).joined(separator: "\n")
         }
         return result
     }
@@ -10854,6 +12430,9 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
+            guard Self.shouldReplaceProgress(current: tab.progress, value: clamped, label: label) else {
+                return
+            }
             tab.progress = SidebarProgressState(value: clamped, label: label)
         }
         return result
@@ -10866,7 +12445,9 @@ class TerminalController {
                 result = "ERROR: Tab not found"
                 return
             }
-            tab.progress = nil
+            if tab.progress != nil {
+                tab.progress = nil
+            }
         }
         return result
     }
@@ -10874,9 +12455,26 @@ class TerminalController {
     private func reportGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let branch = parsed.positional.first else {
-            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X]"
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
         }
         let isDirty = parsed.options["status"]?.lowercased() == "dirty"
+
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.updatePanelGitBranch(panelId: scope.panelId, branch: branch, isDirty: isDirty)
+            }
+            return "OK"
+        }
 
         var result = "OK"
         DispatchQueue.main.sync {
@@ -10884,19 +12482,220 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.updatePanelGitBranch(panelId: surfaceId, branch: branch, isDirty: isDirty)
         }
         return result
     }
 
     private func clearGitBranch(_ args: String) -> String {
+        let parsed = parseOptions(args)
+
+        // Shell integration always includes explicit workspace/panel IDs.
+        // Keep this telemetry path off-main so wake/main-thread stalls don't
+        // block socket handlers and starve subsequent branch updates.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId),
+                      let tab = tabManager.tabs.first(where: { $0.id == scope.workspaceId }) else {
+                    return
+                }
+                let validSurfaceIds = Set(tab.panels.keys)
+                tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+                guard validSurfaceIds.contains(scope.panelId) else { return }
+                tab.clearPanelGitBranch(panelId: scope.panelId)
+            }
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
-                result = "ERROR: Tab not found"
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = nil
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: clear_git_branch [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.clearPanelGitBranch(panelId: surfaceId)
+        }
+        return result
+    }
+
+    private func reportPullRequest(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard parsed.positional.count >= 2 else {
+            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+        }
+
+        let rawNumber = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        let numberToken = rawNumber.hasPrefix("#") ? String(rawNumber.dropFirst()) : rawNumber
+        guard let number = Int(numberToken), number > 0 else {
+            return "ERROR: Invalid pull request number '\(rawNumber)'"
+        }
+
+        let rawURL = parsed.positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return "ERROR: Invalid pull request URL '\(rawURL)'"
+        }
+
+        let statusRaw = (parsed.options["state"] ?? "open").lowercased()
+        guard let status = SidebarPullRequestStatus(rawValue: statusRaw) else {
+            return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
+        }
+
+        let labelRaw = normalizedOptionValue(parsed.options["label"]) ?? "PR"
+        guard !labelRaw.isEmpty else {
+            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+        }
+        let label = String(labelRaw.prefix(16))
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            guard Self.shouldReplacePullRequest(
+                current: tab.panelPullRequests[surfaceId],
+                number: number,
+                label: label,
+                url: url,
+                status: status
+            ) else {
+                return
+            }
+
+            tab.updatePanelPullRequest(
+                panelId: surfaceId,
+                number: number,
+                label: label,
+                url: url,
+                status: status
+            )
+        }
+        return result
+    }
+
+    private func clearPullRequest(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: clear_pr [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tab.clearPanelPullRequest(panelId: surfaceId)
         }
         return result
     }
@@ -10913,6 +12712,7 @@ class TerminalController {
             }
             ports.append(port)
         }
+        let normalizedPorts = Array(Set(ports)).sorted()
 
         var result = "OK"
         DispatchQueue.main.sync {
@@ -10949,20 +12749,43 @@ class TerminalController {
                 return
             }
 
-            tab.surfaceListeningPorts[surfaceId] = ports
+            guard Self.shouldReplacePorts(current: tab.surfaceListeningPorts[surfaceId], next: normalizedPorts) else {
+                return
+            }
+
+            tab.surfaceListeningPorts[surfaceId] = normalizedPorts
             tab.recomputeListeningPorts()
         }
         return result
     }
 
     private func reportPwd(_ args: String) -> String {
-        guard let tabManager else { return "ERROR: TabManager not available" }
         let parsed = parseOptions(args)
         guard !parsed.positional.isEmpty else {
             return "ERROR: Missing path — usage: report_pwd <path> [--tab=X] [--panel=Y]"
         }
 
-        let directory = parsed.positional.joined(separator: " ")
+        let directory = Self.normalizeReportedDirectory(parsed.positional.joined(separator: " "))
+
+        // Shell integration provides explicit UUID handles for cwd updates.
+        // Keep this hot path off-main and drop no-op reports before scheduling UI work.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishDirectory(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                directory: directory
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceDirectory(tabId: scope.workspaceId, surfaceId: scope.panelId, directory: directory)
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
@@ -11029,11 +12852,15 @@ class TerminalController {
                     result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
                     return
                 }
-                tab.surfaceListeningPorts.removeValue(forKey: surfaceId)
+                if tab.surfaceListeningPorts.removeValue(forKey: surfaceId) != nil {
+                    tab.recomputeListeningPorts()
+                }
             } else {
-                tab.surfaceListeningPorts.removeAll()
+                if !tab.surfaceListeningPorts.isEmpty {
+                    tab.surfaceListeningPorts.removeAll()
+                    tab.recomputeListeningPorts()
+                }
             }
-            tab.recomputeListeningPorts()
         }
         return result
     }
@@ -11042,6 +12869,17 @@ class TerminalController {
         let parsed = parseOptions(args)
         guard let ttyName = parsed.positional.first, !ttyName.isEmpty else {
             return "ERROR: Missing tty name — usage: report_tty <tty_name> [--tab=X] [--panel=Y]"
+        }
+
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to avoid sync-hopping on every report.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.registerTTY(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                ttyName: ttyName
+            )
+            return "OK"
         }
 
         var result = "OK"
@@ -11077,6 +12915,7 @@ class TerminalController {
                 return
             }
 
+            guard tab.surfaceTTYNames[surfaceId] != ttyName else { return }
             tab.surfaceTTYNames[surfaceId] = ttyName
             PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
         }
@@ -11084,15 +12923,22 @@ class TerminalController {
     }
 
     private func portsKick(_ args: String) -> String {
+        let parsed = parseOptions(args)
+
+        // Shell integration always provides explicit UUID handles.
+        // Handle that common path off-main to keep prompt hooks from blocking UI work.
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            PortScanner.shared.kick(workspaceId: scope.workspaceId, panelId: scope.panelId)
+            return "OK"
+        }
+
         var result = "OK"
         DispatchQueue.main.sync {
             guard let tab = resolveTabForReport(args) else {
-                let parsed = parseOptions(args)
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
 
-            let parsed = parseOptions(args)
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
             let surfaceId: UUID
             if let panelArg {
@@ -11145,6 +12991,14 @@ class TerminalController {
                 lines.append("git_branch=none")
             }
 
+            if let pr = tab.pullRequest {
+                lines.append("pr=#\(pr.number) \(pr.status.rawValue) \(pr.url.absoluteString)")
+                lines.append("pr_label=\(pr.label)")
+            } else {
+                lines.append("pr=none")
+                lines.append("pr_label=none")
+            }
+
             if tab.listeningPorts.isEmpty {
                 lines.append("ports=none")
             } else {
@@ -11158,12 +13012,16 @@ class TerminalController {
                 lines.append("progress=none")
             }
 
-            lines.append("status_count=\(tab.statusEntries.count)")
-            for entry in tab.statusEntries.values.sorted(by: { $0.key < $1.key }) {
-                var line = "  \(entry.key)=\(entry.value)"
-                if let icon = entry.icon { line += " icon=\(icon)" }
-                if let color = entry.color { line += " color=\(color)" }
-                lines.append(line)
+            let statusEntries = tab.sidebarStatusEntriesInDisplayOrder()
+            lines.append("status_count=\(statusEntries.count)")
+            for entry in statusEntries {
+                lines.append("  \(sidebarMetadataLine(entry))")
+            }
+
+            let metadataBlocks = tab.sidebarMetadataBlocksInDisplayOrder()
+            lines.append("meta_block_count=\(metadataBlocks.count)")
+            for block in metadataBlocks {
+                lines.append("  \(sidebarMetadataBlockLine(block))")
             }
 
             lines.append("log_count=\(tab.logEntries.count)")
@@ -11187,8 +13045,12 @@ class TerminalController {
             tab.logEntries.removeAll()
             tab.progress = nil
             tab.gitBranch = nil
+            tab.panelGitBranches.removeAll()
+            tab.pullRequest = nil
+            tab.panelPullRequests.removeAll()
             tab.surfaceListeningPorts.removeAll()
             tab.listeningPorts.removeAll()
+            tab.metadataBlocks.removeAll()
         }
         return result
     }
@@ -11308,6 +13170,7 @@ class TerminalController {
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var url: URL? = nil
+        let shouldFocus = socketCommandAllowsInAppFocusMutations()
 
         let parts = args.split(separator: " ")
         for part in parts {
@@ -11352,9 +13215,9 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: true)?.id
+                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: shouldFocus)?.id
             } else {
-                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: true)?.id
+                newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: shouldFocus)?.id
             }
 
             if let id = newPanelId {
