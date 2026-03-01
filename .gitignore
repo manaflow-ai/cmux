@@ -51,6 +51,9 @@ tmp-*/
 .claude/
 
 # vibeshield (local dev only)
+docs/optional/
+tests/helpers/
+tests/test-phase*
 vibeshield
 .devcontainer/
 .env.*
