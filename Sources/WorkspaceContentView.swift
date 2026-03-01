@@ -177,7 +177,8 @@ struct WorkspaceContentView: View {
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor }
+        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
+        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
     ) -> GhosttyConfig {
         var next = loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
@@ -194,9 +195,12 @@ struct WorkspaceContentView: View {
         }
 
         next.backgroundColor = resolvedBackground
+        // Use the runtime opacity from the Ghostty engine, which may differ from the
+        // file-level value parsed by GhosttyConfig.load().
+        next.backgroundOpacity = defaultBackgroundOpacity()
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) theme=\(next.theme ?? "nil")"
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
             )
         }
         return next
@@ -218,7 +222,8 @@ struct WorkspaceContentView: View {
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
-        let shouldRequestTitlebarRefresh = backgroundChanged || reason == "onAppear"
+        let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
@@ -400,7 +405,7 @@ struct EmptyPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1
