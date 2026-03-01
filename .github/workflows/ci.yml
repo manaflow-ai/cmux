@@ -171,4 +171,4 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -only-testing:cmuxUITests/UpdatePillUITests test
+            -only-testing:cmuxUITests test
