@@ -1,59 +1,26 @@
-name: CI
+name: Run tests on Depot
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to test
+        required: false
+        default: ""
+      skip_ui_tests:
+        description: Skip UI tests (headless Depot runners may not support them)
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  workflow-guard-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Validate self-hosted runner guards
-        run: ./tests/test_ci_self_hosted_guard.sh
-
-      - name: Validate create-dmg version pinning
-        run: ./tests/test_ci_create_dmg_pinned.sh
-
-      - name: Validate unit-test SwiftPM retry guard
-        run: ./tests/test_ci_unit_test_spm_retry.sh
-
-      - name: Validate cmux scheme test configuration
-        run: ./tests/test_ci_scheme_testaction_debug.sh
-
-  web-typecheck:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Typecheck
-        run: bun tsc --noEmit
-
   tests:
-    # Never run self-hosted jobs for fork pull requests.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
-    concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
+    runs-on: depot-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
           submodules: recursive
 
       - name: Select Xcode
@@ -75,28 +42,35 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
-      - name: Download Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
-
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if ! command -v zig >/dev/null 2>&1; then
-            if command -v brew >/dev/null 2>&1; then
-              brew install zig
-            else
-              echo "zig is required to build GhosttyKit.xcframework. Install zig and retry." >&2
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
               exit 1
             fi
-          fi
-          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false)
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
       - name: Clean DerivedData
         run: |
-          # Remove stale build cache to avoid incremental build errors
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Resolve Swift packages
@@ -131,16 +105,14 @@ jobs:
               -destination "platform=macOS" test 2>&1
           }
 
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          # Capture output and fail only if there are unexpected failures.
           set +e
           OUTPUT=$(run_unit_tests)
           EXIT_CODE=$?
           set -e
 
-          # SwiftPM binary artifact resolution can occasionally fail on self-hosted
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
+          # SwiftPM binary artifact resolution can occasionally fail with
+          # "Could not resolve package dependencies". Retry once after clearing
+          # SwiftPM/DerivedData caches to recover from transient corruption.
           if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
@@ -163,6 +135,7 @@ jobs:
           fi
 
       - name: Run UI tests
+        if: ${{ !inputs.skip_ui_tests }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
