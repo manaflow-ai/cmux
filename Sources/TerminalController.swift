@@ -1497,6 +1497,40 @@ class TerminalController {
         return nil
     }
 
+    private func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
+        guard let raw = params[key] else { return false }
+        return !(raw is NSNull)
+    }
+
+    private func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
+        v2StrictIntAny(params[key])
+    }
+
+    private func v2StrictIntAny(_ raw: Any?) -> Int? {
+        guard let raw else { return nil }
+
+        if let numberValue = raw as? NSNumber {
+            if CFGetTypeID(numberValue) == CFBooleanGetTypeID() {
+                return nil
+            }
+            let doubleValue = numberValue.doubleValue
+            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else {
+                return nil
+            }
+            return Int(exactly: doubleValue)
+        }
+
+        if let intValue = raw as? Int {
+            return intValue
+        }
+
+        if let stringValue = raw as? String {
+            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        return nil
+    }
+
     private func v2PanelType(_ params: [String: Any], _ key: String) -> PanelType? {
         guard let s = v2String(params, key) else { return nil }
         return PanelType(rawValue: s.lowercased())
@@ -1976,11 +2010,24 @@ class TerminalController {
         }
 
         var sshPort: Int?
-        if let parsedPort = v2Int(params, "port") {
-            guard parsedPort > 0 && parsedPort <= 65535 else {
+        if v2HasNonNullParam(params, "port") {
+            guard let parsedPort = v2StrictInt(params, "port"),
+                  parsedPort > 0,
+                  parsedPort <= 65535 else {
                 return .err(code: "invalid_params", message: "port must be 1-65535", data: nil)
             }
             sshPort = parsedPort
+        }
+
+        // Internal deterministic test hook: pin the local proxy listener port to force bind conflicts.
+        var localProxyPort: Int?
+        if v2HasNonNullParam(params, "local_proxy_port") {
+            guard let parsedLocalProxyPort = v2StrictInt(params, "local_proxy_port"),
+                  parsedLocalProxyPort > 0,
+                  parsedLocalProxyPort <= 65535 else {
+                return .err(code: "invalid_params", message: "local_proxy_port must be 1-65535", data: nil)
+            }
+            localProxyPort = parsedLocalProxyPort
         }
 
         let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2002,7 +2049,8 @@ class TerminalController {
                 destination: destination,
                 port: sshPort,
                 identityFile: identityFile?.isEmpty == true ? nil : identityFile,
-                sshOptions: sshOptions
+                sshOptions: sshOptions,
+                localProxyPort: localProxyPort
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 

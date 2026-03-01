@@ -12,6 +12,7 @@ RUN ssh-keygen -A
 
 COPY sshd_config /etc/ssh/sshd_config
 COPY run.sh /usr/local/bin/run.sh
+COPY ws_echo.py /usr/local/bin/ws_echo.py
 RUN chmod +x /usr/local/bin/run.sh
 
 EXPOSE 22

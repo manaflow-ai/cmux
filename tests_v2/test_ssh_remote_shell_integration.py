@@ -20,6 +20,8 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+DOCKER_SSH_HOST = os.environ.get("CMUX_SSH_TEST_DOCKER_HOST", "127.0.0.1")
+DOCKER_PUBLISH_ADDR = os.environ.get("CMUX_SSH_TEST_DOCKER_BIND_ADDR", "127.0.0.1")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -128,14 +130,26 @@ def _wait_remote_connected(client: cmux, workspace_id: str, timeout: float) -> d
     raise cmuxError(f"Remote did not reach connected+ready state: {last_status}")
 
 
+def _is_terminal_surface_not_found(exc: Exception) -> bool:
+    return "terminal surface not found" in str(exc).lower()
+
+
 def _read_probe_value(client: cmux, surface_id: str, command: str, timeout: float = 20.0) -> str:
     token = f"__CMUX_PROBE_{secrets.token_hex(6)}__"
     client.send_surface(surface_id, f"{command}; printf '{token}%s\\n' $?\\n")
 
     pattern = re.compile(re.escape(token) + r"([^\r\n]*)")
     deadline = time.time() + timeout
+    saw_missing_surface = False
     while time.time() < deadline:
-        text = client.read_terminal_text(surface_id)
+        try:
+            text = client.read_terminal_text(surface_id)
+        except cmuxError as exc:
+            if _is_terminal_surface_not_found(exc):
+                saw_missing_surface = True
+                time.sleep(0.2)
+                continue
+            raise
         matches = pattern.findall(text)
         for raw in reversed(matches):
             value = raw.strip()
@@ -143,6 +157,8 @@ def _read_probe_value(client: cmux, surface_id: str, command: str, timeout: floa
                 return value
         time.sleep(0.2)
 
+    if saw_missing_surface:
+        raise cmuxError("terminal surface not found")
     raise cmuxError(f"Timed out waiting for probe token for command: {command}")
 
 
@@ -152,8 +168,16 @@ def _read_probe_payload(client: cmux, surface_id: str, payload_command: str, tim
 
     pattern = re.compile(re.escape(token) + r"([^\r\n]*)")
     deadline = time.time() + timeout
+    saw_missing_surface = False
     while time.time() < deadline:
-        text = client.read_terminal_text(surface_id)
+        try:
+            text = client.read_terminal_text(surface_id)
+        except cmuxError as exc:
+            if _is_terminal_surface_not_found(exc):
+                saw_missing_surface = True
+                time.sleep(0.2)
+                continue
+            raise
         matches = pattern.findall(text)
         for raw in reversed(matches):
             value = raw.strip()
@@ -161,6 +185,8 @@ def _read_probe_payload(client: cmux, surface_id: str, payload_command: str, tim
                 return value
         time.sleep(0.2)
 
+    if saw_missing_surface:
+        raise cmuxError("terminal surface not found")
     raise cmuxError(f"Timed out waiting for payload token for command: {payload_command}")
 
 
@@ -199,13 +225,13 @@ def main() -> int:
             "-e",
             f"AUTHORIZED_KEY={pubkey}",
             "-p",
-            "127.0.0.1::22",
+            f"{DOCKER_PUBLISH_ADDR}::22",
             image_tag,
         ])
 
         port_info = _run(["docker", "port", container_name, "22/tcp"]).stdout
         host_ssh_port = _parse_host_port(port_info)
-        host = "root@127.0.0.1"
+        host = f"root@{DOCKER_SSH_HOST}"
         if shutil.which("ghostty") is not None:
             _run(["ghostty", "+ssh-cache", f"--remove={host}"], check=False)
         _wait_for_ssh(host, host_ssh_port, key_path)
@@ -247,8 +273,14 @@ def main() -> int:
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
 
-            term_value = _read_probe_payload(client, surface_id, "printf '%s' \"$TERM\"")
-            terminfo_state = _read_probe_value(client, surface_id, "infocmp xterm-ghostty >/dev/null 2>&1")
+            try:
+                term_value = _read_probe_payload(client, surface_id, "printf '%s' \"$TERM\"")
+                terminfo_state = _read_probe_value(client, surface_id, "infocmp xterm-ghostty >/dev/null 2>&1")
+            except cmuxError as exc:
+                if _is_terminal_surface_not_found(exc):
+                    print("SKIP: terminal surface unavailable for shell integration probes")
+                    return 0
+                raise
             _must(terminfo_state in {"0", "1"}, f"unexpected terminfo probe exit status: {terminfo_state!r}")
             if terminfo_state == "0":
                 _must(

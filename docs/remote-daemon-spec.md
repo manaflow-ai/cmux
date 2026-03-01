@@ -31,35 +31,43 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.2 Bootstrap + Daemon
 - `DONE` local app probes remote platform, builds/uploads `cmuxd-remote`, and runs `serve --stdio`.
 - `DONE` daemon `hello` handshake is enforced.
-- `DONE` bootstrap/probe failures surface actionable details.
+- `DONE` daemon now exposes proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.read`).
+- `DONE` local proxy broker now tunnels SOCKS5/CONNECT traffic over daemon stream RPC instead of `ssh -D`.
+- `DONE` daemon now exposes session resize-coordinator RPC (`session.open`, `session.attach`, `session.resize`, `session.detach`, `session.status`, `session.close`).
+- `DONE` transport-level proxy failures now escalate from broker retry to full daemon re-bootstrap/reconnect in the session controller.
+- `DONE` SOCKS handshake parsing now preserves pipelined post-connect payload bytes instead of dropping request-prefix bytes.
+- `DONE` `workspace.remote.configure.local_proxy_port` exists as an internal deterministic test hook for bind-conflict regression coverage.
+- `DONE` bootstrap/proxy failures surface actionable details.
 
 ### 3.3 Error Surfacing
 - `DONE` remote errors are surfaced in sidebar status + logs + notifications.
 - `DONE` reconnect retry count/time is included in surfaced error text (for example, `retry 1 in 4s`).
 
-### 3.4 Existing Temporary Behavior (To Remove)
-- `TEMPORARY` current implementation probes remote listening ports and mirrors them locally with SSH `-L`.
-- `TEMPORARY` sidebar shows local bind conflicts (`SSH port conflicts ...`) caused by that mirroring path.
-- `TARGET` browser path must no longer depend on per-port mirroring.
+### 3.4 Removed Temporary Behavior
+- `DONE` removed remote listening-port probe loop and per-port SSH `-L` mirroring.
+- `DONE` remote browser routing now uses a single shared local proxy endpoint instead of detected-port mirroring.
+- `DONE` remote status now includes structured proxy metadata (`remote.proxy`) and `proxy_unavailable` error code when proxy setup fails.
 
 ## 4. Target Architecture (No Port Mirroring)
 
 ### 4.1 Browser Networking Path
-1. One local proxy endpoint per SSH transport (not per workspace, not per detected port).
-2. Proxy endpoint supports SOCKS5 and HTTP CONNECT.
-3. Browser panels in remote workspaces are auto-wired to this proxy endpoint.
-4. Browser panels in local workspaces are not force-proxied.
+1. `DONE` one local proxy endpoint is created per SSH transport/session key (not per detected port).
+2. `DONE` endpoint is provided by a local broker that supports SOCKS5 + HTTP CONNECT and tunnels via daemon stream RPC.
+3. `DONE` browser panels in remote workspaces are auto-wired to the workspace proxy endpoint.
+4. `DONE` browser panels in local workspaces are not force-proxied.
+5. `DONE` identical SSH transports share one endpoint via a transport-scoped broker.
 
 ### 4.2 WKWebView Wiring
-1. Use workspace/browser scoped `WKWebsiteDataStore.proxyConfigurations`.
-2. Prefer SOCKS5 proxy config.
-3. Keep HTTP CONNECT proxy config as fallback.
-4. Re-apply/validate proxy config after reconnect.
+1. `DONE` use workspace-scoped `WKWebsiteDataStore(forIdentifier:)`.
+2. `DONE` apply workspace/browser scoped `proxyConfigurations`.
+3. `DONE` prefer SOCKS5 proxy config.
+4. `DONE` keep HTTP CONNECT proxy config as fallback.
+5. `DONE` re-apply proxy config on reconnect/state updates.
 
 ### 4.3 Remote Daemon + Transport
-1. Extend `cmuxd-remote` beyond `hello/ping` with proxy stream RPC (`proxy.open`, `proxy.close`).
-2. Local side runs a transport-scoped proxy broker and multiplexes proxy streams over SSH stdio transport.
-3. Remove remote service-port discovery/probing from browser routing path.
+1. `DONE` `cmuxd-remote` now supports proxy stream RPC (`proxy.open`, `proxy.close`, `proxy.write`, `proxy.read`).
+2. `DONE` local side now runs a shared local broker that serves SOCKS5/CONNECT and tunnels each stream over persistent daemon stdio RPC.
+3. `DONE` removed remote service-port discovery/probing from browser routing path.
 
 ### 4.4 Explicit Non-Goal
 1. Automatic mirroring of every remote listening port to local loopback is not a goal for browser support.
@@ -96,15 +104,15 @@ Recompute effective size on:
 | ID | Milestone | Status | Notes |
 |---|---|---|---|
 | M-001 | `cmux ssh` workspace creation + metadata + optional `--name` | DONE | Covered by `tests_v2/test_ssh_remote_cli_metadata.py` |
-| M-002 | Remote bootstrap/upload/start + hello handshake | DONE | Current `cmuxd-remote` is minimal (`hello`, `ping`) |
+| M-002 | Remote bootstrap/upload/start + hello handshake | DONE | Includes daemon capability handshake + status surfacing |
 | M-003 | Reconnect/disconnect UX + API + improved error surfacing | DONE | Includes retry count in surfaced errors |
-| M-004 | Docker e2e for bootstrap/reconnect shell niceties | DONE | Existing docker tests currently validate mirroring-era path |
-| M-005 | Remove automatic remote port mirroring path | TODO | Delete probe/listen mirror loop from `WorkspaceRemoteSessionController` |
-| M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | TODO | Local component in app/daemon layer |
-| M-007 | Remote proxy stream RPC in `cmuxd-remote` | TODO | Add `proxy.open/close` and multiplexed stream handling |
-| M-008 | WebView proxy auto-wiring for remote workspaces | TODO | Use `WKWebsiteDataStore.proxyConfigurations` |
-| M-009 | PTY resize coordinator (`smallest screen wins`) | TODO | Session-level attachment-size aggregation |
-| M-010 | Resize + proxy reconnect e2e test suites | TODO | Add dedicated docker cases for browser proxy + resize |
+| M-004 | Docker e2e for bootstrap/reconnect shell niceties | DONE | Docker suites validate proxy-path bootstrap and reconnect behavior |
+| M-005 | Remove automatic remote port mirroring path | DONE | `WorkspaceRemoteSessionController` now uses one shared daemon-backed proxy endpoint |
+| M-006 | Transport-scoped local proxy broker (SOCKS5 + CONNECT) | DONE | Identical SSH transports now reuse one local proxy endpoint |
+| M-007 | Remote proxy stream RPC in `cmuxd-remote` | DONE | `proxy.open/close/write/read` implemented |
+| M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
+| M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
+| M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
 
 ## 7. Acceptance Test Matrix (With Status)
 
@@ -113,7 +121,7 @@ Recompute effective size on:
 | ID | Scenario | Status |
 |---|---|---|
 | T-001 | baseline remote connect | DONE |
-| T-002 | identical host reuse semantics | PARTIAL |
+| T-002 | identical host reuse semantics | DONE |
 | T-003 | no `--name` | DONE |
 | T-004 | reconnect API success/error paths | DONE |
 | T-005 | retry count visible in daemon error detail | DONE |
@@ -122,31 +130,51 @@ Recompute effective size on:
 
 | ID | Scenario | Status |
 |---|---|---|
-| W-001 | remote workspace browser auto-proxied | TODO |
-| W-002 | browser egress IP equals remote host IP | TODO |
-| W-003 | websocket via SOCKS5/CONNECT through remote daemon | TODO |
-| W-004 | reconnect restores browser proxy path automatically | TODO |
-| W-005 | local proxy bind conflict yields structured `proxy_unavailable` | TODO |
+| W-001 | remote workspace browser auto-proxied | DONE |
+| W-002 | browser egress equals remote network path | DONE |
+| W-003 | websocket via SOCKS5/CONNECT through remote daemon | DONE |
+| W-004 | reconnect restores browser proxy path automatically | DONE |
+| W-005 | local proxy bind conflict yields structured `proxy_unavailable` | DONE |
+| W-006 | proxy transport failure triggers daemon re-bootstrap and recovers after host recreation | DONE |
+| W-007 | SOCKS greeting/connect + immediate pipelined payload in same write remains intact | DONE |
 
 ### 7.3 Resize
 
 | ID | Scenario | Status |
 |---|---|---|
-| RZ-001 | two attachments, smallest wins | TODO |
-| RZ-002 | grow one attachment, PTY stays bounded by smallest | TODO |
-| RZ-003 | detach smallest, PTY expands to next smallest | TODO |
-| RZ-004 | reconnect preserves session + applies recomputed size | TODO |
+| RZ-001 | two attachments, smallest wins | DONE |
+| RZ-002 | grow one attachment, PTY stays bounded by smallest | DONE |
+| RZ-003 | detach smallest, PTY expands to next smallest | DONE |
+| RZ-004 | reconnect preserves session + applies recomputed size | DONE |
+| RZ-005 | daemon stdio RPC round-trip enforces resize semantics end-to-end | DONE |
 
 ## 8. Removal Checklist (Port Mirroring)
 
 Before declaring browser proxying complete:
-1. remove remote port probe loop and `-L` auto-forward orchestration
-2. remove mirror-specific sidebar conflict messaging as default remote behavior
-3. replace mirroring tests with browser-proxy e2e tests
-4. keep optional explicit user-driven forwarding as separate feature only if needed
+1. `DONE` remove remote port probe loop and `-L` auto-forward orchestration
+2. `DONE` remove mirror-specific routing behavior as default remote behavior
+3. `DONE` replace mirroring docker assertions with proxy egress assertions
+4. `DONE` keep optional explicit user-driven forwarding out of this path; no automatic mirroring remains in browser routing
 
 ## 9. Open Decisions
 
 1. Proxy auth policy for local broker (`none` vs optional credentials).
 2. Reconnect backoff profile and max retry budget.
-3. Browser data-store isolation policy for remote vs local workspaces.
+
+## 10. Socket API Contract Notes
+
+### 10.1 `workspace.remote.configure` Port Fields
+1. `port` and `local_proxy_port` accept integer values and numeric strings.
+2. Explicit `null` clears each field.
+3. Out-of-range values and invalid types (for example booleans/non-numeric strings/fractional numbers) return `invalid_params`.
+4. `local_proxy_port` is an internal deterministic test hook to force local bind conflicts in regression coverage.
+
+### 10.2 SSH Option Precedence
+1. `StrictHostKeyChecking` default (`accept-new`) is only injected when no user override is present.
+2. Control-socket defaults (`ControlMaster`, `ControlPersist`, `ControlPath`) are only injected when missing.
+3. SSH option key matching is case-insensitive for precedence checks in both CLI-built commands and remote configure payloads.
+
+### 10.3 SSH Docker E2E Harness Knobs
+1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).
+2. `CMUX_SSH_TEST_DOCKER_BIND_ADDR` sets the bind address used in fixture container publish mappings (default `127.0.0.1`).
+3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).

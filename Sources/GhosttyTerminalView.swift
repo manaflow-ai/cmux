@@ -1437,7 +1437,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if !env.isEmpty {
+        let allowSurfaceEnvOverrides = false
+        if allowSurfaceEnvOverrides, !env.isEmpty {
             envVars.reserveCapacity(env.count)
             envStorage.reserveCapacity(env.count)
             for (key, value) in env {
@@ -1592,6 +1593,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 	        #endif
         guard let view = attachedView,
+              let surface,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {

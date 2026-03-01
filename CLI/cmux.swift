@@ -1758,7 +1758,7 @@ struct CMUXCLI {
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
         let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
 
-        var workspaceCreateParams: [String: Any] = [
+        let workspaceCreateParams: [String: Any] = [
             "initial_command": sshStartupCommand,
         ]
 
@@ -1775,6 +1775,8 @@ struct CMUXCLI {
             ])
         }
 
+        let remoteSSHOptions = sshOptionsWithControlSocketDefaults(sshOptions.sshOptions)
+
         var configureParams: [String: Any] = [
             "workspace_id": workspaceId,
             "destination": sshOptions.destination,
@@ -1787,8 +1789,8 @@ struct CMUXCLI {
            !identityFile.isEmpty {
             configureParams["identity_file"] = identityFile
         }
-        if !sshOptions.sshOptions.isEmpty {
-            configureParams["ssh_options"] = sshOptions.sshOptions
+        if !remoteSSHOptions.isEmpty {
+            configureParams["ssh_options"] = remoteSSHOptions
         }
 
         var payload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
@@ -1888,15 +1890,10 @@ struct CMUXCLI {
     }
 
     private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
-        var parts: [String] = ["ssh", "-o", "StrictHostKeyChecking=accept-new"]
-        if !hasSSHOptionKey(options.sshOptions, key: "ControlMaster") {
-            parts += ["-o", "ControlMaster=auto"]
-        }
-        if !hasSSHOptionKey(options.sshOptions, key: "ControlPersist") {
-            parts += ["-o", "ControlPersist=600"]
-        }
-        if !hasSSHOptionKey(options.sshOptions, key: "ControlPath") {
-            parts += ["-o", "ControlPath=\(defaultSSHControlPathTemplate())"]
+        let effectiveSSHOptions = sshOptionsWithControlSocketDefaults(options.sshOptions)
+        var parts: [String] = ["ssh"]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            parts += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         if let port = options.port {
             parts += ["-p", String(port)]
@@ -1905,14 +1902,31 @@ struct CMUXCLI {
            !identityFile.isEmpty {
             parts += ["-i", identityFile]
         }
-        for option in options.sshOptions {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            parts += ["-o", trimmed]
+        for option in effectiveSSHOptions {
+            parts += ["-o", option]
         }
         parts.append(options.destination)
         parts.append(contentsOf: options.extraArguments)
         return parts.map(shellQuote).joined(separator: " ")
+    }
+
+    private func sshOptionsWithControlSocketDefaults(_ options: [String]) -> [String] {
+        var merged: [String] = []
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            merged.append(trimmed)
+        }
+        if !hasSSHOptionKey(merged, key: "ControlMaster") {
+            merged.append("ControlMaster=auto")
+        }
+        if !hasSSHOptionKey(merged, key: "ControlPersist") {
+            merged.append("ControlPersist=600")
+        }
+        if !hasSSHOptionKey(merged, key: "ControlPath") {
+            merged.append("ControlPath=\(defaultSSHControlPathTemplate())")
+        }
+        return merged
     }
 
     private func scopedGhosttyShellFeaturesValue() -> String {
@@ -3317,7 +3331,7 @@ fi
             Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
 
             Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
-            cmux will also attempt background remote port detection + local forwarding for browser access.
+            cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
             Flags:
               --name <title>          Optional workspace title

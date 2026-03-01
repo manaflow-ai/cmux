@@ -10,6 +10,84 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 CMUX_DEBUG_LOG=""
+CLI_PATH=""
+
+write_dev_cli_shim() {
+  local target="$1"
+  local fallback_bin="$2"
+  mkdir -p "$(dirname "$target")"
+  cat > "$target" <<EOF
+#!/usr/bin/env bash
+# cmux dev shim (managed by scripts/reload.sh)
+set -euo pipefail
+
+CLI_PATH_FILE="/tmp/cmux-last-cli-path"
+if [[ -r "\$CLI_PATH_FILE" ]]; then
+  CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
+  if [[ -x "\$CLI_PATH" ]]; then
+    exec "\$CLI_PATH" "\$@"
+  fi
+fi
+
+if [[ -x "$fallback_bin" ]]; then
+  exec "$fallback_bin" "\$@"
+fi
+
+echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
+exit 1
+EOF
+  chmod +x "$target" || true
+}
+
+select_cmux_shim_target() {
+  local app_cli_dir="/Applications/cmux.app/Contents/Resources/bin"
+  local marker="cmux dev shim (managed by scripts/reload.sh)"
+  local target=""
+  local path_entry=""
+  local candidate=""
+
+  IFS=':' read -r -a path_entries <<< "${PATH:-}"
+  for path_entry in "${path_entries[@]}"; do
+    [[ -z "$path_entry" ]] && continue
+    if [[ "$path_entry" == "~/"* ]]; then
+      path_entry="$HOME/${path_entry#~/}"
+    fi
+    if [[ "$path_entry" == "$app_cli_dir" ]]; then
+      break
+    fi
+    [[ -d "$path_entry" && -w "$path_entry" ]] || continue
+    candidate="$path_entry/cmux"
+    if [[ ! -e "$candidate" ]]; then
+      target="$candidate"
+      break
+    fi
+    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+      target="$candidate"
+      break
+    fi
+  done
+
+  if [[ -n "$target" ]]; then
+    echo "$target"
+    return 0
+  fi
+
+  # Fallback for PATH layouts where app CLI isn't listed or no earlier entries were writable.
+  for path_entry in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/bin"; do
+    [[ -d "$path_entry" && -w "$path_entry" ]] || continue
+    candidate="$path_entry/cmux"
+    if [[ ! -e "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
 
 usage() {
   cat <<'EOF'
@@ -271,6 +349,21 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   APP_PATH="$TAG_APP_PATH"
 fi
 
+CLI_PATH="$(dirname "$APP_PATH")/cmux"
+if [[ -x "$CLI_PATH" ]]; then
+  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
+  ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
+
+  # Stable shim that always follows the last reload-selected dev CLI.
+  DEV_CLI_SHIM="$HOME/.local/bin/cmux-dev"
+  write_dev_cli_shim "$DEV_CLI_SHIM" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+
+  CMUX_SHIM_TARGET="$(select_cmux_shim_target || true)"
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    write_dev_cli_shim "$CMUX_SHIM_TARGET" "/Applications/cmux.app/Contents/Resources/bin/cmux"
+  fi
+fi
+
 # Ensure any running instance is fully terminated, regardless of DerivedData path.
 /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
 sleep 0.3
@@ -349,4 +442,17 @@ fi
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
   print_tag_cleanup_reminder "$TAG_SLUG"
+fi
+
+if [[ -x "${CLI_PATH:-}" ]]; then
+  echo
+  echo "CLI path:"
+  echo "  $CLI_PATH"
+  echo "CLI helpers:"
+  echo "  /tmp/cmux-cli ..."
+  echo "  $HOME/.local/bin/cmux-dev ..."
+  if [[ -n "${CMUX_SHIM_TARGET:-}" ]]; then
+    echo "  $CMUX_SHIM_TARGET ..."
+  fi
+  echo "If your shell still resolves the old cmux, run: rehash"
 fi
