@@ -2368,13 +2368,23 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let cwd: String?
+        if let raw = params["cwd"] {
+            guard let str = raw as? String else {
+                return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
+            }
+            cwd = str
+        } else {
+            cwd = nil
+        }
+
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
         #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         v2MainSync {
-            let ws = tabManager.addWorkspace(select: shouldFocus)
+            let ws = tabManager.addWorkspace(workingDirectory: cwd, select: shouldFocus)
             newId = ws.id
         }
         #if DEBUG
