@@ -4192,41 +4192,68 @@ class TerminalController {
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
         guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
 
-        let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: true
-        )
-        var text = ghostty_text_s()
+        func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
+            let topLeft = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            )
+            let bottomRight = ghostty_point_s(
+                tag: pointTag,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            )
+            let selection = ghostty_selection_s(
+                top_left: topLeft,
+                bottom_right: bottomRight,
+                rectangle: false
+            )
 
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return "ERROR: Failed to read terminal text"
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
+            var text = ghostty_text_s()
+            guard ghostty_surface_read_text(surface, selection, &text) else {
+                return nil
+            }
+            defer {
+                ghostty_surface_free_text(surface, &text)
+            }
+
+            guard let ptr = text.text, text.text_len > 0 else {
+                return ""
+            }
+            let rawData = Data(bytes: ptr, count: Int(text.text_len))
+            return String(decoding: rawData, as: UTF8.self)
         }
 
-        let rawData: Data
-        if let ptr = text.text, text.text_len > 0 {
-            rawData = Data(bytes: ptr, count: Int(text.text_len))
+        var output: String
+        if includeScrollback {
+            // Read history and active regions separately so resize reflow at the
+            // history/active boundary doesn't drop tail lines near the prompt.
+            let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
+            let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
+
+            if history != nil || active != nil {
+                var merged = history ?? ""
+                if let active {
+                    if !merged.isEmpty, !merged.hasSuffix("\n"), !active.isEmpty {
+                        merged.append("\n")
+                    }
+                    merged.append(active)
+                }
+                output = merged
+            } else if let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN) {
+                output = screen
+            } else {
+                return "ERROR: Failed to read terminal text"
+            }
         } else {
-            rawData = Data()
+            guard let viewport = readSelectionText(pointTag: GHOSTTY_POINT_VIEWPORT) else {
+                return "ERROR: Failed to read terminal text"
+            }
+            output = viewport
         }
 
-        var output = String(decoding: rawData, as: UTF8.self)
         if let lineLimit {
             output = tailTerminalLines(output, maxLines: lineLimit)
         }
