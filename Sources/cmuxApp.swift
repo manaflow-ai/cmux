@@ -2601,6 +2601,60 @@ enum AppearanceSettings {
     }
 }
 
+enum AppIconMode: String, CaseIterable, Identifiable {
+    case automatic
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var imageName: String? {
+        switch self {
+        case .automatic: return nil
+        case .light: return "AppIconLight"
+        case .dark: return "AppIconDark"
+        }
+    }
+}
+
+enum AppIconSettings {
+    static let modeKey = "appIconMode"
+    static let defaultMode: AppIconMode = .automatic
+
+    static func resolvedMode(defaults: UserDefaults = .standard) -> AppIconMode {
+        guard let raw = defaults.string(forKey: modeKey),
+              let mode = AppIconMode(rawValue: raw) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func applyIcon(_ mode: AppIconMode) {
+        switch mode {
+        case .automatic:
+            // Let the asset catalog handle appearance-based icon selection (macOS 15+).
+            // Reset to the default bundle icon.
+            NSApplication.shared.applicationIconImage = nil
+        case .light:
+            if let icon = NSImage(named: "AppIconLight") {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        case .dark:
+            if let icon = NSImage(named: "AppIconDark") {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        }
+    }
+}
+
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
     static let defaultWarnBeforeQuit = true
@@ -2661,6 +2715,7 @@ struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -2831,6 +2886,16 @@ struct SettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.menu)
                         }
+
+                        SettingsCardDivider()
+
+                        AppIconPickerRow(
+                            selectedMode: appIconMode,
+                            onSelect: { mode in
+                                appIconMode = mode.rawValue
+                                AppIconSettings.applyIcon(mode)
+                            }
+                        )
 
                         SettingsCardDivider()
 
@@ -3526,6 +3591,8 @@ struct SettingsView: View {
 
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
+        appIconMode = AppIconSettings.defaultMode.rawValue
+        AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
@@ -3737,6 +3804,79 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AppIconPickerRow: View {
+    let selectedMode: String
+    let onSelect: (AppIconMode) -> Void
+
+    private let iconSize: CGFloat = 48
+    private let autoIconSize: CGFloat = 36
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("App Icon")
+                .font(.system(size: 13, weight: .medium))
+
+            HStack(spacing: 12) {
+                ForEach(AppIconMode.allCases) { mode in
+                    let isSelected = selectedMode == mode.rawValue
+                    Button {
+                        onSelect(mode)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Group {
+                                if mode == .automatic {
+                                    // Show both icons overlapping
+                                    ZStack {
+                                        Image("AppIconLight")
+                                            .resizable()
+                                            .interpolation(.high)
+                                            .frame(width: autoIconSize, height: autoIconSize)
+                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
+                                            .offset(x: -10)
+                                        Image("AppIconDark")
+                                            .resizable()
+                                            .interpolation(.high)
+                                            .frame(width: autoIconSize, height: autoIconSize)
+                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
+                                            .offset(x: 10)
+                                    }
+                                    .frame(width: iconSize, height: iconSize)
+                                } else {
+                                    Image(mode.imageName ?? "AppIconLight")
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .frame(width: iconSize, height: iconSize)
+                                        .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous))
+                                }
+                            }
+
+                            Text(mode.displayName)
+                                .font(.system(size: 11))
+                                .foregroundColor(isSelected ? .primary : .secondary)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(isSelected
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
