@@ -47,6 +47,9 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+# Claude Code config (local dev only)
+.claude/
+
 # vibeshield (local dev only)
 vibeshield
 .devcontainer/
