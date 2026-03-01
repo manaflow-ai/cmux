@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import Combine
 import Darwin
+import Network
 
 struct SidebarStatusEntry {
     let key: String
@@ -13,12 +14,1246 @@ struct SidebarStatusEntry {
     let timestamp: Date
 }
 
-private final class WorkspaceRemoteSessionController {
-    private struct ForwardEntry {
-        let process: Process
-        let stderrPipe: Pipe
+private final class WorkspaceRemoteDaemonRPCClient {
+    private let configuration: WorkspaceRemoteConfiguration
+    private let remotePath: String
+    private let onUnexpectedTermination: (String) -> Void
+    private let callQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.call.\(UUID().uuidString)")
+    private let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
+
+    private var process: Process?
+    private var stdinHandle: FileHandle?
+    private var stdoutHandle: FileHandle?
+    private var stderrHandle: FileHandle?
+    private var isClosed = true
+    private var shouldReportTermination = true
+
+    private var nextRequestID = 1
+    private var pendingID: Int?
+    private var pendingSemaphore: DispatchSemaphore?
+    private var pendingResponse: [String: Any]?
+    private var pendingFailureMessage: String?
+
+    private var stdoutBuffer = Data()
+    private var stderrBuffer = ""
+
+    init(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUnexpectedTermination: @escaping (String) -> Void
+    ) {
+        self.configuration = configuration
+        self.remotePath = remotePath
+        self.onUnexpectedTermination = onUnexpectedTermination
     }
 
+    func start() throws {
+        let process = Process()
+        let stdinPipe = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = Self.daemonArguments(configuration: configuration, remotePath: remotePath)
+        process.standardInput = stdinPipe
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            self?.stateQueue.async {
+                self?.consumeStdoutData(data)
+            }
+        }
+        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            self?.stateQueue.async {
+                self?.consumeStderrData(data)
+            }
+        }
+        process.terminationHandler = { [weak self] terminated in
+            self?.stateQueue.async {
+                self?.handleProcessTermination(terminated)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to launch SSH daemon transport: \(error.localizedDescription)",
+            ])
+        }
+
+        stateQueue.sync {
+            self.process = process
+            self.stdinHandle = stdinPipe.fileHandleForWriting
+            self.stdoutHandle = stdoutPipe.fileHandleForReading
+            self.stderrHandle = stderrPipe.fileHandleForReading
+            self.isClosed = false
+            self.shouldReportTermination = true
+            self.stdoutBuffer = Data()
+            self.stderrBuffer = ""
+            self.pendingID = nil
+            self.pendingSemaphore = nil
+            self.pendingResponse = nil
+            self.pendingFailureMessage = nil
+        }
+
+        do {
+            let hello = try call(method: "hello", params: [:], timeout: 8.0)
+            let capabilities = (hello["capabilities"] as? [String]) ?? []
+            guard capabilities.contains("proxy.stream") else {
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon missing required capability proxy.stream",
+                ])
+            }
+        } catch {
+            stop(suppressTerminationCallback: true)
+            throw error
+        }
+    }
+
+    func stop() {
+        stop(suppressTerminationCallback: true)
+    }
+
+    func openStream(host: String, port: Int, timeoutMs: Int = 10000) throws -> String {
+        let result = try call(
+            method: "proxy.open",
+            params: [
+                "host": host,
+                "port": port,
+                "timeout_ms": timeoutMs,
+            ],
+            timeout: 12.0
+        )
+        let streamID = (result["stream_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !streamID.isEmpty else {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "proxy.open missing stream_id",
+            ])
+        }
+        return streamID
+    }
+
+    func writeStream(streamID: String, data: Data) throws {
+        _ = try call(
+            method: "proxy.write",
+            params: [
+                "stream_id": streamID,
+                "data_base64": data.base64EncodedString(),
+            ],
+            timeout: 8.0
+        )
+    }
+
+    func readStream(streamID: String, maxBytes: Int = 32768, timeoutMs: Int = 250) throws -> (data: Data, eof: Bool) {
+        let result = try call(
+            method: "proxy.read",
+            params: [
+                "stream_id": streamID,
+                "max_bytes": maxBytes,
+                "timeout_ms": timeoutMs,
+            ],
+            timeout: max(2.0, TimeInterval(timeoutMs) / 1000.0 + 2.0)
+        )
+        let encoded = (result["data_base64"] as? String) ?? ""
+        let decoded = encoded.isEmpty ? Data() : (Data(base64Encoded: encoded) ?? Data())
+        let eof = (result["eof"] as? Bool) ?? false
+        return (decoded, eof)
+    }
+
+    func closeStream(streamID: String) {
+        _ = try? call(
+            method: "proxy.close",
+            params: ["stream_id": streamID],
+            timeout: 4.0
+        )
+    }
+
+    private func call(method: String, params: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
+        try callQueue.sync {
+            let semaphore = DispatchSemaphore(value: 0)
+            let requestID: Int = stateQueue.sync {
+                let id = nextRequestID
+                nextRequestID += 1
+                pendingID = id
+                pendingSemaphore = semaphore
+                pendingResponse = nil
+                pendingFailureMessage = nil
+                return id
+            }
+
+            let payload: Data
+            do {
+                payload = try Self.encodeJSON([
+                    "id": requestID,
+                    "method": method,
+                    "params": params,
+                ])
+            } catch {
+                stateQueue.sync {
+                    clearPendingLocked()
+                }
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
+                ])
+            }
+
+            do {
+                try writePayload(payload)
+            } catch {
+                stateQueue.sync {
+                    clearPendingLocked()
+                }
+                throw error
+            }
+
+            if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+                stop(suppressTerminationCallback: false)
+                throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
+                    NSLocalizedDescriptionKey: "daemon RPC timeout waiting for \(method) response",
+                ])
+            }
+
+            let response: [String: Any] = try stateQueue.sync {
+                defer {
+                    clearPendingLocked()
+                }
+                if let failure = pendingFailureMessage {
+                    throw NSError(domain: "cmux.remote.daemon.rpc", code: 12, userInfo: [
+                        NSLocalizedDescriptionKey: failure,
+                    ])
+                }
+                guard let pendingResponse else {
+                    throw NSError(domain: "cmux.remote.daemon.rpc", code: 13, userInfo: [
+                        NSLocalizedDescriptionKey: "daemon RPC \(method) returned empty response",
+                    ])
+                }
+                return pendingResponse
+            }
+
+            let ok = (response["ok"] as? Bool) ?? false
+            if ok {
+                return (response["result"] as? [String: Any]) ?? [:]
+            }
+
+            let errorObject = (response["error"] as? [String: Any]) ?? [:]
+            let code = (errorObject["code"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "rpc_error"
+            let message = (errorObject["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "daemon RPC call failed"
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 14, userInfo: [
+                NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
+            ])
+        }
+    }
+
+    private func writePayload(_ payload: Data) throws {
+        let stdinHandle: FileHandle = stateQueue.sync {
+            self.stdinHandle ?? FileHandle.nullDevice
+        }
+        if stdinHandle === FileHandle.nullDevice {
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 15, userInfo: [
+                NSLocalizedDescriptionKey: "daemon transport is not connected",
+            ])
+        }
+        do {
+            try stdinHandle.write(contentsOf: payload)
+            try stdinHandle.write(contentsOf: Data([0x0A]))
+        } catch {
+            stop(suppressTerminationCallback: false)
+            throw NSError(domain: "cmux.remote.daemon.rpc", code: 16, userInfo: [
+                NSLocalizedDescriptionKey: "failed writing daemon RPC request: \(error.localizedDescription)",
+            ])
+        }
+    }
+
+    private func consumeStdoutData(_ data: Data) {
+        guard !data.isEmpty else {
+            signalPendingFailureLocked("daemon transport closed stdout")
+            return
+        }
+
+        stdoutBuffer.append(data)
+        while let newlineIndex = stdoutBuffer.firstIndex(of: 0x0A) {
+            var lineData = Data(stdoutBuffer[..<newlineIndex])
+            stdoutBuffer.removeSubrange(...newlineIndex)
+
+            if let carriageIndex = lineData.lastIndex(of: 0x0D), carriageIndex == lineData.index(before: lineData.endIndex) {
+                lineData.remove(at: carriageIndex)
+            }
+            guard !lineData.isEmpty else { continue }
+
+            guard let payload = try? JSONSerialization.jsonObject(with: lineData, options: []) as? [String: Any] else {
+                continue
+            }
+
+            let responseID: Int = {
+                if let intValue = payload["id"] as? Int {
+                    return intValue
+                }
+                if let numberValue = payload["id"] as? NSNumber {
+                    return numberValue.intValue
+                }
+                return -1
+            }()
+            guard responseID >= 0 else { continue }
+            guard pendingID == responseID else { continue }
+
+            pendingResponse = payload
+            pendingSemaphore?.signal()
+        }
+    }
+
+    private func consumeStderrData(_ data: Data) {
+        guard !data.isEmpty else { return }
+        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
+        stderrBuffer.append(chunk)
+        if stderrBuffer.count > 8192 {
+            stderrBuffer.removeFirst(stderrBuffer.count - 8192)
+        }
+    }
+
+    private func handleProcessTermination(_ process: Process) {
+        let shouldNotify: Bool = {
+            guard self.process === process else { return false }
+            return !isClosed && shouldReportTermination
+        }()
+        let detail = Self.bestErrorLine(stderr: stderrBuffer) ?? "daemon transport exited with status \(process.terminationStatus)"
+
+        isClosed = true
+        self.process = nil
+        stdinHandle = nil
+        stdoutHandle?.readabilityHandler = nil
+        stdoutHandle = nil
+        stderrHandle?.readabilityHandler = nil
+        stderrHandle = nil
+        signalPendingFailureLocked(detail)
+
+        guard shouldNotify else { return }
+        onUnexpectedTermination(detail)
+    }
+
+    private func stop(suppressTerminationCallback: Bool) {
+        let captured: (Process?, FileHandle?, FileHandle?, FileHandle?) = stateQueue.sync {
+            shouldReportTermination = !suppressTerminationCallback
+            if isClosed {
+                return (nil, nil, nil, nil)
+            }
+
+            isClosed = true
+            signalPendingFailureLocked("daemon transport stopped")
+            let capturedProcess = process
+            let capturedStdin = stdinHandle
+            let capturedStdout = stdoutHandle
+            let capturedStderr = stderrHandle
+
+            process = nil
+            stdinHandle = nil
+            stdoutHandle = nil
+            stderrHandle = nil
+            return (capturedProcess, capturedStdin, capturedStdout, capturedStderr)
+        }
+
+        captured.2?.readabilityHandler = nil
+        captured.3?.readabilityHandler = nil
+        try? captured.1?.close()
+        try? captured.2?.close()
+        try? captured.3?.close()
+        if let process = captured.0, process.isRunning {
+            process.terminate()
+        }
+    }
+
+    private func signalPendingFailureLocked(_ message: String) {
+        pendingFailureMessage = message
+        pendingSemaphore?.signal()
+    }
+
+    private func clearPendingLocked() {
+        pendingID = nil
+        pendingSemaphore = nil
+        pendingResponse = nil
+        pendingFailureMessage = nil
+    }
+
+    private static func encodeJSON(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object, options: [])
+    }
+
+    private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
+        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        let command = "sh -lc \(shellSingleQuoted(script))"
+        return sshCommonArguments(configuration: configuration, batchMode: true) + [configuration.destination, command]
+    }
+
+    private static func sshCommonArguments(configuration: WorkspaceRemoteConfiguration, batchMode: Bool) -> [String] {
+        var args: [String] = [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+        ]
+        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        if batchMode {
+            args += ["-o", "BatchMode=yes"]
+        }
+        if let port = configuration.port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        for option in configuration.sshOptions {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            args += ["-o", trimmed]
+        }
+        return args
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            if token == loweredKey {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func bestErrorLine(stderr: String) -> String? {
+        let lines = stderr
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        for line in lines.reversed() where !isNoiseLine(line) {
+            return line
+        }
+        return lines.last
+    }
+
+    private static func isNoiseLine(_ line: String) -> Bool {
+        let lowered = line.lowercased()
+        if lowered.hasPrefix("warning: permanently added") { return true }
+        if lowered.hasPrefix("debug") { return true }
+        if lowered.hasPrefix("transferred:") { return true }
+        if lowered.hasPrefix("openbsd_") { return true }
+        if lowered.contains("pseudo-terminal will not be allocated") { return true }
+        return false
+    }
+}
+
+private final class WorkspaceRemoteDaemonProxyTunnel {
+    private final class ProxySession {
+        private enum HandshakeProtocol {
+            case undecided
+            case socks5
+            case connect
+        }
+
+        private enum SocksStage {
+            case greeting
+            case request
+        }
+
+        private struct SocksRequest {
+            let host: String
+            let port: Int
+            let command: UInt8
+            let consumedBytes: Int
+        }
+
+        let id = UUID()
+
+        private let connection: NWConnection
+        private let rpcClient: WorkspaceRemoteDaemonRPCClient
+        private let queue: DispatchQueue
+        private let onClose: (UUID) -> Void
+
+        private var isClosed = false
+        private var protocolKind: HandshakeProtocol = .undecided
+        private var socksStage: SocksStage = .greeting
+        private var handshakeBuffer = Data()
+        private var streamID: String?
+        private var localInputEOF = false
+
+        init(
+            connection: NWConnection,
+            rpcClient: WorkspaceRemoteDaemonRPCClient,
+            queue: DispatchQueue,
+            onClose: @escaping (UUID) -> Void
+        ) {
+            self.connection = connection
+            self.rpcClient = rpcClient
+            self.queue = queue
+            self.onClose = onClose
+        }
+
+        func start() {
+            connection.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .failed(let error):
+                    self.close(reason: "proxy client connection failed: \(error)")
+                case .cancelled:
+                    self.close(reason: nil)
+                default:
+                    break
+                }
+            }
+            connection.start(queue: queue)
+            receiveNext()
+        }
+
+        func stop() {
+            close(reason: nil)
+        }
+
+        private func receiveNext() {
+            guard !isClosed else { return }
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 32768) { [weak self] data, _, isComplete, error in
+                guard let self, !self.isClosed else { return }
+
+                if let data, !data.isEmpty {
+                    if self.streamID == nil {
+                        self.handshakeBuffer.append(data)
+                        self.processHandshakeBuffer()
+                    } else {
+                        self.forwardToRemote(data)
+                    }
+                }
+
+                if isComplete {
+                    // Treat local EOF as a half-close: keep remote read loop alive so we can
+                    // drain upstream response bytes (for example curl closing write-side after
+                    // sending an HTTP request through SOCKS/CONNECT).
+                    self.localInputEOF = true
+                    if self.streamID == nil {
+                        self.close(reason: nil)
+                    }
+                    return
+                }
+                if let error {
+                    self.close(reason: "proxy client receive error: \(error)")
+                    return
+                }
+
+                self.receiveNext()
+            }
+        }
+
+        private func processHandshakeBuffer() {
+            guard !isClosed else { return }
+            while streamID == nil {
+                switch protocolKind {
+                case .undecided:
+                    guard let first = handshakeBuffer.first else { return }
+                    protocolKind = (first == 0x05) ? .socks5 : .connect
+                case .socks5:
+                    if !processSocksHandshakeStep() {
+                        return
+                    }
+                case .connect:
+                    if !processConnectHandshakeStep() {
+                        return
+                    }
+                }
+            }
+        }
+
+        private func processSocksHandshakeStep() -> Bool {
+            switch socksStage {
+            case .greeting:
+                guard handshakeBuffer.count >= 2 else { return false }
+                let methodCount = Int(handshakeBuffer[1])
+                let total = 2 + methodCount
+                guard handshakeBuffer.count >= total else { return false }
+
+                let methods = [UInt8](handshakeBuffer[2..<total])
+                handshakeBuffer = Data(handshakeBuffer.dropFirst(total))
+                socksStage = .request
+
+                if !methods.contains(0x00) {
+                    sendAndClose(Data([0x05, 0xFF]))
+                    return false
+                }
+                sendLocal(Data([0x05, 0x00]))
+                return true
+
+            case .request:
+                let request: SocksRequest
+                do {
+                    guard let parsed = try parseSocksRequest(from: handshakeBuffer) else { return false }
+                    request = parsed
+                } catch {
+                    sendAndClose(Data([0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]))
+                    return false
+                }
+
+                let pending = handshakeBuffer.count > request.consumedBytes
+                    ? Data(handshakeBuffer[request.consumedBytes...])
+                    : Data()
+                handshakeBuffer = Data()
+                guard request.command == 0x01 else {
+                    sendAndClose(Data([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]))
+                    return false
+                }
+
+                openRemoteStream(
+                    host: request.host,
+                    port: request.port,
+                    successResponse: Data([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]),
+                    failureResponse: Data([0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]),
+                    pendingPayload: pending
+                )
+                return false
+            }
+        }
+
+        private func parseSocksRequest(from data: Data) throws -> SocksRequest? {
+            let bytes = [UInt8](data)
+            guard bytes.count >= 4 else { return nil }
+            guard bytes[0] == 0x05 else {
+                throw NSError(domain: "cmux.remote.proxy", code: 1, userInfo: [NSLocalizedDescriptionKey: "invalid SOCKS version"])
+            }
+
+            let command = bytes[1]
+            let addressType = bytes[3]
+            var cursor = 4
+            let host: String
+
+            switch addressType {
+            case 0x01:
+                guard bytes.count >= cursor + 4 + 2 else { return nil }
+                let octets = bytes[cursor..<(cursor + 4)].map { String($0) }
+                host = octets.joined(separator: ".")
+                cursor += 4
+
+            case 0x03:
+                guard bytes.count >= cursor + 1 else { return nil }
+                let length = Int(bytes[cursor])
+                cursor += 1
+                guard bytes.count >= cursor + length + 2 else { return nil }
+                let hostData = Data(bytes[cursor..<(cursor + length)])
+                host = String(data: hostData, encoding: .utf8) ?? ""
+                cursor += length
+
+            case 0x04:
+                guard bytes.count >= cursor + 16 + 2 else { return nil }
+                var address = in6_addr()
+                withUnsafeMutableBytes(of: &address) { target in
+                    for i in 0..<16 {
+                        target[i] = bytes[cursor + i]
+                    }
+                }
+                var text = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                let pointer = withUnsafePointer(to: &address) {
+                    inet_ntop(AF_INET6, UnsafeRawPointer($0), &text, socklen_t(INET6_ADDRSTRLEN))
+                }
+                host = pointer != nil ? String(cString: text) : ""
+                cursor += 16
+
+            default:
+                throw NSError(domain: "cmux.remote.proxy", code: 2, userInfo: [NSLocalizedDescriptionKey: "invalid SOCKS address type"])
+            }
+
+            guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NSError(domain: "cmux.remote.proxy", code: 3, userInfo: [NSLocalizedDescriptionKey: "empty SOCKS host"])
+            }
+            guard bytes.count >= cursor + 2 else { return nil }
+            let port = Int(UInt16(bytes[cursor]) << 8 | UInt16(bytes[cursor + 1]))
+            cursor += 2
+
+            guard port > 0 && port <= 65535 else {
+                throw NSError(domain: "cmux.remote.proxy", code: 4, userInfo: [NSLocalizedDescriptionKey: "invalid SOCKS port"])
+            }
+
+            return SocksRequest(host: host, port: port, command: command, consumedBytes: cursor)
+        }
+
+        private func processConnectHandshakeStep() -> Bool {
+            let marker = Data([0x0D, 0x0A, 0x0D, 0x0A])
+            guard let headerRange = handshakeBuffer.range(of: marker) else { return false }
+
+            let headerData = Data(handshakeBuffer[..<headerRange.upperBound])
+            let pending = headerRange.upperBound < handshakeBuffer.count
+                ? Data(handshakeBuffer[headerRange.upperBound...])
+                : Data()
+            handshakeBuffer = Data()
+            guard let headerText = String(data: headerData, encoding: .utf8) else {
+                sendAndClose(Self.httpResponse(status: "400 Bad Request"))
+                return false
+            }
+
+            let firstLine = headerText.components(separatedBy: "\r\n").first ?? ""
+            let parts = firstLine.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard parts.count >= 2, parts[0].uppercased() == "CONNECT" else {
+                sendAndClose(Self.httpResponse(status: "400 Bad Request"))
+                return false
+            }
+
+            guard let (host, port) = Self.parseConnectAuthority(parts[1]) else {
+                sendAndClose(Self.httpResponse(status: "400 Bad Request"))
+                return false
+            }
+
+            openRemoteStream(
+                host: host,
+                port: port,
+                successResponse: Self.httpResponse(status: "200 Connection Established", closeAfterResponse: false),
+                failureResponse: Self.httpResponse(status: "502 Bad Gateway", closeAfterResponse: true),
+                pendingPayload: pending
+            )
+            return false
+        }
+
+        private func openRemoteStream(
+            host: String,
+            port: Int,
+            successResponse: Data,
+            failureResponse: Data,
+            pendingPayload: Data
+        ) {
+            guard !isClosed else { return }
+            do {
+                let streamID = try rpcClient.openStream(host: host, port: port)
+                self.streamID = streamID
+                connection.send(content: successResponse, completion: .contentProcessed { [weak self] error in
+                    guard let self else { return }
+                    if let error {
+                        self.close(reason: "proxy client send error: \(error)")
+                        return
+                    }
+                    if !pendingPayload.isEmpty {
+                        self.forwardToRemote(pendingPayload)
+                    }
+                    self.scheduleRemoteReadLoop()
+                })
+            } catch {
+                sendAndClose(failureResponse)
+            }
+        }
+
+        private func forwardToRemote(_ data: Data) {
+            guard !isClosed else { return }
+            guard !localInputEOF else { return }
+            guard let streamID else { return }
+            do {
+                try rpcClient.writeStream(streamID: streamID, data: data)
+            } catch {
+                close(reason: "proxy.write failed: \(error.localizedDescription)")
+            }
+        }
+
+        private func scheduleRemoteReadLoop() {
+            queue.async { [weak self] in
+                self?.pollRemoteOnce()
+            }
+        }
+
+        private func pollRemoteOnce() {
+            guard !isClosed else { return }
+            guard let streamID else { return }
+
+            let readResult: (data: Data, eof: Bool)
+            do {
+                readResult = try rpcClient.readStream(streamID: streamID, maxBytes: 32768, timeoutMs: 250)
+            } catch {
+                close(reason: "proxy.read failed: \(error.localizedDescription)")
+                return
+            }
+
+            if !readResult.data.isEmpty {
+                connection.send(content: readResult.data, completion: .contentProcessed { [weak self] error in
+                    guard let self else { return }
+                    if let error {
+                        self.close(reason: "proxy client send error: \(error)")
+                        return
+                    }
+                    if readResult.eof {
+                        self.close(reason: nil)
+                    } else {
+                        self.scheduleRemoteReadLoop()
+                    }
+                })
+                return
+            }
+
+            if readResult.eof {
+                close(reason: nil)
+            } else {
+                scheduleRemoteReadLoop()
+            }
+        }
+
+        private func close(reason: String?) {
+            guard !isClosed else { return }
+            isClosed = true
+
+            let streamID = self.streamID
+            self.streamID = nil
+
+            if let streamID {
+                rpcClient.closeStream(streamID: streamID)
+            }
+            if reason != nil {
+                connection.cancel()
+            } else {
+                connection.cancel()
+            }
+            onClose(id)
+        }
+
+        private func sendLocal(_ data: Data) {
+            guard !isClosed else { return }
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                guard let self else { return }
+                if let error {
+                    self.close(reason: "proxy client send error: \(error)")
+                }
+            })
+        }
+
+        private func sendAndClose(_ data: Data) {
+            guard !isClosed else { return }
+            connection.send(content: data, completion: .contentProcessed { [weak self] _ in
+                self?.close(reason: nil)
+            })
+        }
+
+        private static func parseConnectAuthority(_ authority: String) -> (host: String, port: Int)? {
+            let trimmed = authority.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            if trimmed.hasPrefix("[") {
+                guard let closing = trimmed.firstIndex(of: "]") else { return nil }
+                let host = String(trimmed[trimmed.index(after: trimmed.startIndex)..<closing])
+                let portStart = trimmed.index(after: closing)
+                guard portStart < trimmed.endIndex, trimmed[portStart] == ":" else { return nil }
+                let portString = String(trimmed[trimmed.index(after: portStart)...])
+                guard let port = Int(portString), port > 0, port <= 65535 else { return nil }
+                return (host, port)
+            }
+
+            guard let colon = trimmed.lastIndex(of: ":") else { return nil }
+            let host = String(trimmed[..<colon])
+            let portString = String(trimmed[trimmed.index(after: colon)...])
+            guard !host.isEmpty else { return nil }
+            guard let port = Int(portString), port > 0, port <= 65535 else { return nil }
+            return (host, port)
+        }
+
+        private static func httpResponse(status: String, closeAfterResponse: Bool = true) -> Data {
+            var text = "HTTP/1.1 \(status)\r\nProxy-Agent: cmux\r\n"
+            if closeAfterResponse {
+                text += "Connection: close\r\n"
+            }
+            text += "\r\n"
+            return Data(text.utf8)
+        }
+    }
+
+    private let configuration: WorkspaceRemoteConfiguration
+    private let remotePath: String
+    private let localPort: Int
+    private let onFatalError: (String) -> Void
+    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-tunnel.\(UUID().uuidString)", qos: .utility)
+
+    private var listener: NWListener?
+    private var rpcClient: WorkspaceRemoteDaemonRPCClient?
+    private var sessions: [UUID: ProxySession] = [:]
+    private var isStopped = false
+
+    init(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        localPort: Int,
+        onFatalError: @escaping (String) -> Void
+    ) {
+        self.configuration = configuration
+        self.remotePath = remotePath
+        self.localPort = localPort
+        self.onFatalError = onFatalError
+    }
+
+    func start() throws {
+        var capturedError: Error?
+        queue.sync {
+            guard !isStopped else {
+                capturedError = NSError(domain: "cmux.remote.proxy", code: 20, userInfo: [
+                    NSLocalizedDescriptionKey: "proxy tunnel already stopped",
+                ])
+                return
+            }
+            do {
+                let client = WorkspaceRemoteDaemonRPCClient(
+                    configuration: configuration,
+                    remotePath: remotePath
+                ) { [weak self] detail in
+                    self?.queue.async {
+                        self?.failLocked("Remote daemon transport failed: \(detail)")
+                    }
+                }
+                try client.start()
+
+                let listener = try Self.makeLoopbackListener(port: localPort)
+                listener.newConnectionHandler = { [weak self] connection in
+                    self?.queue.async {
+                        self?.acceptConnectionLocked(connection)
+                    }
+                }
+                listener.stateUpdateHandler = { [weak self] state in
+                    self?.queue.async {
+                        self?.handleListenerStateLocked(state)
+                    }
+                }
+
+                self.rpcClient = client
+                self.listener = listener
+                listener.start(queue: queue)
+            } catch {
+                capturedError = error
+                stopLocked(notify: false)
+            }
+        }
+        if let capturedError {
+            throw capturedError
+        }
+    }
+
+    func stop() {
+        queue.sync {
+            stopLocked(notify: false)
+        }
+    }
+
+    private func handleListenerStateLocked(_ state: NWListener.State) {
+        guard !isStopped else { return }
+        switch state {
+        case .failed(let error):
+            failLocked("Local proxy listener failed: \(error)")
+        default:
+            break
+        }
+    }
+
+    private func acceptConnectionLocked(_ connection: NWConnection) {
+        guard !isStopped else {
+            connection.cancel()
+            return
+        }
+        guard let rpcClient else {
+            connection.cancel()
+            return
+        }
+
+        let session = ProxySession(
+            connection: connection,
+            rpcClient: rpcClient,
+            queue: queue
+        ) { [weak self] id in
+            self?.queue.async {
+                self?.sessions.removeValue(forKey: id)
+            }
+        }
+        sessions[session.id] = session
+        session.start()
+    }
+
+    private func failLocked(_ detail: String) {
+        guard !isStopped else { return }
+        stopLocked(notify: false)
+        onFatalError(detail)
+    }
+
+    private func stopLocked(notify: Bool) {
+        guard !isStopped else { return }
+        isStopped = true
+
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        listener = nil
+
+        let activeSessions = sessions.values
+        sessions.removeAll()
+        for session in activeSessions {
+            session.stop()
+        }
+
+        rpcClient?.stop()
+        rpcClient = nil
+    }
+
+    private static func makeLoopbackListener(port: Int) throws -> NWListener {
+        guard let localPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            throw NSError(domain: "cmux.remote.proxy", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "invalid local proxy port \(port)",
+            ])
+        }
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host("127.0.0.1"), port: localPort)
+        return try NWListener(using: parameters)
+    }
+}
+
+private final class WorkspaceRemoteProxyBroker {
+    enum Update {
+        case connecting
+        case ready(BrowserProxyEndpoint)
+        case error(String)
+    }
+
+    final class Lease {
+        private let key: String
+        private let subscriberID: UUID
+        private weak var broker: WorkspaceRemoteProxyBroker?
+        private var isReleased = false
+
+        fileprivate init(key: String, subscriberID: UUID, broker: WorkspaceRemoteProxyBroker) {
+            self.key = key
+            self.subscriberID = subscriberID
+            self.broker = broker
+        }
+
+        func release() {
+            guard !isReleased else { return }
+            isReleased = true
+            broker?.release(key: key, subscriberID: subscriberID)
+        }
+
+        deinit {
+            release()
+        }
+    }
+
+    private final class Entry {
+        let configuration: WorkspaceRemoteConfiguration
+        var remotePath: String
+        var tunnel: WorkspaceRemoteDaemonProxyTunnel?
+        var endpoint: BrowserProxyEndpoint?
+        var restartWorkItem: DispatchWorkItem?
+        var subscribers: [UUID: (Update) -> Void] = [:]
+
+        init(configuration: WorkspaceRemoteConfiguration, remotePath: String) {
+            self.configuration = configuration
+            self.remotePath = remotePath
+        }
+    }
+
+    static let shared = WorkspaceRemoteProxyBroker()
+
+    private let queue = DispatchQueue(label: "com.cmux.remote-ssh.proxy-broker", qos: .utility)
+    private var entries: [String: Entry] = [:]
+
+    func acquire(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String,
+        onUpdate: @escaping (Update) -> Void
+    ) -> Lease {
+        queue.sync {
+            let key = Self.transportKey(for: configuration)
+            let subscriberID = UUID()
+            let entry: Entry
+            if let existing = entries[key] {
+                entry = existing
+                if existing.remotePath != remotePath {
+                    existing.remotePath = remotePath
+                    if existing.tunnel != nil {
+                        stopEntryRuntimeLocked(existing)
+                        notifyLocked(existing, update: .connecting)
+                    }
+                }
+            } else {
+                entry = Entry(configuration: configuration, remotePath: remotePath)
+                entries[key] = entry
+            }
+
+            entry.subscribers[subscriberID] = onUpdate
+            if let endpoint = entry.endpoint {
+                onUpdate(.ready(endpoint))
+            } else {
+                onUpdate(.connecting)
+            }
+
+            if entry.tunnel == nil, entry.restartWorkItem == nil {
+                startEntryLocked(key: key, entry: entry)
+            }
+
+            return Lease(key: key, subscriberID: subscriberID, broker: self)
+        }
+    }
+
+    private func release(key: String, subscriberID: UUID) {
+        queue.async { [weak self] in
+            guard let self, let entry = self.entries[key] else { return }
+            entry.subscribers.removeValue(forKey: subscriberID)
+            guard entry.subscribers.isEmpty else { return }
+            self.teardownEntryLocked(key: key, entry: entry)
+        }
+    }
+
+    private func startEntryLocked(key: String, entry: Entry) {
+        entry.restartWorkItem?.cancel()
+        entry.restartWorkItem = nil
+
+        let localPort: Int
+        if let forcedLocalPort = entry.configuration.localProxyPort {
+            // Internal deterministic test hook used by docker regressions to force bind conflicts.
+            localPort = forcedLocalPort
+        } else {
+            guard let allocatedPort = Self.allocateLoopbackPort() else {
+                notifyLocked(
+                    entry,
+                    update: .error("Failed to allocate local proxy port\(Self.retrySuffix(delay: 3.0))")
+                )
+                scheduleRestartLocked(key: key, entry: entry, delay: 3.0)
+                return
+            }
+            localPort = allocatedPort
+        }
+
+        do {
+            let tunnel = WorkspaceRemoteDaemonProxyTunnel(
+                configuration: entry.configuration,
+                remotePath: entry.remotePath,
+                localPort: localPort
+            ) { [weak self] detail in
+                self?.queue.async {
+                    self?.handleTunnelFailureLocked(key: key, detail: detail)
+                }
+            }
+            try tunnel.start()
+            entry.tunnel = tunnel
+            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
+            entry.endpoint = endpoint
+            notifyLocked(entry, update: .ready(endpoint))
+        } catch {
+            stopEntryRuntimeLocked(entry)
+            let detail = "Failed to start local daemon proxy: \(error.localizedDescription)"
+            notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: 3.0))"))
+            scheduleRestartLocked(key: key, entry: entry, delay: 3.0)
+        }
+    }
+
+    private func handleTunnelFailureLocked(key: String, detail: String) {
+        guard let entry = entries[key], entry.tunnel != nil else { return }
+        stopEntryRuntimeLocked(entry)
+        notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: 3.0))"))
+        scheduleRestartLocked(key: key, entry: entry, delay: 3.0)
+    }
+
+    private func scheduleRestartLocked(key: String, entry: Entry, delay: TimeInterval) {
+        guard !entry.subscribers.isEmpty else {
+            teardownEntryLocked(key: key, entry: entry)
+            return
+        }
+        guard entry.restartWorkItem == nil else { return }
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, let currentEntry = self.entries[key] else { return }
+            currentEntry.restartWorkItem = nil
+            guard !currentEntry.subscribers.isEmpty else {
+                self.teardownEntryLocked(key: key, entry: currentEntry)
+                return
+            }
+            self.notifyLocked(currentEntry, update: .connecting)
+            self.startEntryLocked(key: key, entry: currentEntry)
+        }
+
+        entry.restartWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func teardownEntryLocked(key: String, entry: Entry) {
+        entry.restartWorkItem?.cancel()
+        entry.restartWorkItem = nil
+        stopEntryRuntimeLocked(entry)
+        entries.removeValue(forKey: key)
+    }
+
+    private func stopEntryRuntimeLocked(_ entry: Entry) {
+        entry.tunnel?.stop()
+        entry.tunnel = nil
+        entry.endpoint = nil
+    }
+
+    private func notifyLocked(_ entry: Entry, update: Update) {
+        for callback in entry.subscribers.values {
+            callback(update)
+        }
+    }
+
+    private static func transportKey(for configuration: WorkspaceRemoteConfiguration) -> String {
+        let destination = configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let port = configuration.port.map(String.init) ?? ""
+        let identity = configuration.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localProxyPort = configuration.localProxyPort.map(String.init) ?? ""
+        let options = configuration.sshOptions
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\u{1f}")
+        return [destination, port, identity, options, localProxyPort].joined(separator: "\u{1e}")
+    }
+
+    private static func allocateLoopbackPort() -> Int? {
+        for _ in 0..<8 {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+            var yes: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(0)
+            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+            let bindResult = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else { continue }
+
+            var bound = sockaddr_in()
+            var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let nameResult = withUnsafeMutablePointer(to: &bound) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    getsockname(fd, sockaddrPtr, &len)
+                }
+            }
+            guard nameResult == 0 else { continue }
+
+            let port = Int(UInt16(bigEndian: bound.sin_port))
+            if port > 0 && port <= 65535 {
+                return port
+            }
+        }
+        return nil
+    }
+
+    private static func retrySuffix(delay: TimeInterval) -> String {
+        let seconds = max(1, Int(delay.rounded()))
+        return " (retry in \(seconds)s)"
+    }
+}
+
+private final class WorkspaceRemoteSessionController {
     private struct CommandResult {
         let status: Int32
         let stdout: String
@@ -42,15 +1277,8 @@ private final class WorkspaceRemoteSessionController {
     private let configuration: WorkspaceRemoteConfiguration
 
     private var isStopping = false
-    private var probeProcess: Process?
-    private var probeStdoutPipe: Pipe?
-    private var probeStderrPipe: Pipe?
-    private var probeStdoutBuffer = ""
-    private var probeStderrBuffer = ""
-
-    private var desiredRemotePorts: Set<Int> = []
-    private var forwardEntries: [Int: ForwardEntry] = [:]
-    private var portConflicts: Set<Int> = []
+    private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
+    private var proxyEndpoint: BrowserProxyEndpoint?
     private var daemonReady = false
     private var daemonBootstrapVersion: String?
     private var daemonRemotePath: String?
@@ -82,31 +1310,14 @@ private final class WorkspaceRemoteSessionController {
         reconnectWorkItem = nil
         reconnectRetryCount = 0
 
-        if let probeProcess {
-            probeStdoutPipe?.fileHandleForReading.readabilityHandler = nil
-            probeStderrPipe?.fileHandleForReading.readabilityHandler = nil
-            if probeProcess.isRunning {
-                probeProcess.terminate()
-            }
-        }
-        probeProcess = nil
-        probeStdoutPipe = nil
-        probeStderrPipe = nil
-        probeStdoutBuffer = ""
-        probeStderrBuffer = ""
-
-        for (_, entry) in forwardEntries {
-            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
-            if entry.process.isRunning {
-                entry.process.terminate()
-            }
-        }
-        forwardEntries.removeAll()
-        desiredRemotePorts.removeAll()
-        portConflicts.removeAll()
+        proxyLease?.release()
+        proxyLease = nil
+        proxyEndpoint = nil
         daemonReady = false
         daemonBootstrapVersion = nil
         daemonRemotePath = nil
+        publishProxyEndpoint(nil)
+        publishPortsSnapshotLocked()
     }
 
     private func beginConnectionAttemptLocked() {
@@ -126,6 +1337,11 @@ private final class WorkspaceRemoteSessionController {
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello = try bootstrapDaemonLocked()
+            guard hello.capabilities.contains("proxy.stream") else {
+                throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon missing required capability proxy.stream",
+                ])
+            }
             daemonReady = true
             daemonBootstrapVersion = hello.version
             daemonRemotePath = hello.remotePath
@@ -137,12 +1353,12 @@ private final class WorkspaceRemoteSessionController {
                 capabilities: hello.capabilities,
                 remotePath: hello.remotePath
             )
-            startProbeLocked()
+            startProxyLocked()
         } catch {
             daemonReady = false
             daemonBootstrapVersion = nil
             daemonRemotePath = nil
-            let nextRetry = scheduleProbeRestartLocked(delay: 4.0)
+            let nextRetry = scheduleReconnectLocked(delay: 4.0)
             let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 4.0)
             let detail = "Remote daemon bootstrap failed: \(error.localizedDescription)\(retrySuffix)"
             publishDaemonStatus(.error, detail: detail)
@@ -150,89 +1366,74 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func startProbeLocked() {
+    private func startProxyLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard proxyLease == nil else { return }
+        guard let remotePath = daemonRemotePath,
+              !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            let nextRetry = scheduleReconnectLocked(delay: 4.0)
+            let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 4.0)
+            let detail = "Remote daemon did not provide a valid remote path\(retrySuffix)"
+            publishDaemonStatus(.error, detail: detail)
+            publishState(.error, detail: detail)
+            return
+        }
 
-        probeStdoutBuffer = ""
-        probeStderrBuffer = ""
-
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = probeArguments()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        stdoutPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
+        let lease = WorkspaceRemoteProxyBroker.shared.acquire(
+            configuration: configuration,
+            remotePath: remotePath
+        ) { [weak self] update in
             self?.queue.async {
-                self?.consumeProbeStdoutData(data)
+                self?.handleProxyBrokerUpdateLocked(update)
             }
         }
-
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                return
-            }
-            self?.queue.async {
-                self?.consumeProbeStderrData(data)
-            }
-        }
-
-        process.terminationHandler = { [weak self] terminated in
-            self?.queue.async {
-                self?.handleProbeTermination(terminated)
-            }
-        }
-
-        do {
-            try process.run()
-            probeProcess = process
-            probeStdoutPipe = stdoutPipe
-            probeStderrPipe = stderrPipe
-        } catch {
-            let nextRetry = scheduleProbeRestartLocked(delay: 3.0)
-            let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 3.0)
-            publishState(.error, detail: "Failed to start SSH probe: \(error.localizedDescription)\(retrySuffix)")
-        }
+        proxyLease = lease
     }
 
-    private func handleProbeTermination(_ process: Process) {
-        probeStdoutPipe?.fileHandleForReading.readabilityHandler = nil
-        probeStderrPipe?.fileHandleForReading.readabilityHandler = nil
-        probeProcess = nil
-        probeStdoutPipe = nil
-        probeStderrPipe = nil
-
+    private func handleProxyBrokerUpdateLocked(_ update: WorkspaceRemoteProxyBroker.Update) {
         guard !isStopping else { return }
-
-        for (_, entry) in forwardEntries {
-            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
-            if entry.process.isRunning {
-                entry.process.terminate()
+        switch update {
+        case .connecting:
+            if proxyEndpoint == nil {
+                publishState(.connecting, detail: "Connecting to \(configuration.displayTarget)")
             }
-        }
-        forwardEntries.removeAll()
-        publishPortsSnapshotLocked()
+        case .ready(let endpoint):
+            reconnectWorkItem?.cancel()
+            reconnectWorkItem = nil
+            reconnectRetryCount = 0
+            guard proxyEndpoint != endpoint else { return }
+            proxyEndpoint = endpoint
+            publishProxyEndpoint(endpoint)
+            publishPortsSnapshotLocked()
+            publishState(
+                .connected,
+                detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
+            )
+        case .error(let detail):
+            proxyEndpoint = nil
+            publishProxyEndpoint(nil)
+            publishPortsSnapshotLocked()
+            publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
+            guard Self.shouldEscalateProxyErrorToBootstrap(detail) else { return }
 
-        let statusCode = process.terminationStatus
-        let rawDetail = Self.bestErrorLine(stderr: probeStderrBuffer, stdout: probeStdoutBuffer)
-        let detail = rawDetail ?? "SSH probe exited with status \(statusCode)"
-        let nextRetry = scheduleProbeRestartLocked(delay: 3.0)
-        let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 3.0)
-        publishState(.error, detail: "SSH probe to \(configuration.displayTarget) failed: \(detail)\(retrySuffix)")
+            proxyLease?.release()
+            proxyLease = nil
+            daemonReady = false
+            daemonBootstrapVersion = nil
+            daemonRemotePath = nil
+
+            let nextRetry = scheduleReconnectLocked(delay: 2.0)
+            let retrySuffix = Self.retrySuffix(retry: nextRetry, delay: 2.0)
+            publishDaemonStatus(
+                .error,
+                detail: "Remote daemon transport needs re-bootstrap after proxy failure\(retrySuffix)"
+            )
+        }
     }
 
     @discardableResult
-    private func scheduleProbeRestartLocked(delay: TimeInterval) -> Int {
+    private func scheduleReconnectLocked(delay: TimeInterval) -> Int {
         guard !isStopping else { return reconnectRetryCount }
         reconnectWorkItem?.cancel()
         reconnectRetryCount += 1
@@ -241,149 +1442,12 @@ private final class WorkspaceRemoteSessionController {
             guard let self else { return }
             self.reconnectWorkItem = nil
             guard !self.isStopping else { return }
-            guard self.probeProcess == nil else { return }
+            guard self.proxyLease == nil else { return }
             self.beginConnectionAttemptLocked()
         }
         reconnectWorkItem = workItem
         queue.asyncAfter(deadline: .now() + delay, execute: workItem)
         return retryNumber
-    }
-
-    private func consumeProbeStdoutData(_ data: Data) {
-        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
-        probeStdoutBuffer.append(chunk)
-
-        while let newline = probeStdoutBuffer.firstIndex(of: "\n") {
-            let line = String(probeStdoutBuffer[..<newline])
-            probeStdoutBuffer.removeSubrange(...newline)
-            handleProbePortsLine(line)
-        }
-    }
-
-    private func consumeProbeStderrData(_ data: Data) {
-        guard let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty else { return }
-        probeStderrBuffer.append(chunk)
-        if probeStderrBuffer.count > 8192 {
-            probeStderrBuffer.removeFirst(probeStderrBuffer.count - 8192)
-        }
-    }
-
-    private func handleProbePortsLine(_ line: String) {
-        guard !isStopping else { return }
-
-        let ports = Self.parseRemotePorts(line: line)
-        desiredRemotePorts = Set(ports)
-        portConflicts = portConflicts.intersection(desiredRemotePorts)
-        reconnectWorkItem?.cancel()
-        reconnectWorkItem = nil
-        reconnectRetryCount = 0
-        publishState(.connected, detail: "Connected to \(configuration.displayTarget)")
-        reconcileForwardsLocked()
-    }
-
-    private func reconcileForwardsLocked() {
-        guard !isStopping else { return }
-
-        for (port, entry) in forwardEntries where !desiredRemotePorts.contains(port) {
-            entry.stderrPipe.fileHandleForReading.readabilityHandler = nil
-            if entry.process.isRunning {
-                entry.process.terminate()
-            }
-            forwardEntries.removeValue(forKey: port)
-        }
-
-        for port in desiredRemotePorts.sorted() where forwardEntries[port] == nil {
-            guard Self.isLoopbackPortAvailable(port: port) else {
-                portConflicts.insert(port)
-                continue
-            }
-            if startForwardLocked(port: port) {
-                portConflicts.remove(port)
-            } else {
-                portConflicts.insert(port)
-            }
-        }
-
-        publishPortsSnapshotLocked()
-    }
-
-    @discardableResult
-    private func startForwardLocked(port: Int) -> Bool {
-        guard !isStopping else { return false }
-
-        let process = Process()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = forwardArguments(port: port)
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = stderrPipe
-
-        stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else {
-                handle.readabilityHandler = nil
-                return
-            }
-            self?.queue.async {
-                guard let self else { return }
-                if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
-                    self.probeStderrBuffer.append(chunk)
-                    if self.probeStderrBuffer.count > 8192 {
-                        self.probeStderrBuffer.removeFirst(self.probeStderrBuffer.count - 8192)
-                    }
-                }
-            }
-        }
-
-        process.terminationHandler = { [weak self] terminated in
-            self?.queue.async {
-                self?.handleForwardTermination(port: port, process: terminated)
-            }
-        }
-
-        do {
-            try process.run()
-            forwardEntries[port] = ForwardEntry(process: process, stderrPipe: stderrPipe)
-            return true
-        } catch {
-            publishState(.error, detail: "Failed to forward local :\(port) to \(configuration.displayTarget): \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    private func handleForwardTermination(port: Int, process: Process) {
-        if let current = forwardEntries[port], current.process === process {
-            current.stderrPipe.fileHandleForReading.readabilityHandler = nil
-            forwardEntries.removeValue(forKey: port)
-        }
-
-        guard !isStopping else { return }
-        publishPortsSnapshotLocked()
-
-        guard desiredRemotePorts.contains(port) else { return }
-        let rawDetail = Self.bestErrorLine(stderr: probeStderrBuffer)
-        if process.terminationReason != .exit || process.terminationStatus != 0 {
-            let detail = rawDetail ?? "process exited with status \(process.terminationStatus)"
-            publishState(.error, detail: "SSH port-forward :\(port) dropped for \(configuration.displayTarget): \(detail)")
-        }
-        guard Self.isLoopbackPortAvailable(port: port) else {
-            portConflicts.insert(port)
-            publishPortsSnapshotLocked()
-            return
-        }
-
-        queue.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            guard !self.isStopping else { return }
-            guard self.desiredRemotePorts.contains(port) else { return }
-            guard self.forwardEntries[port] == nil else { return }
-            if self.startForwardLocked(port: port) {
-                self.portConflicts.remove(port)
-            } else {
-                self.portConflicts.insert(port)
-            }
-            self.publishPortsSnapshotLocked()
-        }
     }
 
     private func publishState(_ state: WorkspaceRemoteConnectionState, detail: String?) {
@@ -422,30 +1486,23 @@ private final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func publishPortsSnapshotLocked() {
-        let detected = desiredRemotePorts.sorted()
-        let forwarded = forwardEntries.keys.sorted()
-        let conflicts = portConflicts.sorted()
+    private func publishProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            workspace.applyRemotePortsSnapshot(
-                detected: detected,
-                forwarded: forwarded,
-                conflicts: conflicts,
-                target: workspace.remoteDisplayTarget ?? "remote host"
-            )
+            workspace.applyRemoteProxyEndpointUpdate(endpoint)
         }
     }
 
-    private func probeArguments() -> [String] {
-        let remoteScript = Self.probeScript()
-        let remoteCommand = "sh -lc \(Self.shellSingleQuoted(remoteScript))"
-        return sshCommonArguments(batchMode: true) + [configuration.destination, remoteCommand]
-    }
-
-    private func forwardArguments(port: Int) -> [String] {
-        let localBind = "127.0.0.1:\(port):127.0.0.1:\(port)"
-        return ["-N", "-o", "ExitOnForwardFailure=yes"] + sshCommonArguments(batchMode: true) + ["-L", localBind, configuration.destination]
+    private func publishPortsSnapshotLocked() {
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            workspace.applyRemotePortsSnapshot(
+                detected: [],
+                forwarded: [],
+                conflicts: [],
+                target: workspace.remoteDisplayTarget ?? "remote host"
+            )
+        }
     }
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
@@ -453,8 +1510,10 @@ private final class WorkspaceRemoteSessionController {
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
-            "-o", "StrictHostKeyChecking=accept-new",
         ]
+        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
         if batchMode {
             args += ["-o", "BatchMode=yes"]
         }
@@ -471,6 +1530,19 @@ private final class WorkspaceRemoteSessionController {
             args += ["-o", trimmed]
         }
         return args
+    }
+
+    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            if token == loweredKey {
+                return true
+            }
+        }
+        return false
     }
 
     private func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> CommandResult {
@@ -670,7 +1742,10 @@ private final class WorkspaceRemoteSessionController {
             ])
         }
 
-        var scpArgs: [String] = ["-q", "-o", "StrictHostKeyChecking=accept-new"]
+        var scpArgs: [String] = ["-q"]
+        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+            scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
         if let port = configuration.port {
             scpArgs += ["-P", String(port)]
         }
@@ -754,38 +1829,6 @@ private final class WorkspaceRemoteSessionController {
             capabilities: capabilities,
             remotePath: remotePath
         )
-    }
-
-    private static func parseRemotePorts(line: String) -> [Int] {
-        let tokens = line.split(whereSeparator: \.isWhitespace)
-        let values = tokens.compactMap { Int($0) }
-        let filtered = values.filter { $0 >= 1024 && $0 <= 65535 }
-        let unique = Set(filtered)
-        if unique.count <= 40 {
-            return unique.sorted()
-        }
-        return Array(unique.sorted().prefix(40))
-    }
-
-    private static func probeScript() -> String {
-        """
-        set -eu
-        CMUX_LAST=""
-        while true; do
-          if command -v ss >/dev/null 2>&1; then
-            PORTS="$(ss -ltnH 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | sort -n -u | tr '\\n' ' ')"
-          elif command -v netstat >/dev/null 2>&1; then
-            PORTS="$(netstat -lnt 2>/dev/null | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ {print $1}' | sort -n -u | tr '\\n' ' ')"
-          else
-            PORTS=""
-          fi
-          if [ "$PORTS" != "$CMUX_LAST" ]; then
-            echo "$PORTS"
-            CMUX_LAST="$PORTS"
-          fi
-          sleep 2
-        done
-        """
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -919,29 +1962,15 @@ private final class WorkspaceRemoteSessionController {
         return " (retry \(retry) in \(seconds)s)"
     }
 
-    private static func isLoopbackPortAvailable(port: Int) -> Bool {
-        guard port > 0 && port <= 65535 else { return false }
-
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-
-        var yes: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
-
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(UInt16(port).bigEndian)
-        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-
-        let bindResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        return bindResult == 0
+    private static func shouldEscalateProxyErrorToBootstrap(_ detail: String) -> Bool {
+        let lowered = detail.lowercased()
+        return lowered.contains("remote daemon transport failed")
+            || lowered.contains("daemon transport closed stdout")
+            || lowered.contains("daemon transport exited")
+            || lowered.contains("daemon transport is not connected")
+            || lowered.contains("daemon transport stopped")
     }
+
 }
 
 enum SidebarLogLevel: String {
@@ -1008,6 +2037,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let port: Int?
     let identityFile: String?
     let sshOptions: [String]
+    let localProxyPort: Int?
 
     var displayTarget: String {
         guard let port else { return destination }
@@ -1080,6 +2110,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteDetectedPorts: [Int] = []
     @Published var remoteForwardedPorts: [Int] = []
     @Published var remotePortConflicts: [Int] = []
+    @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
@@ -1588,16 +2619,45 @@ final class Workspace: Identifiable, ObservableObject {
             "conflicted_ports": remotePortConflicts,
             "detail": remoteConnectionDetail ?? NSNull(),
         ]
+        if let endpoint = remoteProxyEndpoint {
+            payload["proxy"] = [
+                "state": "ready",
+                "host": endpoint.host,
+                "port": endpoint.port,
+                "schemes": ["socks5", "http_connect"],
+                "url": "socks5://\(endpoint.host):\(endpoint.port)",
+            ]
+        } else {
+            let proxyState: String
+            switch remoteConnectionState {
+            case .connecting:
+                proxyState = "connecting"
+            case .error:
+                proxyState = "error"
+            default:
+                proxyState = "unavailable"
+            }
+            payload["proxy"] = [
+                "state": proxyState,
+                "host": NSNull(),
+                "port": NSNull(),
+                "schemes": ["socks5", "http_connect"],
+                "url": NSNull(),
+                "error_code": proxyState == "error" ? "proxy_unavailable" : NSNull(),
+            ]
+        }
         if let remoteConfiguration {
             payload["destination"] = remoteConfiguration.destination
             payload["port"] = remoteConfiguration.port ?? NSNull()
             payload["identity_file"] = remoteConfiguration.identityFile ?? NSNull()
             payload["ssh_options"] = remoteConfiguration.sshOptions
+            payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
         } else {
             payload["destination"] = NSNull()
             payload["port"] = NSNull()
             payload["identity_file"] = NSNull()
             payload["ssh_options"] = []
+            payload["local_proxy_port"] = NSNull()
         }
         return payload
     }
@@ -1607,6 +2667,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDetectedPorts = []
         remoteForwardedPorts = []
         remotePortConflicts = []
+        remoteProxyEndpoint = nil
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
@@ -1618,6 +2679,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         remoteSessionController?.stop()
         remoteSessionController = nil
+        applyRemoteProxyEndpointUpdate(nil)
 
         guard autoConnect else {
             remoteConnectionState = .disconnected
@@ -1641,6 +2703,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteDetectedPorts = []
         remoteForwardedPorts = []
         remotePortConflicts = []
+        remoteProxyEndpoint = nil
         remoteConnectionState = .disconnected
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -1652,6 +2715,7 @@ final class Workspace: Identifiable, ObservableObject {
         if clearConfiguration {
             remoteConfiguration = nil
         }
+        applyRemoteProxyEndpointUpdate(nil)
         recomputeListeningPorts()
     }
 
@@ -1717,6 +2781,14 @@ final class Workspace: Identifiable, ObservableObject {
             level: .error,
             source: "remote-daemon"
         )
+    }
+
+    fileprivate func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
+        remoteProxyEndpoint = endpoint
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            browserPanel.setRemoteProxyEndpoint(endpoint)
+        }
     }
 
     fileprivate func applyRemotePortsSnapshot(detected: [Int], forwarded: [Int], conflicts: [Int], target: String) {
@@ -1929,7 +3001,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = sourcePaneId else { return nil }
 
         // Create browser panel
-        let browserPanel = BrowserPanel(workspaceId: id, initialURL: url)
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            initialURL: url,
+            proxyEndpoint: remoteProxyEndpoint
+        )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle
 
@@ -1985,7 +3061,8 @@ final class Workspace: Identifiable, ObservableObject {
         let browserPanel = BrowserPanel(
             workspaceId: id,
             initialURL: url,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            proxyEndpoint: remoteProxyEndpoint
         )
         panels[browserPanel.id] = browserPanel
         panelTitles[browserPanel.id] = browserPanel.displayTitle

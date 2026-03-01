@@ -7,6 +7,7 @@ if [ -z "${AUTHORIZED_KEY:-}" ]; then
 fi
 
 REMOTE_HTTP_PORT="${REMOTE_HTTP_PORT:-43173}"
+REMOTE_WS_PORT="${REMOTE_WS_PORT:-43174}"
 
 mkdir -p /home/dev/.ssh /root/.ssh /run/sshd
 printf '%s\n' "$AUTHORIZED_KEY" > /home/dev/.ssh/authorized_keys
@@ -18,5 +19,6 @@ chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 
 python3 -m http.server "$REMOTE_HTTP_PORT" --bind 127.0.0.1 --directory /srv/www >/tmp/http.log 2>&1 &
+python3 /usr/local/bin/ws_echo.py --host 127.0.0.1 --port "$REMOTE_WS_PORT" >/tmp/ws.log 2>&1 &
 
 exec /usr/sbin/sshd -D -e

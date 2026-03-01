@@ -3,6 +3,12 @@ import Combine
 import WebKit
 import AppKit
 import Bonsplit
+import Network
+
+struct BrowserProxyEndpoint: Equatable {
+    let host: String
+    let port: Int
+}
 
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
@@ -1070,6 +1076,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
+    private var remoteProxyEndpoint: BrowserProxyEndpoint?
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1089,17 +1096,27 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
+    init(
+        workspaceId: UUID,
+        initialURL: URL? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        proxyEndpoint: BrowserProxyEndpoint? = nil
+    ) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.remoteProxyEndpoint = proxyEndpoint
 
         // Configure web view
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = .default()
+        // Keep data-store scoping at workspace granularity so remote proxy settings
+        // do not leak into local workspaces.
+        if #available(macOS 14.0, *) {
+            config.websiteDataStore = WKWebsiteDataStore(forIdentifier: workspaceId)
+        } else {
+            config.websiteDataStore = .default()
+        }
 
         // Enable developer extras (DevTools)
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -1124,6 +1141,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
 
         self.webView = webView
+        applyRemoteProxyConfigurationIfAvailable()
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1178,6 +1196,33 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+    }
+
+    func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
+        guard remoteProxyEndpoint != endpoint else { return }
+        remoteProxyEndpoint = endpoint
+        applyRemoteProxyConfigurationIfAvailable()
+    }
+
+    private func applyRemoteProxyConfigurationIfAvailable() {
+        guard #available(macOS 14.0, *) else { return }
+
+        let store = webView.configuration.websiteDataStore
+        guard let endpoint = remoteProxyEndpoint,
+              endpoint.port > 0 && endpoint.port <= 65535,
+              let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
+            store.proxyConfigurations = []
+            return
+        }
+
+        let nwEndpoint = NWEndpoint.hostPort(
+            host: NWEndpoint.Host(endpoint.host),
+            port: nwPort
+        )
+        // Prefer SOCKSv5; keep CONNECT configured as fallback.
+        let socks = ProxyConfiguration(socksv5Proxy: nwEndpoint)
+        let connect = ProxyConfiguration(httpCONNECTProxy: nwEndpoint)
+        store.proxyConfigurations = [socks, connect]
     }
 
     func triggerFlash() {

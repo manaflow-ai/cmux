@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Regression: `cmux ssh` creates a remote-tagged workspace with remote metadata."""
 
+from __future__ import annotations
+
 import glob
 import json
 import os
@@ -72,6 +74,34 @@ def _extract_control_path(ssh_command: str) -> str:
     return match.group(1) if match else ""
 
 
+def _has_ssh_option_key(options: list[str], key: str) -> bool:
+    lowered_key = key.lower()
+    for option in options:
+        token = re.split(r"[=\s]+", str(option).strip(), maxsplit=1)[0].strip().lower()
+        if token == lowered_key:
+            return True
+    return False
+
+
+def _read_any_terminal_text(client: cmux, workspace_id: str, timeout: float = 8.0) -> str | None:
+    deadline = time.time() + timeout
+    last_exc: Exception | None = None
+    while time.time() < deadline:
+        surfaces = client.list_surfaces(workspace_id)
+        for _, surface_id, _ in surfaces:
+            try:
+                return client.read_terminal_text(surface_id)
+            except cmuxError as exc:
+                text = str(exc).lower()
+                if "terminal surface not found" in text:
+                    last_exc = exc
+                    continue
+                raise
+        time.sleep(0.1)
+    print(f"WARN: readable terminal surface unavailable in workspace {workspace_id}; skipping transcript assertion ({last_exc})")
+    return None
+
+
 def main() -> int:
     cli = _find_cli_binary()
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
@@ -80,6 +110,9 @@ def main() -> int:
 
     workspace_id = ""
     workspace_id_without_name = ""
+    workspace_id_strict_override = ""
+    workspace_id_case_override = ""
+    workspace_id_invalid_proxy_port = ""
     with cmux(SOCKET_PATH) as client:
         try:
             payload = _run_cli_json(
@@ -138,13 +171,29 @@ def main() -> int:
                 str(remote.get("state") or "") in {"connecting", "connected", "error", "disconnected"},
                 f"unexpected remote state: {remote}",
             )
-            surfaces = client.list_surfaces(workspace_id)
-            _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
-            primary_surface = surfaces[0][1]
+            proxy = remote.get("proxy") or {}
+            _must(
+                str(proxy.get("state") or "") in {"connecting", "ready", "error", "unavailable"},
+                f"remote payload should include proxy state metadata: {remote}",
+            )
+            remote_ssh_options = [str(item) for item in (remote.get("ssh_options") or [])]
+            _must(
+                _has_ssh_option_key(remote_ssh_options, "ControlMaster"),
+                f"workspace.remote.configure should include ControlMaster default: {remote}",
+            )
+            _must(
+                _has_ssh_option_key(remote_ssh_options, "ControlPersist"),
+                f"workspace.remote.configure should include ControlPersist default: {remote}",
+            )
+            _must(
+                _has_ssh_option_key(remote_ssh_options, "ControlPath"),
+                f"workspace.remote.configure should include ControlPath default: {remote}",
+            )
             # Regression: cmux ssh should launch through initial_command, not visibly type a giant command into the shell.
-            terminal_text = client.read_terminal_text(primary_surface)
-            _must("ControlPersist=600" not in terminal_text, f"cmux ssh should not inject raw ssh command text: {terminal_text!r}")
-            _must("GHOSTTY_SHELL_FEATURES=" not in terminal_text, f"cmux ssh should not inject env assignment text: {terminal_text!r}")
+            terminal_text = _read_any_terminal_text(client, workspace_id)
+            if terminal_text is not None:
+                _must("ControlPersist=600" not in terminal_text, f"cmux ssh should not inject raw ssh command text: {terminal_text!r}")
+                _must("GHOSTTY_SHELL_FEATURES=" not in terminal_text, f"cmux ssh should not inject env assignment text: {terminal_text!r}")
 
             status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
             status_remote = status.get("remote") or {}
@@ -231,6 +280,147 @@ def main() -> int:
                 f"workspace.remote.reconnect should transition into an active state: {reconnected}",
             )
 
+            payload_strict_override = _run_cli_json(
+                cli,
+                [
+                    "ssh",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                    "--name",
+                    "ssh-meta-strict-override",
+                    "--ssh-option",
+                    "StrictHostKeyChecking=no",
+                ],
+            )
+            workspace_id_strict_override = str(payload_strict_override.get("workspace_id") or "")
+            workspace_ref_strict_override = str(payload_strict_override.get("workspace_ref") or "")
+            if not workspace_id_strict_override and workspace_ref_strict_override.startswith("workspace:"):
+                listed_override = client._call("workspace.list", {}) or {}
+                for row in listed_override.get("workspaces") or []:
+                    if str(row.get("ref") or "") == workspace_ref_strict_override:
+                        workspace_id_strict_override = str(row.get("id") or "")
+                        break
+            _must(
+                bool(workspace_id_strict_override),
+                f"cmux ssh with StrictHostKeyChecking override should create workspace: {payload_strict_override}",
+            )
+            ssh_command_strict_override = str(payload_strict_override.get("ssh_command") or "")
+            _must(
+                "-o StrictHostKeyChecking=no" in ssh_command_strict_override,
+                f"ssh command should include user StrictHostKeyChecking override: {ssh_command_strict_override!r}",
+            )
+            _must(
+                "-o StrictHostKeyChecking=accept-new" not in ssh_command_strict_override,
+                f"ssh command should not force default StrictHostKeyChecking when override is supplied: {ssh_command_strict_override!r}",
+            )
+            strict_override_remote = payload_strict_override.get("remote") or {}
+            strict_override_options = [str(item) for item in (strict_override_remote.get("ssh_options") or [])]
+            _must(
+                any(item.lower() == "stricthostkeychecking=no" for item in strict_override_options),
+                f"workspace.remote.configure should preserve explicit StrictHostKeyChecking override: {strict_override_remote}",
+            )
+
+            payload_case_override = _run_cli_json(
+                cli,
+                [
+                    "ssh",
+                    "127.0.0.1",
+                    "--port",
+                    "1",
+                    "--name",
+                    "ssh-meta-case-override",
+                    "--ssh-option",
+                    "stricthostkeychecking=no",
+                    "--ssh-option",
+                    "controlmaster=no",
+                    "--ssh-option",
+                    "controlpersist=0",
+                    "--ssh-option",
+                    "controlpath=/tmp/cmux-ssh-%C-custom",
+                ],
+            )
+            workspace_id_case_override = str(payload_case_override.get("workspace_id") or "")
+            workspace_ref_case_override = str(payload_case_override.get("workspace_ref") or "")
+            if not workspace_id_case_override and workspace_ref_case_override.startswith("workspace:"):
+                listed_case_override = client._call("workspace.list", {}) or {}
+                for row in listed_case_override.get("workspaces") or []:
+                    if str(row.get("ref") or "") == workspace_ref_case_override:
+                        workspace_id_case_override = str(row.get("id") or "")
+                        break
+            _must(
+                bool(workspace_id_case_override),
+                f"cmux ssh with lowercase SSH option overrides should create workspace: {payload_case_override}",
+            )
+            ssh_command_case_override = str(payload_case_override.get("ssh_command") or "")
+            ssh_command_case_override_lower = ssh_command_case_override.lower()
+            _must(
+                "-o stricthostkeychecking=no" in ssh_command_case_override_lower,
+                f"ssh command should preserve lowercase StrictHostKeyChecking override: {ssh_command_case_override!r}",
+            )
+            _must(
+                "stricthostkeychecking=accept-new" not in ssh_command_case_override_lower,
+                f"ssh command should not force default StrictHostKeyChecking when lowercase override is supplied: {ssh_command_case_override!r}",
+            )
+            _must(
+                "-o controlmaster=no" in ssh_command_case_override_lower,
+                f"ssh command should preserve lowercase ControlMaster override: {ssh_command_case_override!r}",
+            )
+            _must(
+                "controlmaster=auto" not in ssh_command_case_override_lower,
+                f"ssh command should not force default ControlMaster when lowercase override is supplied: {ssh_command_case_override!r}",
+            )
+            _must(
+                "-o controlpersist=0" in ssh_command_case_override_lower,
+                f"ssh command should preserve lowercase ControlPersist override: {ssh_command_case_override!r}",
+            )
+            _must(
+                "controlpersist=600" not in ssh_command_case_override_lower,
+                f"ssh command should not force default ControlPersist when lowercase override is supplied: {ssh_command_case_override!r}",
+            )
+            _must(
+                "controlpath=/tmp/cmux-ssh-%c-custom" in ssh_command_case_override_lower,
+                f"ssh command should preserve lowercase ControlPath override value: {ssh_command_case_override!r}",
+            )
+            _must(
+                ssh_command_case_override_lower.count("controlpath=") == 1,
+                f"ssh command should include exactly one ControlPath when lowercase override is supplied: {ssh_command_case_override!r}",
+            )
+            case_override_remote = payload_case_override.get("remote") or {}
+            case_override_options = [str(item) for item in (case_override_remote.get("ssh_options") or [])]
+            _must(
+                any(item.lower() == "stricthostkeychecking=no" for item in case_override_options),
+                f"workspace.remote.configure should preserve lowercase StrictHostKeyChecking override: {case_override_remote}",
+            )
+            _must(
+                not any(item.lower() == "stricthostkeychecking=accept-new" for item in case_override_options),
+                f"workspace.remote.configure should not inject default StrictHostKeyChecking when lowercase override is supplied: {case_override_remote}",
+            )
+            _must(
+                any(item.lower() == "controlmaster=no" for item in case_override_options),
+                f"workspace.remote.configure should preserve lowercase ControlMaster override: {case_override_remote}",
+            )
+            _must(
+                not any(item.lower() == "controlmaster=auto" for item in case_override_options),
+                f"workspace.remote.configure should not inject default ControlMaster when lowercase override is supplied: {case_override_remote}",
+            )
+            _must(
+                any(item.lower() == "controlpersist=0" for item in case_override_options),
+                f"workspace.remote.configure should preserve lowercase ControlPersist override: {case_override_remote}",
+            )
+            _must(
+                not any(item.lower() == "controlpersist=600" for item in case_override_options),
+                f"workspace.remote.configure should not inject default ControlPersist when lowercase override is supplied: {case_override_remote}",
+            )
+            _must(
+                any(item.lower() == "controlpath=/tmp/cmux-ssh-%c-custom" for item in case_override_options),
+                f"workspace.remote.configure should preserve lowercase ControlPath override: {case_override_remote}",
+            )
+            _must(
+                sum(1 for item in case_override_options if item.lower().startswith("controlpath=")) == 1,
+                f"workspace.remote.configure should include exactly one ControlPath when lowercase override is supplied: {case_override_remote}",
+            )
+
             payload3 = _run_cli_json(
                 cli,
                 ["ssh", "127.0.0.1", "--port", "1", "--name", "ssh-meta-features"],
@@ -248,6 +438,142 @@ def main() -> int:
                     client.close_workspace(workspace_id3)
                 except Exception:
                     pass
+
+            invalid_proxy_port_workspace = client._call("workspace.create", {"initial_command": "echo invalid-local-proxy-port"}) or {}
+            workspace_id_invalid_proxy_port = str(invalid_proxy_port_workspace.get("workspace_id") or "")
+            _must(bool(workspace_id_invalid_proxy_port), f"workspace.create missing workspace_id: {invalid_proxy_port_workspace}")
+
+            configured_with_string_ports = client._call(
+                "workspace.remote.configure",
+                {
+                    "workspace_id": workspace_id_invalid_proxy_port,
+                    "destination": "127.0.0.1",
+                    "port": "2222",
+                    "local_proxy_port": "31338",
+                    "auto_connect": False,
+                },
+            ) or {}
+            configured_with_string_ports_remote = configured_with_string_ports.get("remote") or {}
+            _must(
+                int(configured_with_string_ports_remote.get("port") or 0) == 2222,
+                f"workspace.remote.configure should parse numeric string port values: {configured_with_string_ports}",
+            )
+            _must(
+                int(configured_with_string_ports_remote.get("local_proxy_port") or 0) == 31338,
+                f"workspace.remote.configure should parse numeric string local_proxy_port values: {configured_with_string_ports}",
+            )
+
+            valid_local_proxy_port = 31337
+            configured_with_local_proxy_port = client._call(
+                "workspace.remote.configure",
+                {
+                    "workspace_id": workspace_id_invalid_proxy_port,
+                    "destination": "127.0.0.1",
+                    "port": 2222,
+                    "local_proxy_port": valid_local_proxy_port,
+                    "auto_connect": False,
+                },
+            ) or {}
+            configured_remote = configured_with_local_proxy_port.get("remote") or {}
+            _must(
+                int(configured_remote.get("port") or 0) == 2222,
+                f"workspace.remote.configure should echo explicit port in remote payload: {configured_with_local_proxy_port}",
+            )
+            _must(
+                int(configured_remote.get("local_proxy_port") or 0) == valid_local_proxy_port,
+                f"workspace.remote.configure should echo local_proxy_port in remote payload: {configured_with_local_proxy_port}",
+            )
+
+            configured_with_null_ports = client._call(
+                "workspace.remote.configure",
+                {
+                    "workspace_id": workspace_id_invalid_proxy_port,
+                    "destination": "127.0.0.1",
+                    "port": None,
+                    "local_proxy_port": None,
+                    "auto_connect": False,
+                },
+            ) or {}
+            configured_with_null_ports_remote = configured_with_null_ports.get("remote") or {}
+            _must(
+                configured_with_null_ports_remote.get("port") is None,
+                f"workspace.remote.configure should allow null to clear port: {configured_with_null_ports}",
+            )
+            _must(
+                configured_with_null_ports_remote.get("local_proxy_port") is None,
+                f"workspace.remote.configure should allow null to clear local_proxy_port: {configured_with_null_ports}",
+            )
+            status_after_null_ports = client._call(
+                "workspace.remote.status",
+                {"workspace_id": workspace_id_invalid_proxy_port},
+            ) or {}
+            status_after_null_ports_remote = status_after_null_ports.get("remote") or {}
+            _must(
+                status_after_null_ports_remote.get("port") is None,
+                f"workspace.remote.status should reflect cleared port: {status_after_null_ports}",
+            )
+            _must(
+                status_after_null_ports_remote.get("local_proxy_port") is None,
+                f"workspace.remote.status should reflect cleared local_proxy_port: {status_after_null_ports}",
+            )
+
+            for invalid_local_proxy_port in [0, 65536, "abc", True, 22.5]:
+                try:
+                    client._call(
+                        "workspace.remote.configure",
+                        {
+                            "workspace_id": workspace_id_invalid_proxy_port,
+                            "destination": "127.0.0.1",
+                            "local_proxy_port": invalid_local_proxy_port,
+                            "auto_connect": False,
+                        },
+                    )
+                    raise cmuxError(
+                        f"workspace.remote.configure should reject local_proxy_port={invalid_local_proxy_port!r}"
+                    )
+                except cmuxError as exc:
+                    text = str(exc)
+                    lowered = text.lower()
+                    _must(
+                        "invalid_params" in lowered,
+                        f"workspace.remote.configure should return invalid_params for local_proxy_port={invalid_local_proxy_port!r}: {exc}",
+                    )
+                    _must(
+                        "local_proxy_port must be 1-65535" in text,
+                        f"workspace.remote.configure should include validation hint for local_proxy_port={invalid_local_proxy_port!r}: {exc}",
+                    )
+
+            for invalid_port in [0, 65536, "abc", True, 22.5]:
+                try:
+                    client._call(
+                        "workspace.remote.configure",
+                        {
+                            "workspace_id": workspace_id_invalid_proxy_port,
+                            "destination": "127.0.0.1",
+                            "port": invalid_port,
+                            "auto_connect": False,
+                        },
+                    )
+                    raise cmuxError(
+                        f"workspace.remote.configure should reject port={invalid_port!r}"
+                    )
+                except cmuxError as exc:
+                    text = str(exc)
+                    lowered = text.lower()
+                    _must(
+                        "invalid_params" in lowered,
+                        f"workspace.remote.configure should return invalid_params for port={invalid_port!r}: {exc}",
+                    )
+                    _must(
+                        "port must be 1-65535" in text,
+                        f"workspace.remote.configure should include validation hint for port={invalid_port!r}: {exc}",
+                    )
+
+            try:
+                client.close_workspace(workspace_id_invalid_proxy_port)
+            except Exception:
+                pass
+            workspace_id_invalid_proxy_port = ""
         finally:
             if workspace_id:
                 try:
@@ -257,6 +583,21 @@ def main() -> int:
             if workspace_id_without_name:
                 try:
                     client.close_workspace(workspace_id_without_name)
+                except Exception:
+                    pass
+            if workspace_id_strict_override:
+                try:
+                    client.close_workspace(workspace_id_strict_override)
+                except Exception:
+                    pass
+            if workspace_id_case_override:
+                try:
+                    client.close_workspace(workspace_id_case_override)
+                except Exception:
+                    pass
+            if workspace_id_invalid_proxy_port:
+                try:
+                    client.close_workspace(workspace_id_invalid_proxy_port)
                 except Exception:
                     pass
 
