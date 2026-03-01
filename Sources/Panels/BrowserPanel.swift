@@ -394,8 +394,8 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     return preparedRequest
 }
 
-func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL {
-    guard fileURL.isFileURL else { return fileURL }
+func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
+    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
     let path = fileURL.path
     var isDirectory: ObjCBool = false
     if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
@@ -403,9 +403,7 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
     }
 
     let parent = fileURL.deletingLastPathComponent()
-    if parent.path.isEmpty {
-        return URL(fileURLWithPath: "/")
-    }
+    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
     return parent
 }
 
@@ -413,7 +411,8 @@ func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager
 func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
     guard let url = request.url else { return nil }
     if url.isFileURL {
-        return webView.loadFileURL(url, allowingReadAccessTo: browserReadAccessURL(forLocalFileURL: url))
+        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
     }
     return webView.load(browserPreparedNavigationRequest(request))
 }
@@ -2072,7 +2071,7 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         if scheme == "http" || scheme == "https" {
             return url
         }
-        if scheme == "file", url.isFileURL, !url.path.isEmpty {
+        if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
         return nil

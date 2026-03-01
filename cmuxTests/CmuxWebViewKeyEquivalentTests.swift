@@ -7719,6 +7719,10 @@ final class BrowserNavigableURLResolutionTests: XCTestCase {
         XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
         XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
     }
+
+    func testRejectsHostOnlyFileURL() {
+        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    }
 }
 
 final class BrowserReadAccessURLTests: XCTestCase {
@@ -7730,7 +7734,7 @@ final class BrowserReadAccessURLTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
 
-        let readAccessURL = browserReadAccessURL(forLocalFileURL: file)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
@@ -7740,14 +7744,19 @@ final class BrowserReadAccessURLTests: XCTestCase {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let readAccessURL = browserReadAccessURL(forLocalFileURL: dir)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
         XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
     }
 
-    func testUsesParentDirectoryWhenFileDoesNotExist() {
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
         let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
-        let readAccessURL = browserReadAccessURL(forLocalFileURL: missing)
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
         XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
+    }
+
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
     }
 }
 

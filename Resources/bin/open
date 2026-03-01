@@ -131,6 +131,16 @@ is_html_extension() {
     return 1
 }
 
+is_explicit_local_path() {
+    local value="$1"
+    case "$value" in
+        /*|./*|../*|~|~/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 file_url_points_to_html() {
     local value="$1"
     if [[ -n "$PYTHON3_BIN" ]]; then
@@ -154,7 +164,26 @@ PY
 
     local without_fragment="${value%%\#*}"
     local without_query="${without_fragment%%\?*}"
-    is_html_extension "$without_query"
+    local remainder path_part
+
+    case "$without_query" in
+        [Ff][Ii][Ll][Ee]://*)
+            remainder="${without_query#*://}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ "$remainder" == /* ]]; then
+        path_part="$remainder"
+    elif [[ "$remainder" == */* ]]; then
+        path_part="/${remainder#*/}"
+    else
+        return 1
+    fi
+
+    is_html_extension "$path_part"
 }
 
 path_to_file_url_without_python() {
@@ -213,7 +242,8 @@ path_to_file_url_without_python() {
 path_to_file_url() {
     local raw="$1"
     if [[ -n "$PYTHON3_BIN" ]]; then
-        "$PYTHON3_BIN" - "$raw" <<'PY' 2>/dev/null
+        local converted
+        if converted="$("$PYTHON3_BIN" - "$raw" <<'PY' 2>/dev/null
 import pathlib
 import sys
 
@@ -229,7 +259,10 @@ else:
 
 sys.stdout.write(resolved.as_uri())
 PY
-        return $?
+        )"; then
+            printf '%s\n' "$converted"
+            return 0
+        fi
     fi
 
     path_to_file_url_without_python "$raw"
@@ -369,8 +402,12 @@ for arg in "$@"; do
             elif has_uri_scheme "$arg"; then
                 passthrough_args+=("$arg")
             elif is_html_extension "$arg"; then
-                if local_file_url="$(path_to_file_url "$arg")"; then
-                    cmux_targets+=("$local_file_url")
+                if is_explicit_local_path "$arg" || [[ -e "$arg" ]]; then
+                    if local_file_url="$(path_to_file_url "$arg")"; then
+                        cmux_targets+=("$local_file_url")
+                    else
+                        passthrough_args+=("$arg")
+                    fi
                 else
                     passthrough_args+=("$arg")
                 fi

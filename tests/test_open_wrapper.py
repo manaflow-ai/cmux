@@ -331,6 +331,27 @@ def test_file_url_html_routes_to_cmux(failures: list[str]) -> None:
     expect(cmux_log == [f"browser open {url}"], f"file url html: unexpected cmux log {cmux_log}", failures)
 
 
+def test_file_url_html_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
+    url = "file:///tmp/cmux-open-wrapper-fixture.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+        python_bin="/definitely/missing/python3",
+    )
+    expect(code == 0, f"file url html no-python fallback: wrapper exited {code}: {stderr}", failures)
+    expect(
+        open_log == [],
+        f"file url html no-python fallback: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"file url html no-python fallback: unexpected cmux log {cmux_log}",
+        failures,
+    )
+
+
 def test_local_html_file_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
     filename = "fixtures/no python fallback.html"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -358,6 +379,26 @@ def test_local_html_file_routes_to_cmux_without_python_binary(failures: list[str
             f"local html no-python fallback: expected URL-encoded filename, got {cmux_log[0]}",
             failures,
         )
+
+
+def test_domain_like_html_argument_passthrough(failures: list[str]) -> None:
+    arg = "example.com/report.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[arg],
+        intercept_setting="1",
+        whitelist="",
+    )
+    expect(code == 0, f"domain-like html argument: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [],
+        f"domain-like html argument: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [arg],
+        f"domain-like html argument: expected system open [{arg}], got {open_log}",
+        failures,
+    )
 
 
 def test_non_file_scheme_html_passthrough(failures: list[str]) -> None:
@@ -433,7 +474,9 @@ def main() -> int:
     test_uppercase_scheme_routes_to_cmux(failures)
     test_local_html_file_routes_to_cmux(failures)
     test_file_url_html_routes_to_cmux(failures)
+    test_file_url_html_routes_to_cmux_without_python_binary(failures)
     test_local_html_file_routes_to_cmux_without_python_binary(failures)
+    test_domain_like_html_argument_passthrough(failures)
     test_non_file_scheme_html_passthrough(failures)
     test_mailto_html_passthrough(failures)
     test_local_non_html_file_passthrough(failures)
