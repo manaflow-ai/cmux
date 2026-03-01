@@ -2371,6 +2371,68 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     }
 }
 
+final class CommandPaletteWorkspaceShortcutTests: XCTestCase {
+    func testReturnsNilWhenPaletteIsNotVisible() {
+        XCTAssertNil(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: false,
+                flags: [.command],
+                chars: "1"
+            )
+        )
+    }
+
+    func testReturnsCommandDigitForVisiblePalette() {
+        XCTAssertEqual(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [.command],
+                chars: "1"
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [.command],
+                chars: "9"
+            ),
+            9
+        )
+    }
+
+    func testRejectsUnsupportedModifiersAndDigits() {
+        XCTAssertNil(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [.command, .shift],
+                chars: "1"
+            )
+        )
+        XCTAssertNil(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [],
+                chars: "1"
+            )
+        )
+        XCTAssertNil(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [.command],
+                chars: "0"
+            )
+        )
+        XCTAssertNil(
+            commandPaletteWorkspaceShortcutDigit(
+                isCommandPaletteVisible: true,
+                flags: [.command],
+                chars: "a"
+            )
+        )
+    }
+}
+
 final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
     func testDoesNotConsumeWhenPaletteIsNotVisible() {
         XCTAssertFalse(

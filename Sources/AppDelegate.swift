@@ -666,6 +666,25 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+func commandPaletteWorkspaceShortcutDigit(
+    isCommandPaletteVisible: Bool,
+    flags: NSEvent.ModifierFlags,
+    chars: String
+) -> Int? {
+    guard isCommandPaletteVisible else { return nil }
+
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags == [.command] else { return nil }
+
+    guard let digit = Int(chars), (1...9).contains(digit) else {
+        return nil
+    }
+
+    return digit
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,
@@ -5059,6 +5078,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 name: .commandPaletteMoveSelection,
                 object: paletteWindow,
                 userInfo: ["delta": delta]
+            )
+            return true
+        }
+
+        if let digit = commandPaletteWorkspaceShortcutDigit(
+            isCommandPaletteVisible: commandPaletteVisibleInTargetWindow,
+            flags: event.modifierFlags,
+            chars: chars
+        ),
+           let paletteWindow = commandPaletteTargetWindow {
+            NotificationCenter.default.post(
+                name: .commandPaletteWorkspaceShortcutRequested,
+                object: paletteWindow,
+                userInfo: ["digit": digit]
             )
             return true
         }

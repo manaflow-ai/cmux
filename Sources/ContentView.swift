@@ -2319,6 +2319,20 @@ struct ContentView: View {
             moveCommandPaletteSelection(by: delta)
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteWorkspaceShortcutRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            guard case .commands = commandPaletteMode else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            guard let digit = notification.userInfo?["digit"] as? Int else { return }
+            runCommandPaletteWorkspaceShortcut(digit: digit)
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPaletteMode else { return }
@@ -3099,6 +3113,11 @@ struct ContentView: View {
             let windowId = context.windowId
             let windowTabManager = context.tabManager
             let windowKeywords = commandPaletteWindowKeywords(windowLabel: context.windowLabel)
+            let workspaceIndexById = Dictionary(
+                uniqueKeysWithValues: context.tabManager.tabs.enumerated().map { ($0.element.id, $0.offset) }
+            )
+            let shouldShowWorkspaceShortcuts = context.windowId == self.windowId
+
             for workspace in workspaces {
                 let workspaceName = workspaceDisplayName(workspace)
                 let workspaceCommandId = "switcher.workspace.\(workspace.id.uuidString.lowercased())"
@@ -3114,13 +3133,24 @@ struct ContentView: View {
                     detail: .workspace
                 )
                 let workspaceId = workspace.id
+                let workspaceShortcutHint: String? = {
+                    guard shouldShowWorkspaceShortcuts,
+                          let workspaceIndex = workspaceIndexById[workspaceId],
+                          let digit = WorkspaceShortcutMapper.commandDigitForWorkspace(
+                            at: workspaceIndex,
+                            workspaceCount: context.tabManager.tabs.count
+                          ) else {
+                        return nil
+                    }
+                    return "⌘\(digit)"
+                }()
                 entries.append(
                     CommandPaletteCommand(
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
                         subtitle: commandPaletteSwitcherSubtitle(base: "Workspace", windowLabel: context.windowLabel),
-                        shortcutHint: nil,
+                        shortcutHint: workspaceShortcutHint,
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
                         action: {
@@ -4447,6 +4477,34 @@ struct ContentView: View {
         let current = commandPaletteSelectedIndex(resultCount: count)
         commandPaletteSelectedResultIndex = min(max(current + delta, 0), count - 1)
         syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func runCommandPaletteWorkspaceShortcut(digit: Int) {
+        guard commandPaletteListScope == .switcher else {
+            NSSound.beep()
+            return
+        }
+
+        let workspaceCount = tabManager.tabs.count
+        guard let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+            forCommandDigit: digit,
+            workspaceCount: workspaceCount
+        ),
+        targetIndex < tabManager.tabs.count else {
+            NSSound.beep()
+            return
+        }
+
+        let targetWorkspaceId = tabManager.tabs[targetIndex].id
+        let commandId = "switcher.workspace.\(targetWorkspaceId.uuidString.lowercased())"
+
+        if let command = commandPaletteEntries.first(where: { $0.id == commandId }) {
+            runCommandPaletteCommand(command)
+            return
+        }
+
+        tabManager.focusTab(targetWorkspaceId, suppressFlash: true)
+        dismissCommandPalette(restoreFocus: false)
     }
 
     private func handleCommandPaletteControlNavigationKey(
