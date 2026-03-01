@@ -60,9 +60,9 @@ Task structure guidelines:
 -->
 
 ### Task 0: Create feature branch from main
-- [ ] `git checkout main && git pull`
-- [ ] `git checkout -b feat/crux-scheduler-impl`
-- [ ] verify clean working tree with `git status`
+- [x] `git checkout main && git pull` (branch `crux-scheduler` created by ralphex from main @ bd1a267)
+- [x] `git checkout -b feat/crux-scheduler-impl` (using `crux-scheduler` branch name instead)
+- [x] verify clean working tree with `git status` (clean, only local .gitignore modification)
 
 ### Task 1: Browser kill-switch via UserDefaults guards
 - [ ] register `browserEnabled` default (true) in `Sources/cmuxApp.swift` init (lines 49-60)
