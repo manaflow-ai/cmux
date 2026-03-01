@@ -17,6 +17,14 @@ on:
         required: false
         default: false
         type: boolean
+      test_filter:
+        description: "Run specific UI test class (e.g. UpdatePillUITests) or empty for all"
+        required: false
+        default: ""
+      test_timeout:
+        description: "Per-test timeout in seconds (default: 120)"
+        required: false
+        default: "120"
 
 jobs:
   tests:
@@ -73,6 +81,18 @@ jobs:
           tar xzf GhosttyKit.xcframework.tar.gz
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
+
+      - name: Display diagnostics
+        run: |
+          echo "=== Screen resolution ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "No display info available"
+          echo ""
+          echo "=== Window server ==="
+          /usr/sbin/system_profiler SPSoftwareDataType | grep -i "boot mode" || true
+          echo ""
+          echo "=== Accessibility permissions ==="
+          tccutil reset Accessibility 2>/dev/null || true
+          echo "Accessibility reset attempted"
 
       - name: Clean DerivedData
         run: |
@@ -142,11 +162,23 @@ jobs:
 
       - name: Run UI tests
         if: ${{ !inputs.skip_ui_tests }}
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+          TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+
+          # Build the -only-testing argument
+          if [ -n "$TEST_FILTER" ]; then
+            ONLY_TESTING="-only-testing:cmuxUITests/$TEST_FILTER"
+          else
+            ONLY_TESTING="-only-testing:cmuxUITests"
+          fi
+
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -only-testing:cmuxUITests test
+            -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
+            $ONLY_TESTING test
