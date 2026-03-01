@@ -49,6 +49,7 @@ tmp/
 tmp-*/
 # vibeshield (local dev only)
 vibeshield
+.devcontainer/
 .env.*
 .env.vibeshield.example
 .vibeshield-launch.log
