@@ -3944,6 +3944,30 @@ struct ContentView: View {
         }
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebStop",
+                title: constant("Stop VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "stop", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebRestart",
+                title: constant("Restart VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "restart", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
                 title: constant("Find…"),
                 subtitle: terminalPanelSubtitle,
@@ -4284,6 +4308,16 @@ struct ContentView: View {
                 if !openFocusedDirectory(in: target) {
                     NSSound.beep()
                 }
+            }
+        }
+        registry.register(commandId: "palette.vscodeServeWebStop") {
+            if !stopInlineVSCodeServeWeb() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.vscodeServeWebRestart") {
+            if !restartInlineVSCodeServeWeb() {
+                NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFind") {
@@ -4956,6 +4990,23 @@ struct ContentView: View {
             ) != nil else {
                 NSSound.beep()
                 return
+            }
+        }
+        return true
+    }
+
+    private func stopInlineVSCodeServeWeb() -> Bool {
+        VSCodeServeWebController.shared.stop()
+        return true
+    }
+
+    private func restartInlineVSCodeServeWeb() -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL() else {
+            return false
+        }
+        VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            if serveWebURL == nil {
+                NSSound.beep()
             }
         }
         return true

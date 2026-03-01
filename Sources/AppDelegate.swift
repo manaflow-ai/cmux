@@ -404,6 +404,11 @@ final class VSCodeServeWebController {
         }
     }
 
+    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+    }
+
     private func launchServeWebProcess(vscodeApplicationURL: URL) -> (process: Process, url: URL)? {
         guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: vscodeApplicationURL
