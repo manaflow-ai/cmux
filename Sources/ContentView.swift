@@ -1225,6 +1225,10 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject var sidebarContentModeState: SidebarContentModeState
+    @StateObject private var fileTreeModel = FileTreeModel()
+    @AppStorage("sidebarFileTreeLayout") private var fileTreeLayout: SidebarFileTreeLayout = .toggle
+    @State private var splitDividerRatio: CGFloat = 0.4
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1773,14 +1777,149 @@ struct ContentView: View {
         }
     }
 
-    private var sidebarView: some View {
+    private var tabsSidebarContent: some View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
+    }
+
+    private var fileTreeSidebarContent: some View {
+        Group {
+            if let workspace = tabManager.selectedTab {
+                FileTreeSidebar(
+                    model: fileTreeModel,
+                    workspace: workspace,
+                    onComposePath: { path in
+                        sendPathToFocusedTerminal(path)
+                    }
+                )
+            } else {
+                Text("No workspace")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var sidebarModeHeader: some View {
+        HStack(spacing: 4) {
+            Button {
+                sidebarContentModeState.mode = .tabs
+            } label: {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 12))
+                    .foregroundColor(sidebarContentModeState.mode == .tabs ? .accentColor : .secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Show tabs")
+
+            Button {
+                sidebarContentModeState.mode = .fileTree
+            } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 12))
+                    .foregroundColor(sidebarContentModeState.mode == .fileTree ? .accentColor : .secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Show file tree")
+
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 30)
+        .padding(.bottom, 4)
+    }
+
+    private var sidebarView: some View {
+        VStack(spacing: 0) {
+            if fileTreeLayout == .split {
+                sidebarSplitContent
+            } else {
+                sidebarToggleContent
+            }
+        }
         .frame(width: sidebarWidth)
+        .background(SidebarBackdrop().ignoresSafeArea())
+    }
+
+    private var sidebarToggleContent: some View {
+        VStack(spacing: 0) {
+            sidebarModeHeader
+
+            if sidebarContentModeState.mode == .tabs {
+                tabsSidebarContent
+            } else {
+                fileTreeSidebarContent
+            }
+        }
+    }
+
+    private var sidebarSplitContent: some View {
+        GeometryReader { geo in
+            let totalHeight = geo.size.height - 30 // account for header
+            let tabsHeight = totalHeight * splitDividerRatio
+            let fileTreeHeight = totalHeight * (1 - splitDividerRatio)
+
+            VStack(spacing: 0) {
+                sidebarModeHeader
+
+                tabsSidebarContent
+                    .frame(height: tabsHeight)
+
+                // Draggable divider
+                Rectangle()
+                    .fill(Color.primary.opacity(0.1))
+                    .frame(height: 1)
+                    .overlay(
+                        Rectangle()
+                            .fill(Color.clear)
+                            .frame(height: 8)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture()
+                                    .onChanged { value in
+                                        let newRatio = (tabsHeight + value.translation.height) / totalHeight
+                                        splitDividerRatio = min(max(newRatio, 0.15), 0.85)
+                                    }
+                            )
+                            .onHover { hovering in
+                                if hovering {
+                                    NSCursor.resizeUpDown.push()
+                                } else {
+                                    NSCursor.pop()
+                                }
+                            }
+                    )
+
+                fileTreeSidebarContent
+                    .frame(height: fileTreeHeight)
+            }
+        }
+    }
+
+    private func sendPathToFocusedTerminal(_ path: String) {
+        guard let workspace = tabManager.selectedTab,
+              let terminalPanel = workspace.focusedTerminalPanel else { return }
+        // Shell-escape the path so spaces and special chars don't break commands
+        let escaped = shellEscapePath(path)
+        terminalPanel.sendText(escaped)
+    }
+
+    private func shellEscapePath(_ path: String) -> String {
+        let needsQuoting = path.contains(" ") || path.contains("'") || path.contains("\"")
+            || path.contains("(") || path.contains(")") || path.contains("&")
+            || path.contains("|") || path.contains(";") || path.contains("$")
+            || path.contains("`") || path.contains("!")
+        guard needsQuoting else { return path }
+        // Use single quotes with escaped inner single quotes
+        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -2493,7 +2632,8 @@ struct ContentView: View {
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState
+                sidebarSelectionState: sidebarSelectionState,
+                sidebarContentModeState: sidebarContentModeState
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
         }))
@@ -5665,7 +5805,6 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
         .background(
             WindowAccessor { window in
                 commandKeyMonitor.setHostWindow(window)
@@ -8374,7 +8513,7 @@ enum SidebarSelection {
     case notifications
 }
 
-private struct ClearScrollBackground: ViewModifier {
+struct ClearScrollBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 13.0, *) {
             content

@@ -34,6 +34,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleFileTree.defaultsKey) private var toggleFileTreeShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -494,6 +495,19 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: "Toggle File Tree", shortcut: toggleFileTreeMenuShortcut) {
+                    if let modeState = AppDelegate.shared?.sidebarContentModeState {
+                        if modeState.mode == .fileTree {
+                            modeState.mode = .tabs
+                        } else {
+                            modeState.mode = .fileTree
+                            if !sidebarState.isVisible {
+                                sidebarState.toggle()
+                            }
+                        }
+                    }
+                }
+
                 Divider()
 
                 splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
@@ -750,6 +764,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var toggleFileTreeMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleFileTreeShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleFileTree.defaultShortcut
         )
     }
 

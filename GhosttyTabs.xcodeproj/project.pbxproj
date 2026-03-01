@@ -84,7 +84,12 @@
 					F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 					F7000000A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */; };
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
-			/* End PBXBuildFile section */
+						A5003000 /* SidebarContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003010 /* SidebarContentMode.swift */; };
+			A5003001 /* FileTreeNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003011 /* FileTreeNode.swift */; };
+			A5003002 /* FileTreeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003012 /* FileTreeModel.swift */; };
+			A5003003 /* FileTreeRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003013 /* FileTreeRow.swift */; };
+			A5003004 /* FileTreeSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5003014 /* FileTreeSidebar.swift */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		A5001020 /* Embed Frameworks */ = {
@@ -215,7 +220,12 @@
 				F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
-			/* End PBXFileReference section */
+					A5003010 /* SidebarContentMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/SidebarContentMode.swift; sourceTree = "<group>"; };
+		A5003011 /* FileTreeNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeNode.swift; sourceTree = "<group>"; };
+		A5003012 /* FileTreeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeModel.swift; sourceTree = "<group>"; };
+		A5003013 /* FileTreeRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeRow.swift; sourceTree = "<group>"; };
+		A5003014 /* FileTreeSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTree/FileTreeSidebar.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 			A5001030 /* Frameworks */ = {
@@ -322,6 +332,11 @@
 				children = (
 					A5001011 /* cmuxApp.swift */,
 					A5001012 /* ContentView.swift */,
+					A5003010 /* SidebarContentMode.swift */,
+					A5003011 /* FileTreeNode.swift */,
+					A5003012 /* FileTreeModel.swift */,
+					A5003013 /* FileTreeRow.swift */,
+					A5003014 /* FileTreeSidebar.swift */,
 					9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 					B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
 					A50012F0 /* Backport.swift */,
@@ -561,6 +576,11 @@
 				files = (
 					A5001001 /* cmuxApp.swift in Sources */,
 					A5001002 /* ContentView.swift in Sources */,
+				A5003000 /* SidebarContentMode.swift in Sources */,
+				A5003001 /* FileTreeNode.swift in Sources */,
+				A5003002 /* FileTreeModel.swift in Sources */,
+				A5003003 /* FileTreeRow.swift in Sources */,
+				A5003004 /* FileTreeSidebar.swift in Sources */,
 					E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 					B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
