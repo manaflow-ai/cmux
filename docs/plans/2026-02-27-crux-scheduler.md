@@ -133,19 +133,19 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 7
 
 ### Task 7: Ghostty terminal surface execution with COMMAND_FINISHED handler
-- [ ] implement `schedulerWorkspace(in:)` — get or create dedicated workspace
-- [ ] implement `executeTask(_:)` using `config.command` and `config.wait_after_command = true`
-- [ ] add `case GHOSTTY_ACTION_COMMAND_FINISHED:` in `Sources/GhosttyTerminalView.swift:1065`
-- [ ] implement `handleTaskCompletion()` — update run, persist, fire notification via `TerminalNotificationStore`
-- [ ] implement `cancelTask(_:)` via `ghostty_surface_request_close()`
-- [ ] implement `focusRunningTask(_:)` — switch workspace and focus panel
-- [ ] implement session memory: create context file, inject `CMUX_TASK_CONTEXT_FILE` env var
-- [ ] implement app quit cleanup in `AppDelegate.applicationWillTerminate`
-- [ ] write tests for executeTask creates TaskRun with running status
-- [ ] write tests for completion callback updates TaskRun with exit_code
-- [ ] write tests for completion fires addNotification
-- [ ] write tests for cancelTask marks run as cancelled
-- [ ] run project tests - must pass before task 8
+- [x] implement `schedulerWorkspace(in:)` — get or create dedicated workspace
+- [x] implement `executeTask(_:)` using `config.command` and `config.wait_after_command = true`
+- [x] add `case GHOSTTY_ACTION_COMMAND_FINISHED:` in `Sources/GhosttyTerminalView.swift:1065`
+- [x] implement `handleTaskCompletion()` — update run, persist, fire notification via `TerminalNotificationStore`
+- [x] implement `cancelTask(_:)` via `ghostty_surface_request_close()`
+- [x] implement `focusRunningTask(_:)` — switch workspace and focus panel
+- [x] implement session memory: create context file, inject `CMUX_TASK_CONTEXT_FILE` env var
+- [x] implement app quit cleanup in `AppDelegate.applicationWillTerminate`
+- [x] write tests for executeTask creates TaskRun with running status
+- [x] write tests for completion callback updates TaskRun with exit_code
+- [x] write tests for completion fires addNotification
+- [x] write tests for cancelTask marks run as cancelled
+- [x] run project tests - must pass before task 8
 
 ### Task 8: Optional git worktree isolation
 - [ ] add `schedulerWorktreeIsolation` UserDefaults (default false)

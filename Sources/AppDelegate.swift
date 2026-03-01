@@ -1364,6 +1364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        SchedulerEngine.shared.handleAppWillTerminate()
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
     }

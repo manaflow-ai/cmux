@@ -1109,6 +1109,29 @@ class GhosttyApp {
             return true
         }
 
+        // Scheduler: handle command completion for task terminal surfaces.
+        // This fires when a surface created with surfaceConfig.command finishes.
+        if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
+            let finished = action.action.command_finished
+            let exitCode = finished.exit_code
+#if DEBUG
+            dlog(
+                "surface.action.commandFinished tab=\(callbackTabId?.uuidString.prefix(5) ?? "nil") " +
+                "surface=\(callbackSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+                "exitCode=\(exitCode) duration=\(finished.duration)ns"
+            )
+#endif
+            DispatchQueue.main.async {
+                guard let panelId = callbackSurfaceId else { return }
+                SchedulerEngine.shared.handleTaskCompletion(
+                    panelId: panelId,
+                    exitCode: Int32(exitCode),
+                    workspaceId: callbackTabId
+                )
+            }
+            return true
+        }
+
         guard let surfaceView = callbackContext?.surfaceView else { return false }
         if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
             action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||

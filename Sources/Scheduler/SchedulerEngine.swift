@@ -23,14 +23,28 @@ final class SchedulerEngine: ObservableObject {
     var lastEvaluatedAt: Date
 
     /// Called when a task is due and a TaskRun has been created.
-    /// Task 7 will wire this to actually launch a Ghostty terminal surface.
+    /// Wired to `executeTask(_:run:)` via `onTaskDue` in production;
+    /// left nil in tests for pure evaluation logic testing.
     var onTaskDue: ((ScheduledTask, TaskRun) -> Void)?
+
+    /// Maps panelId -> runId for tracking which terminal surface belongs to which run.
+    var panelToRunId: [UUID: UUID] = [:]
+
+    /// The workspace ID used for scheduler task terminals (lazily created).
+    var schedulerWorkspaceId: UUID?
 
     private var timer: DispatchSourceTimer?
     private let persistenceFileURL: URL?
 
     /// Interval between schedule evaluations (30 seconds).
     static let evaluationInterval: TimeInterval = 30
+
+    /// Directory for session memory context files.
+    static let contextDirectory: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        return appSupport.appendingPathComponent("cmux/scheduler-context", isDirectory: true)
+    }()
 
     // MARK: - Init
 
@@ -151,5 +165,196 @@ final class SchedulerEngine: ObservableObject {
 
     var runningTaskCount: Int {
         runs.filter { $0.status == .running }.count
+    }
+
+    // MARK: - Task Execution
+
+    /// Get or create a dedicated "Scheduler" workspace in the given TabManager.
+    func schedulerWorkspace(in tabManager: TabManager) -> Workspace {
+        // Return existing scheduler workspace if still alive
+        if let existingId = schedulerWorkspaceId,
+           let existing = tabManager.tabs.first(where: { $0.id == existingId }) {
+            return existing
+        }
+
+        // Create a new workspace for scheduler tasks (don't select it — non-intrusive)
+        let workspace = tabManager.addWorkspace(select: false)
+        workspace.customTitle = "Scheduler"
+        schedulerWorkspaceId = workspace.id
+        return workspace
+    }
+
+    /// Execute a scheduled task by creating a Ghostty terminal surface with `config.command`.
+    func executeTask(_ task: ScheduledTask, run: TaskRun, tabManager: TabManager) {
+        let workspace = schedulerWorkspace(in: tabManager)
+
+        // Build environment with session memory context
+        var env: [String: String] = task.environment ?? [:]
+        env["CMUX_SCHEDULED_TASK_ID"] = task.id.uuidString
+        env["CMUX_SCHEDULED_TASK_NAME"] = task.name
+        env["CMUX_TASK_RUN_ID"] = run.id.uuidString
+
+        // Create session memory context file
+        let contextFileURL = Self.contextDirectory
+            .appendingPathComponent("\(run.id.uuidString).json")
+        createContextFile(for: task, run: run, at: contextFileURL)
+        env["CMUX_TASK_CONTEXT_FILE"] = contextFileURL.path
+
+        // Build surface config with command
+        var config = ghostty_surface_config_new()
+        let commandCString = strdup(task.command)
+        config.command = UnsafePointer(commandCString)
+        config.wait_after_command = true
+
+        // Set working directory if specified
+        let workdirCString: UnsafeMutablePointer<CChar>?
+        if let workDir = task.workingDirectory {
+            workdirCString = strdup(workDir)
+            config.working_directory = UnsafePointer(workdirCString)
+        } else {
+            workdirCString = nil
+        }
+
+        // Create terminal panel in the scheduler workspace
+        let panel = TerminalPanel(
+            workspaceId: workspace.id,
+            context: GHOSTTY_SURFACE_CONTEXT_TAB,
+            configTemplate: config,
+            workingDirectory: task.workingDirectory,
+            additionalEnvironment: env
+        )
+
+        // Free C strings after TerminalPanel has copied them
+        free(commandCString)
+        free(workdirCString)
+
+        // Register panel in workspace
+        workspace.addTerminalPanel(panel, title: "[\(task.name)]")
+
+        // Track panel -> run mapping
+        panelToRunId[panel.id] = run.id
+
+        // Update run with panel ID
+        if let runIndex = runs.firstIndex(where: { $0.id == run.id }) {
+            runs[runIndex].panelId = panel.id
+        }
+    }
+
+    /// Handle COMMAND_FINISHED callback from Ghostty.
+    /// Called from the action handler in GhosttyTerminalView.swift.
+    func handleTaskCompletion(panelId: UUID, exitCode: Int32, workspaceId: UUID?) {
+        guard let runId = panelToRunId[panelId],
+              let runIndex = runs.firstIndex(where: { $0.id == runId }) else { return }
+
+        runs[runIndex].status = exitCode == 0 ? .succeeded : .failed
+        runs[runIndex].exitCode = exitCode
+        runs[runIndex].completedAt = Date()
+
+        panelToRunId.removeValue(forKey: panelId)
+
+        // Look up the task for notification
+        let taskId = runs[runIndex].taskId
+        let task = tasks.first(where: { $0.id == taskId })
+        let taskName = task?.name ?? "Unknown Task"
+
+        // Fire notification via TerminalNotificationStore
+        let statusText = exitCode == 0 ? "completed successfully" : "failed (exit \(exitCode))"
+        TerminalNotificationStore.shared.addNotification(
+            tabId: workspaceId ?? schedulerWorkspaceId ?? UUID(),
+            surfaceId: panelId,
+            title: taskName,
+            subtitle: "Scheduled Task",
+            body: "Task \(statusText)"
+        )
+
+        // Persist updated state
+        saveTasks()
+    }
+
+    /// Cancel a running task by requesting its terminal surface to close.
+    func cancelTask(runId: UUID) {
+        guard let runIndex = runs.firstIndex(where: { $0.id == runId }),
+              runs[runIndex].status == .running else { return }
+
+        // Find the panel and request close on its surface
+        if let panelId = runs[runIndex].panelId,
+           let app = AppDelegate.shared,
+           let tabManager = app.tabManager,
+           let workspaceId = schedulerWorkspaceId,
+           let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+           let panel = workspace.panels[panelId] as? TerminalPanel,
+           let surface = panel.surface.surface {
+            ghostty_surface_request_close(surface)
+        }
+
+        // Mark as cancelled regardless of whether we found the surface
+        runs[runIndex].status = .cancelled
+        runs[runIndex].completedAt = Date()
+
+        if let panelId = runs[runIndex].panelId {
+            panelToRunId.removeValue(forKey: panelId)
+        }
+    }
+
+    /// Focus a running task's terminal by switching to its workspace and panel.
+    func focusRunningTask(runId: UUID) {
+        guard let runIndex = runs.firstIndex(where: { $0.id == runId }),
+              runs[runIndex].status == .running,
+              let panelId = runs[runIndex].panelId,
+              let app = AppDelegate.shared,
+              let tabManager = app.tabManager,
+              let workspaceId = schedulerWorkspaceId else { return }
+
+        // Switch to the scheduler workspace
+        tabManager.selectedTabId = workspaceId
+
+        // Focus the specific panel within the workspace
+        if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+            workspace.focusPanel(panelId)
+        }
+    }
+
+    // MARK: - Session Memory
+
+    /// Create a context file with task metadata for the running command to read.
+    private func createContextFile(for task: ScheduledTask, run: TaskRun, at url: URL) {
+        let dir = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let context: [String: Any] = [
+            "task_id": task.id.uuidString,
+            "task_name": task.name,
+            "run_id": run.id.uuidString,
+            "command": task.command,
+            "working_directory": task.workingDirectory ?? "",
+            "cron_expression": task.cronExpression,
+            "started_at": ISO8601DateFormatter().string(from: run.startedAt),
+        ]
+
+        if let data = try? JSONSerialization.data(withJSONObject: context, options: [.sortedKeys]) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    // MARK: - App Quit Cleanup
+
+    /// Persist state and cancel running tasks on app termination.
+    func handleAppWillTerminate() {
+        // Cancel all running tasks
+        for i in runs.indices {
+            if runs[i].status == .running {
+                runs[i].status = .cancelled
+                runs[i].completedAt = Date()
+                if let panelId = runs[i].panelId {
+                    panelToRunId.removeValue(forKey: panelId)
+                }
+            }
+        }
+
+        // Persist final task list
+        saveTasks()
+
+        // Stop the evaluation timer
+        stop()
     }
 }
