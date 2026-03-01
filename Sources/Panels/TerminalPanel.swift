@@ -88,20 +88,38 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
-        var mergedEnvironment = additionalEnvironment
-        for (key, value) in initialEnvironmentOverrides {
-            mergedEnvironment[key] = value
-        }
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
-            initialEnvironmentOverrides: mergedEnvironment
+            initialEnvironmentOverrides: Self.mergedNormalizedEnvironment(
+                base: additionalEnvironment,
+                overrides: initialEnvironmentOverrides
+            )
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
+    }
+
+    private static func mergedNormalizedEnvironment(
+        base: [String: String],
+        overrides: [String: String]
+    ) -> [String: String] {
+        var merged: [String: String] = [:]
+        merged.reserveCapacity(base.count + overrides.count)
+        for (rawKey, value) in base {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        for (rawKey, value) in overrides {
+            let key = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { continue }
+            merged[key] = value
+        }
+        return merged
     }
 
     func updateTitle(_ newTitle: String) {

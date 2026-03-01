@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -500,6 +501,9 @@ func asInt(t *testing.T, value any, field string) int {
 	case uint64:
 		return int(typed)
 	case float64:
+		if typed != math.Trunc(typed) {
+			t.Fatalf("%s should be integer-valued, got %v", field, typed)
+		}
 		return int(typed)
 	default:
 		t.Fatalf("%s has unexpected type %T (%v)", field, value, value)
