@@ -53,7 +53,7 @@ struct GhosttyConfig {
         useCache: Bool = true,
         loadFromDisk: (_ preferredColorScheme: ColorSchemePreference) -> GhosttyConfig = Self.loadFromDisk
     ) -> GhosttyConfig {
-        let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
+        let resolvedColorScheme = preferredColorScheme ?? currentSystemColorSchemePreference()
         if useCache, let cached = cachedLoad(for: resolvedColorScheme) {
             return cached
         }
@@ -211,7 +211,7 @@ struct GhosttyConfig {
     ) {
         let resolvedThemeName = Self.resolveThemeName(
             from: name,
-            preferredColorScheme: preferredColorScheme ?? Self.currentColorSchemePreference()
+            preferredColorScheme: preferredColorScheme ?? Self.currentSystemColorSchemePreference()
         )
         for candidateName in Self.themeNameCandidates(from: resolvedThemeName) {
             for path in Self.themeSearchPaths(
@@ -230,8 +230,19 @@ struct GhosttyConfig {
     static func currentColorSchemePreference(
         appAppearance: NSAppearance? = NSApp?.effectiveAppearance
     ) -> ColorSchemePreference {
-        let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua])
+        guard let bestMatch = appAppearance?.bestMatch(from: [.darkAqua, .aqua]) else {
+            return currentSystemColorSchemePreference()
+        }
         return bestMatch == .darkAqua ? .dark : .light
+    }
+
+    static func currentSystemColorSchemePreference(
+        appleInterfaceStyle: String? = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")
+    ) -> ColorSchemePreference {
+        let style = appleInterfaceStyle?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return style == "dark" ? .dark : .light
     }
 
     static func resolveThemeName(
