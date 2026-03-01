@@ -440,6 +440,62 @@ wc -c < "$full"
     return int(text)
 
 
+def _extract_daemon_version_platform(remote_path: str) -> tuple[str, str]:
+    parts = [segment for segment in remote_path.strip().split("/") if segment]
+    try:
+        marker_index = parts.index("cmuxd-remote")
+    except ValueError as exc:
+        raise cmuxError(f"remote daemon path missing cmuxd-remote marker: {remote_path!r}") from exc
+
+    required_len = marker_index + 4
+    _must(
+        len(parts) >= required_len,
+        f"remote daemon path should include version/platform/binary: {remote_path!r}",
+    )
+    version = parts[marker_index + 1]
+    platform = parts[marker_index + 2]
+    binary_name = parts[marker_index + 3]
+    _must(binary_name == "cmuxd-remote", f"unexpected daemon binary name in remote path: {remote_path!r}")
+    _must(bool(version), f"daemon version should not be empty in remote path: {remote_path!r}")
+    _must(bool(platform), f"daemon platform should not be empty in remote path: {remote_path!r}")
+    return version, platform
+
+
+def _local_cached_daemon_binary(version: str, platform: str) -> Path:
+    return Path(tempfile.gettempdir()) / "cmux-remote-daemon-build" / version / platform / "cmuxd-remote"
+
+
+def _local_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _remote_binary_sha256(host: str, host_port: int, key_path: Path, remote_path: str) -> str:
+    script = f"""
+set -eu
+p={_shell_single_quote(remote_path)}
+case "$p" in
+  /*) full="$p" ;;
+  *) full="$HOME/$p" ;;
+esac
+test -x "$full"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$full" | awk '{{print $1}}'
+elif command -v shasum >/dev/null 2>&1; then
+  shasum -a 256 "$full" | awk '{{print $1}}'
+else
+  openssl dgst -sha256 "$full" | awk '{{print $NF}}'
+fi
+"""
+    proc = _ssh_run(host, host_port, key_path, script, check=True)
+    digest = proc.stdout.strip().splitlines()[-1].strip().lower()
+    _must(len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest), f"invalid remote SHA256 digest: {digest!r}")
+    return digest
+
+
 def _wait_connected_proxy_port(client: cmux, workspace_id: str, timeout: float = 45.0) -> tuple[dict, int]:
     deadline = time.time() + timeout
     last_status = {}
@@ -547,6 +603,28 @@ def main() -> int:
                 binary_size_bytes <= MAX_REMOTE_DAEMON_SIZE_BYTES,
                 f"uploaded daemon binary too large: {binary_size_bytes} bytes > {MAX_REMOTE_DAEMON_SIZE_BYTES}",
             )
+            daemon_version, daemon_platform = _extract_daemon_version_platform(remote_path)
+            local_cached_binary = _local_cached_daemon_binary(daemon_version, daemon_platform)
+            _must(
+                local_cached_binary.is_file(),
+                f"expected local daemon cache artifact at {local_cached_binary} after bootstrap upload",
+            )
+            _must(
+                os.access(local_cached_binary, os.X_OK),
+                f"local daemon cache artifact must be executable: {local_cached_binary}",
+            )
+            local_version = _run([str(local_cached_binary), "version"], check=True).stdout.strip()
+            _must(
+                daemon_version in local_version,
+                f"local cached daemon binary version mismatch: expected {daemon_version!r}, got {local_version!r}",
+            )
+            local_sha256 = _local_file_sha256(local_cached_binary)
+            remote_sha256 = _remote_binary_sha256(host, host_ssh_port, key_path, remote_path)
+            _must(
+                local_sha256 == remote_sha256,
+                "uploaded daemon binary hash should match local cached build artifact "
+                f"(local={local_sha256}, remote={remote_sha256})",
+            )
 
             body = ""
             deadline_http = time.time() + 15.0
@@ -623,7 +701,7 @@ def main() -> int:
 
         print(
             "PASS: docker SSH proxy endpoint is reachable, handles HTTP + WebSocket egress over SOCKS and CONNECT through remote host, and is shared across identical transports; "
-            f"uploaded cmuxd-remote size={binary_size_bytes} bytes"
+            f"uploaded cmuxd-remote size={binary_size_bytes} bytes, version={daemon_version}, platform={daemon_platform}"
         )
         return 0
 

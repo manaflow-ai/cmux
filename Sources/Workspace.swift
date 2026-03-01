@@ -974,17 +974,31 @@ private final class WorkspaceRemoteDaemonRPCClient {
         return sshCommonArguments(configuration: configuration, batchMode: true) + [configuration.destination, command]
     }
 
+    private static let connectionSharingOptionKeys: Set<String> = [
+        "controlmaster",
+        "controlpersist",
+        "controlpath",
+    ]
+
     private static func sshCommonArguments(configuration: WorkspaceRemoteConfiguration, batchMode: Bool) -> [String] {
+        let effectiveSSHOptions: [String] = {
+            if batchMode {
+                return backgroundSSHOptions(configuration.sshOptions)
+            }
+            return normalizedSSHOptions(configuration.sshOptions)
+        }()
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
-        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         if batchMode {
             args += ["-o", "BatchMode=yes"]
+            // Avoid shared ControlPath lock contention with interactive ssh sessions.
+            args += ["-o", "ControlMaster=no"]
         }
         if let port = configuration.port {
             args += ["-p", String(port)]
@@ -993,10 +1007,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
            !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["-i", identityFile]
         }
-        for option in configuration.sshOptions {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            args += ["-o", trimmed]
+        for option in effectiveSSHOptions {
+            args += ["-o", option]
         }
         return args
     }
@@ -1004,14 +1016,37 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            let token = sshOptionKey(option)
             if token == loweredKey {
                 return true
             }
         }
         return false
+    }
+
+    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+    }
+
+    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
+        normalizedSSHOptions(options).filter { option in
+            guard let key = sshOptionKey(option) else { return false }
+            return !connectionSharingOptionKeys.contains(key)
+        }
+    }
+
+    private static func sshOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -2135,16 +2170,24 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
+        let effectiveSSHOptions: [String] = {
+            if batchMode {
+                return backgroundSSHOptions(configuration.sshOptions)
+            }
+            return normalizedSSHOptions(configuration.sshOptions)
+        }()
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
-        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         if batchMode {
             args += ["-o", "BatchMode=yes"]
+            // Avoid shared ControlPath lock contention with interactive ssh sessions.
+            args += ["-o", "ControlMaster=no"]
         }
         if let port = configuration.port {
             args += ["-p", String(port)]
@@ -2153,10 +2196,8 @@ private final class WorkspaceRemoteSessionController {
            !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["-i", identityFile]
         }
-        for option in configuration.sshOptions {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            args += ["-o", trimmed]
+        for option in effectiveSSHOptions {
+            args += ["-o", option]
         }
         return args
     }
@@ -2164,14 +2205,42 @@ private final class WorkspaceRemoteSessionController {
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
         let loweredKey = key.lowercased()
         for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            let token = sshOptionKey(option)
             if token == loweredKey {
                 return true
             }
         }
         return false
+    }
+
+    private func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+    }
+
+    private func backgroundSSHOptions(_ options: [String]) -> [String] {
+        let sharingKeys: Set<String> = [
+            "controlmaster",
+            "controlpersist",
+            "controlpath",
+        ]
+        return normalizedSSHOptions(options).filter { option in
+            guard let key = sshOptionKey(option) else { return false }
+            return !sharingKeys.contains(key)
+        }
+    }
+
+    private func sshOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
     }
 
     private func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> CommandResult {
@@ -2284,7 +2353,7 @@ private final class WorkspaceRemoteSessionController {
     private func resolveRemotePlatformLocked() throws -> RemotePlatform {
         let script = "uname -s; uname -m"
         let command = "sh -lc \(Self.shellSingleQuoted(script))"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 10)
+        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.daemon", code: 10, userInfo: [
@@ -2412,10 +2481,13 @@ private final class WorkspaceRemoteSessionController {
             ])
         }
 
+        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
         var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
+        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
             scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
         }
+        // Keep bootstrap SCP detached from shared interactive ssh control sockets.
+        scpArgs += ["-o", "ControlMaster=no"]
         if let port = configuration.port {
             scpArgs += ["-P", String(port)]
         }
@@ -2423,10 +2495,8 @@ private final class WorkspaceRemoteSessionController {
            !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             scpArgs += ["-i", identityFile]
         }
-        for option in configuration.sshOptions {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            scpArgs += ["-o", trimmed]
+        for option in scpSSHOptions {
+            scpArgs += ["-o", option]
         }
         scpArgs += [localBinary.path, "\(configuration.destination):\(remoteTempPath)"]
         let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
