@@ -3385,6 +3385,8 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Apply a workspace-level background color override to this terminal surface.
+    /// This pushes the color into libghostty's renderer via config update so the
+    /// Metal rendering layer actually draws the new background (not just the CALayer).
     func applyWorkspaceBackgroundOverride(_ color: NSColor?) {
         surfaceView.backgroundColor = color
         surfaceView.applySurfaceBackground()
@@ -3396,6 +3398,40 @@ final class GhosttySurfaceScrollView: NSView {
             effective = defaultBg.withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
         }
         setBackgroundColor(effective)
+
+        // Push the background into libghostty's renderer so Metal draws the correct color.
+        // Without this, only the CALayer changes and the renderer paints over it.
+        guard let surface = surfaceView.terminalSurface?.surface else { return }
+        let hexColor: String
+        if let color {
+            hexColor = color.hexString()
+        } else {
+            hexColor = GhosttyApp.shared.defaultBackgroundColor.hexString()
+        }
+        updateGhosttyRendererBackground(surface: surface, hex: hexColor)
+    }
+
+    /// Write a temporary ghostty config with the background override and push it
+    /// to the surface via ghostty_surface_update_config. This ensures the Metal
+    /// renderer uses the workspace background instead of the global default.
+    private func updateGhosttyRendererBackground(surface: ghostty_surface_t, hex: String) {
+        // Write a minimal config file with just the background override.
+        let tmpPath = NSTemporaryDirectory() + "cmux-bg-override-\(UUID().uuidString).conf"
+        let configContent = "background = \(hex)\n"
+        guard FileManager.default.createFile(atPath: tmpPath, contents: configContent.data(using: .utf8)) else {
+            return
+        }
+        defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+
+        guard let newConfig = ghostty_config_new() else { return }
+        // Load user's default config first, then override with our background.
+        ghostty_config_load_default_files(newConfig)
+        tmpPath.withCString { cPath in
+            ghostty_config_load_file(newConfig, cPath)
+        }
+        ghostty_config_finalize(newConfig)
+        ghostty_surface_update_config(surface, newConfig)
+        ghostty_config_free(newConfig)
     }
 
     func setInactiveOverlay(color: NSColor, opacity: CGFloat, visible: Bool) {

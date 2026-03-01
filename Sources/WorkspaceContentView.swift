@@ -81,6 +81,18 @@ struct WorkspaceContentView: View {
                 .onTapGesture {
                     workspace.bonsplitController.focusPane(paneId)
                 }
+                .onAppear {
+                    // Apply workspace background override to newly created panels.
+                    // The ghostty surface may not be ready immediately, so delay slightly.
+                    if workspace.backgroundColorOverride != nil,
+                       let terminalPanel = panel as? TerminalPanel {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak workspace, weak terminalPanel] in
+                            guard let workspace, let terminalPanel else { return }
+                            let overrideColor = workspace.backgroundColorOverride.flatMap { NSColor(hex: $0) }
+                            terminalPanel.hostedView.applyWorkspaceBackgroundOverride(overrideColor)
+                        }
+                    }
+                }
             } else {
                 // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)

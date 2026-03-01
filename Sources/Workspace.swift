@@ -11,17 +11,28 @@ struct WorkspaceTheme {
     let accentColor: String
     let backgroundColor: String
 
-    /// Built-in theme presets.
+    /// Built-in version — bump when presets change to trigger regeneration.
+    static let builtInVersion = 2
+
+    /// Ordered list of built-in theme presets.
+    static let orderedPresets: [WorkspaceTheme] = [
+        WorkspaceTheme(name: "graphite",  accentColor: "#8E8E93", backgroundColor: "#1C1C1E"),
+        WorkspaceTheme(name: "slate",     accentColor: "#8E9AAF", backgroundColor: "#171B21"),
+        WorkspaceTheme(name: "midnight",  accentColor: "#6B8ACA", backgroundColor: "#121820"),
+        WorkspaceTheme(name: "ocean",     accentColor: "#6BA5A5", backgroundColor: "#111A1A"),
+        WorkspaceTheme(name: "sage",      accentColor: "#8FAF8F", backgroundColor: "#131A13"),
+        WorkspaceTheme(name: "moss",      accentColor: "#8A9A6B", backgroundColor: "#161A11"),
+        WorkspaceTheme(name: "sand",      accentColor: "#B5A78A", backgroundColor: "#1A1812"),
+        WorkspaceTheme(name: "ember",     accentColor: "#C4915C", backgroundColor: "#1A1510"),
+        WorkspaceTheme(name: "copper",    accentColor: "#B87A5E", backgroundColor: "#1A1412"),
+        WorkspaceTheme(name: "rose",      accentColor: "#B38B8B", backgroundColor: "#1A1315"),
+        WorkspaceTheme(name: "lavender",  accentColor: "#9B8AB5", backgroundColor: "#16131A"),
+        WorkspaceTheme(name: "storm",     accentColor: "#7A8BA0", backgroundColor: "#14171C"),
+    ]
+
+    /// Keyed lookup.
     static let presets: [String: WorkspaceTheme] = {
-        let themes: [WorkspaceTheme] = [
-            WorkspaceTheme(name: "ocean",  accentColor: "#5BA4CF", backgroundColor: "#0d1117"),
-            WorkspaceTheme(name: "forest", accentColor: "#7CE38B", backgroundColor: "#0f1a0f"),
-            WorkspaceTheme(name: "purple", accentColor: "#B68AFF", backgroundColor: "#1a0f1f"),
-            WorkspaceTheme(name: "rose",   accentColor: "#FF8FA3", backgroundColor: "#1f0f0f"),
-            WorkspaceTheme(name: "solar",  accentColor: "#E8D44D", backgroundColor: "#1a1a0f"),
-            WorkspaceTheme(name: "neon",   accentColor: "#FF7EB6", backgroundColor: "#1a1018"),
-        ]
-        return Dictionary(uniqueKeysWithValues: themes.map { ($0.name, $0) })
+        Dictionary(uniqueKeysWithValues: orderedPresets.map { ($0.name, $0) })
     }()
 
     /// Look up a theme by name (case-insensitive).
@@ -29,9 +40,9 @@ struct WorkspaceTheme {
         presets[name.lowercased()]
     }
 
-    /// All preset names sorted alphabetically.
+    /// All preset names in display order.
     static var presetNames: [String] {
-        presets.keys.sorted()
+        orderedPresets.map(\.name)
     }
 }
 

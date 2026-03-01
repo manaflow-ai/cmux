@@ -31,14 +31,19 @@ struct WorkspaceProfile: Identifiable, Codable, Equatable {
 final class WorkspaceProfileStore: ObservableObject {
     static let shared = WorkspaceProfileStore()
     private static let storageKey = "workspaceProfiles"
+    private static let versionKey = "workspaceProfilesVersion"
 
     @Published var profiles: [WorkspaceProfile] = []
 
     private init() {
+        let savedVersion = UserDefaults.standard.integer(forKey: Self.versionKey)
         profiles = Self.load()
-        if profiles.isEmpty {
-            profiles = Self.builtInProfiles()
+        if profiles.isEmpty || savedVersion < WorkspaceTheme.builtInVersion {
+            // Keep any user-created (non-built-in) profiles
+            let customProfiles = profiles.filter { !$0.isBuiltIn }
+            profiles = Self.builtInProfiles() + customProfiles
             save()
+            UserDefaults.standard.set(WorkspaceTheme.builtInVersion, forKey: Self.versionKey)
         }
     }
 

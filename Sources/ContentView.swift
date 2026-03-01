@@ -2796,22 +2796,21 @@ private struct TabItemView: View {
 
             Divider()
 
-            Menu("Assign Profile") {
-                ForEach(WorkspaceProfileStore.shared.profiles) { profile in
-                    Button(profile.name) {
-                        WorkspaceProfileStore.apply(profile, to: tab)
+            Menu("Theme") {
+                ForEach(WorkspaceTheme.orderedPresets, id: \.name) { theme in
+                    Button(theme.name.capitalized) {
+                        tab.accentColor = theme.accentColor
+                        tab.backgroundColorOverride = theme.backgroundColor
+                        tab.applyBackgroundColorOverride()
                     }
                 }
                 Divider()
-                Button("Custom Accent Color…") {
-                    showWorkspaceColorPicker(for: tab, mode: .accent)
-                }
-                Button("Custom Background Color…") {
-                    showWorkspaceColorPicker(for: tab, mode: .background)
+                Button("Customize…") {
+                    showThemeCustomizePanel(for: tab)
                 }
                 if tab.accentColor != nil || tab.backgroundColorOverride != nil {
                     Divider()
-                    Button("Clear Colors") {
+                    Button("Reset to Default") {
                         tab.accentColor = nil
                         tab.backgroundColorOverride = nil
                         tab.applyBackgroundColorOverride()
@@ -3153,26 +3152,13 @@ private struct TabItemView: View {
         return trimmed
     }
 
-    private func showWorkspaceColorPicker(for workspace: Workspace, mode: WorkspaceColorObserver.Mode) {
-        let colorPanel = NSColorPanel.shared
-        let currentColor: NSColor
-        switch mode {
-        case .accent:
-            colorPanel.title = "Accent Color — \(workspace.customTitle ?? workspace.title)"
-            currentColor = workspace.accentColor.flatMap { NSColor(hex: $0) } ?? .controlAccentColor
-        case .background:
-            colorPanel.title = "Background Color — \(workspace.customTitle ?? workspace.title)"
-            currentColor = workspace.backgroundColorOverride.flatMap { NSColor(hex: $0) } ?? (GhosttyApp.shared.defaultBackgroundColor)
+    private func showThemeCustomizePanel(for workspace: Workspace) {
+        var point: NSPoint? = nil
+        if let window = NSApp.mainWindow {
+            let frame = window.frame
+            point = NSPoint(x: frame.maxX + 8, y: frame.maxY - 40)
         }
-        colorPanel.color = currentColor
-        colorPanel.setTarget(nil)
-        colorPanel.setAction(nil)
-        colorPanel.orderFront(nil)
-
-        let observer = WorkspaceColorObserver(workspace: workspace, mode: mode)
-        colorPanel.setTarget(observer)
-        colorPanel.setAction(#selector(WorkspaceColorObserver.colorChanged(_:)))
-        objc_setAssociatedObject(colorPanel, &WorkspaceColorObserver.associatedKey, observer, .OBJC_ASSOCIATION_RETAIN)
+        WorkspaceThemeCustomizeWindowController.shared.show(for: workspace, near: point)
     }
 
     private func promptRename() {
@@ -3194,37 +3180,6 @@ private struct TabItemView: View {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
-    }
-}
-
-private class WorkspaceColorObserver: NSObject {
-    enum Mode { case accent, background }
-    static var associatedKey: UInt8 = 0
-    let workspace: Workspace
-    let mode: Mode
-
-    init(workspace: Workspace, mode: Mode = .accent) {
-        self.workspace = workspace
-        self.mode = mode
-        super.init()
-    }
-
-    @objc func colorChanged(_ sender: NSColorPanel) {
-        let nsColor = sender.color.usingColorSpace(.sRGB) ?? sender.color
-        let hex = String(format: "#%02X%02X%02X",
-            Int(nsColor.redComponent * 255),
-            Int(nsColor.greenComponent * 255),
-            Int(nsColor.blueComponent * 255))
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch self.mode {
-            case .accent:
-                self.workspace.accentColor = hex
-            case .background:
-                self.workspace.backgroundColorOverride = hex
-                self.workspace.applyBackgroundColorOverride()
-            }
-        }
     }
 }
 

@@ -190,6 +190,9 @@ struct cmuxApp: App {
                     showSettingsPanel()
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                Button("Workspace Themes…") {
+                    showWorkspaceThemesPanel()
+                }
             }
 
             CommandGroup(replacing: .appInfo) {
@@ -529,6 +532,11 @@ struct cmuxApp: App {
 
     private func showSettingsPanel() {
         SettingsWindowController.shared.show()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showWorkspaceThemesPanel() {
+        WorkspaceThemesWindowController.shared.show()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -1597,6 +1605,41 @@ private final class SettingsWindowController: NSWindowController, NSWindowDelega
         window.identifier = NSUserInterfaceItemIdentifier("cmux.settings")
         window.center()
         window.contentView = NSHostingView(rootView: SettingsRootView())
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        guard let window else { return }
+        SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+        if !window.isVisible {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+private final class WorkspaceThemesWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = WorkspaceThemesWindowController()
+
+    private init() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 400),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.workspaceThemes")
+        window.center()
+        window.contentView = NSHostingView(rootView: WorkspaceProfilesPanel())
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         super.init(window: window)
@@ -2952,7 +2995,7 @@ private struct SettingsTitleLeadingInsetReader: NSViewRepresentable {
 
 // MARK: - Workspace Profiles Panel (Terminal.app-style)
 
-private struct WorkspaceProfilesPanel: View {
+struct WorkspaceProfilesPanel: View {
     @ObservedObject private var store = WorkspaceProfileStore.shared
     @State private var selectedId: UUID?
     @State private var editingProfile: WorkspaceProfile?
@@ -3044,7 +3087,7 @@ private struct WorkspaceProfilesPanel: View {
     }
 }
 
-private struct ProfileListRow: View {
+struct ProfileListRow: View {
     let profile: WorkspaceProfile
 
     private var accentColor: Color {
@@ -3075,7 +3118,7 @@ private struct ProfileListRow: View {
     }
 }
 
-private struct ProfileEditorView: View {
+struct ProfileEditorView: View {
     @State private var draft: WorkspaceProfile
     let onUpdate: (WorkspaceProfile) -> Void
 
@@ -3206,6 +3249,189 @@ private struct ProfileEditorView: View {
             }
         }
         .padding(14)
+    }
+}
+
+// MARK: - Workspace Theme Customize Panel (inline floating)
+
+struct WorkspaceThemeCustomizePanel: View {
+    @ObservedObject var workspace: Workspace
+
+    private var accentBinding: Binding<Color> {
+        Binding(
+            get: { self.workspace.accentColor.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) } ?? .accentColor },
+            set: { newColor in
+                let nsColor = NSColor(newColor).usingColorSpace(.sRGB) ?? NSColor(newColor)
+                self.workspace.accentColor = String(format: "#%02X%02X%02X",
+                    Int(nsColor.redComponent * 255),
+                    Int(nsColor.greenComponent * 255),
+                    Int(nsColor.blueComponent * 255))
+            }
+        )
+    }
+
+    private var bgBinding: Binding<Color> {
+        Binding(
+            get: { self.workspace.backgroundColorOverride.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) } ?? Color(nsColor: GhosttyApp.shared.defaultBackgroundColor) },
+            set: { newColor in
+                let nsColor = NSColor(newColor).usingColorSpace(.sRGB) ?? NSColor(newColor)
+                self.workspace.backgroundColorOverride = String(format: "#%02X%02X%02X",
+                    Int(nsColor.redComponent * 255),
+                    Int(nsColor.greenComponent * 255),
+                    Int(nsColor.blueComponent * 255))
+                self.workspace.applyBackgroundColorOverride()
+            }
+        )
+    }
+
+    private var accentColor: Color {
+        workspace.accentColor.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) } ?? .accentColor
+    }
+
+    private var bgColor: Color {
+        workspace.backgroundColorOverride.flatMap { NSColor(hex: $0) }.map { Color(nsColor: $0) } ?? Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Live preview
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(bgColor)
+
+                VStack(alignment: .leading, spacing: 0) {
+                    accentColor.opacity(0.3)
+                        .frame(height: 3)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("$ echo \"Hello\"")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.85))
+                        Text("Hello")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.green.opacity(0.9))
+                        HStack(spacing: 0) {
+                            Text("user@mac ")
+                                .foregroundColor(accentColor)
+                            Text("~ $")
+                                .foregroundColor(.white.opacity(0.5))
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(.white.opacity(0.7))
+                                .frame(width: 7, height: 13)
+                                .padding(.leading, 2)
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                    }
+                    .padding(10)
+                }
+            }
+            .frame(height: 80)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            )
+
+            // Preset swatches
+            Text("Presets")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 6), count: 6), spacing: 6) {
+                ForEach(WorkspaceTheme.orderedPresets, id: \.name) { theme in
+                    let themeAccent = NSColor(hex: theme.accentColor).map { Color(nsColor: $0) } ?? .gray
+                    let themeBg = NSColor(hex: theme.backgroundColor).map { Color(nsColor: $0) } ?? .black
+                    ZStack {
+                        Circle()
+                            .fill(themeBg)
+                            .frame(width: 24, height: 24)
+                        Circle()
+                            .stroke(themeAccent, lineWidth: 2)
+                            .frame(width: 24, height: 24)
+                    }
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        workspace.accentColor = theme.accentColor
+                        workspace.backgroundColorOverride = theme.backgroundColor
+                        workspace.applyBackgroundColorOverride()
+                    }
+                    .help(theme.name.capitalized)
+                }
+            }
+
+            Divider()
+
+            // Color pickers
+            HStack {
+                Text("Accent")
+                    .font(.system(size: 12))
+                    .frame(width: 80, alignment: .trailing)
+                ColorPicker("", selection: accentBinding, supportsOpacity: false)
+                    .labelsHidden()
+            }
+
+            HStack {
+                Text("Background")
+                    .font(.system(size: 12))
+                    .frame(width: 80, alignment: .trailing)
+                ColorPicker("", selection: bgBinding, supportsOpacity: false)
+                    .labelsHidden()
+            }
+
+            // Reset button
+            if workspace.accentColor != nil || workspace.backgroundColorOverride != nil {
+                HStack {
+                    Spacer()
+                    Button("Reset to Default") {
+                        workspace.accentColor = nil
+                        workspace.backgroundColorOverride = nil
+                        workspace.applyBackgroundColorOverride()
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 280)
+    }
+}
+
+final class WorkspaceThemeCustomizeWindowController: NSWindowController {
+    static let shared = WorkspaceThemeCustomizeWindowController()
+
+    private init() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 340),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = "Customize Theme"
+        panel.titleVisibility = .visible
+        panel.titlebarAppearsTransparent = false
+        panel.isMovableByWindowBackground = true
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.isFloatingPanel = true
+        panel.identifier = NSUserInterfaceItemIdentifier("cmux.themeCustomize")
+        super.init(window: panel)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show(for workspace: Workspace, near point: NSPoint? = nil) {
+        guard let panel = window as? NSPanel else { return }
+        panel.contentView = NSHostingView(rootView: WorkspaceThemeCustomizePanel(workspace: workspace))
+        if let point = point {
+            panel.setFrameTopLeftPoint(NSPoint(x: point.x, y: point.y))
+        } else {
+            panel.center()
+        }
+        panel.orderFront(nil)
     }
 }
 
