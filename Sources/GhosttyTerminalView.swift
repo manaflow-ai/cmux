@@ -1567,8 +1567,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
-        var mergedEnvironment = initialEnvironmentOverrides
-        for (key, value) in additionalEnvironment {
+        var mergedEnvironment = additionalEnvironment
+        for (key, value) in initialEnvironmentOverrides {
             mergedEnvironment[key] = value
         }
         self.initialEnvironmentOverrides = mergedEnvironment

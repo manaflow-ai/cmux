@@ -22,7 +22,8 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
-if [[ -r "\$CLI_PATH_FILE" ]]; then
+CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
+if [[ -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
   CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
   if [[ -x "\$CLI_PATH" ]]; then
     exec "\$CLI_PATH" "\$@"
@@ -36,7 +37,7 @@ fi
 echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
 exit 1
 EOF
-  chmod +x "$target" || true
+  chmod +x "$target"
 }
 
 select_cmux_shim_target() {
@@ -351,7 +352,7 @@ fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 if [[ -x "$CLI_PATH" ]]; then
-  echo "$CLI_PATH" > /tmp/cmux-last-cli-path || true
+  (umask 077; printf '%s\n' "$CLI_PATH" > /tmp/cmux-last-cli-path) || true
   ln -sfn "$CLI_PATH" /tmp/cmux-cli || true
 
   # Stable shim that always follows the last reload-selected dev CLI.

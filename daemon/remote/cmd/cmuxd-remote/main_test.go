@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -156,12 +157,11 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 		}
 		defer conn.Close()
 
-		buffer := make([]byte, 8)
-		n, readErr := conn.Read(buffer)
-		if readErr != nil {
+		buffer := make([]byte, 4)
+		if _, readErr := io.ReadFull(conn, buffer); readErr != nil {
 			return
 		}
-		if string(buffer[:n]) != "ping" {
+		if string(buffer) != "ping" {
 			return
 		}
 		_, _ = conn.Write([]byte("pong"))
@@ -243,6 +243,41 @@ func TestProxyStreamRoundTrip(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatalf("proxy test server goroutine did not finish")
+	}
+}
+
+func TestRunStdioOversizedFrameContinuesServing(t *testing.T) {
+	oversized := `{"id":1,"method":"ping","params":{"blob":"` + strings.Repeat("a", maxRPCFrameBytes) + `"}}`
+	input := strings.NewReader(oversized + "\n" + `{"id":2,"method":"ping","params":{}}` + "\n")
+	var out bytes.Buffer
+	code := run([]string{"serve", "--stdio"}, input, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("run serve exit code = %d, want 0", code)
+	}
+
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d response lines, want 2: %q", len(lines), out.String())
+	}
+
+	var first map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatalf("failed to decode first response: %v", err)
+	}
+	if ok, _ := first["ok"].(bool); ok {
+		t.Fatalf("first response should be oversized-frame error: %v", first)
+	}
+	firstError, _ := first["error"].(map[string]any)
+	if got := firstError["code"]; got != "invalid_request" {
+		t.Fatalf("oversized frame should return invalid_request; got=%v payload=%v", got, first)
+	}
+
+	var second map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatalf("failed to decode second response: %v", err)
+	}
+	if ok, _ := second["ok"].(bool); !ok {
+		t.Fatalf("second response should still be handled after oversized frame: %v", second)
 	}
 }
 

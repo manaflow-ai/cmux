@@ -611,15 +611,15 @@ def main() -> int:
 
             try:
                 client.close_workspace(workspace_id_shared)
+                workspace_id_shared = ""
             except Exception:
                 pass
-            workspace_id_shared = ""
 
             try:
                 client.close_workspace(workspace_id)
+                workspace_id = ""
             except Exception:
                 pass
-            workspace_id = ""
 
         print(
             "PASS: docker SSH proxy endpoint is reachable, handles HTTP + WebSocket egress over SOCKS and CONNECT through remote host, and is shared across identical transports; "

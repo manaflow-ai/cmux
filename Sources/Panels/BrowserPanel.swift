@@ -1548,7 +1548,13 @@ final class BrowserPanel: Panel, ObservableObject {
         guard #available(macOS 14.0, *) else { return }
 
         let store = webView.configuration.websiteDataStore
-        guard let endpoint = remoteProxyEndpoint,
+        guard let endpoint = remoteProxyEndpoint else {
+            store.proxyConfigurations = []
+            return
+        }
+
+        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty,
               endpoint.port > 0 && endpoint.port <= 65535,
               let nwPort = NWEndpoint.Port(rawValue: UInt16(endpoint.port)) else {
             store.proxyConfigurations = []
@@ -1556,7 +1562,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
 
         let nwEndpoint = NWEndpoint.hostPort(
-            host: NWEndpoint.Host(endpoint.host),
+            host: NWEndpoint.Host(host),
             port: nwPort
         )
         // Prefer SOCKSv5; keep CONNECT configured as fallback.

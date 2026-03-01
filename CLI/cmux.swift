@@ -2153,33 +2153,40 @@ struct CMUXCLI {
             throw CLIError(message: "workspace.create did not return workspace_id")
         }
 
-        if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workspaceName.isEmpty {
-            _ = try client.sendV2(method: "workspace.rename", params: [
-                "workspace_id": workspaceId,
-                "title": workspaceName,
-            ])
-        }
-
         let remoteSSHOptions = sshOptionsWithControlSocketDefaults(sshOptions.sshOptions)
+        let configuredPayload: [String: Any]
+        do {
+            if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceName.isEmpty {
+                _ = try client.sendV2(method: "workspace.rename", params: [
+                    "workspace_id": workspaceId,
+                    "title": workspaceName,
+                ])
+            }
 
-        var configureParams: [String: Any] = [
-            "workspace_id": workspaceId,
-            "destination": sshOptions.destination,
-            "auto_connect": true,
-        ]
-        if let port = sshOptions.port {
-            configureParams["port"] = port
-        }
-        if let identityFile = sshOptions.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !identityFile.isEmpty {
-            configureParams["identity_file"] = identityFile
-        }
-        if !remoteSSHOptions.isEmpty {
-            configureParams["ssh_options"] = remoteSSHOptions
+            var configureParams: [String: Any] = [
+                "workspace_id": workspaceId,
+                "destination": sshOptions.destination,
+                "auto_connect": true,
+            ]
+            if let port = sshOptions.port {
+                configureParams["port"] = port
+            }
+            if let identityFile = sshOptions.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !identityFile.isEmpty {
+                configureParams["identity_file"] = identityFile
+            }
+            if !remoteSSHOptions.isEmpty {
+                configureParams["ssh_options"] = remoteSSHOptions
+            }
+
+            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        } catch {
+            _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            throw error
         }
 
-        var payload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        var payload = configuredPayload
 
         payload["ssh_command"] = sshCommand
         payload["ssh_startup_command"] = sshStartupCommand
@@ -2253,6 +2260,11 @@ struct CMUXCLI {
                     throw CLIError(message: "ssh: unknown flag '\(arg)'")
                 }
                 if destination == nil {
+                    if arg.hasPrefix("-") {
+                        throw CLIError(
+                            message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
+                        )
+                    }
                     destination = arg
                 } else {
                     extraArguments.append(arg)
@@ -2263,6 +2275,11 @@ struct CMUXCLI {
 
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
+        }
+        if destination.hasPrefix("-") {
+            throw CLIError(
+                message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
+            )
         }
 
         return SSHCommandOptions(
