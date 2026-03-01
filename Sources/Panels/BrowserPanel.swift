@@ -394,6 +394,30 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     return preparedRequest
 }
 
+func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL {
+    guard fileURL.isFileURL else { return fileURL }
+    let path = fileURL.path
+    var isDirectory: ObjCBool = false
+    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return fileURL
+    }
+
+    let parent = fileURL.deletingLastPathComponent()
+    if parent.path.isEmpty {
+        return URL(fileURLWithPath: "/")
+    }
+    return parent
+}
+
+@discardableResult
+func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+    guard let url = request.url else { return nil }
+    if url.isFileURL {
+        return webView.loadFileURL(url, allowingReadAccessTo: browserReadAccessURL(forLocalFileURL: url))
+    }
+    return webView.load(browserPreparedNavigationRequest(request))
+}
+
 private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
@@ -1902,7 +1926,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        webView.load(browserPreparedNavigationRequest(request))
+        browserLoadRequest(request, in: webView)
     }
 
     /// Navigate with smart URL/search detection
@@ -3129,7 +3153,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
             dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
 #endif
-            webView.load(navigationAction.request)
+            browserLoadRequest(navigationAction.request, in: webView)
             decisionHandler(.cancel)
             return
         }
@@ -3292,7 +3316,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #if DEBUG
                 dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
 #endif
-                webView.load(navigationAction.request)
+                browserLoadRequest(navigationAction.request, in: webView)
             }
         }
         return nil
