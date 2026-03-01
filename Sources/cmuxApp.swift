@@ -2419,7 +2419,7 @@ private struct BackgroundDebugView: View {
                         bgGlassTintHex = "#000000"
                         bgGlassTintOpacity = 0.03
                         bgGlassMaterial = "hudWindow"
-                        bgGlassEnabled = true
+                        bgGlassEnabled = false
                         updateWindowGlassTint()
                     }
 

@@ -17,7 +17,7 @@ func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
 }
 
-private func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
+func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
     cmuxShouldUseTransparentBackgroundWindow() || opacity < 0.999
 }
 

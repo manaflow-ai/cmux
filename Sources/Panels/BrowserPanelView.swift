@@ -282,16 +282,18 @@ struct BrowserPanelView: View {
     }
 
     private var browserChromeBackgroundColor: NSColor {
-        resolvedBrowserChromeBackgroundColor(
+        _ = ghosttyBackgroundGeneration
+        return resolvedBrowserChromeBackgroundColor(
             for: colorScheme,
-            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
     }
 
     private var browserChromeColorScheme: ColorScheme {
-        resolvedBrowserChromeColorScheme(
+        _ = ghosttyBackgroundGeneration
+        return resolvedBrowserChromeColorScheme(
             for: colorScheme,
-            themeBackgroundColor: GhosttyApp.shared.defaultBackgroundColor
+            themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
         )
     }
 

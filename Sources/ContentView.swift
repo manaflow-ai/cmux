@@ -227,6 +227,26 @@ enum WindowGlassEffect {
     }
 }
 
+/// CALayer-backed titlebar background. Uses layer-level opacity (not per-pixel alpha)
+/// to match how the terminal's Metal surface composites its background.
+struct TitlebarLayerBackground: NSViewRepresentable {
+    var backgroundColor: NSColor
+    var opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
@@ -1836,10 +1856,6 @@ struct ContentView: View {
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
-    private var fakeTitlebarBackground: Color {
-        _ = titlebarThemeGeneration
-        return Color(nsColor: GhosttyBackgroundTheme.currentColor())
-    }
     private var fakeTitlebarTextColor: Color {
         _ = titlebarThemeGeneration
         let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
@@ -1898,7 +1914,17 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .background(fakeTitlebarBackground)
+        .background({
+            // The terminal area has two stacked semi-transparent layers: the Bonsplit
+            // container chrome background plus Ghostty's own Metal-rendered background.
+            // Compute the effective composited opacity so the titlebar matches visually.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+            return TitlebarLayerBackground(
+                backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                opacity: effective
+            )
+        }())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
@@ -2431,12 +2457,13 @@ struct ContentView: View {
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
             // Ghostty theme colors remain authoritative.
+            let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
             let shouldApplyWindowGlassFallback =
                 sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
                 && bgGlassEnabled
                 && !WindowGlassEffect.isAvailable
             let shouldForceTransparentHosting =
-                shouldApplyWindowGlassFallback || GhosttyBackgroundTheme.currentColor().alphaComponent < 0.999
+                shouldApplyWindowGlassFallback || currentThemeBackground.alphaComponent < 0.999
 
             if shouldForceTransparentHosting {
                 window.isOpaque = false
@@ -2447,6 +2474,11 @@ struct ContentView: View {
                 if let contentView = window.contentView {
                     makeViewHierarchyTransparent(contentView)
                 }
+            } else {
+                // Browser-focused workspaces may not have an active terminal panel to refresh
+                // the NSWindow background. Keep opaque theme changes applied here as well.
+                window.backgroundColor = currentThemeBackground
+                window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
             }
 
             if shouldApplyWindowGlassFallback {

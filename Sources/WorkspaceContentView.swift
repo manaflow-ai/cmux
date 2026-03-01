@@ -222,7 +222,8 @@ struct WorkspaceContentView: View {
         let sourceLabel = backgroundSource ?? "nil"
         let payloadLabel = notificationPayloadHex ?? "nil"
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
-        let shouldRequestTitlebarRefresh = backgroundChanged || reason == "onAppear"
+        let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )
