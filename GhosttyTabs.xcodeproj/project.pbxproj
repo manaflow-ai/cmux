@@ -88,6 +88,7 @@
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 					FA000000A1B2C3D4E5F60718 /* BrowserKillSwitchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* BrowserKillSwitchTests.swift */; };
 					A5001810 /* ScheduledTaskModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001811 /* ScheduledTaskModelTests.swift */; };
+					A5001820 /* CronExpressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001821 /* CronExpressionTests.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -223,6 +224,7 @@
 				F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 				FA000001A1B2C3D4E5F60718 /* BrowserKillSwitchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserKillSwitchTests.swift; sourceTree = "<group>"; };
 				A5001811 /* ScheduledTaskModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledTaskModelTests.swift; sourceTree = "<group>"; };
+				A5001821 /* CronExpressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronExpressionTests.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -440,6 +442,7 @@
 					F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */,
 					FA000001A1B2C3D4E5F60718 /* BrowserKillSwitchTests.swift */,
 					A5001811 /* ScheduledTaskModelTests.swift */,
+					A5001821 /* CronExpressionTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -654,6 +657,7 @@
 					F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */,
 					FA000000A1B2C3D4E5F60718 /* BrowserKillSwitchTests.swift in Sources */,
 					A5001810 /* ScheduledTaskModelTests.swift in Sources */,
+					A5001820 /* CronExpressionTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};

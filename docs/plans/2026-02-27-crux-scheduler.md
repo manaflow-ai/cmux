@@ -86,15 +86,15 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 3
 
 ### Task 3: Cron expression parser with DST-safe nextFireDate
-- [ ] implement 5-field cron parser in `Sources/Scheduler/ScheduledTask.swift` supporting `*/N`, ranges, lists, wildcards
-- [ ] implement `nextFireDate(after:) -> Date?` using `Calendar.current.nextDate(after:matching:matchingPolicy:.nextTime)`
-- [ ] write tests for `*/5 * * * *` (every 5 min)
-- [ ] write tests for `0 9 * * 1-5` (weekday mornings)
-- [ ] write tests for `30 2 * * *` (2:30 AM daily)
-- [ ] write tests for invalid expression returns nil
-- [ ] write tests for nextFireDate with fixed reference dates
-- [ ] write tests for DST spring-forward handling
-- [ ] run project tests - must pass before task 4
+- [x] implement 5-field cron parser in `Sources/Scheduler/ScheduledTask.swift` supporting `*/N`, ranges, lists, wildcards
+- [x] implement `nextFireDate(after:) -> Date?` using `Calendar.current.nextDate(after:matching:matchingPolicy:.nextTime)`
+- [x] write tests for `*/5 * * * *` (every 5 min)
+- [x] write tests for `0 9 * * 1-5` (weekday mornings)
+- [x] write tests for `30 2 * * *` (2:30 AM daily)
+- [x] write tests for invalid expression returns nil
+- [x] write tests for nextFireDate with fixed reference dates
+- [x] write tests for DST spring-forward handling
+- [x] run project tests - must pass before task 4
 
 ### Task 4: Scheduler persistence with own background queue
 - [ ] create `Sources/Scheduler/SchedulerPersistence.swift` following `SessionPersistence` pattern
