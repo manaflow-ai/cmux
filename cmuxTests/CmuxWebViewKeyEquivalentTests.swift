@@ -2045,6 +2045,26 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
         )
     }
 
+    func testZoomInSupportsShiftedLiteralFromDifferentPhysicalKey() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
+            ),
+            .zoomIn
+        )
+
+        XCTAssertNil(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41
+            )
+        )
+    }
+
     func testZoomRequiresCommandWithoutOptionOrControl() {
         XCTAssertNil(browserZoomShortcutAction(flags: [], chars: "=", keyCode: 24))
         XCTAssertNil(browserZoomShortcutAction(flags: [.command, .option], chars: "=", keyCode: 24))
@@ -2105,6 +2125,18 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 flags: [.command],
                 chars: "n",
                 keyCode: 45
+            )
+        )
+    }
+
+    func testRoutesForShiftedLiteralZoomShortcut() {
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
             )
         )
     }
@@ -4006,6 +4038,58 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let branches = workspace.sidebarGitBranchesInDisplayOrder()
         XCTAssertEqual(branches.map(\.branch), ["main", "feature/left", "feature/right"])
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
+    }
+
+    func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
+        let workspace = Workspace()
+        guard let leftFirstPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
+              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
+              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+            XCTFail("Expected panes and panels for precomputed ordering test")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: true)
+        workspace.updatePanelGitBranch(panelId: rightFirstPanel.id, branch: "release/right", isDirty: false)
+
+        workspace.updatePanelDirectory(panelId: leftFirstPanelId, directory: "/repo/left/root")
+        workspace.updatePanelDirectory(panelId: leftSecondPanel.id, directory: "/repo/left/feature")
+        workspace.updatePanelDirectory(panelId: rightFirstPanel.id, directory: "/repo/right/root")
+        workspace.updatePanelDirectory(panelId: rightSecondPanel.id, directory: "/repo/right/extra")
+
+        workspace.updatePanelPullRequest(
+            panelId: leftFirstPanelId,
+            number: 101,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+            status: .open
+        )
+        workspace.updatePanelPullRequest(
+            panelId: rightFirstPanel.id,
+            number: 18,
+            label: "MR",
+            url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+            status: .merged
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+
+        XCTAssertEqual(
+            workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { "\($0.branch)|\($0.isDirty)" },
+            workspace.sidebarGitBranchesInDisplayOrder().map { "\($0.branch)|\($0.isDirty)" }
+        )
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder()
+        )
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarPullRequestsInDisplayOrder()
+        )
     }
 
     func testClosingPaneDropsBranchesFromClosedSide() {
@@ -7624,6 +7708,58 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolutionTests: XCTestCase {
+    func testResolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        XCTAssertTrue(resolved.isFileURL)
+        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testRejectsNonWebNonFileScheme() {
+        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
+        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    }
+
+    func testRejectsHostOnlyFileURL() {
+        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    }
+}
+
+final class BrowserReadAccessURLTests: XCTestCase {
+    func testUsesParentDirectoryForFileURL() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        let file = dir.appendingPathComponent("sample.html")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesDirectoryURLWhenTargetIsDirectory() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
+        let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
+    }
+
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+    }
+}
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -7642,6 +7778,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let http = try XCTUnwrap(URL(string: "http://example.com"))
         let about = try XCTUnwrap(URL(string: "about:blank"))
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
@@ -7650,6 +7787,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(http))
         XCTAssertFalse(browserShouldOpenURLExternally(about))
         XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
@@ -7978,6 +8116,110 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
                 hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
             )
+        )
+    }
+}
+
+final class TerminalControllerSocketListenerHealthTests: XCTestCase {
+    private func makeTempSocketPath() -> String {
+        "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
+            )
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strcpy(pathBuf, ptr)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
+            )
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
+            )
+        }
+
+        return fd
+    }
+
+    func testSocketListenerHealthRecognizesSocketPath() throws {
+        let path = makeTempSocketPath()
+        let fd = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(fd)
+            unlink(path)
+        }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertTrue(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthRejectsRegularFile() throws {
+        let path = makeTempSocketPath()
+        let url = URL(fileURLWithPath: path)
+        try "not-a-socket".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertFalse(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true
+        )
+        XCTAssertTrue(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, [])
+    }
+
+    func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: false,
+            acceptLoopAlive: false,
+            socketPathMatches: false,
+            socketPathExists: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(
+            health.failureSignals,
+            ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
     }
 }

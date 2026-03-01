@@ -690,12 +690,20 @@ struct CMUXCLI {
             return
         }
 
+        // If the argument looks like a path (not a known command), open a workspace there.
+        if looksLikePath(command) {
+            try openPath(command, socketPath: socketPath)
+            return
+        }
+
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
         if commandArgs.contains("--help") || commandArgs.contains("-h") {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
+            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
+            return
         }
 
         let client = SocketClient(path: socketPath)
@@ -873,22 +881,25 @@ struct CMUXCLI {
             }
 
         case "new-workspace":
-            let (commandOpt, remaining) = parseOption(commandArgs, name: "--command")
+            let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let (cwdOpt, remaining) = parseOption(rem0, name: "--cwd")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>, --cwd <path>")
             }
-            let response = try sendV1Command("new_workspace", client: client)
-            print(response)
-            if let commandText = commandOpt {
-                guard response.hasPrefix("OK ") else {
-                    throw CLIError(message: "new-workspace failed, cannot run --command")
-                }
-                let wsId = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var params: [String: Any] = [:]
+            if let cwdOpt {
+                let resolved = resolvePath(cwdOpt)
+                params["cwd"] = resolved
+            }
+            let response = try client.sendV2(method: "workspace.create", params: params)
+            let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            print("OK \(wsId)")
+            if let commandText = commandOpt, !wsId.isEmpty {
                 // Wait for shell to initialize
                 Thread.sleep(forTimeInterval: 0.5)
                 let text = unescapeSendText(commandText + "\\n")
-                let params: [String: Any] = ["text": text, "workspace_id": wsId]
-                _ = try client.sendV2(method: "surface.send_text", params: params)
+                let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
 
         case "new-split":
@@ -1495,6 +1506,97 @@ struct CMUXCLI {
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
+    }
+
+    private func resolvePath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        if expanded.hasPrefix("/") { return expanded }
+        let cwd = FileManager.default.currentDirectoryPath
+        return (cwd as NSString).appendingPathComponent(expanded)
+    }
+
+    /// Returns true if the argument looks like a filesystem path rather than a CLI command.
+    private func looksLikePath(_ arg: String) -> Bool {
+        if arg == "." || arg == ".." { return true }
+        if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
+        if arg.contains("/") { return true }
+        return false
+    }
+
+    /// Open a path in cmux by creating a new workspace with the given directory.
+    /// Launches the app if it isn't already running.
+    private func openPath(_ path: String, socketPath: String) throws {
+        let resolved = resolvePath(path)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
+
+        let directory: String
+        if exists && isDir.boolValue {
+            directory = resolved
+        } else if exists {
+            // It's a file; use its parent directory
+            directory = (resolved as NSString).deletingLastPathComponent
+        } else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+
+        // Try connecting to the socket. If it fails, launch the app and retry.
+        let client = SocketClient(path: socketPath)
+        if (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+            // Poll until socket accepts connections (up to 10 seconds)
+            let pollClient = SocketClient(path: socketPath)
+            var connected = false
+            for _ in 0..<100 {
+                if (try? pollClient.connect()) != nil {
+                    connected = true
+                    break
+                }
+                pollClient.close()
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            guard connected else {
+                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
+            }
+            // Use pollClient since it's connected
+            defer { pollClient.close() }
+            let params: [String: Any] = ["cwd": directory]
+            let response = try pollClient.sendV2(method: "workspace.create", params: params)
+            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            if !wsRef.isEmpty {
+                print("OK \(wsRef)")
+            }
+            try activateApp()
+            return
+        }
+        defer { client.close() }
+
+        let params: [String: Any] = ["cwd": directory]
+        let response = try client.sendV2(method: "workspace.create", params: params)
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        if !wsRef.isEmpty {
+            print("OK \(wsRef)")
+        }
+
+        // Bring the app to front
+        try activateApp()
+    }
+
+    private func launchApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func activateApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
     }
 
     private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
@@ -3394,10 +3496,59 @@ struct CMUXCLI {
         throw CLIError(message: "Unable to resolve surface ID")
     }
 
-    /// Return the help/usage text for a subcommand, or nil if the command has no
-    /// dedicated help (e.g. simple no-arg commands like `ping`).
+    /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "ping":
+            return """
+            Usage: cmux ping
+
+            Check connectivity to the cmux socket server.
+            """
+        case "capabilities":
+            return """
+            Usage: cmux capabilities
+
+            Print server capabilities as JSON.
+            """
+        case "help":
+            return """
+            Usage: cmux help
+
+            Show top-level CLI usage and command list.
+            """
+        case "identify":
+            return """
+            Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
+
+            Print server identity and caller context details.
+
+            Flags:
+              --workspace <id|ref|index>   Caller workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Caller surface context (default: $CMUX_SURFACE_ID)
+              --no-caller                  Omit caller context from the request
+            """
+        case "list-windows":
+            return """
+            Usage: cmux list-windows
+
+            List open windows.
+            """
+        case "current-window":
+            return """
+            Usage: cmux current-window
+
+            Print the currently selected window ID.
+            """
+        case "new-window":
+            return """
+            Usage: cmux new-window
+
+            Create a new window.
+
+            Example:
+              cmux new-window
+            """
         case "focus-window":
             return """
             Usage: cmux focus-window --window <id|ref|index>
@@ -3426,47 +3577,56 @@ struct CMUXCLI {
             """
         case "move-workspace-to-window":
             return """
-            Usage: cmux move-workspace-to-window --workspace <id|ref> --window <id|ref>
+            Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
 
             Move a workspace to a different window.
 
             Flags:
-              --workspace <id|ref>   Workspace to move (required)
-              --window <id|ref>      Target window (required)
+              --workspace <id|ref|index>   Workspace to move (required)
+              --window <id|ref|index>      Target window (required)
 
             Example:
               cmux move-workspace-to-window --workspace workspace:2 --window window:1
             """
         case "move-surface":
             return """
-            Usage: cmux move-surface --surface <id|ref|index> [flags]
+            Usage: cmux move-surface [--surface <id|ref|index> | <id|ref|index>] [flags]
 
             Move a surface to a different pane, workspace, or window.
 
             Flags:
-              --surface <id|ref|index>   Surface to move (required)
+              --surface <id|ref|index>   Surface to move (required unless passed positionally)
               --pane <id|ref|index>      Target pane
               --workspace <id|ref|index> Target workspace
               --window <id|ref|index>    Target window
               --before <id|ref|index>    Place before this surface
+              --before-surface <id|ref|index>
+                                       Alias for --before
               --after <id|ref|index>     Place after this surface
+              --after-surface <id|ref|index>
+                                       Alias for --after
               --index <n>                Place at this index
               --focus <true|false>       Focus the surface after moving
 
             Example:
               cmux move-surface --surface surface:1 --workspace workspace:2
-              cmux move-surface --surface 0 --pane pane:2 --index 0
+              cmux move-surface surface:1 --pane pane:2 --index 0
             """
         case "reorder-surface":
             return """
-            Usage: cmux reorder-surface --surface <id|ref|index> [flags]
+            Usage: cmux reorder-surface [--surface <id|ref|index> | <id|ref|index>] [flags]
 
             Reorder a surface within its pane.
 
             Flags:
-              --surface <id|ref|index>   Surface to reorder (required)
+              --surface <id|ref|index>   Surface to reorder (required unless passed positionally)
+              --workspace <id|ref|index> Workspace context
               --before <id|ref|index>    Place before this surface
+              --before-surface <id|ref|index>
+                                       Alias for --before
               --after <id|ref|index>     Place after this surface
+              --after-surface <id|ref|index>
+                                       Alias for --after
               --index <n>                Place at this index
 
             Example:
@@ -3475,15 +3635,19 @@ struct CMUXCLI {
             """
         case "reorder-workspace":
             return """
-            Usage: cmux reorder-workspace --workspace <id|ref|index> [flags]
+            Usage: cmux reorder-workspace [--workspace <id|ref|index> | <id|ref|index>] [flags]
 
             Reorder a workspace within its window.
 
             Flags:
-              --workspace <id|ref|index>   Workspace to reorder (required)
+              --workspace <id|ref|index>   Workspace to reorder (required unless passed positionally)
               --index <n>                  Place at this index
               --before <id|ref|index>      Place before this workspace
+              --before-workspace <id|ref|index>
+                                         Alias for --before
               --after <id|ref|index>       Place after this workspace
+              --after-workspace <id|ref|index>
+                                         Alias for --after
               --window <id|ref|index>      Window context
 
             Example:
@@ -3506,7 +3670,7 @@ struct CMUXCLI {
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
-              --title <text>               Title for rename
+              --title <text>               Title for rename (or pass trailing title text)
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
@@ -3529,10 +3693,10 @@ struct CMUXCLI {
 
             Flags:
               --action <name>              Action name (required if not positional)
-              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; alias: --surface)
+              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)
               --surface <id|ref|index>     Alias for --tab (backward compatibility)
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
-              --title <text>               Title for rename
+              --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
 
             Example:
@@ -3562,12 +3726,27 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace
+            Usage: cmux new-workspace [--cwd <path>] [--command <text>]
 
             Create a new workspace in the current window.
 
+            Flags:
+              --cwd <path>      Set the working directory for the new workspace
+              --command <text>   Send text+Enter to the new workspace after creation
+
             Example:
               cmux new-workspace
+              cmux new-workspace --cwd ~/projects/myapp
+              cmux new-workspace --cwd . --command "npm test"
+            """
+        case "list-workspaces":
+            return """
+            Usage: cmux list-workspaces
+
+            List workspaces in the current window.
+
+            Example:
+              cmux list-workspaces
             """
         case "new-split":
             return """
@@ -3583,6 +3762,33 @@ struct CMUXCLI {
             Example:
               cmux new-split right
               cmux new-split down --workspace workspace:1
+            """
+        case "list-panes":
+            return """
+            Usage: cmux list-panes [--workspace <id|ref>]
+
+            List panes in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panes
+              cmux list-panes --workspace workspace:2
+            """
+        case "list-pane-surfaces":
+            return """
+            Usage: cmux list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
+
+            List surfaces in a pane.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>        Restrict to a specific pane (default: focused pane)
+
+            Example:
+              cmux list-pane-surfaces
+              cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
             """
         case "tree":
             return """
@@ -3612,16 +3818,17 @@ struct CMUXCLI {
             """
         case "focus-pane":
             return """
-            Usage: cmux focus-pane --pane <id|ref> [flags]
+            Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
 
             Focus the specified pane.
 
             Flags:
-              --pane <id|ref>          Pane to focus (required)
+              --pane <id|ref>          Pane to focus (required unless passed positionally)
               --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)
 
             Example:
               cmux focus-pane --pane pane:2
+              cmux focus-pane pane:1
               cmux focus-pane --pane pane:1 --workspace workspace:2
             """
         case "new-pane":
@@ -3685,26 +3892,87 @@ struct CMUXCLI {
               cmux drag-surface-to-split --surface surface:1 right
               cmux drag-surface-to-split --panel surface:2 down
             """
+        case "refresh-surfaces":
+            return """
+            Usage: cmux refresh-surfaces
+
+            Refresh surface snapshots for the focused workspace.
+            """
+        case "surface-health":
+            return """
+            Usage: cmux surface-health [--workspace <id|ref>]
+
+            List health details for surfaces in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux surface-health
+              cmux surface-health --workspace workspace:2
+            """
+        case "trigger-flash":
+            return """
+            Usage: cmux trigger-flash [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+
+            Trigger the unread flash indicator for a surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --panel <id|ref>       Alias for --surface
+
+            Example:
+              cmux trigger-flash
+              cmux trigger-flash --workspace workspace:2 --surface surface:3
+            """
+        case "list-panels":
+            return """
+            Usage: cmux list-panels [--workspace <id|ref>]
+
+            List surfaces (panels) in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panels
+              cmux list-panels --workspace workspace:2
+            """
+        case "focus-panel":
+            return """
+            Usage: cmux focus-panel --panel <id|ref> [--workspace <id|ref>]
+
+            Focus a specific panel (surface).
+
+            Flags:
+              --panel <id|ref>       Panel/surface to focus (required)
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux focus-panel --panel surface:2
+              cmux focus-panel --panel surface:5 --workspace workspace:2
+            """
         case "close-workspace":
             return """
-            Usage: cmux close-workspace --workspace <id|ref>
+            Usage: cmux close-workspace --workspace <id|ref|index>
 
             Close the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to close (required)
+              --workspace <id|ref|index>   Workspace to close (required)
 
             Example:
               cmux close-workspace --workspace workspace:2
             """
         case "select-workspace":
             return """
-            Usage: cmux select-workspace --workspace <id|ref>
+            Usage: cmux select-workspace --workspace <id|ref|index>
 
             Select (switch to) the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to select (required)
+              --workspace <id|ref|index>   Workspace to select (required)
 
             Example:
               cmux select-workspace --workspace workspace:2
@@ -3712,17 +3980,23 @@ struct CMUXCLI {
             """
         case "rename-workspace", "rename-window":
             return """
-            Usage: cmux rename-workspace [--workspace <id|ref>] [--] <title>
+            Usage: cmux rename-workspace [--workspace <id|ref|index>] [--] <title>
 
             Rename a workspace. Defaults to the current workspace.
             tmux-compatible alias: rename-window
 
             Flags:
-              --workspace <id|ref>   Workspace to rename (default: current workspace)
+              --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
 
             Example:
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
+            """
+        case "current-workspace":
+            return """
+            Usage: cmux current-workspace
+
+            Print the currently selected workspace ID.
             """
         case "capture-pane":
             return """
@@ -3730,33 +4004,186 @@ struct CMUXCLI {
 
             tmux-compatible alias for reading terminal text from a pane.
 
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: $CMUX_SURFACE_ID)
+              --scrollback           Include scrollback
+              --lines <n>            Return only the last N lines (implies --scrollback)
+
             Example:
               cmux capture-pane --workspace workspace:2 --surface surface:1 --scrollback --lines 200
             """
         case "resize-pane":
             return """
-            Usage: cmux resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+            Usage: cmux resize-pane [--pane <id|ref>] [--workspace <id|ref>] [-L|-R|-U|-D] [--amount <n>]
 
             tmux-compatible pane resize command.
-            Note: currently returns not_supported until programmable divider resize is implemented.
+
+            Flags:
+              --pane <id|ref>        Pane to resize (default: focused pane)
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              -L|-R|-U|-D            Direction (default: -R)
+              --amount <n>           Resize amount (default: 1)
             """
         case "pipe-pane":
             return """
-            Usage: cmux pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
+            Usage: cmux pipe-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <shell-command> | <shell-command>]
 
             Capture pane text and pipe it to a shell command via stdin.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+              --command <command>    Shell command to run (or pass as trailing text)
             """
         case "wait-for":
             return """
             Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
 
             Wait for or signal a named synchronization token.
-            """
-        case "swap-pane", "break-pane", "join-pane", "next-window", "previous-window", "last-window", "last-pane", "find-window", "clear-history", "set-hook", "popup", "bind-key", "unbind-key", "copy-mode", "set-buffer", "paste-buffer", "list-buffers", "respawn-pane", "display-message":
-            return """
-            Usage: cmux \(command) --help
 
-            tmux compatibility command. See `cmux --help` for exact syntax.
+            Flags:
+              -S, --signal           Signal the token instead of waiting
+              --timeout <seconds>    Wait timeout (default: 30)
+            """
+        case "swap-pane":
+            return """
+            Usage: cmux swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
+
+            Swap two panes.
+
+            Flags:
+              --pane <id|ref>         Source pane (required)
+              --target-pane <id|ref>  Target pane (required)
+              --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+            """
+        case "break-pane":
+            return """
+            Usage: cmux break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+
+            Move a pane/surface out into its own pane context.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>        Source pane
+              --surface <id|ref>     Source surface
+              --no-focus             Do not focus the result
+            """
+        case "join-pane":
+            return """
+            Usage: cmux join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+
+            Join a pane/surface into another pane.
+
+            Flags:
+              --target-pane <id|ref>  Target pane (required)
+              --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>         Source pane
+              --surface <id|ref>      Source surface
+              --no-focus              Do not focus the result
+            """
+        case "next-window", "previous-window", "last-window":
+            return """
+            Usage: cmux \(command)
+
+            Switch workspace selection (next/previous/last) in the current window.
+            """
+        case "last-pane":
+            return """
+            Usage: cmux last-pane [--workspace <id|ref>]
+
+            Focus the previously focused pane in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+            """
+        case "find-window":
+            return """
+            Usage: cmux find-window [--content] [--select] [query]
+
+            Find workspaces by title (and optionally terminal content).
+
+            Flags:
+              --content   Search terminal content in addition to workspace titles
+              --select    Select the first match
+            """
+        case "clear-history":
+            return """
+            Usage: cmux clear-history [--workspace <id|ref>] [--surface <id|ref>]
+
+            Clear terminal scrollback history.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+            """
+        case "set-hook":
+            return """
+            Usage: cmux set-hook [--list] [--unset <event>] | <event> <command>
+
+            Manage tmux-compat hook definitions.
+
+            Flags:
+              --list            List configured hooks
+              --unset <event>   Remove a hook by event name
+            """
+        case "popup":
+            return """
+            Usage: cmux popup
+
+            tmux compatibility placeholder. This command is currently not supported.
+            """
+        case "bind-key", "unbind-key", "copy-mode":
+            return """
+            Usage: cmux \(command)
+
+            tmux compatibility placeholder. This command is currently not supported.
+            """
+        case "set-buffer":
+            return """
+            Usage: cmux set-buffer [--name <name>] [--] <text>
+
+            Save text into a named tmux-compat buffer.
+
+            Flags:
+              --name <name>   Buffer name (default: default)
+            """
+        case "paste-buffer":
+            return """
+            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+
+            Paste a named tmux-compat buffer into a surface.
+
+            Flags:
+              --name <name>         Buffer name (default: default)
+              --workspace <id|ref>  Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>    Surface context (default: focused surface)
+            """
+        case "list-buffers":
+            return """
+            Usage: cmux list-buffers
+
+            List tmux-compat buffers.
+            """
+        case "respawn-pane":
+            return """
+            Usage: cmux respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd> | <cmd>]
+
+            Send a command (or default shell restart command) to a surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+              --command <cmd>        Command text (or pass trailing command text)
+            """
+        case "display-message":
+            return """
+            Usage: cmux display-message [-p|--print] <text>
+
+            Print text (or show it via notification bridge in parity mode).
+
+            Flags:
+              -p, --print   Print to stdout only
             """
         case "read-screen":
             return """
@@ -3845,6 +4272,18 @@ struct CMUXCLI {
             Example:
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+            """
+        case "list-notifications":
+            return """
+            Usage: cmux list-notifications
+
+            List queued notifications.
+            """
+        case "clear-notifications":
+            return """
+            Usage: cmux clear-notifications
+
+            Clear all queued notifications.
             """
         case "set-status":
             return """
@@ -3970,16 +4409,35 @@ struct CMUXCLI {
               cmux sidebar-state
               cmux sidebar-state --workspace workspace:2
             """
+        case "set-app-focus":
+            return """
+            Usage: cmux set-app-focus <active|inactive|clear>
+
+            Override app focus state for notification routing tests.
+
+            Example:
+              cmux set-app-focus inactive
+              cmux set-app-focus clear
+            """
+        case "simulate-app-active":
+            return """
+            Usage: cmux simulate-app-active
+
+            Trigger the app-active handler used by notification focus tests.
+            """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|stop|notification> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
             Subcommands:
               session-start   Signal that a Claude session has started
+              active          Alias for session-start
               stop            Signal that a Claude session has stopped
+              idle            Alias for stop
               notification    Forward a Claude notification
+              notify          Alias for notification
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -3994,29 +4452,81 @@ struct CMUXCLI {
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
 
             Browser automation commands. Most subcommands require a surface handle.
+            A surface can be passed as `--surface <handle>` or as the first positional token.
+            `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open [url]                     Create browser split (or navigate if surface given)
-              open-split [url]               Create browser in a new split
-              goto|navigate <url>            Navigate to URL [--snapshot-after]
-              back|forward|reload            History navigation [--snapshot-after]
-              url|get-url                    Get current URL
-              snapshot                       Get DOM snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
-              eval <script>                  Evaluate JavaScript
-              wait                           Wait for condition [--selector] [--text] [--url-contains] [--timeout-ms]
-              click|dblclick|hover <sel>     Mouse actions [--snapshot-after]
-              type <selector> <text>         Type text [--snapshot-after]
-              fill <selector> [text]         Fill input [--snapshot-after]
-              press|keydown|keyup <key>      Keyboard actions [--snapshot-after]
-              get <property> [selector]      Get page properties (url|title|text|html|value|attr|count|box|styles)
-              find <strategy> <query>        Find elements (role|text|label|placeholder|testid|first|last|nth)
-              identify                       Identify browser surface
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
+                open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
+              goto|navigate <url> [--snapshot-after]
+              back|forward|reload [--snapshot-after]
+              url|get-url
+              focus-webview | is-webview-focused
+              snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
+              eval [--script <js> | <js>]
+              wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
+              click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
+              type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]
+              select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
+              scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
+              screenshot [--out <path>]
+              get <url|title|text|html|value|attr|count|box|styles> [...]
+                text|html|value|count|box|styles|attr: [--selector <css> | <css>]
+                attr: [--attr <name> | <name>]
+                styles: [--property <name>]
+              is <visible|enabled|checked> [--selector <css> | <css>]
+              find <role|text|label|placeholder|alt|title|testid|first|last|nth> [...]
+                role: [--name <text>] [--exact] <role>
+                text|label|placeholder|alt|title|testid: [--exact] <text>
+                first|last: [--selector <css> | <css>]
+                nth: [--index <n> | <n>] [--selector <css> | <css>]
+              frame <main|selector> [--selector <css>]
+              dialog <accept|dismiss> [text]
+              download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
+              storage <local|session> <get|set|clear> [...]
+              tab <new|list|switch|close|<index>> [...]
+              console <list|clear>
+              errors <list|clear>
+              highlight [--selector <css> | <css>]
+              state <save|load> <path>
+              addinitscript|addscript [--script <js> | <js>]
+              addstyle [--css <css> | <css>]
+              viewport <width> <height>
+              geolocation|geo <latitude> <longitude>
+              offline <true|false>
+              trace <start|stop> [path]
+              network <route|unroute|requests> ...
+                route <pattern> [--abort] [--body <text>]
+                unroute <pattern>
+              screencast <start|stop>
+              input <mouse|keyboard|touch> [args...]
+              input_mouse | input_keyboard | input_touch
+              identify [--surface <id|ref|index>]
 
             Example:
               cmux browser open https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
             """
+        // Legacy browser aliases — point users to `cmux browser --help`
+        case "open-browser":
+            return "Legacy alias for 'cmux browser open'. Run 'cmux browser --help' for details."
+        case "navigate":
+            return "Legacy alias for 'cmux browser navigate'. Run 'cmux browser --help' for details."
+        case "browser-back":
+            return "Legacy alias for 'cmux browser back'. Run 'cmux browser --help' for details."
+        case "browser-forward":
+            return "Legacy alias for 'cmux browser forward'. Run 'cmux browser --help' for details."
+        case "browser-reload":
+            return "Legacy alias for 'cmux browser reload'. Run 'cmux browser --help' for details."
+        case "get-url":
+            return "Legacy alias for 'cmux browser get-url'. Run 'cmux browser --help' for details."
+        case "focus-webview":
+            return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
+        case "is-webview-focused":
+            return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         default:
             return nil
         }
@@ -5813,7 +6323,8 @@ struct CMUXCLI {
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] [--version] <command> [options]
+          cmux <path>                Open a directory in a new workspace (launches cmux if needed)
+          cmux [global-options] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
@@ -5837,7 +6348,7 @@ struct CMUXCLI {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
-          new-workspace [--command <text>]
+          new-workspace [--cwd <path>] [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
