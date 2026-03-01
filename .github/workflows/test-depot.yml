@@ -82,17 +82,20 @@ jobs:
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
-      - name: Display diagnostics
+      - name: Create virtual display
         run: |
-          echo "=== Screen resolution ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "No display info available"
+          set -euo pipefail
+          echo "=== Display before ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
           echo ""
-          echo "=== Window server ==="
-          /usr/sbin/system_profiler SPSoftwareDataType | grep -i "boot mode" || true
-          echo ""
-          echo "=== Accessibility permissions ==="
-          tccutil reset Accessibility 2>/dev/null || true
-          echo "Accessibility reset attempted"
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          echo "=== Display after ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
       - name: Clean DerivedData
         run: |
