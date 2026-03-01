@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Regression: pane.resize preserves terminal content drawn before resize."""
+"""Regression: `ls` output remains in scrollback after pane.resize."""
 
 from __future__ import annotations
 
 import os
+import re
 import secrets
+import shlex
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -14,6 +18,7 @@ from cmux import cmux, cmuxError
 
 
 DEFAULT_SOCKET_PATHS = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -74,9 +79,16 @@ def _surface_scrollback_text(client: cmux, workspace_id: str, surface_id: str) -
     return str(payload.get("text") or "")
 
 
-def _scrollback_has_exact_line(client: cmux, workspace_id: str, surface_id: str, token: str) -> bool:
-    lines = [raw.strip() for raw in _surface_scrollback_text(client, workspace_id, surface_id).splitlines()]
-    return token in lines
+def _has_exact_marker_lines(
+    client: cmux,
+    workspace_id: str,
+    surface_id: str,
+    start_marker: str,
+    end_marker: str,
+) -> bool:
+    text = _surface_scrollback_text(client, workspace_id, surface_id)
+    lines = [ANSI_ESCAPE_RE.sub("", raw).strip() for raw in text.splitlines()]
+    return start_marker in lines and end_marker in lines
 
 
 def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pane: str) -> tuple[str, str]:
@@ -103,8 +115,33 @@ def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pa
     return ("down" if target_pane == top_id else "up"), "height"
 
 
+def _extract_segment_lines(text: str, start_marker: str, end_marker: str) -> list[str]:
+    lines = text.splitlines()
+    saw_start = False
+    saw_end = False
+    out: list[str] = []
+    for raw in lines:
+        line = ANSI_ESCAPE_RE.sub("", raw).strip()
+        if not saw_start:
+            if line == start_marker:
+                saw_start = True
+            continue
+        if line == end_marker:
+            saw_end = True
+            break
+        if line:
+            out.append(line)
+
+    if not saw_start:
+        raise cmuxError(f"start marker not found in scrollback: {start_marker}")
+    if not saw_end:
+        raise cmuxError(f"end marker not found in scrollback: {end_marker}")
+    return out
+
+
 def _run_once(socket_path: str) -> int:
     workspace_id = ""
+    fixture_dir = Path(tempfile.mkdtemp(prefix="cmux-ls-resize-regression-"))
     try:
         with cmux(socket_path) as client:
             workspace_id = client.new_workspace()
@@ -114,19 +151,32 @@ def _run_once(socket_path: str) -> int:
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
 
-            stamp = secrets.token_hex(4)
-            resize_lines = [f"CMUX_LOCAL_RESIZE_LINE_{stamp}_{index:02d}" for index in range(1, 33)]
-            clear_and_draw = "printf '\\033[2J\\033[H'; " + "; ".join(
-                f"printf '{line}\\n'" for line in resize_lines
-            )
-            client.send_surface(surface_id, f"{clear_and_draw}\n")
-            _wait_for(lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, resize_lines[-1]), timeout_s=8.0)
+            expected_names = [f"entry-{index:04d}.txt" for index in range(1, 241)]
+            for name in expected_names:
+                (fixture_dir / name).write_text(name + "\n", encoding="utf-8")
 
-            pre_resize_visible = client.read_terminal_text(surface_id)
-            pre_visible_lines = [line for line in resize_lines if line in pre_resize_visible]
+            start_marker = f"CMUX_LS_SCROLLBACK_START_{secrets.token_hex(4)}"
+            end_marker = f"CMUX_LS_SCROLLBACK_END_{secrets.token_hex(4)}"
+            fixture_arg = shlex.quote(str(fixture_dir))
+            run_ls = (
+                f"cd {fixture_arg}; "
+                f"echo {start_marker}; "
+                f"LC_ALL=C CLICOLOR=0 ls -1; "
+                f"echo {end_marker}"
+            )
+            client.send_surface(surface_id, run_ls + "\n")
+            _wait_for(
+                lambda: _has_exact_marker_lines(client, workspace_id, surface_id, start_marker, end_marker),
+                timeout_s=12.0,
+            )
+
+            pre_resize_scrollback = _surface_scrollback_text(client, workspace_id, surface_id)
+            pre_lines = _extract_segment_lines(pre_resize_scrollback, start_marker, end_marker)
+            expected_set = set(expected_names)
+            pre_found = [line for line in pre_lines if line in expected_set]
             _must(
-                len(pre_visible_lines) >= 4,
-                f"pre-resize viewport did not contain enough lines: {pre_visible_lines}",
+                len(set(pre_found)) == len(expected_set),
+                f"pre-resize ls output incomplete: found={len(set(pre_found))} expected={len(expected_set)}",
             )
 
             split_payload = client._call(
@@ -150,40 +200,27 @@ def _run_once(socket_path: str) -> int:
                     "workspace_id": workspace_id,
                     "pane_id": pane_id,
                     "direction": resize_direction,
-                    "amount": 80,
+                    "amount": 120,
                 },
             ) or {}
             _must(
                 str(resize_result.get("pane_id") or "") == pane_id,
                 f"pane.resize response missing expected pane_id: {resize_result}",
             )
-            _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) > pre_extent + 1.0, timeout_s=5.0)
+            _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) > pre_extent + 1.0, timeout_s=6.0)
 
-            post_resize_visible = client.read_terminal_text(surface_id)
-            visible_overlap = [line for line in pre_visible_lines if line in post_resize_visible]
+            post_resize_scrollback = _surface_scrollback_text(client, workspace_id, surface_id)
+            post_lines = _extract_segment_lines(post_resize_scrollback, start_marker, end_marker)
+            post_found = [line for line in post_lines if line in expected_set]
             _must(
-                bool(visible_overlap),
-                f"resize lost all pre-resize visible lines from viewport: {pre_visible_lines}",
-            )
-
-            post_token = f"CMUX_LOCAL_RESIZE_POST_{stamp}"
-            client.send_surface(surface_id, f"printf '{post_token}\\n'\n")
-            _wait_for(lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, post_token), timeout_s=8.0)
-
-            scrollback_text = _surface_scrollback_text(client, workspace_id, surface_id)
-            _must(
-                resize_lines[0] in scrollback_text and resize_lines[-1] in scrollback_text,
-                "terminal scrollback lost pre-resize lines after pane resize",
-            )
-            _must(
-                post_token in scrollback_text,
-                "terminal scrollback missing post-resize token after pane resize",
+                len(set(post_found)) == len(expected_set),
+                "post-resize ls output lost entries from scrollback",
             )
 
             client.close_workspace(workspace_id)
             workspace_id = ""
 
-        print("PASS: pane.resize preserves pre-resize visible content and scrollback anchors")
+        print("PASS: ls output remains fully present in scrollback after pane.resize")
         return 0
     finally:
         if workspace_id:
@@ -192,6 +229,7 @@ def _run_once(socket_path: str) -> int:
                     cleanup_client.close_workspace(workspace_id)
             except Exception:
                 pass
+        shutil.rmtree(fixture_dir, ignore_errors=True)
 
 
 def main() -> int:

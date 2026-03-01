@@ -252,10 +252,16 @@ def _pane_extent(client: cmux, pane_id: str, axis: str) -> float:
 
 
 def _pane_for_surface(client: cmux, surface_id: str) -> str:
+    target_id = str(client._resolve_surface_id(surface_id))
     for _idx, pane_id, _count, _focused in client.list_panes():
         rows = client.list_pane_surfaces(pane_id)
-        if any(sid == surface_id for _row_idx, sid, _title, _selected in rows):
-            return pane_id
+        for _row_idx, sid, _title, _selected in rows:
+            try:
+                candidate_id = str(client._resolve_surface_id(sid))
+            except cmuxError:
+                continue
+            if candidate_id == target_id:
+                return pane_id
     raise cmuxError(f"Surface {surface_id} is not present in current workspace panes")
 
 
