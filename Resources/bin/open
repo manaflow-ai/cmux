@@ -105,6 +105,169 @@ is_http_url() {
     return 1
 }
 
+is_file_url() {
+    local value="$1"
+    case "$value" in
+        [Ff][Ii][Ll][Ee]://*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+has_uri_scheme() {
+    local value="$1"
+    [[ "$value" =~ ^[A-Za-z][A-Za-z0-9+.-]*: ]]
+}
+
+is_html_extension() {
+    local value
+    value="$(to_lower_ascii "$(trim "$1")")"
+    case "$value" in
+        *.html|*.htm)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+is_explicit_local_path() {
+    local value="$1"
+    case "$value" in
+        /*|./*|../*|~|~/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+file_url_points_to_html() {
+    local value="$1"
+    if [[ -n "$PYTHON3_BIN" ]]; then
+        "$PYTHON3_BIN" - "$value" <<'PY' >/dev/null 2>&1
+import sys
+from urllib.parse import unquote, urlsplit
+
+value = sys.argv[1].strip()
+if not value:
+    raise SystemExit(1)
+
+parts = urlsplit(value)
+path = unquote(parts.path or "")
+lower = path.lower()
+if lower.endswith(".html") or lower.endswith(".htm"):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+        return $?
+    fi
+
+    local without_fragment="${value%%\#*}"
+    local without_query="${without_fragment%%\?*}"
+    local remainder path_part
+
+    case "$without_query" in
+        [Ff][Ii][Ll][Ee]://*)
+            remainder="${without_query#*://}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    if [[ "$remainder" == /* ]]; then
+        path_part="$remainder"
+    elif [[ "$remainder" == */* ]]; then
+        path_part="/${remainder#*/}"
+    else
+        return 1
+    fi
+
+    is_html_extension "$path_part"
+}
+
+path_to_file_url_without_python() {
+    local raw="$1"
+    local expanded="$raw"
+    case "$expanded" in
+        "~")
+            expanded="$HOME"
+            ;;
+        "~/"*)
+            expanded="$HOME/${expanded#~/}"
+            ;;
+    esac
+
+    local absolute
+    if [[ "$expanded" == /* ]]; then
+        absolute="$expanded"
+    else
+        absolute="$(pwd)/$expanded"
+    fi
+
+    local directory="$absolute"
+    local basename=""
+    if [[ "$absolute" == */* ]]; then
+        directory="${absolute%/*}"
+        basename="${absolute##*/}"
+    fi
+
+    local resolved_directory
+    if resolved_directory="$(cd "$directory" 2>/dev/null && pwd -P)"; then
+        absolute="$resolved_directory"
+        if [[ -n "$basename" ]]; then
+            absolute="$absolute/$basename"
+        fi
+    fi
+
+    local encoded=""
+    local length=${#absolute}
+    local index char hex
+    local LC_ALL=C
+    for ((index = 0; index < length; index++)); do
+        char="${absolute:index:1}"
+        case "$char" in
+            [a-zA-Z0-9.~_-]|/)
+                encoded+="$char"
+                ;;
+            *)
+                printf -v hex '%02X' "'$char"
+                encoded+="%$hex"
+                ;;
+        esac
+    done
+    printf 'file://%s\n' "$encoded"
+}
+
+path_to_file_url() {
+    local raw="$1"
+    if [[ -n "$PYTHON3_BIN" ]]; then
+        local converted
+        if converted="$("$PYTHON3_BIN" - "$raw" <<'PY' 2>/dev/null
+import pathlib
+import sys
+
+raw = sys.argv[1]
+if not raw:
+    raise SystemExit(1)
+
+path = pathlib.Path(raw).expanduser()
+if path.is_absolute():
+    resolved = path.resolve(strict=False)
+else:
+    resolved = (pathlib.Path.cwd() / path).resolve(strict=False)
+
+sys.stdout.write(resolved.as_uri())
+PY
+        )"; then
+            printf '%s\n' "$converted"
+            return 0
+        fi
+    fi
+
+    path_to_file_url_without_python "$raw"
+}
+
 normalize_host() {
     local value
     value="$(trim "$1")"
@@ -212,9 +375,10 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # Scan for flags that indicate explicit user intent → pass through.
-# Also collect non-flag arguments (potential URLs/files).
+# Also collect non-flag arguments and route eligible browser targets to cmux.
 passthrough=false
-urls=()
+cmux_targets=()
+passthrough_args=()
 for arg in "$@"; do
     case "$arg" in
         -a|-b|-R|-e|-t|-f|-W|-g|-n|-h|-s|-j|-u|--env|--stdin|--stdout|--stderr)
@@ -228,17 +392,33 @@ for arg in "$@"; do
             ;;
         *)
             if is_http_url "$arg"; then
-                urls+=("$arg")
+                cmux_targets+=("$arg")
+            elif is_file_url "$arg"; then
+                if file_url_points_to_html "$arg"; then
+                    cmux_targets+=("$arg")
+                else
+                    passthrough_args+=("$arg")
+                fi
+            elif has_uri_scheme "$arg"; then
+                passthrough_args+=("$arg")
+            elif is_html_extension "$arg"; then
+                if is_explicit_local_path "$arg" || [[ -e "$arg" ]]; then
+                    if local_file_url="$(path_to_file_url "$arg")"; then
+                        cmux_targets+=("$local_file_url")
+                    else
+                        passthrough_args+=("$arg")
+                    fi
+                else
+                    passthrough_args+=("$arg")
+                fi
             else
-                # Non-URL, non-flag argument (file path, etc.) → pass through all
-                passthrough=true
-                break
+                passthrough_args+=("$arg")
             fi
             ;;
     esac
 done
 
-if [[ "$passthrough" == true ]] || [[ ${#urls[@]} -eq 0 ]]; then
+if [[ "$passthrough" == true ]] || [[ ${#cmux_targets[@]} -eq 0 ]]; then
     system_open "$@"
 fi
 
@@ -269,15 +449,15 @@ fi
 
 # Open each URL in cmux's in-app browser; track failures individually.
 failed_urls=()
-for url in "${urls[@]}"; do
-    if ! host_matches_whitelist "$url"; then
+for url in "${cmux_targets[@]}"; do
+    if is_http_url "$url" && ! host_matches_whitelist "$url"; then
         failed_urls+=("$url")
         continue
     fi
     "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
 done
 
-# Fall back to system open only for URLs that failed.
-if [[ ${#failed_urls[@]} -gt 0 ]]; then
-    system_open "${failed_urls[@]}"
+# Fall back to system open for unmatched args and URLs that failed.
+if [[ ${#passthrough_args[@]} -gt 0 ]] || [[ ${#failed_urls[@]} -gt 0 ]]; then
+    system_open "${passthrough_args[@]}" "${failed_urls[@]}"
 fi

@@ -34,6 +34,8 @@ def run_wrapper(
     legacy_open_setting: str | None = None,
     whitelist: str | None,
     fail_urls: list[str] | None = None,
+    local_files: list[str] | None = None,
+    python_bin: str | None = None,
 ) -> tuple[list[str], list[str], int, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-open-wrapper-test-") as td:
         tmp = Path(td)
@@ -113,6 +115,12 @@ exit 0
 """,
         )
 
+        if local_files:
+            for relative_path in local_files:
+                target = tmp / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("<!doctype html><title>fixture</title>", encoding="utf-8")
+
         env = os.environ.copy()
         env["CMUX_SOCKET_PATH"] = "/tmp/cmux-open-wrapper-test.sock"
         env["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.test"
@@ -120,6 +128,10 @@ exit 0
         env["CMUX_OPEN_WRAPPER_DEFAULTS"] = str(defaults)
         env["FAKE_OPEN_LOG"] = str(open_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
+        if python_bin is None:
+            env.pop("CMUX_OPEN_WRAPPER_PYTHON3", None)
+        else:
+            env["CMUX_OPEN_WRAPPER_PYTHON3"] = python_bin
 
         if intercept_setting is None:
             env.pop("FAKE_DEFAULTS_INTERCEPT_OPEN", None)
@@ -143,6 +155,7 @@ exit 0
 
         result = subprocess.run(
             ["/bin/bash", str(wrapper), *args],
+            cwd=tmp,
             env=env,
             capture_output=True,
             text=True,
@@ -282,6 +295,149 @@ def test_uppercase_scheme_routes_to_cmux(failures: list[str]) -> None:
     expect(cmux_log == [f"browser open {url}"], f"uppercase scheme: unexpected cmux log {cmux_log}", failures)
 
 
+def test_local_html_file_routes_to_cmux(failures: list[str]) -> None:
+    filename = "fixtures/hello page.HTML"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+    )
+    expect(code == 0, f"local html file: wrapper exited {code}: {stderr}", failures)
+    expect(open_log == [], f"local html file: system open should not be called, got {open_log}", failures)
+    expect(len(cmux_log) == 1, f"local html file: expected exactly one cmux call, got {cmux_log}", failures)
+    if cmux_log:
+        expect(
+            cmux_log[0].startswith("browser open file://"),
+            f"local html file: expected file:// target, got {cmux_log[0]}",
+            failures,
+        )
+        expect(
+            "hello%20page.HTML" in cmux_log[0],
+            f"local html file: expected URL-encoded filename in cmux target, got {cmux_log[0]}",
+            failures,
+        )
+
+
+def test_file_url_html_routes_to_cmux(failures: list[str]) -> None:
+    url = "file:///tmp/cmux-open-wrapper-fixture.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+    )
+    expect(code == 0, f"file url html: wrapper exited {code}: {stderr}", failures)
+    expect(open_log == [], f"file url html: system open should not be called, got {open_log}", failures)
+    expect(cmux_log == [f"browser open {url}"], f"file url html: unexpected cmux log {cmux_log}", failures)
+
+
+def test_file_url_html_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
+    url = "file:///tmp/cmux-open-wrapper-fixture.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+        python_bin="/definitely/missing/python3",
+    )
+    expect(code == 0, f"file url html no-python fallback: wrapper exited {code}: {stderr}", failures)
+    expect(
+        open_log == [],
+        f"file url html no-python fallback: system open should not be called, got {open_log}",
+        failures,
+    )
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"file url html no-python fallback: unexpected cmux log {cmux_log}",
+        failures,
+    )
+
+
+def test_local_html_file_routes_to_cmux_without_python_binary(failures: list[str]) -> None:
+    filename = "fixtures/no python fallback.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        python_bin="/definitely/missing/python3",
+    )
+    expect(code == 0, f"local html no-python fallback: wrapper exited {code}: {stderr}", failures)
+    expect(open_log == [], f"local html no-python fallback: system open should not be called, got {open_log}", failures)
+    expect(
+        len(cmux_log) == 1,
+        f"local html no-python fallback: expected exactly one cmux call, got {cmux_log}",
+        failures,
+    )
+    if cmux_log:
+        expect(
+            cmux_log[0].startswith("browser open file://"),
+            f"local html no-python fallback: expected file:// target, got {cmux_log[0]}",
+            failures,
+        )
+        expect(
+            "no%20python%20fallback.html" in cmux_log[0],
+            f"local html no-python fallback: expected URL-encoded filename, got {cmux_log[0]}",
+            failures,
+        )
+
+
+def test_domain_like_html_argument_passthrough(failures: list[str]) -> None:
+    arg = "example.com/report.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[arg],
+        intercept_setting="1",
+        whitelist="",
+    )
+    expect(code == 0, f"domain-like html argument: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [],
+        f"domain-like html argument: cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [arg],
+        f"domain-like html argument: expected system open [{arg}], got {open_log}",
+        failures,
+    )
+
+
+def test_non_file_scheme_html_passthrough(failures: list[str]) -> None:
+    url = "ftp://example.com/report.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+    )
+    expect(code == 0, f"non-file scheme html: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"non-file scheme html: cmux should not be called, got {cmux_log}", failures)
+    expect(open_log == [url], f"non-file scheme html: expected system open [{url}], got {open_log}", failures)
+
+
+def test_mailto_html_passthrough(failures: list[str]) -> None:
+    url = "mailto:help@example.com?subject=report.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="",
+    )
+    expect(code == 0, f"mailto html: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"mailto html: cmux should not be called, got {cmux_log}", failures)
+    expect(open_log == [url], f"mailto html: expected system open [{url}], got {open_log}", failures)
+
+
+def test_local_non_html_file_passthrough(failures: list[str]) -> None:
+    filename = "fixtures/readme.md"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+    )
+    expect(code == 0, f"local non-html file: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"local non-html file: cmux should not be called, got {cmux_log}", failures)
+    expect(open_log == [filename], f"local non-html file: expected system open [{filename}], got {open_log}", failures)
+
+
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
     url = "https://xn--bcher-kva.example/path"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -316,6 +472,14 @@ def main() -> int:
     test_legacy_toggle_fallback_passthrough(failures)
     test_legacy_toggle_fallback_case_insensitive_passthrough(failures)
     test_uppercase_scheme_routes_to_cmux(failures)
+    test_local_html_file_routes_to_cmux(failures)
+    test_file_url_html_routes_to_cmux(failures)
+    test_file_url_html_routes_to_cmux_without_python_binary(failures)
+    test_local_html_file_routes_to_cmux_without_python_binary(failures)
+    test_domain_like_html_argument_passthrough(failures)
+    test_non_file_scheme_html_passthrough(failures)
+    test_mailto_html_passthrough(failures)
+    test_local_non_html_file_passthrough(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
 

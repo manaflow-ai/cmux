@@ -7708,6 +7708,58 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolutionTests: XCTestCase {
+    func testResolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        XCTAssertTrue(resolved.isFileURL)
+        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testRejectsNonWebNonFileScheme() {
+        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
+        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    }
+
+    func testRejectsHostOnlyFileURL() {
+        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    }
+}
+
+final class BrowserReadAccessURLTests: XCTestCase {
+    func testUsesParentDirectoryForFileURL() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        let file = dir.appendingPathComponent("sample.html")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesDirectoryURLWhenTargetIsDirectory() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
+        let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
+    }
+
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+    }
+}
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -7726,6 +7778,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let http = try XCTUnwrap(URL(string: "http://example.com"))
         let about = try XCTUnwrap(URL(string: "about:blank"))
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
@@ -7734,6 +7787,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(http))
         XCTAssertFalse(browserShouldOpenURLExternally(about))
         XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))

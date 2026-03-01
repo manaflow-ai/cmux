@@ -394,11 +394,35 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     return preparedRequest
 }
 
+func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
+    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
+    let path = fileURL.path
+    var isDirectory: ObjCBool = false
+    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return fileURL
+    }
+
+    let parent = fileURL.deletingLastPathComponent()
+    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
+    return parent
+}
+
+@discardableResult
+func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+    guard let url = request.url else { return nil }
+    if url.isFileURL {
+        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+    }
+    return webView.load(browserPreparedNavigationRequest(request))
+}
+
 private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
     "data",
+    "file",
     "http",
     "https",
     "javascript",
@@ -1901,7 +1925,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        webView.load(browserPreparedNavigationRequest(request))
+        browserLoadRequest(request, in: webView)
     }
 
     /// Navigate with smart URL/search detection
@@ -2045,6 +2069,9 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            return url
+        }
+        if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
         return nil
@@ -3125,7 +3152,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
             dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
 #endif
-            webView.load(navigationAction.request)
+            browserLoadRequest(navigationAction.request, in: webView)
             decisionHandler(.cancel)
             return
         }
@@ -3288,7 +3315,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #if DEBUG
                 dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
 #endif
-                webView.load(navigationAction.request)
+                browserLoadRequest(navigationAction.request, in: webView)
             }
         }
         return nil
