@@ -4311,9 +4311,7 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.vscodeServeWebStop") {
-            if !stopInlineVSCodeServeWeb() {
-                NSSound.beep()
-            }
+            stopInlineVSCodeServeWeb()
         }
         registry.register(commandId: "palette.vscodeServeWebRestart") {
             if !restartInlineVSCodeServeWeb() {
@@ -4995,9 +4993,8 @@ struct ContentView: View {
         return true
     }
 
-    private func stopInlineVSCodeServeWeb() -> Bool {
+    private func stopInlineVSCodeServeWeb() {
         VSCodeServeWebController.shared.stop()
-        return true
     }
 
     private func restartInlineVSCodeServeWeb() -> Bool {

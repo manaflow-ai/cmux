@@ -300,8 +300,9 @@ final class VSCodeServeWebController {
     private var serveWebProcess: Process?
     private var launchingProcess: Process?
     private var serveWebURL: URL?
-    private var pendingCompletions: [(URL?) -> Void] = []
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
 
     private init() {}
@@ -317,11 +318,13 @@ final class VSCodeServeWebController {
                 return
             }
 
-            self.pendingCompletions.append(completion)
+            let completionGeneration = self.lifecycleGeneration
+            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
             guard !self.isLaunching else { return }
 
             self.isLaunching = true
-            let launchGeneration = self.lifecycleGeneration
+            let launchGeneration = completionGeneration
+            self.activeLaunchGeneration = launchGeneration
 
             self.launchQueue.async {
                 let shouldLaunch = self.queue.sync {
@@ -329,13 +332,25 @@ final class VSCodeServeWebController {
                 }
                 guard shouldLaunch else {
                     self.queue.async {
+                        guard self.activeLaunchGeneration == launchGeneration else { return }
                         self.isLaunching = false
+                        self.activeLaunchGeneration = nil
                     }
                     return
                 }
-                let launchResult = self.launchServeWebProcess(vscodeApplicationURL: vscodeApplicationURL)
+                let launchResult = self.launchServeWebProcess(
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    expectedGeneration: launchGeneration
+                )
                 self.queue.async {
+                    guard self.activeLaunchGeneration == launchGeneration else {
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
                     self.isLaunching = false
+                    self.activeLaunchGeneration = nil
 
                     guard self.lifecycleGeneration == launchGeneration else {
                         if let launchedProcess = launchResult?.process,
@@ -344,11 +359,6 @@ final class VSCodeServeWebController {
                         }
                         if let process = launchResult?.process, process.isRunning {
                             process.terminate()
-                        }
-                        let completions = self.pendingCompletions
-                        self.pendingCompletions.removeAll()
-                        DispatchQueue.main.async {
-                            completions.forEach { $0(nil) }
                         }
                         return
                     }
@@ -363,8 +373,16 @@ final class VSCodeServeWebController {
                         self.serveWebURL = nil
                     }
 
-                    let completions = self.pendingCompletions
-                    self.pendingCompletions.removeAll()
+                    var completions: [(URL?) -> Void] = []
+                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+                    for pending in self.pendingCompletions {
+                        if pending.generation == launchGeneration {
+                            completions.append(pending.completion)
+                        } else {
+                            remaining.append(pending)
+                        }
+                    }
+                    self.pendingCompletions = remaining
                     let resolvedURL = self.serveWebURL
                     DispatchQueue.main.async {
                         completions.forEach { $0(resolvedURL) }
@@ -377,6 +395,8 @@ final class VSCodeServeWebController {
     func stop() {
         let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
             var processes: [Process] = []
             if let process = self.serveWebProcess {
                 processes.append(process)
@@ -388,7 +408,7 @@ final class VSCodeServeWebController {
             self.serveWebProcess = nil
             self.launchingProcess = nil
             self.serveWebURL = nil
-            let completions = self.pendingCompletions
+            let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
             return (processes, completions)
         }
@@ -409,7 +429,10 @@ final class VSCodeServeWebController {
         ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
     }
 
-    private func launchServeWebProcess(vscodeApplicationURL: URL) -> (process: Process, url: URL)? {
+    private func launchServeWebProcess(
+        vscodeApplicationURL: URL,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
         guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: vscodeApplicationURL
         ) else { return nil }
@@ -455,20 +478,25 @@ final class VSCodeServeWebController {
             }
         }
 
-        queue.sync {
+        let didStart: Bool = queue.sync {
+            guard self.lifecycleGeneration == expectedGeneration,
+                  self.activeLaunchGeneration == expectedGeneration else {
+                return false
+            }
             self.launchingProcess = process
-        }
-
-        do {
-            try process.run()
-        } catch {
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
-            queue.sync {
+            do {
+                try process.run()
+                return true
+            } catch {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }
+                return false
             }
+        }
+        guard didStart else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
             return nil
         }
 
@@ -528,6 +556,11 @@ final class ServeWebOutputCollector {
     func markProcessExited() {
         lock.lock()
         defer { lock.unlock() }
+        if resolvedURL == nil, !outputBuffer.isEmpty,
+           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+        }
         guard !didSignal else { return }
         didSignal = true
         semaphore.signal()

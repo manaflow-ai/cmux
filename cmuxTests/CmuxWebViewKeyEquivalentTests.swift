@@ -4855,6 +4855,17 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
     }
+
+    func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
+        let collector = ServeWebOutputCollector()
+        let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
+
+        collector.append(Data(finalChunk.utf8))
+        collector.markProcessExited()
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
+    }
 }
 
 final class BrowserSearchEngineTests: XCTestCase {
