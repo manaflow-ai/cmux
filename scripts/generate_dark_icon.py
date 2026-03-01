@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,16 +64,51 @@ def make_dark_from_figma(light_1024: Image.Image, chevron: Image.Image) -> Image
             if a > 0:
                 dark_px[x, y] = (DARK_BG[0], DARK_BG[1], DARK_BG[2], a)
 
-    # Scale and composite chevron at the correct offset
+    # Scale chevron
     chev = chevron.convert("RGBA")
     cw, ch = chev.size
     scaled_w = int(cw * FIGMA_SCALE)
     scaled_h = int(ch * FIGMA_SCALE)
     chev = chev.resize((scaled_w, scaled_h), Image.LANCZOS)
     ox, oy = FIGMA_OFFSET
-    dark_bg.paste(chev, (ox, oy), chev)
 
-    return dark_bg
+    # Build enhanced glow: brighten the chevron, blur at two radii
+    glow_src = chev.copy()
+    glow_px = glow_src.load()
+    for y in range(scaled_h):
+        for x in range(scaled_w):
+            r, g, b, a = glow_px[x, y]
+            if a > 0:
+                glow_px[x, y] = (
+                    min(255, int(r * 1.2)),
+                    min(255, int(g * 1.2)),
+                    min(255, int(b * 1.2)),
+                    min(255, int(a * 1.1)),
+                )
+
+    glow_canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    glow_canvas.paste(glow_src, (ox, oy), glow_src)
+
+    # Wide soft glow + tighter glow
+    glow_wide = glow_canvas.filter(ImageFilter.GaussianBlur(radius=25))
+    glow_tight = glow_canvas.filter(ImageFilter.GaussianBlur(radius=12))
+
+    # Reduce glow opacity
+    for glow, factor in [(glow_wide, 0.45), (glow_tight, 0.35)]:
+        gpx = glow.load()
+        for y in range(size):
+            for x in range(size):
+                r, g, b, a = gpx[x, y]
+                gpx[x, y] = (r, g, b, int(a * factor))
+
+    # Composite: dark bg -> wide glow -> tight glow -> sharp chevron
+    result = Image.alpha_composite(dark_bg, glow_wide)
+    result = Image.alpha_composite(result, glow_tight)
+    chev_canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    chev_canvas.paste(chev, (ox, oy), chev)
+    result = Image.alpha_composite(result, chev_canvas)
+
+    return result
 
 
 def make_dark_fallback(img: Image.Image) -> Image.Image:
