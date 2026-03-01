@@ -227,6 +227,26 @@ enum WindowGlassEffect {
     }
 }
 
+/// CALayer-backed titlebar background. Uses layer-level opacity (not per-pixel alpha)
+/// to match how the terminal's Metal surface composites its background.
+struct TitlebarLayerBackground: NSViewRepresentable {
+    var backgroundColor: NSColor
+    var opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
@@ -1831,19 +1851,11 @@ struct ContentView: View {
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
-    private var fakeTitlebarBackground: Color {
-        _ = titlebarThemeGeneration
-        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        let configuredOpacity = CGFloat(max(0, min(1, GhosttyApp.shared.defaultBackgroundOpacity)))
-        let minimumChromeOpacity: CGFloat = ghosttyBackground.isLightColor ? 0.90 : 0.84
-        let chromeOpacity = max(minimumChromeOpacity, configuredOpacity)
-        return Color(nsColor: ghosttyBackground.withAlphaComponent(chromeOpacity))
-    }
     private var fakeTitlebarTextColor: Color {
         _ = titlebarThemeGeneration
         let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
@@ -1902,7 +1914,17 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .background(fakeTitlebarBackground)
+        .background({
+            // The terminal area has two stacked semi-transparent layers: the Bonsplit
+            // container chrome background plus Ghostty's own Metal-rendered background.
+            // Compute the effective composited opacity so the titlebar matches visually.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+            return TitlebarLayerBackground(
+                backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                opacity: effective
+            )
+        }())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
@@ -2435,23 +2457,31 @@ struct ContentView: View {
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
             // Ghostty theme colors remain authoritative.
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
+            let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
+            let shouldApplyWindowGlassFallback =
+                sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
                 && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable {
+                && !WindowGlassEffect.isAvailable
+            let shouldForceTransparentHosting =
+                shouldApplyWindowGlassFallback || currentThemeBackground.alphaComponent < 0.999
+
+            if shouldForceTransparentHosting {
                 window.isOpaque = false
-                window.backgroundColor = .clear
-                // Configure contentView and all subviews for transparency
+                // Keep the window clear whenever translucency is active. Relying only on
+                // terminal focus-driven updates can leave stale opaque window fills.
+                window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+                // Configure contentView hierarchy for transparency.
                 if let contentView = window.contentView {
-                    contentView.wantsLayer = true
-                    contentView.layer?.backgroundColor = NSColor.clear.cgColor
-                    contentView.layer?.isOpaque = false
-                    // Make SwiftUI hosting view transparent
-                    for subview in contentView.subviews {
-                        subview.wantsLayer = true
-                        subview.layer?.backgroundColor = NSColor.clear.cgColor
-                        subview.layer?.isOpaque = false
-                    }
+                    makeViewHierarchyTransparent(contentView)
                 }
+            } else {
+                // Browser-focused workspaces may not have an active terminal panel to refresh
+                // the NSWindow background. Keep opaque theme changes applied here as well.
+                window.backgroundColor = currentThemeBackground
+                window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
+            }
+
+            if shouldApplyWindowGlassFallback {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
@@ -2517,6 +2547,16 @@ struct ContentView: View {
     private func addTab() {
         tabManager.addTab()
         sidebarSelectionState.selection = .tabs
+    }
+
+    private func makeViewHierarchyTransparent(_ root: NSView) {
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+            view.layer?.isOpaque = false
+            stack.append(contentsOf: view.subviews)
+        }
     }
 
     private func updateWindowGlassTint() {
@@ -9008,18 +9048,20 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
 }
 
 extension NSColor {
-    func hexString() -> String {
+    func hexString(includeAlpha: Bool = false) -> String {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        return String(
-            format: "#%02X%02X%02X",
-            min(255, max(0, Int(red * 255))),
-            min(255, max(0, Int(green * 255))),
-            min(255, max(0, Int(blue * 255)))
-        )
+        let redByte = min(255, max(0, Int(red * 255)))
+        let greenByte = min(255, max(0, Int(green * 255)))
+        let blueByte = min(255, max(0, Int(blue * 255)))
+        if includeAlpha {
+            let alphaByte = min(255, max(0, Int(alpha * 255)))
+            return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
+        }
+        return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
     }
 }
