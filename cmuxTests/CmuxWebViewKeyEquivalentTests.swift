@@ -4868,6 +4868,75 @@ final class ServeWebOutputCollectorTests: XCTestCase {
     }
 }
 
+final class VSCodeServeWebControllerTests: XCTestCase {
+    func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
+        let firstLaunchStarted = expectation(description: "first launch started")
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let secondCompletionCalled = expectation(description: "second generation completion called")
+
+        let launchGate = DispatchSemaphore(value: 0)
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+
+        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                firstLaunchStarted.fulfill()
+                _ = launchGate.wait(timeout: .now() + 1)
+            }
+            return nil
+        }
+
+        let callbackLock = NSLock()
+        var firstGenerationCallbacks: [URL?] = []
+        var secondGenerationCallbacks: [URL?] = []
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            firstGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            firstCompletionCalled.fulfill()
+        }
+
+        wait(for: [firstLaunchStarted], timeout: 1)
+        controller.stop()
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            secondGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            secondCompletionCalled.fulfill()
+        }
+
+        launchGate.signal()
+        wait(for: [firstCompletionCalled, secondCompletionCalled], timeout: 2)
+
+        callbackLock.lock()
+        let firstSnapshot = firstGenerationCallbacks
+        let secondSnapshot = secondGenerationCallbacks
+        callbackLock.unlock()
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        launchCallLock.unlock()
+
+        XCTAssertEqual(firstSnapshot.count, 1)
+        if firstSnapshot.count == 1 {
+            XCTAssertNil(firstSnapshot[0])
+        }
+        XCTAssertEqual(secondSnapshot.count, 1)
+        if secondSnapshot.count == 1 {
+            XCTAssertNil(secondSnapshot[0])
+        }
+        XCTAssertEqual(launchCalls, 2)
+    }
+}
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))

@@ -297,6 +297,7 @@ final class VSCodeServeWebController {
 
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private var serveWebProcess: Process?
     private var launchingProcess: Process?
     private var serveWebURL: URL?
@@ -305,7 +306,17 @@ final class VSCodeServeWebController {
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
 
-    private init() {}
+    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+        self.launchProcessOverride = launchProcessOverride
+    }
+
+#if DEBUG
+    static func makeForTesting(
+        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
+    ) -> VSCodeServeWebController {
+        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+#endif
 
     func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
         queue.async {
@@ -433,6 +444,10 @@ final class VSCodeServeWebController {
         vscodeApplicationURL: URL,
         expectedGeneration: UInt64
     ) -> (process: Process, url: URL)? {
+        if let launchProcessOverride {
+            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+        }
+
         guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
             vscodeApplicationURL: vscodeApplicationURL
         ) else { return nil }
@@ -465,6 +480,8 @@ final class VSCodeServeWebController {
         process.terminationHandler = { [weak self] terminatedProcess in
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
             collector.markProcessExited()
             self?.queue.async {
                 guard let self else { return }
@@ -511,6 +528,14 @@ final class VSCodeServeWebController {
         }
 
         return (process, serveWebURL)
+    }
+
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
     }
 
     private static func randomConnectionToken() -> String {
