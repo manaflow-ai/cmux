@@ -5,6 +5,7 @@ import posthog from "posthog-js";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
+import { GitHubStarsBadge } from "./github-stars";
 import {
   useMobileDrawer,
   MobileDrawerOverlay,
@@ -55,8 +56,11 @@ export function SiteHeader({
             <NavLinks />
           </nav>
 
-          {/* Right: Download + theme + mobile */}
-          <div className="flex flex-1 items-center justify-end gap-1 min-w-0">
+          {/* Right: GitHub stars + Download + theme + mobile */}
+          <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
+            <div className="hidden md:flex items-center">
+              <GitHubStarsBadge />
+            </div>
             <div className="hidden md:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
