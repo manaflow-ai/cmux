@@ -76,14 +76,14 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 2
 
 ### Task 2: ScheduledTask and TaskRun data models
-- [ ] create `Sources/Scheduler/ScheduledTask.swift` with `ScheduledTask` struct (id, name, cronExpression, command, workingDirectory, environment, isEnabled, allowOverlap, useWorktree, onSuccess, onFailure, createdAt)
-- [ ] create `TaskRun` struct (id, taskId, panelId, startedAt, completedAt, exitCode, status)
-- [ ] create `TaskRunStatus` enum (running, succeeded, failed, cancelled)
-- [ ] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
-- [ ] write tests for ScheduledTask Codable round-trip (encode → decode → equal)
-- [ ] write tests for TaskRun Codable round-trip
-- [ ] write tests for TaskRunStatus serialization
-- [ ] run project tests - must pass before task 3
+- [x] create `Sources/Scheduler/ScheduledTask.swift` with `ScheduledTask` struct (id, name, cronExpression, command, workingDirectory, environment, isEnabled, allowOverlap, useWorktree, onSuccess, onFailure, createdAt)
+- [x] create `TaskRun` struct (id, taskId, panelId, startedAt, completedAt, exitCode, status)
+- [x] create `TaskRunStatus` enum (running, succeeded, failed, cancelled)
+- [x] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
+- [x] write tests for ScheduledTask Codable round-trip (encode → decode → equal)
+- [x] write tests for TaskRun Codable round-trip
+- [x] write tests for TaskRunStatus serialization
+- [x] run project tests - must pass before task 3
 
 ### Task 3: Cron expression parser with DST-safe nextFireDate
 - [ ] implement 5-field cron parser in `Sources/Scheduler/ScheduledTask.swift` supporting `*/N`, ranges, lists, wildcards
