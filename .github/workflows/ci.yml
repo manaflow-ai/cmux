@@ -7,6 +7,24 @@ on:
   pull_request:
 
 jobs:
+  workflow-guard-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Validate self-hosted runner guards
+        run: ./tests/test_ci_self_hosted_guard.sh
+
+      - name: Validate create-dmg version pinning
+        run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate unit-test SwiftPM retry guard
+        run: ./tests/test_ci_unit_test_spm_retry.sh
+
+      - name: Validate cmux scheme test configuration
+        run: ./tests/test_ci_scheme_testaction_debug.sh
+
   web-typecheck:
     runs-on: ubuntu-latest
     defaults:
@@ -14,10 +32,10 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -25,14 +43,16 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  ui-tests:
+  tests:
+    # Never run self-hosted jobs for fork pull requests.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
     concurrency:
       group: self-hosted-build
       cancel-in-progress: false
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
 
@@ -79,8 +99,75 @@ jobs:
           # Remove stale build cache to avoid incremental build errors
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          rm -rf "$SOURCE_PACKAGES_DIR"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          run_unit_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" test 2>&1
+          }
+
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
+          set +e
+          OUTPUT=$(run_unit_tests)
+          EXIT_CODE=$?
+          set -e
+
+          # SwiftPM binary artifact resolution can occasionally fail on self-hosted
+          # runners with "Could not resolve package dependencies". Retry once after
+          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
+          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+            echo "SwiftPM package resolution failed, clearing caches and retrying once"
+            rm -rf ~/Library/Caches/org.swift.swiftpm
+            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            set +e
+            OUTPUT=$(run_unit_tests)
+            EXIT_CODE=$?
+            set -e
+          fi
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
+
       - name: Run UI tests
         run: |
           set -euo pipefail
-          # Run directly on the self-hosted macOS runner.
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests/UpdatePillUITests test
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -only-testing:cmuxUITests/UpdatePillUITests test

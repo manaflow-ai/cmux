@@ -85,15 +85,20 @@ final class TerminalPanel: Panel, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
-        initialEnvironmentOverrides: [String: String] = [:]
+        initialEnvironmentOverrides: [String: String] = [:],
+        additionalEnvironment: [String: String] = [:]
     ) {
+        var mergedEnvironment = initialEnvironmentOverrides
+        for (key, value) in additionalEnvironment {
+            mergedEnvironment[key] = value
+        }
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
-            initialEnvironmentOverrides: initialEnvironmentOverrides
+            initialEnvironmentOverrides: mergedEnvironment
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
@@ -139,8 +144,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         // The surface will be cleaned up by its deinit
-        // Just unfocus before closing
+        // Detach from the window portal on real close so stale hosted views
+        // cannot remain above browser panes after split close.
         unfocus()
+        hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
     }
 
     func requestViewReattach() {

@@ -38,6 +38,11 @@ const CATEGORIES: ShortcutCategory[] = [
         combos: [["⌘", "⇧", "W"]],
         description: "Close workspace",
       },
+      {
+        id: "ws-rename",
+        combos: [["⌘", "⇧", "R"]],
+        description: "Rename workspace",
+      },
     ],
   },
   {

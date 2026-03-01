@@ -3,9 +3,9 @@
 _cmux_send() {
     local payload="$1"
     if command -v ncat >/dev/null 2>&1; then
-        printf '%s\n' "$payload" | ncat -U "$CMUX_SOCKET_PATH" --send-only
+        printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
-        printf '%s\n' "$payload" | socat - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
+        printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
     elif command -v nc >/dev/null 2>&1; then
         # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
         #
@@ -23,11 +23,29 @@ _cmux_send() {
     fi
 }
 
+_cmux_restore_scrollback_once() {
+    local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
+    [[ -n "$path" ]] || return 0
+    unset CMUX_RESTORE_SCROLLBACK_FILE
+
+    if [[ -r "$path" ]]; then
+        /bin/cat -- "$path" 2>/dev/null || true
+        /bin/rm -f -- "$path" >/dev/null 2>&1 || true
+    fi
+}
+_cmux_restore_scrollback_once
+
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
 _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
 _CMUX_GIT_LAST_RUN="${_CMUX_GIT_LAST_RUN:-0}"
 _CMUX_GIT_JOB_PID="${_CMUX_GIT_JOB_PID:-}"
+_CMUX_GIT_JOB_STARTED_AT="${_CMUX_GIT_JOB_STARTED_AT:-0}"
+_CMUX_PR_LAST_PWD="${_CMUX_PR_LAST_PWD:-}"
+_CMUX_PR_LAST_RUN="${_CMUX_PR_LAST_RUN:-0}"
+_CMUX_PR_JOB_PID="${_CMUX_PR_JOB_PID:-}"
+_CMUX_PR_JOB_STARTED_AT="${_CMUX_PR_JOB_STARTED_AT:-0}"
+_CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
@@ -67,6 +85,28 @@ _cmux_prompt_command() {
     local now=$SECONDS
     local pwd="$PWD"
 
+    # Post-wake socket writes can occasionally leave a probe process wedged.
+    # If one probe is stale, clear the guard so fresh async probes can resume.
+    if [[ -n "$_CMUX_GIT_JOB_PID" ]]; then
+        if ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+            _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
+        elif (( _CMUX_GIT_JOB_STARTED_AT > 0 )) && (( now - _CMUX_GIT_JOB_STARTED_AT >= _CMUX_ASYNC_JOB_TIMEOUT )); then
+            _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
+        fi
+    fi
+
+    if [[ -n "$_CMUX_PR_JOB_PID" ]]; then
+        if ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+            _CMUX_PR_JOB_PID=""
+            _CMUX_PR_JOB_STARTED_AT=0
+        elif (( _CMUX_PR_JOB_STARTED_AT > 0 )) && (( now - _CMUX_PR_JOB_STARTED_AT >= _CMUX_ASYNC_JOB_TIMEOUT )); then
+            _CMUX_PR_JOB_PID=""
+            _CMUX_PR_JOB_STARTED_AT=0
+        fi
+    fi
+
     # Resolve TTY name once.
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -94,6 +134,7 @@ _cmux_prompt_command() {
         if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]]; then
             kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
             _CMUX_GIT_JOB_PID=""
+            _CMUX_GIT_JOB_STARTED_AT=0
         fi
     fi
 
@@ -107,12 +148,57 @@ _cmux_prompt_command() {
                 local first
                 first=$(git status --porcelain -uno 2>/dev/null | head -1)
                 [[ -n "$first" ]] && dirty_opt="--status=dirty"
-                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID"
+                _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
             else
-                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID"
+                _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
             fi
         } >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
+        _CMUX_GIT_JOB_STARTED_AT=$now
+    fi
+
+    # Pull request metadata (number/state/url):
+    # refresh on cwd change and periodically to avoid stale status.
+    if [[ -n "$_CMUX_PR_JOB_PID" ]] && kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+        if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]]; then
+            kill "$_CMUX_PR_JOB_PID" >/dev/null 2>&1 || true
+            _CMUX_PR_JOB_PID=""
+            _CMUX_PR_JOB_STARTED_AT=0
+        fi
+    fi
+
+    if [[ "$pwd" != "$_CMUX_PR_LAST_PWD" ]] || (( now - _CMUX_PR_LAST_RUN >= 60 )); then
+        if [[ -z "$_CMUX_PR_JOB_PID" ]] || ! kill -0 "$_CMUX_PR_JOB_PID" 2>/dev/null; then
+            _CMUX_PR_LAST_PWD="$pwd"
+            _CMUX_PR_LAST_RUN=$now
+            {
+                local branch pr_tsv number state url status_opt=""
+                branch=$(git branch --show-current 2>/dev/null)
+                if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
+                    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                else
+                    pr_tsv="$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv' 2>/dev/null || true)"
+                    if [[ -z "$pr_tsv" ]]; then
+                        _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                    else
+                        IFS=$'\t' read -r number state url <<< "$pr_tsv"
+                        if [[ -z "$number" || -z "$url" ]]; then
+                            _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        else
+                            case "$state" in
+                                MERGED) status_opt="--state=merged" ;;
+                                OPEN) status_opt="--state=open" ;;
+                                CLOSED) status_opt="--state=closed" ;;
+                                *) status_opt="" ;;
+                            esac
+                            _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        fi
+                    fi
+                fi
+            } >/dev/null 2>&1 &
+            _CMUX_PR_JOB_PID=$!
+            _CMUX_PR_JOB_STARTED_AT=$now
+        fi
     fi
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.
@@ -150,15 +236,17 @@ _cmux_install_prompt_command() {
     fi
 }
 
-# Ensure Resources/bin is at the front of PATH. Shell init (.bashrc/.bash_profile)
-# may prepend other dirs that push our wrapper behind the system claude binary.
+# Ensure Resources/bin is at the front of PATH, and remove the app's
+# Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
+# Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
-        local bin_dir="${GHOSTTY_BIN_DIR%/MacOS}"
-        bin_dir="${bin_dir}/Resources/bin"
+        local gui_dir="${GHOSTTY_BIN_DIR%/}"
+        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
         if [[ -d "$bin_dir" ]]; then
             local new_path=":${PATH}:"
             new_path="${new_path//:${bin_dir}:/:}"
+            new_path="${new_path//:${gui_dir}:/:}"
             new_path="${new_path#:}"
             new_path="${new_path%:}"
             PATH="${bin_dir}:${new_path}"
