@@ -2180,6 +2180,9 @@ struct CMUXCLI {
             }
 
             configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            _ = try client.sendV2(method: "workspace.select", params: [
+                "workspace_id": workspaceId,
+            ])
         } catch {
             _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
             throw error

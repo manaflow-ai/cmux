@@ -128,6 +128,21 @@ def main() -> int:
                         workspace_id = str(row.get("id") or "")
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            selected_workspace_id = ""
+            deadline_select = time.time() + 5.0
+            while time.time() < deadline_select:
+                try:
+                    selected_workspace_id = client.current_workspace()
+                except cmuxError:
+                    time.sleep(0.05)
+                    continue
+                if selected_workspace_id == workspace_id:
+                    break
+                time.sleep(0.05)
+            _must(
+                selected_workspace_id == workspace_id,
+                f"cmux ssh should select the newly created workspace: expected {workspace_id}, got {selected_workspace_id}",
+            )
             ssh_command = str(payload.get("ssh_command") or "")
             _must(bool(ssh_command), f"cmux ssh output missing ssh_command: {payload}")
             _must(
