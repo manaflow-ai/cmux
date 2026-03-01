@@ -47,8 +47,9 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
-# vibeshield
+# vibeshield (local dev only)
+vibeshield
 .env.*
-!.env.vibeshield.example
+.env.vibeshield.example
 .vibeshield-launch.log
 .vibeshield-state/
