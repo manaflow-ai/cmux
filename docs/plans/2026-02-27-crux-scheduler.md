@@ -97,16 +97,16 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 4
 
 ### Task 4: Scheduler persistence with own background queue
-- [ ] create `Sources/Scheduler/SchedulerPersistence.swift` following `SessionPersistence` pattern
-- [ ] implement `defaultSchedulerFileURL()` (bundle ID in filename, app support directory)
-- [ ] create `DispatchQueue(label: "com.cmuxterm.app.schedulerPersistence", qos: .utility)`
-- [ ] implement save with atomic writes and load with error recovery
-- [ ] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
-- [ ] write tests for save empty list creates file
-- [ ] write tests for save/load round-trip
-- [ ] write tests for load missing file returns empty array
-- [ ] write tests for load corrupt JSON returns empty array
-- [ ] run project tests - must pass before task 5
+- [x] create `Sources/Scheduler/SchedulerPersistence.swift` following `SessionPersistence` pattern
+- [x] implement `defaultSchedulerFileURL()` (bundle ID in filename, app support directory)
+- [x] create `DispatchQueue(label: "com.cmuxterm.app.schedulerPersistence", qos: .utility)`
+- [x] implement save with atomic writes and load with error recovery
+- [x] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
+- [x] write tests for save empty list creates file
+- [x] write tests for save/load round-trip
+- [x] write tests for load missing file returns empty array
+- [x] write tests for load corrupt JSON returns empty array
+- [x] run project tests - must pass before task 5
 
 ### Task 5: PoC gate — verify Ghostty surfaceConfig.command
 - [ ] hardcode `surfaceConfig.command` in `GhosttyTerminalView.swift:1861` to `/bin/echo hello world`
