@@ -128,6 +128,7 @@ jobs:
       - name: Clear SPM cache
         run: |
           rm -rf ~/Library/Caches/org.swift.swiftpm
+          mkdir -p ~/Library/Caches/org.swift.swiftpm
           rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
       - name: Configure SwiftPM cache
