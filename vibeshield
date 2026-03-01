@@ -1,0 +1,1961 @@
+#!/usr/bin/env bash
+# vibeshield — hardened devcontainer for AI-assisted development.
+#
+# Usage: ./vibeshield [COMMAND] [OPTIONS]
+#
+# Commands:
+#   (default)   Launch Claude Code in the vibeshield container
+#   init        Re-run scaffolding setup (download/refresh from GitHub)
+#
+# Options:
+#   --mode MODE                    Firewall mode: lockdown|standard|open (default: standard)
+#   --auto-allow                   Sandbox auto-allow: autonomous Bash within sandbox bounds
+#   --dangerously-skip-permissions Run Claude Code with --dangerously-skip-permissions
+#   --shell                        Open a shell in the container (no secrets, no Claude)
+#   --status                       Show container and firewall status, then exit
+#   --ralphex [args...]             Run ralphex (must be last; remaining args passed through)
+#   -h, --help                     Show this help
+set -euo pipefail
+
+# Prevent macOS tar from including ._* AppleDouble resource fork files.
+# Only affects macOS; ignored on Linux. Exported once here instead of
+# prefixing every tar invocation.
+export COPYFILE_DISABLE=1
+
+SCRIPT_VERSION="0.1.0"
+VIBESHIELD_REPO="https://github.com/swannysec/vibeshield"
+WORKSPACE_FOLDER="$(cd "$(dirname "$0")" && pwd)"
+
+# --- Parse arguments ---
+FIREWALL_MODE=""
+SKIP_PERMISSIONS=false
+AUTO_ALLOW=false
+FORCE_INIT=false
+ACTION="launch"  # launch | shell | status | init | ralphex
+RALPHEX_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    init)
+      ACTION="init"
+      shift
+      ;;
+    --mode)
+      FIREWALL_MODE="$2"
+      shift 2
+      ;;
+    --force)
+      FORCE_INIT=true
+      shift
+      ;;
+    --auto-allow)
+      AUTO_ALLOW=true
+      shift
+      ;;
+    --dangerously-skip-permissions)
+      SKIP_PERMISSIONS=true
+      shift
+      ;;
+    --shell)
+      ACTION="shell"
+      shift
+      ;;
+    --status)
+      ACTION="status"
+      shift
+      ;;
+    --ralphex)
+      ACTION="ralphex"
+      shift
+      # Collect remaining args for ralphex
+      RALPHEX_ARGS=("$@")
+      break
+      ;;
+    --version)
+      echo "vibeshield ${SCRIPT_VERSION}"
+      exit 0
+      ;;
+    -h|--help)
+      sed -n '2,17p' "$0" | sed -E 's/^# ?//'
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Validate mode if specified
+if [[ -n "${FIREWALL_MODE}" ]]; then
+  case "${FIREWALL_MODE}" in
+    lockdown|standard|open) ;;
+    *)
+      echo "ERROR: Invalid mode '${FIREWALL_MODE}'. Must be lockdown, standard, or open." >&2
+      exit 1
+      ;;
+  esac
+fi
+
+# Validate flag combinations
+if [[ "${SKIP_PERMISSIONS}" == "true" && "${AUTO_ALLOW}" == "true" ]]; then
+  echo "ERROR: --auto-allow and --dangerously-skip-permissions are mutually exclusive." >&2
+  echo "" >&2
+  echo "  --auto-allow:                   Autonomous Bash within sandbox bounds (recommended)" >&2
+  echo "  --dangerously-skip-permissions: Full autonomy, no sandbox enforcement on prompts" >&2
+  exit 1
+fi
+
+if [[ "${AUTO_ALLOW}" == "true" && "${FIREWALL_MODE}" == "open" ]]; then
+  echo "WARNING: --auto-allow + open mode has reduced protection"
+  echo ""
+  echo "  Open mode disables the iptables firewall. The sandbox network proxy"
+  echo "  will have an empty allowedDomains list (unrestricted). Only container"
+  echo "  isolation and deny rules remain."
+  echo ""
+  read -r -p "Continue? [y/N] " CONFIRM
+  if [[ ! "${CONFIRM}" =~ ^[Yy] ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+fi
+
+# Warn about dangerous combinations
+if [[ "${SKIP_PERMISSIONS}" == "true" && "${FIREWALL_MODE}" == "open" ]]; then
+  echo "WARNING: --dangerously-skip-permissions + open mode = MINIMAL SECURITY"
+  echo ""
+  echo "  This combination disables:"
+  echo "    - Network firewall (open mode = no outbound restrictions)"
+  echo "    - Permission prompts (skip-permissions = all tools allowed)"
+  echo ""
+  echo "  Only the container and VM boundaries remain. The agent can:"
+  echo "    - Send data to any internet destination"
+  echo "    - Execute any command without prompts"
+  echo "    - Access all environment variables including secrets"
+  echo ""
+  echo "  Use this ONLY for trusted, disposable workloads with minimal credentials."
+  echo ""
+  read -r -p "Type 'I understand the risks' to proceed: " CONFIRM
+  if [[ "${CONFIRM}" != "I understand the risks" ]]; then
+    echo "Aborted."
+    exit 1
+  fi
+fi
+
+# ============================================================================
+# Bootstrap: download vibeshield scaffolding from GitHub
+# ============================================================================
+bootstrap() {
+  echo "Initializing vibeshield..."
+
+  # Download repo tarball to temp directory
+  local tmp
+  tmp=$(mktemp -d)
+  trap "rm -rf '${tmp}'" EXIT
+
+  echo "Downloading scaffolding from GitHub..."
+  local downloaded=false
+
+  # Try unauthenticated download first (works for public repos)
+  if curl -fsSL "${VIBESHIELD_REPO}/archive/refs/heads/main.tar.gz" \
+       | tar xz -C "${tmp}" --strip-components=1 2>/dev/null; then
+    downloaded=true
+  fi
+
+  # Fall back to gh CLI for private repos (uses stored GitHub auth)
+  if [[ "${downloaded}" != true ]]; then
+    if command -v gh &>/dev/null; then
+      echo "  Public download failed, trying gh CLI (private repo?)..."
+      if gh api repos/swannysec/vibeshield/tarball/main \
+           | tar xz -C "${tmp}" --strip-components=1 2>/dev/null; then
+        downloaded=true
+      fi
+    fi
+  fi
+
+  if [[ "${downloaded}" != true ]]; then
+    echo "ERROR: Failed to download vibeshield scaffolding from GitHub." >&2
+    echo "  For public repos: check your internet connection." >&2
+    echo "  For private repos: install gh CLI and run 'gh auth login' first." >&2
+    exit 1
+  fi
+
+  local src="${tmp}"
+
+  # --- Copy scaffolding ---
+  RSYNC_EXCLUDES=(
+    --exclude '__pycache__'
+    --exclude '*.pyc'
+    --exclude '.DS_Store'
+  )
+
+  copy_dir() {
+    local rel="$1"
+    local s="${src}/${rel}"
+    local d="${WORKSPACE_FOLDER}/${rel}"
+    [[ -d "${s}" ]] || return 0
+    mkdir -p "${d}"
+    if command -v rsync &>/dev/null; then
+      rsync -a "${RSYNC_EXCLUDES[@]}" "${s}/" "${d}/"
+    else
+      cp -R "${s}/." "${d}/"
+      find "${d}" -name '__pycache__' -type d -exec rm -rf {} + 2>/dev/null || true
+      find "${d}" -name '*.pyc' -delete 2>/dev/null || true
+      find "${d}" -name '.DS_Store' -delete 2>/dev/null || true
+    fi
+  }
+
+  copy_file() {
+    local rel="$1"
+    local s="${src}/${rel}"
+    local d="${WORKSPACE_FOLDER}/${rel}"
+    [[ -f "${s}" ]] || return 0
+    mkdir -p "$(dirname "${d}")"
+    cp "${s}" "${d}"
+  }
+
+  copy_dir  ".devcontainer"
+  copy_dir  ".claude/skills"
+  # Container template used as merge source below, not copied to target projects.
+  copy_file ".env.vibeshield.example"
+  copy_dir  "tests"
+  # Only copy docs that target projects need. vibeshield's own documentation
+  # (threat-model, recipes, research, reviews) is NOT copied — it confuses
+  # agents into thinking it's part of the target project's context.
+  copy_dir  "docs/optional"
+
+  # --- Append .gitignore entries ---
+  local gitignore="${WORKSPACE_FOLDER}/.gitignore"
+  local entries=(
+    "# vibeshield"
+    ".env"
+    ".env.*"
+    "!.env.vibeshield.example"
+    ".vibeshield-launch.log"
+    ".vibeshield-state/"
+  )
+
+  touch "${gitignore}"
+  local needs_newline=false
+  if [[ -s "${gitignore}" ]] && [[ "$(tail -c 1 "${gitignore}" | wc -l)" -eq 0 ]]; then
+    needs_newline=true
+  fi
+
+  local added=false
+  for entry in "${entries[@]}"; do
+    if ! grep -Fxq "${entry}" "${gitignore}"; then
+      if [[ "${needs_newline}" == true ]]; then
+        echo "" >> "${gitignore}"
+        needs_newline=false
+      fi
+      echo "${entry}" >> "${gitignore}"
+      added=true
+    fi
+  done
+  if [[ "${added}" == true ]]; then
+    echo "  Updated .gitignore"
+  fi
+
+  # --- Append vibeshield context to CLAUDE.md (preserves existing content) ---
+  local claudemd="${WORKSPACE_FOLDER}/.claude/CLAUDE.md"
+  mkdir -p "$(dirname "${claudemd}")"
+
+  local section='<!-- vibeshield:start -->
+## Vibeshield Sandbox
+
+This project runs in a hardened devcontainer with network and filesystem restrictions.
+
+- If a network request fails due to a blocked domain, suggest the user add it to `.devcontainer/network/config.local.yaml`. Do not attempt workarounds.
+- Never read `.env`, `.env.vibeshield`, or any `.env.*` file. Reference variable names (e.g., `$ANTHROPIC_API_KEY`), not values.
+<!-- vibeshield:end -->'
+
+  if [[ -f "${claudemd}" ]]; then
+    if grep -q '<!-- vibeshield:start -->' "${claudemd}"; then
+      local t
+      t=$(mktemp)
+      sed '/<!-- vibeshield:start -->/,/<!-- vibeshield:end -->/d' "${claudemd}" > "${t}"
+      mv "${t}" "${claudemd}"
+    fi
+    printf '\n%s\n' "${section}" >> "${claudemd}"
+    echo "  Updated .claude/CLAUDE.md"
+  else
+    printf '%s\n' "${section}" > "${claudemd}"
+    echo "  Created .claude/CLAUDE.md"
+  fi
+
+  # --- Merge or create settings.json ---
+  # The container template (settings.container.json) is the source of truth for
+  # security rules. It has sandbox.enabled=true and all container-specific deny
+  # rules. The host settings.json is more permissive for development.
+  local settings_src="${src}/.claude/settings.container.json"
+  local settings_dst="${WORKSPACE_FOLDER}/.claude/settings.json"
+
+  if [[ ! -f "${settings_src}" ]]; then
+    echo "ERROR: Container settings template not found in downloaded scaffolding." >&2
+    echo "  Expected: .claude/settings.container.json" >&2
+    echo "  This may indicate a corrupted or outdated vibeshield release." >&2
+    exit 1
+  fi
+
+  # settings.container.json exists (guard above ensures this).
+  # Copy or merge it into the target project's settings.json.
+  mkdir -p "$(dirname "${settings_dst}")"
+  if [[ ! -f "${settings_dst}" ]]; then
+      cp "${settings_src}" "${settings_dst}"
+      echo "  Created .claude/settings.json"
+    elif command -v python3 &>/dev/null; then
+      python3 - "${settings_dst}" "${settings_src}" << 'PYEOF'
+import json, sys
+
+dst_path, src_path = sys.argv[1], sys.argv[2]
+
+with open(dst_path) as f:
+    existing = json.load(f)
+with open(src_path) as f:
+    vs = json.load(f)
+
+perms = existing.setdefault("permissions", {})
+
+# Collect all existing rules to avoid duplicates across lists
+all_existing = set()
+for key in ("allow", "deny", "ask"):
+    all_existing.update(perms.get(key, []))
+
+# Add vibeshield rules not already present in any list
+for key in ("allow", "deny", "ask"):
+    existing_list = perms.setdefault(key, [])
+    for rule in vs.get("permissions", {}).get(key, []):
+        if rule not in all_existing:
+            existing_list.append(rule)
+
+# Deny rules must win: if a vibeshield deny rule exists in user's allow or
+# ask list, remove it from those lists. This prevents pre-seeded allow rules
+# from suppressing security deny rules during bootstrap.
+vs_deny = set(vs.get("permissions", {}).get("deny", []))
+for key in ("allow", "ask"):
+    perms[key] = [r for r in perms.get(key, []) if r not in vs_deny]
+
+# Sandbox and managed metadata are vibeshield requirements
+existing["sandbox"] = vs.get("sandbox", existing.get("sandbox", {}))
+existing["vibeshield_managed"] = vs.get("vibeshield_managed", {})
+
+with open(dst_path, "w") as f:
+    json.dump(existing, f, indent=2)
+    f.write("\n")
+PYEOF
+      echo "  Merged security rules into existing .claude/settings.json"
+    else
+      echo "  WARNING: python3 not found — cannot merge settings.json" >&2
+      echo "  Run /vibeshield-init inside the container to merge security rules." >&2
+    fi
+
+  # Clean up trap
+  rm -rf "${tmp}"
+  trap - EXIT
+
+  echo ""
+  echo "vibeshield initialized."
+  echo ""
+  echo "Next steps:"
+  echo "  1. cp .env.vibeshield.example .env.vibeshield"
+  echo "  2. Edit .env.vibeshield with your API keys"
+  echo "  3. ./vibeshield"
+  echo ""
+  echo "Options:"
+  echo "  ./vibeshield --mode lockdown    # Strict: Claude API + GitHub only"
+  echo "  ./vibeshield --status           # Check container & firewall state"
+  echo "  ./vibeshield --help             # All options"
+}
+
+# ============================================================================
+# Auto-bootstrap: if no .devcontainer, set up first
+# ============================================================================
+if [[ "${ACTION}" == "init" ]]; then
+  if [[ -d "${WORKSPACE_FOLDER}/.devcontainer" && "${FORCE_INIT}" != "true" ]]; then
+    echo "WARNING: .devcontainer/ already exists in this directory." >&2
+    echo "  Re-running init will overwrite your devcontainer configuration" >&2
+    echo "  with the latest from GitHub (main branch), reverting any local changes." >&2
+    echo "" >&2
+    echo "  To proceed anyway: ./vibeshield init --force" >&2
+    exit 1
+  fi
+  bootstrap
+  exit 0
+fi
+
+if [[ ! -d "${WORKSPACE_FOLDER}/.devcontainer" ]]; then
+  if [[ "${ACTION}" == "status" ]]; then
+    echo "vibeshield is not initialized in this directory."
+    echo "Run: ./vibeshield init"
+    exit 1
+  fi
+  echo "No .devcontainer found — running first-time setup."
+  echo ""
+  bootstrap
+  exit 0
+fi
+
+# ============================================================================
+# Launch: everything below requires an initialized project
+# ============================================================================
+
+# --- Helper: find running container ---
+find_container() {
+  docker ps -q --filter "label=devcontainer.local_folder=${WORKSPACE_FOLDER}" 2>/dev/null || true
+}
+
+# --- Status action ---
+if [[ "${ACTION}" == "status" ]]; then
+  CONTAINER_ID=$(find_container)
+  if [[ -z "${CONTAINER_ID}" ]]; then
+    echo "Container:  not running"
+    exit 0
+  fi
+  echo "Container:  running (${CONTAINER_ID:0:12})"
+
+  # Firewall mode
+  FW_MODE=$(docker exec "${CONTAINER_ID}" cat /opt/vibeshield/state/current-mode 2>/dev/null || echo "unknown")
+  echo "Mode:       ${FW_MODE}"
+
+  # Rule count
+  RULE_COUNT=$(docker exec "${CONTAINER_ID}" sudo iptables -L OUTPUT -n 2>/dev/null | wc -l || echo "0")
+  echo "FW rules:   ${RULE_COUNT}"
+
+  # tmux session
+  if docker exec -u vscode "${CONTAINER_ID}" tmux has-session -t claude 2>/dev/null; then
+    echo "Session:    claude (active)"
+  else
+    echo "Session:    none"
+  fi
+
+  # Connectivity
+  HTTP_CODE=$(docker exec "${CONTAINER_ID}" curl -s --max-time 3 -o /dev/null -w "%{http_code}" https://api.anthropic.com 2>/dev/null || echo "000")
+  if [[ "${HTTP_CODE}" != "000" ]]; then
+    echo "API:        reachable (HTTP ${HTTP_CODE})"
+  else
+    echo "API:        unreachable"
+  fi
+
+  # Proxy status (daemon runs inside container)
+  if docker exec "${CONTAINER_ID}" pgrep -x claw-wrap &>/dev/null; then
+    local _proxy_user
+    _proxy_user=$(docker exec "${CONTAINER_ID}" ps -o user= -p "$(docker exec "${CONTAINER_ID}" pgrep -x claw-wrap | head -1)" 2>/dev/null || echo "unknown")
+    echo "Proxy:      claw-wrap running (in-container, user: ${_proxy_user})"
+    # Check CLI socket
+    docker exec "${CONTAINER_ID}" test -S /run/openclaw/secrets.sock 2>/dev/null \
+      && echo "  CLI:      secrets.sock OK" || echo "  CLI:      secrets.sock MISSING"
+    # Check HTTP proxy
+    docker exec "${CONTAINER_ID}" curl -s --max-time 1 http://127.0.0.1:18080 &>/dev/null \
+      && echo "  HTTP:     127.0.0.1:18080 OK" || echo "  HTTP:     127.0.0.1:18080 unreachable"
+  else
+    echo "Proxy:      not running (env-direct mode or daemon stopped)"
+  fi
+
+  exit 0
+fi
+
+# --- First-run setup: create .env.vibeshield from example ---
+ENV_VIBESHIELD="${WORKSPACE_FOLDER}/.env.vibeshield"
+ENV_EXAMPLE="${WORKSPACE_FOLDER}/.env.vibeshield.example"
+
+if [[ ! -f "${ENV_VIBESHIELD}" && -f "${ENV_EXAMPLE}" ]]; then
+  echo ""
+  echo "No .env.vibeshield found. This file configures secrets for the container."
+  echo ""
+  read -r -p "Create from example template? [Y/n] " CREATE_ENV
+  CREATE_ENV="${CREATE_ENV:-Y}"
+  if [[ "${CREATE_ENV}" =~ ^[Yy] ]]; then
+    cp "${ENV_EXAMPLE}" "${ENV_VIBESHIELD}"
+    echo "Created .env.vibeshield — edit it with your op:// references or API keys."
+    echo ""
+    # Check if they have an editor preference
+    EDITOR_CMD="${EDITOR:-${VISUAL:-}}"
+    if [[ -n "${EDITOR_CMD}" ]]; then
+      read -r -p "Open in ${EDITOR_CMD} now? [Y/n] " OPEN_EDITOR
+      OPEN_EDITOR="${OPEN_EDITOR:-Y}"
+      if [[ "${OPEN_EDITOR}" =~ ^[Yy] ]]; then
+        "${EDITOR_CMD}" "${ENV_VIBESHIELD}"
+      fi
+    else
+      echo "Edit .env.vibeshield before continuing, then re-run ./vibeshield"
+      exit 0
+    fi
+  fi
+fi
+
+# --- claw-wrap secrets proxy constants ---
+CLAW_WRAP_VERSION="0.4.1"
+CLAW_WRAP_CHECKSUMS="${WORKSPACE_FOLDER}/.devcontainer/claw-wrap-checksums.sha256"
+PROXY_DUMMY_KEY="sk-ant-api03-proxy-managed-credential-do-not-use-directly-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+# --- Secrets mode detection ---
+# Determines which secrets management mode to use. claw-wrap runs INSIDE the
+# container (ADR-012), so there is no host binary requirement. Proxy mode is
+# activated when credentials are available to resolve on the host; the
+# container-side setup (claw_wrap_container_setup) handles the daemon.
+detect_secrets_mode() {
+  # Determine which secrets management mode to use:
+  #   op-proxy  — 1Password + claw-wrap (encouraged)
+  #   env-proxy — env vars + claw-wrap
+  #   env-direct — current behavior, no proxy (default fallback)
+  SECRETS_MODE="env-direct"
+
+  if [[ -f "${ENV_VIBESHIELD}" ]]; then
+    if grep -q 'op://' "${ENV_VIBESHIELD}" 2>/dev/null; then
+      SECRETS_MODE="op-proxy"
+    else
+      SECRETS_MODE="env-proxy"
+    fi
+  elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    # Require at least ANTHROPIC_API_KEY for proxy mode — it's the critical credential.
+    # GITHUB_TOKEN alone is insufficient (API calls would fail with dummy key).
+    SECRETS_MODE="env-proxy"
+  fi
+
+  export SECRETS_MODE
+}
+
+# --- Host-side credential resolution (Mitigation B) ---
+# Resolves all credentials on the HOST so the OP token never enters the container.
+# For op:// refs: calls `op read` using OP_SERVICE_ACCOUNT_TOKEN on host.
+# For plain values: exports directly as VS_CRED_KEY.
+# Fallback (no .env.vibeshield): exports host env vars as VS_CRED_*.
+# Returns 1 on failure (caller should fall back to env-direct mode).
+claw_wrap_resolve_credentials() {
+  # Determine 1Password token (standard or vibeshield-prefixed)
+  local _op_token="${OP_SERVICE_ACCOUNT_TOKEN:-${OP_VIBESHIELD_SERVICE_ACCOUNT_TOKEN:-}}"
+  local HAS_OP=false
+  if command -v op &>/dev/null; then
+    HAS_OP=true
+  fi
+
+  # 1Password auth strategy:
+  #   1. Service account token (headless/CI — OP_SERVICE_ACCOUNT_TOKEN set)
+  #   2. Interactive session (biometric/Touch ID — default on macOS)
+  # Service account token takes precedence when set. Otherwise, op CLI
+  # uses the user's existing session or prompts for biometric auth.
+  local OP_ENV=()
+  if [[ "${HAS_OP}" == true && -n "${_op_token}" ]]; then
+    OP_ENV=(env "OP_SERVICE_ACCOUNT_TOKEN=${_op_token}")
+    echo "  1Password: using service account token"
+  elif [[ "${HAS_OP}" == true ]]; then
+    echo "  1Password: using interactive session (Touch ID may prompt)"
+  fi
+
+  if [[ -f "${ENV_VIBESHIELD}" ]]; then
+    echo "Resolving credentials on host..."
+    while IFS='=' read -r key value; do
+      [[ -z "${key}" || "${key}" =~ ^[[:space:]]*# ]] && continue
+      # Trim whitespace without xargs (xargs corrupts backslashes/quotes in secrets — SEC-005)
+      key="${key#"${key%%[![:space:]]*}"}" && key="${key%"${key##*[![:space:]]}"}"
+      value="${value#"${value%%[![:space:]]*}"}" && value="${value%"${value##*[![:space:]]}"}"
+      [[ -z "${key}" || -z "${value}" ]] && continue
+
+      # Validate key format (uppercase letters, digits, underscores only)
+      if [[ ! "${key}" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+        echo "  WARNING: Invalid key in .env.vibeshield: '${key}' — skipping"
+        continue
+      fi
+
+      if [[ "${value}" == op://* ]]; then
+        if [[ "${HAS_OP}" != true ]]; then
+          echo "  WARNING: ${key} uses op:// but 1Password CLI is not installed — skipping"
+          continue
+        fi
+        local resolved
+        # stderr is NOT suppressed — allows biometric/Touch ID prompt on macOS.
+        # Service account token (if set) is passed via OP_ENV prefix.
+        resolved=$(${OP_ENV[@]+"${OP_ENV[@]}"} op read "${value}") || {
+          echo "  WARNING: Failed to resolve ${key} (${value})"
+          continue
+        }
+        export "VS_CRED_${key}=${resolved}"
+        echo "  Resolved ${key} via 1Password"
+      else
+        export "VS_CRED_${key}=${value}"
+        echo "  Loaded ${key}"
+      fi
+    done < "${ENV_VIBESHIELD}"
+  else
+    # No .env.vibeshield — use host env vars if available
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+      export VS_CRED_ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}"
+      echo "  Exported ANTHROPIC_API_KEY from host env"
+    fi
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+      export VS_CRED_GITHUB_TOKEN="${GITHUB_TOKEN}"
+      echo "  Exported GITHUB_TOKEN from host env"
+    fi
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+      export VS_CRED_OPENROUTER_API_KEY="${OPENROUTER_API_KEY}"
+      echo "  Exported OPENROUTER_API_KEY from host env"
+    fi
+    if [[ -n "${CODEX_API_KEY:-}" ]]; then
+      export VS_CRED_CODEX_API_KEY="${CODEX_API_KEY}"
+      echo "  Exported CODEX_API_KEY from host env"
+    fi
+  fi
+
+  # Verify at least ANTHROPIC_API_KEY was resolved
+  if [[ -z "${VS_CRED_ANTHROPIC_API_KEY:-}" ]]; then
+    echo "  ERROR: No ANTHROPIC_API_KEY resolved for proxy mode"
+    return 1
+  fi
+}
+
+# --- claw-wrap config generation (in-container) ---
+# Generate claw-wrap YAML config inside the running container via docker exec.
+# All credentials are already resolved as VS_CRED_* env vars by
+# claw_wrap_resolve_credentials() — no op:// resolution happens here.
+# Writes config to /run/openclaw/config.yaml (container-side paths).
+claw_wrap_config_generate_in_container() {
+  local config_dir="/run/openclaw"
+
+  # Build credential entries from VS_CRED_* env vars
+  local cred_yaml=""
+  for varname in $(compgen -v VS_CRED_); do
+    local key="${varname#VS_CRED_}"
+    local cred_name
+    case "${key}" in
+      ANTHROPIC_API_KEY)  cred_name="anthropic-key" ;;
+      GITHUB_TOKEN)       cred_name="github-token" ;;
+      OPENROUTER_API_KEY) cred_name="openrouter-key" ;;
+      *)                  cred_name=$(echo "${key}" | tr '[:upper:]' '[:lower:]' | tr '_' '-') ;;
+    esac
+    cred_yaml+="  ${cred_name}:"$'\n'
+    cred_yaml+="    source: 'env:${varname}'"$'\n'
+  done
+
+  # Write config via docker exec heredoc (chowned to DAEMON_USER in step 6)
+  docker exec -u root "${CONTAINER_ID}" bash -c "umask 0077 && cat > ${config_dir}/config.yaml << 'YAML_HEAD'
+proxy:
+  hmac_secret_file: ${config_dir}/auth
+  timeout: 300s
+  replay_cache_ttl: 30s
+  credential_cache_ttl: 1m
+
+credentials:
+${cred_yaml}YAML_HEAD
+chmod 0600 ${config_dir}/config.yaml"
+
+  # Append tool configurations (static template from spec).
+  # blocked_args: block irreversible/destructive operations and credential
+  # access only. Read-only operations are allowed — see spec recommendations
+  # #9, #10, #12 in docs/secrets-proxy-research.md.
+  docker exec -u root "${CONTAINER_ID}" bash -c 'cat >> /run/openclaw/config.yaml << '"'"'YAML_TOOLS'"'"'
+
+tools:
+  gh:
+    binary: /usr/bin/gh
+    env:
+      GH_TOKEN: github-token
+    blocked_args:
+      - pattern: "repo\\s+delete"
+        match: command
+        message: "Repository deletion is blocked"
+      - pattern: "gist"
+        match: command
+        message: "Gist operations are blocked"
+      - pattern: "secret\\s+(set|delete)"
+        match: command
+        message: "Secret management is blocked"
+      - pattern: "ssh-key"
+        match: command
+        message: "SSH key management is blocked"
+      - pattern: "auth\\s+(login|token)"
+        match: command
+        message: "Auth credential operations are blocked"
+      - pattern: "codespace"
+        match: command
+        message: "Codespace operations are blocked"
+      - pattern: "gpg-key"
+        match: command
+        message: "GPG key management is blocked"
+    redact_output:
+      - pattern: "gh[pousr]_[A-Za-z0-9]{36}"
+        replace: "[REDACTED]"
+      - pattern: "github_pat_[A-Za-z0-9_]{20,}"
+        replace: "[REDACTED]"
+      - pattern: "sk-ant-api[a-zA-Z0-9_-]{20,}"
+        replace: "[REDACTED]"
+      - pattern: "sk-or-[a-zA-Z0-9_-]{20,}"
+        replace: "[REDACTED]"
+      - pattern: "(?i)(authorization:\\s*bearer\\s+)[^\\s]{20,}"
+        replace: "${1}[REDACTED]"
+
+  get-github-token:
+    binary: /usr/bin/printenv
+    env:
+      GH_TOKEN: github-token
+    blocked_args: []
+
+  curl:
+    binary: /usr/bin/curl
+    use_proxy: true
+    redact_output:
+      - pattern: "gh[pousr]_[A-Za-z0-9]{36}"
+        replace: "[REDACTED]"
+      - pattern: "sk-ant-api[a-zA-Z0-9_-]{20,}"
+        replace: "[REDACTED]"
+      - pattern: "sk-or-[a-zA-Z0-9_-]{20,}"
+        replace: "[REDACTED]"
+
+http_proxy:
+  enabled: true
+  listen: 127.0.0.1:18080
+  routes:
+    - host: api.anthropic.com
+      inject:
+        header: x-api-key
+        value: "{{anthropic-key}}"
+    - host: "*.anthropic.com"
+      inject:
+        header: x-api-key
+        value: "{{anthropic-key}}"
+    - host: api.github.com
+      inject:
+        header: Authorization
+        value: "Bearer {{github-token}}"
+      deny:
+        - "DELETE /**"
+        - "PUT /repos/*/collaborators/*"
+        - "POST /gists"
+        - "PUT /repos/*/actions/secrets/*"
+YAML_TOOLS
+'
+
+  # Conditionally append OpenRouter route (only when credential is available).
+  # claw-wrap validates that all referenced credentials exist — including an
+  # unreferenced {{openrouter-key}} causes daemon startup failure.
+  if [[ -n "${VS_CRED_OPENROUTER_API_KEY:-}" ]]; then
+    docker exec -u root "${CONTAINER_ID}" bash -c 'cat >> /run/openclaw/config.yaml << '"'"'YAML_OPENROUTER'"'"'
+    - host: openrouter.ai
+      inject:
+        header: Authorization
+        value: "Bearer {{openrouter-key}}"
+      deny:
+        - "GET /api/v1/auth/**"
+YAML_OPENROUTER
+'
+  fi
+
+  echo "  Config written to /run/openclaw/config.yaml" >> "${LAUNCH_LOG:-/dev/null}"
+}
+
+
+# --- claw-wrap container-side setup ---
+# Configure the container to use claw-wrap for CLI and HTTP proxy credential
+# injection. Installs the linux binary, creates symlinks, locks down real
+# binaries, starts daemon inside container, installs MITM CA, and creates
+# the git-askpass helper. Daemon runs INSIDE the container — no socat relay.
+# Called after container is running, between config sync and firewall setup.
+# Requires: VS_CRED_* env vars set by claw_wrap_resolve_credentials().
+claw_wrap_container_setup() {
+  echo "Configuring claw-wrap proxy in container..."
+
+  # 0. Detect stale bind mount from pre-upgrade container
+  if docker exec "${CONTAINER_ID}" mountpoint -q /run/openclaw 2>/dev/null; then
+    echo "  ERROR: /run/openclaw is a stale bind mount from a previous container version."
+    echo "  The container must be rebuilt after this devcontainer.json change."
+    echo "  Run: docker rm -f \$(docker ps -q --filter label=devcontainer.local_folder=${WORKSPACE_FOLDER})"
+    echo "  Then re-run ./vibeshield"
+    return 1
+  fi
+
+  # 1. Download and install claw-wrap linux binary into container
+  local container_arch
+  container_arch=$(docker exec "${CONTAINER_ID}" dpkg --print-architecture 2>/dev/null || echo "amd64")
+  local linux_tarball="claw-wrap_${CLAW_WRAP_VERSION}_linux_${container_arch}.tar.gz"
+  local linux_url="https://github.com/dedene/claw-wrap/releases/download/v${CLAW_WRAP_VERSION}/${linux_tarball}"
+  local tmp_binary
+  tmp_binary=$(mktemp)
+
+  # Download linux binary and verify checksum (same rigor as host install)
+  if curl -fsSL "${linux_url}" -o "${tmp_binary}.tar.gz" 2>/dev/null; then
+    # Verify checksum if available
+    if [[ -f "${CLAW_WRAP_CHECKSUMS}" ]]; then
+      local expected_hash
+      expected_hash=$(grep "${linux_tarball}" "${CLAW_WRAP_CHECKSUMS}" | awk '{print $1}')
+      if [[ -n "${expected_hash}" && "${expected_hash}" != PLACEHOLDER* ]]; then
+        local actual_hash
+        actual_hash=$(shasum -a 256 "${tmp_binary}.tar.gz" | awk '{print $1}')
+        if [[ "${actual_hash}" != "${expected_hash}" ]]; then
+          echo "  WARNING: Checksum mismatch for linux binary — skipping container install"
+          rm -f "${tmp_binary}.tar.gz"
+          rm -f "${tmp_binary}"
+          return 1
+        fi
+      fi
+    fi
+    tar -xzf "${tmp_binary}.tar.gz" -C "$(dirname "${tmp_binary}")" claw-wrap 2>/dev/null
+    if [[ -f "$(dirname "${tmp_binary}")/claw-wrap" ]]; then
+      mv "$(dirname "${tmp_binary}")/claw-wrap" "${tmp_binary}"
+    fi
+    rm -f "${tmp_binary}.tar.gz"
+  fi
+
+  if [[ -s "${tmp_binary}" ]]; then
+    docker cp "${tmp_binary}" "${CONTAINER_ID}:/usr/local/bin/claw-wrap"
+    docker exec "${CONTAINER_ID}" chmod 755 /usr/local/bin/claw-wrap
+    echo "  Installed claw-wrap linux binary"
+  else
+    echo "  WARNING: Could not obtain claw-wrap linux binary — CLI wrapping disabled"
+    rm -f "${tmp_binary}"
+    return 1
+  fi
+  rm -f "${tmp_binary}"
+
+  # 2. Create symlinks and git wrapper
+  # gh: symlink to claw-wrap (API-only tool, no volume writes)
+  docker exec "${CONTAINER_ID}" ln -sf /usr/local/bin/claw-wrap /usr/local/bin/gh
+  # get-github-token: symlink to claw-wrap (askpass token retrieval via daemon socket)
+  docker exec "${CONTAINER_ID}" ln -sf /usr/local/bin/claw-wrap /usr/local/bin/get-github-token
+  # git: wrapper script (runs as vscode UID 1000 for Docker volume writes).
+  # Filters blocked args (credential ops, config manipulation) before exec'ing /usr/bin/git.
+  # Auth via GIT_ASKPASS → get-github-token → daemon socket → credential injection.
+  # Note: setgid doesn't work on Linux shell scripts — /usr/bin/git is 0755 instead,
+  # with deny rule Bash(/usr/bin/git*) blocking direct absolute-path invocation.
+  docker exec "${CONTAINER_ID}" bash -c 'cat > /usr/local/bin/git << "GITWRAP"
+#!/bin/sh
+# vibeshield git wrapper — argument filtering + credential isolation
+# Runs as vscode (UID 1000) for Docker volume writes.
+# Auth: GIT_ASKPASS calls get-github-token via claw-wrap daemon socket.
+if [ "$1" = "-c" ]; then
+  case "$2" in
+    credential.*|core.askPass*|core.pager*|core.gitProxy*|core.fsmonitor*|core.editor*|http.proxy*|http.sslVerify*|url.*|alias.*|diff.external*|filter.*)
+      echo "Error: git -c $2 is blocked by vibeshield" >&2; exit 1 ;;
+  esac
+fi
+case "$*" in
+  *credential*) echo "Error: git credential operations are blocked by vibeshield" >&2; exit 1 ;;
+  *config*core.askPass*) echo "Error: git askPass configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*core.sshCommand*) echo "Error: git sshCommand configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*core.pager*) echo "Error: git pager configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*core.gitProxy*) echo "Error: git gitProxy configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*core.fsmonitor*) echo "Error: git fsmonitor configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*http.proxy*) echo "Error: git proxy configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*http.sslVerify*) echo "Error: git sslVerify configuration is blocked by vibeshield" >&2; exit 1 ;;
+  *config*url.*) echo "Error: git URL rewriting is blocked by vibeshield" >&2; exit 1 ;;
+  *config*alias.*) echo "Error: git alias creation is blocked by vibeshield" >&2; exit 1 ;;
+  *config*diff.external*) echo "Error: git diff.external is blocked by vibeshield" >&2; exit 1 ;;
+  *config*filter.*) echo "Error: git filter configuration is blocked by vibeshield" >&2; exit 1 ;;
+esac
+exec /usr/bin/git "$@"
+GITWRAP
+chmod 755 /usr/local/bin/git'
+  echo "  Created: gh symlink, get-github-token symlink, git wrapper"
+
+  # 3. Lock down real binaries — daemon (claw-wrap group) can execute, agent (vscode) cannot.
+  # 0750 root:claw-wrap: owner=root(rwx), group=claw-wrap(r-x), other=none.
+  # This must run AFTER step 4 (user creation) to reference the claw-wrap group.
+  # Deferred to after user creation below.
+
+  # 4. Ensure claw-wrap system user exists (SA15 — least-privilege daemon).
+  # Also created in devcontainer.json onCreateCommand for structural test coverage.
+  # This is the authoritative creation point; devcontainer.json is the eager fallback.
+  # User creation is idempotent (|| true). Group membership is always refreshed
+  # so it works even when the user already existed from a prior run.
+  # Two groups with distinct purposes (security review: single group is a bypass):
+  #   claw-wrap      — daemon primary group. Owns socket, config, auth, logs.
+  #                    vscode added for socket IPC access.
+  #   claw-wrap-exec — binary execution. Daemon only, NOT vscode.
+  #                    Gates /usr/bin/gh and /usr/bin/git access.
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    'groupadd claw-wrap 2>/dev/null || true
+     groupadd claw-wrap-exec 2>/dev/null || true
+     useradd -r -g claw-wrap -s /usr/sbin/nologin -M claw-wrap 2>/dev/null || true
+     usermod -a -G claw-wrap-exec claw-wrap 2>/dev/null || true
+     usermod -a -G claw-wrap vscode 2>/dev/null || true'
+
+  # Determine daemon user — fall back to root if user creation failed
+  local DAEMON_USER="claw-wrap"
+  if ! docker exec "${CONTAINER_ID}" id claw-wrap &>/dev/null; then
+    echo "  ERROR: Failed to create claw-wrap user — proxy mode requires least-privilege daemon"
+    echo "  Falling back to env-direct mode (credentials in container environment)"
+    return 1
+  else
+    echo "  Daemon user: claw-wrap (uid=$(docker exec "${CONTAINER_ID}" id -u claw-wrap 2>/dev/null))"
+  fi
+
+  # 5. Lock down real binaries.
+  # /usr/bin/gh: 0750 root:claw-wrap-exec (agent must use claw-wrap symlink)
+  # /usr/bin/git: 0755 (world-executable — setgid doesn't work on Linux shell scripts,
+  #   so the wrapper can't use group access. Binary lockdown replaced by:
+  #   deny rule Bash(/usr/bin/git*) blocks absolute-path invocation,
+  #   wrapper at /usr/local/bin/git provides argument filtering,
+  #   firewall + sandbox are the hard boundaries)
+  # vscode is in claw-wrap group (socket IPC) but NOT in claw-wrap-exec (binary execution).
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "chgrp claw-wrap-exec /usr/bin/gh 2>/dev/null; chmod 750 /usr/bin/gh 2>/dev/null; chmod 755 /usr/bin/git 2>/dev/null" || true
+  echo "  Locked /usr/bin/gh (root:claw-wrap-exec 750); /usr/bin/git 755 (wrapper + deny rules)"
+
+  # 6. Create /run/openclaw directory (0751 — world-traversable, not listable)
+  # Socket permissions follow standard service socket pattern (like MySQL/PostgreSQL)
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "mkdir -p /run/openclaw && chown ${DAEMON_USER}:${DAEMON_USER} /run/openclaw && chmod 0751 /run/openclaw"
+  # Pre-create /etc/openclaw for MITM CA storage — daemon needs to write CA cert here
+  # but can't create /etc/ subdirectories as non-root
+  # /etc/openclaw stays root-owned; only ca/ subdirectory is daemon-writable (CA-012)
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "mkdir -p /etc/openclaw/ca && chown root:root /etc/openclaw && chown ${DAEMON_USER}:${DAEMON_USER} /etc/openclaw/ca"
+
+  # 7. Generate config inside container, then transfer ownership to daemon user.
+  # Config is written as root (claw_wrap_config_generate_in_container uses docker exec -u root),
+  # then immediately chowned so the daemon can read it at startup.
+  claw_wrap_config_generate_in_container
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "chown ${DAEMON_USER}:${DAEMON_USER} /run/openclaw/config.yaml 2>/dev/null || true
+     if [[ -f /run/openclaw/auth ]]; then chown ${DAEMON_USER}:${DAEMON_USER} /run/openclaw/auth; fi"
+
+  # 8. Verify credentials exist before proceeding
+  if ! compgen -v VS_CRED_ > /dev/null 2>&1; then
+    echo "  ERROR: No VS_CRED_* vars resolved — cannot start daemon"
+    return 1
+  fi
+
+  # 9. Write credential env file for claw-wrap daemon.
+  # claw-wrap's env: source reads from /run/openclaw/env (systemd-style credential file),
+  # NOT from process environment variables. Write VS_CRED_* as key=value pairs.
+  # Newlines in values would break the key=value format — reject them (CA-001).
+  local env_content=""
+  for varname in $(compgen -v VS_CRED_); do
+    local val="${!varname}"
+    if [[ "${val}" == *$'\n'* ]]; then
+      echo "  WARNING: ${varname} contains newlines — skipping (would break env file format)"
+      continue
+    fi
+    env_content+="${varname}=${val}"$'\n'
+  done
+  printf '%s' "${env_content}" | docker exec -i -u root "${CONTAINER_ID}" \
+    bash -c "umask 0077 && cat > /run/openclaw/env && chown ${DAEMON_USER}:${DAEMON_USER} /run/openclaw/env && chmod 0600 /run/openclaw/env"
+
+  # 10. Create log directory, home dir, and start daemon as least-privilege user.
+  # docker exec -d detaches the session. exec replaces bash with the daemon
+  # so there is no orphaned shell parent. No nohup or & needed.
+  # Log directory: 0700 daemon-user-only (SA8 — agent must not read/tamper daemon logs)
+  # Home dir: needed for git config. safe.directory=* allows git to operate on any workspace.
+  # PATH: /usr/bin first so daemon's forked children (gh→git) resolve to real binaries,
+  # not claw-wrap symlinks — prevents recursive proxy calls (Option C from security review).
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "mkdir -p /var/log/vibeshield && chown ${DAEMON_USER}:${DAEMON_USER} /var/log/vibeshield && chmod 0700 /var/log/vibeshield
+     mkdir -p /home/${DAEMON_USER} && chown ${DAEMON_USER}:${DAEMON_USER} /home/${DAEMON_USER}
+     /usr/bin/git config --system --add safe.directory '*'"
+  docker exec -u "${DAEMON_USER}" -d \
+    "${CONTAINER_ID}" \
+    bash -c 'umask 0077 && export PATH=/usr/bin:/usr/sbin:/usr/local/bin && exec claw-wrap daemon --config /run/openclaw/config.yaml --socket /run/openclaw/secrets.sock --uid 1000 >/var/log/vibeshield/claw-wrap.log 2>&1'
+
+  # 11. Wait for daemon readiness — TWO checks (socket + HTTP proxy)
+  echo "  Waiting for daemon readiness..."
+
+  # Check 1: CLI socket (with daemon liveness check — CA-009)
+  local wait_count=0
+  while [[ ${wait_count} -lt 50 ]]; do
+    if docker exec "${CONTAINER_ID}" test -S /run/openclaw/secrets.sock 2>/dev/null; then
+      break
+    fi
+    # Fail fast if daemon already exited
+    if ! docker exec "${CONTAINER_ID}" pgrep -x claw-wrap &>/dev/null; then
+      echo "  ERROR: claw-wrap daemon exited during startup"
+      echo "  Check logs: docker exec ${CONTAINER_ID} cat /var/log/vibeshield/claw-wrap.log"
+      return 1
+    fi
+    sleep 0.1
+    wait_count=$((wait_count + 1))
+  done
+  if docker exec "${CONTAINER_ID}" test -S /run/openclaw/secrets.sock 2>/dev/null; then
+    echo "  CLI socket: /run/openclaw/secrets.sock OK"
+    # Fix socket + directory permissions for cross-user access (daemon umask may be restrictive)
+    # Directory: 0751 (world-traversable, not listable). Socket: 0660 (group read/write for vscode).
+    docker exec -u root "${CONTAINER_ID}" bash -c \
+      "chmod 0751 /run/openclaw && chmod 0660 /run/openclaw/secrets.sock"
+  else
+    echo "  WARNING: secrets.sock not detected after 5s"
+    echo "  Check logs: docker exec ${CONTAINER_ID} cat /var/log/vibeshield/claw-wrap.log"
+  fi
+
+  # Check 2: HTTP proxy
+  wait_count=0
+  while [[ ${wait_count} -lt 50 ]]; do
+    if docker exec "${CONTAINER_ID}" curl -s --max-time 1 http://127.0.0.1:18080 &>/dev/null; then
+      break
+    fi
+    sleep 0.1
+    wait_count=$((wait_count + 1))
+  done
+  if docker exec "${CONTAINER_ID}" curl -s --max-time 1 http://127.0.0.1:18080 &>/dev/null; then
+    echo "  HTTP proxy: 127.0.0.1:18080 OK"
+  else
+    echo "  WARNING: HTTP proxy not responding after 5s"
+    echo "  Check logs: docker exec ${CONTAINER_ID} cat /var/log/vibeshield/claw-wrap.log"
+  fi
+
+  # 12. Lock permissions and make proxy-auth-token group-readable.
+  # - auth: 0640 (daemon + CLI client via group read for HMAC signing)
+  # - proxy-auth-token: 0640 (needed to construct HTTPS_PROXY URL with auth)
+  # - config: 0600 (daemon-only, no client access needed)
+  docker exec -u root "${CONTAINER_ID}" bash -c \
+    "if [[ -f /run/openclaw/auth ]]; then chmod 640 /run/openclaw/auth; fi
+     if [[ -f /run/openclaw/proxy-auth-token ]]; then chmod 640 /run/openclaw/proxy-auth-token; fi
+     chmod 600 /run/openclaw/config.yaml"
+  echo "  HMAC secret + config locked: 0600/0640 ${DAEMON_USER}:${DAEMON_USER}"
+
+  # 13. Read proxy-auth-token for HTTPS_PROXY URL construction.
+  # The token is generated by the daemon — we read it after startup so the
+  # caller can embed it in HTTPS_PROXY for ENV_FLAGS.
+  PROXY_AUTH_TOKEN=$(docker exec -u root "${CONTAINER_ID}" cat /run/openclaw/proxy-auth-token 2>/dev/null || echo "")
+  if [[ -n "${PROXY_AUTH_TOKEN}" ]]; then
+    echo "  Proxy auth token: available"
+  else
+    echo "  WARNING: proxy-auth-token not found — HTTP proxy auth may fail"
+  fi
+
+  # 14. Install MITM CA into system trust store
+  docker exec "${CONTAINER_ID}" bash -c \
+    "if [[ -f /etc/openclaw/ca/ca.crt ]]; then
+       cp /etc/openclaw/ca/ca.crt /usr/local/share/ca-certificates/vibeshield-mitm.crt
+       update-ca-certificates 2>/dev/null
+       chmod 0755 /etc/openclaw/ca
+       chmod 0644 /etc/openclaw/ca/ca.crt
+       chmod 0600 /etc/openclaw/ca/ca.key
+     fi"
+  echo "  MITM CA installed in system trust store"
+
+  # 15. Create git-askpass-claw script (fetches token from daemon via get-github-token)
+  # get-github-token is a claw-wrap symlink that calls printenv GH_TOKEN through the daemon.
+  # The daemon injects the real GH_TOKEN; vscode's env never contains it.
+  docker exec "${CONTAINER_ID}" bash -c 'cat > /opt/vibeshield/bin/git-askpass-claw << "ASKPASS"
+#!/bin/sh
+exec /usr/local/bin/get-github-token GH_TOKEN 2>/dev/null
+ASKPASS
+chmod +x /opt/vibeshield/bin/git-askpass-claw'
+  echo "  Created git-askpass-claw helper (socket-based token retrieval)"
+
+  echo "  claw-wrap daemon running inside container (user: ${DAEMON_USER})"
+  {
+    echo "=== claw-wrap container setup $(date) ==="
+    echo "  Binary: /usr/local/bin/claw-wrap"
+    echo "  Symlinks: gh, get-github-token → claw-wrap; git → setgid wrapper"
+    echo "  Daemon: in-container as ${DAEMON_USER} (logged to /var/log/vibeshield/claw-wrap.log)"
+    echo "  HMAC + config: 0600 ${DAEMON_USER}:${DAEMON_USER}"
+    echo "  CA: system trust store"
+  } >> "${LAUNCH_LOG:-/dev/null}"
+}
+
+# --- Resolve secrets ---
+ENV_FLAGS=()
+ANTHROPIC_KEY=""
+
+LAUNCH_LOG="${WORKSPACE_FOLDER}/.vibeshield-launch.log"
+
+# Detect secrets mode. claw-wrap runs inside the container (ADR-012), so no
+# host binary is needed. Mode is determined by credential availability only.
+detect_secrets_mode
+
+# Diagnostic: log which 1Password conditions pass/fail
+{
+  echo "=== vibeshield diagnostic $(date) ==="
+  echo "WORKSPACE_FOLDER=${WORKSPACE_FOLDER}"
+  echo "SECRETS_MODE=${SECRETS_MODE}"
+  [[ -n "${OP_VIBESHIELD_SERVICE_ACCOUNT_TOKEN:-}" ]] && echo "OP token: set" || echo "OP token: NOT set"
+  [[ -f "${ENV_VIBESHIELD}" ]] && echo ".env.vibeshield: found" || echo ".env.vibeshield: NOT found (${ENV_VIBESHIELD})"
+  command -v op &>/dev/null && echo "op CLI: found ($(command -v op))" || echo "op CLI: NOT found"
+  command -v claw-wrap &>/dev/null && echo "claw-wrap: found ($(claw-wrap --version 2>/dev/null | head -1))" || echo "claw-wrap: NOT found"
+  [[ -n "${FIREWALL_MODE}" ]] && echo "Firewall mode: ${FIREWALL_MODE}" || echo "Firewall mode: (default)"
+  echo "Skip permissions: ${SKIP_PERMISSIONS}"
+  echo "Auto-allow: ${AUTO_ALLOW}"
+} | tee "${LAUNCH_LOG}"
+
+if [[ "${SECRETS_MODE}" == "op-proxy" || "${SECRETS_MODE}" == "env-proxy" ]]; then
+  # --- Proxy mode: resolve credentials on host, daemon starts in container later ---
+  echo "Secrets mode: ${SECRETS_MODE} (credentials resolved on host, daemon runs in container)"
+  if ! claw_wrap_resolve_credentials; then
+    echo ""
+    echo "  WARNING: Credential resolution failed."
+    echo "  Proxy mode keeps all secrets out of the container."
+    echo "  Falling back to env-direct passes REAL API keys into the container."
+    echo ""
+    echo "  Common causes:"
+    echo "    - op:// refs in .env.vibeshield but OP_SERVICE_ACCOUNT_TOKEN not set"
+    echo "    - 1Password CLI not installed (brew install 1password-cli)"
+    echo "    - ANTHROPIC_API_KEY not in .env.vibeshield or host environment"
+    echo ""
+    read -r -p "  Continue with real credentials in container? [y/N] " ACCEPT_ENV_DIRECT
+    if [[ ! "${ACCEPT_ENV_DIRECT}" =~ ^[Yy] ]]; then
+      echo "  Fix credentials and re-run ./vibeshield"
+      exit 1
+    fi
+    SECRETS_MODE="env-direct"
+  else
+    # In proxy mode, ENV_FLAGS contain only the dummy key and proxy vars.
+    # No real secrets cross into the container environment.
+    # VS_CRED_* vars are kept until claw_wrap_container_setup() passes them
+    # to the in-container daemon via docker exec -e, then cleaned up.
+    ENV_FLAGS=()
+    ENV_FLAGS+=(-e "ANTHROPIC_API_KEY=${PROXY_DUMMY_KEY}")
+    ENV_FLAGS+=(-e "_VIBESHIELD_CLAUDE_KEY=${PROXY_DUMMY_KEY}")  # ralphex strips ANTHROPIC_API_KEY; wrapper re-injects from this
+    ENV_FLAGS+=(-e "GITHUB_TOKEN=")  # Override remoteEnv — claw-wrap CLI wrapper handles auth
+    ENV_FLAGS+=(-e "OPENROUTER_API_KEY=dummy")  # Overwritten by claw-wrap proxy route
+    ENV_FLAGS+=(-e "CODEX_API_KEY=")  # No claw-wrap route for direct OpenAI — use codex login in env-direct mode
+    ENV_FLAGS+=(-e "OP_SERVICE_ACCOUNT_TOKEN=")  # Never needed in container with proxy
+    ENV_FLAGS+=(-e "HTTPS_PROXY=http://127.0.0.1:18080")
+    ENV_FLAGS+=(-e "NODE_EXTRA_CA_CERTS=/etc/openclaw/ca/ca.crt")
+    ENV_FLAGS+=(-e "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt")
+    ENV_FLAGS+=(-e "GIT_ASKPASS=/opt/vibeshield/bin/git-askpass-claw")
+    ENV_FLAGS+=(-e "GIT_TERMINAL_PROMPT=0")
+    ENV_FLAGS+=(-e "GH_TOKEN=")  # Prevent Docker inheritance of host GH_TOKEN
+    ANTHROPIC_KEY="proxy-managed"  # Pass the API key validation check
+    echo "  ENV_FLAGS: dummy API key + proxy vars + git askpass (no real secrets)"
+    # Hide .env.vibeshield from container — credentials already resolved on host,
+    # the file serves no purpose inside the container and contains real secrets.
+    # Move on host → bind mount reflects change instantly inside container.
+    # Restore on exit via trap (handles detach, Ctrl-C, SIGTERM).
+    if [[ -f "${ENV_VIBESHIELD}" ]]; then
+      mv "${ENV_VIBESHIELD}" "${ENV_VIBESHIELD}.bak"
+      trap 'mv "${ENV_VIBESHIELD}.bak" "${ENV_VIBESHIELD}" 2>/dev/null' EXIT
+      echo "  Hid .env.vibeshield from container (restored on exit)"
+    fi
+  fi
+fi
+
+# Fall through to env-direct if proxy mode was not activated or failed
+if [[ "${SECRETS_MODE}" == "env-direct" ]]; then
+  # --- Env-direct mode: reuse claw_wrap_resolve_credentials() for consistent
+  # parsing, then map VS_CRED_* → ENV_FLAGS for direct container injection.
+  # This eliminates duplicated .env parsing logic and ensures the same
+  # OP_SERVICE_ACCOUNT_TOKEN fallback, key validation, and op:// resolution.
+  echo "Secrets mode: env-direct (credentials passed via environment variables)"
+  if claw_wrap_resolve_credentials; then
+    # Map VS_CRED_* exports to ENV_FLAGS (original key names, not prefixed)
+    for varname in $(compgen -v VS_CRED_); do
+      cred_key="${varname#VS_CRED_}"
+      ENV_FLAGS+=(-e "${cred_key}=${!varname}")
+      if [[ "${cred_key}" == "ANTHROPIC_API_KEY" ]]; then
+        ANTHROPIC_KEY="${!varname}"
+        ENV_FLAGS+=(-e "_VIBESHIELD_CLAUDE_KEY=${!varname}")  # ralphex strips ANTHROPIC_API_KEY; wrapper re-injects from this
+      fi
+    done
+    # Clean up VS_CRED_* — env-direct passes real values via ENV_FLAGS
+    for varname in $(compgen -v VS_CRED_); do
+      unset "${varname}"
+    done
+  else
+    # claw_wrap_resolve_credentials failed or no credentials found —
+    # fall back to forwarding host env vars directly
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
+      ENV_FLAGS+=(-e "_VIBESHIELD_CLAUDE_KEY=${ANTHROPIC_API_KEY}")  # ralphex strips ANTHROPIC_API_KEY; wrapper re-injects from this
+      ANTHROPIC_KEY="${ANTHROPIC_API_KEY}"
+    fi
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+      ENV_FLAGS+=(-e "GITHUB_TOKEN=${GITHUB_TOKEN}")
+    fi
+    if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "OPENROUTER_API_KEY=${OPENROUTER_API_KEY}")
+    fi
+    if [[ -n "${CODEX_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "CODEX_API_KEY=${CODEX_API_KEY}")
+    fi
+  fi
+fi
+
+# --- Require an API key ---
+if [[ -z "${ANTHROPIC_KEY}" ]]; then
+  echo ""
+  echo "ERROR: No ANTHROPIC_API_KEY resolved."
+  echo "  Either:"
+  echo "    1. Create .env.vibeshield with your key (plain or op:// reference)"
+  echo "    2. Or export ANTHROPIC_API_KEY in your shell"
+  echo ""
+  echo "  See diagnostic log: ${LAUNCH_LOG}"
+  exit 1
+fi
+
+# --- Detect or build container ---
+CONTAINER_ID=$(find_container)
+if [[ -z "${CONTAINER_ID}" ]]; then
+  echo "No running vibeshield container found. Building..."
+  devcontainer up --workspace-folder "${WORKSPACE_FOLDER}"
+  CONTAINER_ID=$(find_container)
+  if [[ -z "${CONTAINER_ID}" ]]; then
+    echo "ERROR: Container failed to start."
+    exit 1
+  fi
+fi
+
+# --- Shell action ---
+if [[ "${ACTION}" == "shell" ]]; then
+  echo "Opening shell in container (secrets are NOT available in this shell)"
+  exec docker exec -it -u vscode -e TERM=xterm-256color "${CONTAINER_ID}" bash
+fi
+
+# --- Configure Claude Code auth inside the container ---
+echo "Configuring Claude Code authentication..."
+
+# Write ~/.claude.json to skip ALL onboarding screens. Docker Desktop for
+# Mac's PTY stack freezes on every Ink component transition, so we must
+# bypass theme picker, auth, and trust dialog to avoid a frozen TUI.
+# Ensure the .claude volume is writable by vscode (fresh volumes are root-owned)
+docker exec "${CONTAINER_ID}" chown -R vscode:vscode /home/vscode/.claude
+
+WORKSPACE_INNER="/workspaces/$(basename "${WORKSPACE_FOLDER}")"
+docker exec -u vscode -e "_VS_WS=${WORKSPACE_INNER}" \
+  "${CONTAINER_ID}" python3 -c "
+import json, os
+
+# ~/.claude.json — skip onboarding and theme picker (avoids Ink component
+# transitions that freeze Docker Desktop's PTY). API key is passed via env
+# var only (ANTHROPIC_API_KEY), never written to disk.
+path = os.path.expanduser('~/.claude.json')
+d = {}
+if os.path.exists(path):
+    with open(path, 'r') as f:
+        d = json.load(f)
+d['hasCompletedOnboarding'] = True
+d.pop('primaryApiKey', None)  # Remove if set — use env var instead
+d['theme'] = 'dark'
+d['preferredNotifChannel'] = 'terminal_bell'
+d['effortCalloutDismissed'] = True
+d['lastReleaseNotesSeen'] = '99.99.99'
+# Pre-trust workspace in .claude.json projects (newer Claude Code versions check this)
+ws = os.environ['_VS_WS']
+projects = d.get('projects', {})
+proj = projects.get(ws, {})
+proj['hasTrustDialogAccepted'] = True
+projects[ws] = proj
+d['projects'] = projects
+# Pre-approve the dummy API key so Claude doesn't prompt
+d.setdefault('customApiKeyResponses', {}).setdefault('approved', [])
+dummy_suffix = 'AAAAAAAAAAAAAAAAAAAA'
+if dummy_suffix not in d['customApiKeyResponses']['approved']:
+    d['customApiKeyResponses']['approved'].append(dummy_suffix)
+with open(path, 'w') as f:
+    json.dump(d, f, indent=2)
+
+# ~/.claude/settings.json — pre-trust workspace directory
+ws = os.environ['_VS_WS']
+spath = os.path.expanduser('~/.claude/settings.json')
+os.makedirs(os.path.dirname(spath), exist_ok=True)
+s = {}
+if os.path.exists(spath):
+    with open(spath, 'r') as f:
+        s = json.load(f)
+trusted = s.get('trustedDirectories', [])
+if ws not in trusted:
+    trusted.append(ws)
+s['trustedDirectories'] = trusted
+with open(spath, 'w') as f:
+    json.dump(s, f, indent=2)
+"
+# Verify (without printing secrets)
+docker exec -u vscode "${CONTAINER_ID}" python3 -c "
+import json, os
+cpath = os.path.expanduser('~/.claude.json')
+spath = os.path.expanduser('~/.claude/settings.json')
+if os.path.exists(cpath):
+    with open(cpath) as f:
+        d = json.load(f)
+    print(f\"  onboarding={d.get('hasCompletedOnboarding')} theme={d.get('theme')}\")
+if os.path.exists(spath):
+    with open(spath) as f:
+        s = json.load(f)
+    print(f\"  trusted={s.get('trustedDirectories', [])}\")
+"
+echo "  Authentication configured"
+
+# --- Transfer git identity from host ---
+# Reads user.name and user.email from the host's global git config and sets
+# them as system-level config in the container. System-level ensures the
+# identity is available to all users (vscode, claw-wrap) without modifying
+# the workspace .git/config (which the sandbox may mount read-only).
+GIT_USER_NAME=$(git config --global user.name 2>/dev/null || true)
+GIT_USER_EMAIL=$(git config --global user.email 2>/dev/null || true)
+if [[ -n "${GIT_USER_NAME}" && -n "${GIT_USER_EMAIL}" ]]; then
+  docker exec "${CONTAINER_ID}" /usr/bin/git config --system user.name "${GIT_USER_NAME}"
+  docker exec "${CONTAINER_ID}" /usr/bin/git config --system user.email "${GIT_USER_EMAIL}"
+  echo "  Git identity: ${GIT_USER_NAME} <${GIT_USER_EMAIL}>"
+fi
+
+# --- Copy host Claude config (skills, plugins, agents) ---
+# Snapshot host config into the container as root-owned read-only files.
+# This ensures: (1) the agent can't tamper with skills/plugins, (2) a
+# compromised host file after launch doesn't propagate to the running
+# container, and (3) we can audit exactly what was copied.
+HOST_CLAUDE_DIR="${HOME}/.claude"
+CONTAINER_CLAUDE_DIR="/home/vscode/.claude"
+COPIED_ITEMS=()
+
+copy_host_dir() {
+  local dir_name="$1"
+  local lock="${2:-true}"  # "true" = root-owned read-only, "false" = vscode-owned writable
+  local src="${HOST_CLAUDE_DIR}/${dir_name}"
+  local dst="${CONTAINER_CLAUDE_DIR}/${dir_name}"
+
+  if [[ ! -d "${src}" ]]; then
+    return
+  fi
+
+  # Count items to copy (follow symlinks)
+  local count
+  count=$(find -L "${src}" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${count}" -eq 0 ]]; then
+    return
+  fi
+
+  # Remove any existing copy (from previous launch) and recreate
+  docker exec "${CONTAINER_ID}" rm -rf "${dst}"
+  docker exec "${CONTAINER_ID}" mkdir -p "${dst}"
+
+  # Copy from host into container using tar to dereference symlinks.
+  # Host skills/plugins often contain symlinks to package caches that
+  # don't exist inside the container — tar -h resolves them to real files.
+  # --no-xattrs suppresses macOS extended attribute warnings in GNU tar.
+  if [[ "${lock}" == "true" ]]; then
+    # Extract as root, then lock down (root-owned, read-only)
+    tar -chf - --no-xattrs -C "${src}" . 2>/dev/null | docker exec -i "${CONTAINER_ID}" tar -xf - -C "${dst}" 2>/dev/null
+    docker exec "${CONTAINER_ID}" chown -R root:root "${dst}"
+    docker exec "${CONTAINER_ID}" chmod -R a+rX,a-w "${dst}"
+  else
+    # Extract as vscode with --no-same-permissions so umask applies (755/644).
+    # chmod doesn't reliably propagate on Docker named volumes, so we avoid
+    # extracting as root and trying to fix permissions afterward.
+    docker exec "${CONTAINER_ID}" chown vscode:vscode "${dst}"
+    tar -chf - --no-xattrs -C "${src}" . 2>/dev/null | docker exec -i -u vscode "${CONTAINER_ID}" tar -xf - --no-same-permissions -C "${dst}" 2>/dev/null
+  fi
+
+  COPIED_ITEMS+=("${dir_name} (${count} files)")
+}
+
+echo "Syncing host Claude config into container..."
+copy_host_dir "skills"
+copy_host_dir "plugins" "false"  # writable — Claude Code needs to clone marketplaces and update metadata
+copy_host_dir "agents"
+copy_host_dir "hooks"
+copy_host_dir "commands"
+
+# Sync host ralphex config if present (prompts, agents, settings)
+HOST_RALPHEX_DIR="${HOME}/.config/ralphex"
+CONTAINER_RALPHEX_DIR="/home/vscode/.config/ralphex"
+if [[ -d "${HOST_RALPHEX_DIR}" ]]; then
+  local_count=$(find -L "${HOST_RALPHEX_DIR}" -type f 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "${local_count}" -gt 0 ]]; then
+    # Clean previous copy, then recreate (matching copy_host_dir pattern)
+    docker exec "${CONTAINER_ID}" rm -rf "${CONTAINER_RALPHEX_DIR}"
+    docker exec "${CONTAINER_ID}" mkdir -p "${CONTAINER_RALPHEX_DIR}"
+    # Ensure both .config and .config/ralphex are vscode-owned
+    # (mkdir -p as root would leave .config root-owned, blocking ralphex writes)
+    docker exec "${CONTAINER_ID}" chown vscode:vscode /home/vscode/.config "${CONTAINER_RALPHEX_DIR}"
+    tar -chf - --no-xattrs -C "${HOST_RALPHEX_DIR}" . 2>/dev/null | \
+      docker exec -i -u vscode "${CONTAINER_ID}" tar -xf - --no-same-permissions -C "${CONTAINER_RALPHEX_DIR}" 2>/dev/null
+    COPIED_ITEMS+=("ralphex config (${local_count} files)")
+  fi
+fi
+
+# Sync host codex config if present (config.toml only — auth.json is NOT synced from host).
+# auth.json may already exist on the volume from a previous `codex login` inside the
+# container. We preserve it — only config.toml is overwritten from the host.
+# In proxy mode, OPENROUTER_API_KEY is injected by claw-wrap; no credentials in container.
+# In env-direct mode, the user can also use direct OpenAI auth via `codex login`.
+HOST_CODEX_DIR="${HOME}/.codex"
+CONTAINER_CODEX_DIR="/home/vscode/.codex"
+# Ensure volume is vscode-owned (fresh volumes are root-owned)
+docker exec "${CONTAINER_ID}" chown vscode:vscode "${CONTAINER_CODEX_DIR}" 2>/dev/null || true
+if [[ -f "${HOST_CODEX_DIR}/config.toml" ]]; then
+  # Overwrite only config.toml — preserves auth.json from `codex login` inside container
+  tar -cf - --no-xattrs -C "${HOST_CODEX_DIR}" config.toml 2>/dev/null | \
+    docker exec -i -u vscode "${CONTAINER_ID}" tar -xf - --no-same-permissions -C "${CONTAINER_CODEX_DIR}" 2>/dev/null
+  # Rewrite host home paths in config.toml (e.g., log_dir = "/Users/alice/...")
+  # Uses Python tomllib (built into Python 3.11+/Ubuntu 24.04) for structured parsing.
+  docker exec -u vscode \
+    -e "_HOST_HOME=${HOME}" \
+    -e "_CONTAINER_HOME=/home/vscode" \
+    "${CONTAINER_ID}" python3 -c "
+import tomllib, os, sys
+
+host_home = os.environ['_HOST_HOME']
+container_home = os.environ['_CONTAINER_HOME']
+config_path = os.path.join(container_home, '.codex', 'config.toml')
+
+try:
+    with open(config_path, 'rb') as f:
+        data = tomllib.load(f)
+except FileNotFoundError:
+    sys.exit(0)
+except Exception as e:
+    print(f'  WARNING: Could not parse codex config.toml: {e}', file=sys.stderr)
+    sys.exit(0)
+
+# Read raw content for path replacement (tomllib is read-only in stdlib).
+# Use regex with path boundary to avoid corrupting non-path values that
+# happen to contain the home dir as a substring (e.g., model name 'bobcat').
+import re
+with open(config_path, 'r') as f:
+    content = f.read()
+
+pattern = re.escape(host_home) + r'(?=/|$)'
+new_content = re.sub(pattern, container_home, content)
+if new_content != content:
+    with open(config_path, 'w') as f:
+        f.write(new_content)
+    print(f'  Rewrote codex config paths: {host_home} -> {container_home}')
+else:
+    print('  Codex config paths already correct')
+" || echo "  WARNING: Codex config rewriting failed (python3 error)"
+  COPIED_ITEMS+=("codex config")
+fi
+
+# Rewrite hardcoded host paths in plugin metadata.
+# Plugin JSON files contain absolute paths from the host (e.g., /Users/alice/.claude/...)
+# that don't resolve inside the container where home is /home/vscode.
+CONTAINER_HOME="/home/vscode"
+docker exec -u vscode -e "CONTAINER_HOME=${CONTAINER_HOME}" "${CONTAINER_ID}" python3 -c "
+import json, os, sys
+
+home = os.environ['CONTAINER_HOME']
+plugin_dir = os.path.join(home, '.claude', 'plugins')
+rewritten = 0
+
+# Detect old home prefix from installed_plugins.json
+old_home = None
+ip_path = os.path.join(plugin_dir, 'installed_plugins.json')
+try:
+    with open(ip_path) as f:
+        data = json.load(f)
+    for pkg_versions in data.get('plugins', {}).values():
+        for entry in pkg_versions:
+            ip = entry.get('installPath', '')
+            idx = ip.find('/.claude/')
+            if idx > 0:
+                old_home = ip[:idx]
+                break
+        if old_home:
+            break
+except FileNotFoundError:
+    pass  # No plugins installed
+except (json.JSONDecodeError, ValueError) as e:
+    print(f'  WARNING: Malformed {os.path.basename(ip_path)}: {e}', file=sys.stderr)
+
+if old_home and old_home != home:
+    old_prefix = old_home + '/.claude/'
+    new_prefix = home + '/.claude/'
+
+    # Rewrite installed_plugins.json
+    try:
+        with open(ip_path) as f:
+            data = json.load(f)
+        for pkg_versions in data.get('plugins', {}).values():
+            for entry in pkg_versions:
+                for key in ('installPath', 'installLocation'):
+                    if key in entry and entry[key].startswith(old_prefix):
+                        new_path = new_prefix + entry[key][len(old_prefix):]
+                        canonical = os.path.normpath(new_path)
+                        expected_base = os.path.normpath(home + '/.claude')
+                        if not (canonical.startswith(expected_base + os.sep) or canonical == expected_base):
+                            print(f'  WARNING: Blocked path traversal in {key}: {new_path}', file=sys.stderr)
+                            continue
+                        entry[key] = canonical
+                        rewritten += 1
+                if 'projectPath' in entry and entry['projectPath'] == old_home:
+                    entry['projectPath'] = home
+                    rewritten += 1
+        with open(ip_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+        print(f'  WARNING: Could not rewrite {os.path.basename(ip_path)}: {e}', file=sys.stderr)
+
+    # Rewrite known_marketplaces.json
+    km_path = os.path.join(plugin_dir, 'known_marketplaces.json')
+    try:
+        with open(km_path) as f:
+            data = json.load(f)
+        for marketplace in data.values():
+            if isinstance(marketplace, dict) and 'installLocation' in marketplace and marketplace['installLocation'].startswith(old_prefix):
+                new_path = new_prefix + marketplace['installLocation'][len(old_prefix):]
+                canonical = os.path.normpath(new_path)
+                expected_base = os.path.normpath(home + '/.claude')
+                if not (canonical.startswith(expected_base + os.sep) or canonical == expected_base):
+                    print(f'  WARNING: Blocked path traversal in installLocation: {new_path}', file=sys.stderr)
+                else:
+                    marketplace['installLocation'] = canonical
+                    rewritten += 1
+        with open(km_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+        print(f'  WARNING: Could not rewrite {os.path.basename(km_path)}: {e}', file=sys.stderr)
+
+    print(f'  Rewrote {rewritten} paths: {old_home} -> {home}')
+else:
+    print('  Plugin paths already correct (no rewriting needed)')
+
+# Validate plugin cache consistency: metadata may reference cache hashes that
+# don't exist (Claude Code runtime rewrites metadata when updating plugins,
+# sometimes before the cache directory is fully populated). For each broken
+# installPath, substitute the latest available cached version for that plugin.
+try:
+    with open(ip_path) as f:
+        data = json.load(f)
+    fixed = 0
+    for pkg_name, versions in data.get('plugins', {}).items():
+        for entry in versions:
+            ip = entry.get('installPath', '')
+            if not ip or os.path.isdir(ip):
+                continue
+            # installPath looks like: /home/vscode/.claude/plugins/cache/marketplace/plugin/HASH
+            # Find the parent (marketplace/plugin) and look for any available hash dir
+            parent = os.path.dirname(ip)
+            if not os.path.isdir(parent):
+                continue
+            available = sorted(os.listdir(parent))
+            if not available:
+                continue
+            # Use the latest (last alphabetically) cached version
+            fallback = os.path.join(parent, available[-1])
+            if os.path.isdir(fallback):
+                entry['installPath'] = fallback
+                fixed += 1
+    if fixed:
+        with open(ip_path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+        print(f'  Fixed {fixed} broken plugin cache references')
+    else:
+        print('  Plugin cache references valid')
+except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+    print(f'  WARNING: Could not validate plugin cache: {e}', file=sys.stderr)
+" || echo "  WARNING: Plugin path rewriting failed (python3 error)"
+
+# Merge enabledPlugins (and select preferences) from host settings.json
+# The container already has its own settings.json with trustedDirectories and
+# security rules. We selectively merge plugin config and safe preferences.
+HOST_SETTINGS="${HOST_CLAUDE_DIR}/settings.json"
+if [[ -f "${HOST_SETTINGS}" ]]; then
+  cat "${HOST_SETTINGS}" | docker exec -i -u vscode -e "WORKSPACE_INNER=${WORKSPACE_INNER}" "${CONTAINER_ID}" python3 -c "
+import json, sys, os
+
+# Read host settings from stdin
+try:
+    host = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError) as e:
+    print(f'  WARNING: Host settings.json is malformed: {e}', file=sys.stderr)
+    sys.exit(0)
+
+# Read existing container settings
+spath = os.path.expanduser('~/.claude/settings.json')
+container = {}
+if os.path.exists(spath):
+    try:
+        with open(spath) as f:
+            container = json.load(f)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f'  WARNING: Container settings.json is malformed: {e}', file=sys.stderr)
+        container = {}
+
+# Merge enabledPlugins (union of host + container, deduplicated)
+# Claude Code uses two formats: list ["name", ...] or dict {"name": true, ...}
+# Skip plugins that need toolchains unavailable in the container.
+# swift-lsp needs Xcode/macOS — impractical in Ubuntu containers.
+SKIP_PLUGINS = {'swift-lsp@claude-plugins-official'}
+def _should_skip(name):
+    return name in SKIP_PLUGINS
+
+if 'enabledPlugins' in host:
+    host_ep = host['enabledPlugins']
+    container_ep = container.get('enabledPlugins', {})
+    skipped_plugins = []
+    if isinstance(host_ep, dict):
+        # New format: {"plugin@marketplace": true/false, ...}
+        if not isinstance(container_ep, dict):
+            container_ep = {}
+        for k, v in host_ep.items():
+            if isinstance(k, str) and isinstance(v, bool):
+                if _should_skip(k):
+                    skipped_plugins.append(k)
+                else:
+                    container_ep[k] = v
+        container['enabledPlugins'] = dict(sorted(container_ep.items()))
+    elif isinstance(host_ep, list):
+        # Legacy format: ["plugin@marketplace", ...]
+        if isinstance(container_ep, dict):
+            for plugin in host_ep:
+                if isinstance(plugin, str):
+                    if _should_skip(plugin):
+                        skipped_plugins.append(plugin)
+                    else:
+                        container_ep[plugin] = True
+            container['enabledPlugins'] = dict(sorted(container_ep.items()))
+        else:
+            existing = set(container_ep) if isinstance(container_ep, list) else set()
+            for plugin in host_ep:
+                if isinstance(plugin, str):
+                    if _should_skip(plugin):
+                        skipped_plugins.append(plugin)
+                    else:
+                        existing.add(plugin)
+            container['enabledPlugins'] = sorted(existing)
+    else:
+        print('  WARNING: enabledPlugins has unexpected type, skipping', file=sys.stderr)
+    if skipped_plugins:
+        names = ', '.join(sorted(skipped_plugins))
+        print(f'  Skipped {len(skipped_plugins)} plugins (unavailable in container): {names}')
+
+# Merge safe preferences (model choice)
+if 'model' in host and isinstance(host['model'], str):
+    container['model'] = host['model']
+
+# Merge env vars with allowlist (denylist is incomplete — novel dangerous
+# vars like PYTHONSTARTUP, RUBYOPT, PERL5OPT, GIT_EXEC_PATH bypass it)
+ALLOWED_ENV = {'EDITOR', 'VISUAL', 'PAGER', 'NO_COLOR', 'FORCE_COLOR',
+               'CLICOLOR', 'CLICOLOR_FORCE', 'TERM', 'LANG', 'LC_ALL',
+               'LC_CTYPE', 'LC_MESSAGES', 'TZ'}
+
+# Safety blocklist — these are never forwardable, even via additional_env_vars.
+# Covers: system identity, dynamic linkers, language runtimes, shell injection,
+# git config/hooks, proxy/network (would bypass iptables firewall), TLS trust,
+# XDG config redirection, and JVM agent injection.
+NEVER_ALLOW_ENV = {
+    'PATH', 'HOME', 'USER', 'SHELL', 'LOGNAME',
+    'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT',
+    'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH', 'DYLD_FRAMEWORK_PATH',
+    'PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONHOME',
+    'NODE_PATH', 'NODE_OPTIONS', 'NODE_EXTRA_CA_CERTS',
+    'RUBYOPT', 'RUBYLIB', 'PERL5OPT', 'PERL5LIB',
+    'BASH_ENV', 'ENV', 'CDPATH', 'PROMPT_COMMAND', 'SHELLOPTS',
+    'ZDOTDIR', 'INPUTRC',
+    'GIT_EXEC_PATH', 'GIT_SSH_COMMAND', 'GIT_SSH',
+    'GIT_TEMPLATE_DIR', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+    'GIT_ASKPASS', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR',
+    'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+    'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy',
+    'CURL_CA_BUNDLE', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE', 'OPENSSL_CONF',
+    'XDG_CONFIG_HOME', 'XDG_DATA_HOME',
+    'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS',
+    'DOCKER_HOST', 'KUBECONFIG',
+}
+
+# Load additional allowed env vars from config.local.yaml
+workspace = os.environ.get('WORKSPACE_INNER', '')
+if workspace:
+    local_cfg_path = os.path.join(workspace, '.devcontainer', 'network', 'config.local.yaml')
+    try:
+        import yaml
+        with open(local_cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        extra = cfg.get('additional_env_vars', [])
+        if isinstance(extra, list) and len(extra) <= 20:
+            import re
+            env_re = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+            added = []
+            for name in extra:
+                if not isinstance(name, str) or len(name) > 256 or not env_re.match(name):
+                    print(f'  WARNING: Invalid env var name in config.local.yaml: {name!r}', file=sys.stderr)
+                elif name in NEVER_ALLOW_ENV:
+                    print(f'  WARNING: Blocked dangerous env var in config.local.yaml: {name}', file=sys.stderr)
+                else:
+                    ALLOWED_ENV.add(name)
+                    added.append(name)
+            if added:
+                print('  Custom env vars from config.local.yaml: ' + ', '.join(sorted(added)))
+    except FileNotFoundError:
+        pass
+    except ImportError:
+        pass  # PyYAML not available
+    except Exception as e:
+        print(f'  WARNING: Could not read config.local.yaml for env vars: {e}', file=sys.stderr)
+
+if 'env' in host and isinstance(host['env'], dict):
+    merged_env = container.get('env', {})
+    skipped = []
+    for k, v in host['env'].items():
+        if k in ALLOWED_ENV and isinstance(v, str):
+            merged_env[k] = v
+        else:
+            skipped.append(k)
+    if skipped:
+        print('  Skipped non-allowlisted env vars: ' + ', '.join(sorted(skipped)), file=sys.stderr)
+    container['env'] = merged_env
+
+# Skip: permissions (container has its own), statusLine (host-specific path),
+# attribution (container setting), sandbox (managed by vibeshield)
+
+with open(spath, 'w') as f:
+    json.dump(container, f, indent=2)
+    f.write('\n')
+
+merged = []
+if 'enabledPlugins' in container:
+    merged.append(f\"{len(container.get('enabledPlugins', []))} enabledPlugins\")
+if 'model' in host and isinstance(host['model'], str):
+    merged.append('model')
+if 'env' in host and isinstance(host['env'], dict):
+    merged.append(f\"{len(container.get('env', {}))} env vars\")
+if merged:
+    print(f\"  Merged from host settings: {', '.join(merged)}\")
+else:
+    print('  No mergeable settings found in host settings.json')
+" || echo "  WARNING: Settings merge failed (python3 error)"
+fi
+
+# Also copy project-level skills (e.g., vibeshield-init) into the container's
+# user-level skills directory. Project skills are merged after host skills so
+# they take precedence on name collision. Same root-owned read-only treatment.
+PROJECT_SKILLS="${WORKSPACE_FOLDER}/.claude/skills"
+if [[ -d "${PROJECT_SKILLS}" ]]; then
+  CONTAINER_SKILLS="${CONTAINER_CLAUDE_DIR}/skills"
+  docker exec "${CONTAINER_ID}" mkdir -p "${CONTAINER_SKILLS}"
+  # Temporarily unlock if host copy already locked it
+  docker exec "${CONTAINER_ID}" chmod u+w "${CONTAINER_SKILLS}" 2>/dev/null || true
+  tar -chf - --no-xattrs -C "${PROJECT_SKILLS}" . 2>/dev/null | docker exec -i "${CONTAINER_ID}" tar -xf - -C "${CONTAINER_SKILLS}" 2>/dev/null
+  docker exec "${CONTAINER_ID}" chown -R root:root "${CONTAINER_SKILLS}"
+  docker exec "${CONTAINER_ID}" chmod -R a+rX,a-w "${CONTAINER_SKILLS}"
+  proj_count=$(find -L "${PROJECT_SKILLS}" -type f 2>/dev/null | wc -l | tr -d ' ')
+  COPIED_ITEMS+=("project skills (${proj_count} files)")
+fi
+
+# Conditionally deploy ralphex-init skill if ralphex is available.
+# Check host PATH first, then container (user may not have ralphex on host),
+# then fall back to action flag. The skill lives in docs/optional/ (not
+# .claude/skills/) so it doesn't auto-deploy for users who haven't installed ralphex.
+RALPHEX_SKILL_SRC="${WORKSPACE_FOLDER}/docs/optional/ralphex-init"
+if [[ -d "${RALPHEX_SKILL_SRC}" ]] && { command -v ralphex &>/dev/null || \
+     docker exec "${CONTAINER_ID}" command -v ralphex &>/dev/null || \
+     [[ "${ACTION}" == "ralphex" ]]; }; then
+  CONTAINER_SKILLS="${CONTAINER_CLAUDE_DIR}/skills"
+  docker exec "${CONTAINER_ID}" mkdir -p "${CONTAINER_SKILLS}/ralphex-init"
+  docker exec "${CONTAINER_ID}" chmod u+w "${CONTAINER_SKILLS}" "${CONTAINER_SKILLS}/ralphex-init" 2>/dev/null || true
+  tar -chf - --no-xattrs -C "${RALPHEX_SKILL_SRC}" . 2>/dev/null | \
+    docker exec -i "${CONTAINER_ID}" tar -xf - -C "${CONTAINER_SKILLS}/ralphex-init" 2>/dev/null
+  docker exec "${CONTAINER_ID}" chown -R root:root "${CONTAINER_SKILLS}/ralphex-init"
+  docker exec "${CONTAINER_ID}" chmod -R a+rX,a-w "${CONTAINER_SKILLS}/ralphex-init"
+  COPIED_ITEMS+=("ralphex-init skill")
+fi
+
+# Copy global CLAUDE.md if it exists (read-only, won't override project CLAUDE.md).
+# Use tar to strip macOS extended attributes that docker cp can mangle on volumes.
+if [[ -f "${HOST_CLAUDE_DIR}/CLAUDE.md" ]]; then
+  tar -cf - --no-xattrs -C "${HOST_CLAUDE_DIR}" CLAUDE.md 2>/dev/null | \
+    docker exec -i "${CONTAINER_ID}" tar -xf - -C "${CONTAINER_CLAUDE_DIR}" 2>/dev/null
+  docker exec "${CONTAINER_ID}" chown root:root "${CONTAINER_CLAUDE_DIR}/CLAUDE.md"
+  docker exec "${CONTAINER_ID}" chmod 444 "${CONTAINER_CLAUDE_DIR}/CLAUDE.md"
+  COPIED_ITEMS+=("CLAUDE.md")
+fi
+
+if [[ ${#COPIED_ITEMS[@]} -gt 0 ]]; then
+  echo "  Copied: ${COPIED_ITEMS[*]}"
+else
+  echo "  No host config found to copy"
+fi
+
+# Log what was copied for audit
+{
+  echo "=== Config sync $(date) ==="
+  for item in "${COPIED_ITEMS[@]+${COPIED_ITEMS[@]}}"; do
+    echo "  ${item}"
+  done
+} >> "${LAUNCH_LOG}"
+
+# --- claw-wrap container setup (proxy mode only) ---
+if [[ "${SECRETS_MODE}" != "env-direct" ]]; then
+  if ! claw_wrap_container_setup; then
+    echo "  WARNING: Container proxy setup failed — falling back to env-direct mode"
+    SECRETS_MODE="env-direct"
+    # Clean up credential file from failed proxy setup (CA-007)
+    docker exec -u root "${CONTAINER_ID}" rm -f /run/openclaw/env 2>/dev/null || true
+    # Re-resolve secrets for env-direct fallback
+    ENV_FLAGS=()
+    if [[ -n "${VS_CRED_ANTHROPIC_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "ANTHROPIC_API_KEY=${VS_CRED_ANTHROPIC_API_KEY}")
+    fi
+    if [[ -n "${VS_CRED_GITHUB_TOKEN:-}" ]]; then
+      ENV_FLAGS+=(-e "GITHUB_TOKEN=${VS_CRED_GITHUB_TOKEN}")
+    fi
+    if [[ -n "${VS_CRED_OPENROUTER_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "OPENROUTER_API_KEY=${VS_CRED_OPENROUTER_API_KEY}")
+    fi
+    if [[ -n "${VS_CRED_CODEX_API_KEY:-}" ]]; then
+      ENV_FLAGS+=(-e "CODEX_API_KEY=${VS_CRED_CODEX_API_KEY}")
+    fi
+  fi
+  # Update HTTPS_PROXY with proxy auth token (generated by daemon at startup).
+  # ENV_FLAGS array has alternating -e KEY=VALUE elements. Replace the value in place.
+  # CA-005: Warn if proxy is active but auth token is missing (daemon requires Basic auth).
+  if [[ -z "${PROXY_AUTH_TOKEN:-}" && "${SECRETS_MODE}" != "env-direct" ]]; then
+    echo "WARNING: Proxy mode active but auth token missing — daemon will reject unauthenticated requests"
+  fi
+  if [[ -n "${PROXY_AUTH_TOKEN:-}" && "${SECRETS_MODE}" != "env-direct" ]]; then
+    for i in "${!ENV_FLAGS[@]}"; do
+      if [[ "${ENV_FLAGS[$i]}" == "HTTPS_PROXY="* ]]; then
+        ENV_FLAGS[$i]="HTTPS_PROXY=http://claw:${PROXY_AUTH_TOKEN}@127.0.0.1:18080"
+        break
+      fi
+    done
+    unset PROXY_AUTH_TOKEN
+  fi
+
+  # Clean up VS_CRED_* vars now that they've been passed to daemon (CA-009/SEC-007)
+  for varname in $(compgen -v VS_CRED_); do
+    unset "${varname}"
+  done
+  unset OP_SERVICE_ACCOUNT_TOKEN OP_VIBESHIELD_SERVICE_ACCOUNT_TOKEN 2>/dev/null || true
+fi
+
+# --- Apply firewall mode ---
+if [[ -n "${FIREWALL_MODE}" ]]; then
+  echo "Applying firewall mode: ${FIREWALL_MODE}"
+  # Write state file so apply-firewall.sh uses it on next container start
+  docker exec "${CONTAINER_ID}" bash -c "echo '${FIREWALL_MODE}' > /opt/vibeshield/state/current-mode"
+  # Apply immediately if reload-firewall is available
+  docker exec "${CONTAINER_ID}" bash -c \
+    "if command -v reload-firewall &>/dev/null; then
+       sudo reload-firewall --mode ${FIREWALL_MODE} ${FIREWALL_MODE:+$([ "${FIREWALL_MODE}" = "open" ] && echo "--confirm" || true)}
+     fi" 2>&1 | while IFS= read -r line; do echo "  ${line}"; done
+fi
+
+# --- Sync sandbox allowedDomains from firewall config ---
+# Ensures the sandbox network proxy has the domain list before Claude starts.
+# sync-permissions.py populates allowedDomains from the firewall mode config.
+# Read actual container mode if user didn't specify one
+if [[ -n "${FIREWALL_MODE}" ]]; then
+  SYNC_MODE="${FIREWALL_MODE}"
+else
+  SYNC_MODE=$(docker exec "${CONTAINER_ID}" cat /opt/vibeshield/state/current-mode 2>/dev/null || echo "standard")
+fi
+echo "Syncing sandbox domains for mode: ${SYNC_MODE}"
+docker exec "${CONTAINER_ID}" sudo python3 -I /opt/vibeshield/sync-permissions.py --mode "${SYNC_MODE}" 2>&1 \
+  | while IFS= read -r line; do echo "  ${line}"; done
+
+# --- Configure auto-allow mode ---
+# Always reset autoAllowBashIfSandboxed in workspace settings to prevent
+# stale state from persisting across sessions via the .claude volume.
+# sync-permissions.py writes autoAllowBashIfSandboxed: false by default;
+# we override to true only when --auto-allow is explicitly passed.
+if [[ "${AUTO_ALLOW}" == "true" ]]; then
+  echo "Enabling sandbox auto-allow mode..."
+  docker exec "${CONTAINER_ID}" sudo python3 -I -c "
+import json, sys, shutil, os
+# Prefer settings.container.json (vibeshield source repo) over settings.json (target projects)
+container_cfg = '${WORKSPACE_INNER}/.claude/settings.container.json'
+fallback_cfg = '${WORKSPACE_INNER}/.claude/settings.json'
+ws_path = container_cfg if os.path.exists(container_cfg) else fallback_cfg
+auth_path = '/opt/vibeshield/state/' + os.path.basename(ws_path)
+with open(ws_path) as f:
+    s = json.load(f)
+s.setdefault('sandbox', {})['autoAllowBashIfSandboxed'] = True
+content = json.dumps(s, indent=2) + '\n'
+# Write workspace copy
+with open(ws_path, 'w') as f:
+    f.write(content)
+# Update authoritative copy so SEC-4 hash matches
+with open(auth_path, 'w') as f:
+    f.write(content)
+print('  Sandbox auto-allow: enabled (workspace + authoritative copy)')
+"
+fi
+
+# --- ralphex launch (non-interactive, no tmux) ---
+# Dashboard: ralphex serves a web dashboard on port 8080 inside the container.
+# appPort was removed to avoid conflicts when multiple containers run.
+# To access the dashboard: docker port "${CONTAINER_ID}" 8080, or manually:
+#   docker exec -d "${CONTAINER_ID}" socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:8080
+# Or from the host: docker exec -it "${CONTAINER_ID}" curl http://127.0.0.1:8080
+if [[ "${ACTION}" == "ralphex" ]]; then
+  if [[ "${SKIP_PERMISSIONS}" == "true" || "${AUTO_ALLOW}" == "true" ]]; then
+    echo "NOTE: --dangerously-skip-permissions and --auto-allow are ignored in ralphex mode."
+    echo "  ralphex manages its own Claude invocation flags (claude_args in ralphex config)."
+  fi
+
+  # --- Install claude wrapper for ralphex ---
+  # ralphex strips ANTHROPIC_API_KEY from child env (hardcoded in executor.go).
+  # This wrapper re-injects it from _VIBESHIELD_CLAUDE_KEY before exec'ing real claude.
+  # The alternate var name survives ralphex's env filtering.
+  REAL_CLAUDE_PATH=$(docker exec "${CONTAINER_ID}" bash -c 'command -v claude')
+  WRAPPER_TMP=$(mktemp)
+  cat > "${WRAPPER_TMP}" << WRAPPER
+#!/bin/bash
+# vibeshield claude wrapper — re-injects API key stripped by ralphex.
+# ralphex filters ANTHROPIC_API_KEY from child env ("claude uses different auth").
+# _VIBESHIELD_CLAUDE_KEY carries the same value through ralphex's filter.
+if [ -n "\${_VIBESHIELD_CLAUDE_KEY}" ]; then
+  export ANTHROPIC_API_KEY="\${_VIBESHIELD_CLAUDE_KEY}"
+fi
+exec ${REAL_CLAUDE_PATH} "\$@"
+WRAPPER
+  docker cp "${WRAPPER_TMP}" "${CONTAINER_ID}:/opt/vibeshield/bin/claude-for-ralphex"
+  docker exec -u root "${CONTAINER_ID}" bash -c 'chown root:root /opt/vibeshield/bin/claude-for-ralphex && chmod 755 /opt/vibeshield/bin/claude-for-ralphex'
+  rm -f "${WRAPPER_TMP}"
+
+  # Configure ralphex to use the wrapper (global config, lowest precedence —
+  # any local .ralphex/config claude_command takes priority).
+  docker exec -u vscode "${CONTAINER_ID}" mkdir -p /home/vscode/.config/ralphex
+  docker exec -u vscode "${CONTAINER_ID}" bash -c '
+    cfg=/home/vscode/.config/ralphex/config
+    if [ -f "$cfg" ] && grep -q "^claude_command" "$cfg" 2>/dev/null; then
+      sed -i "s|^claude_command.*|claude_command = /opt/vibeshield/bin/claude-for-ralphex|" "$cfg"
+    else
+      # Append to existing config or create new one
+      echo "" >> "$cfg"
+      echo "# vibeshield: use wrapper that re-injects API key stripped by ralphex" >> "$cfg"
+      echo "claude_command = /opt/vibeshield/bin/claude-for-ralphex" >> "$cfg"
+    fi'
+
+  # Reset .claude/settings.json to committed state before ralphex starts.
+  # sync-permissions runs twice during launch (postStartCommand with forced
+  # standard mode, then launcher with user's mode) which always dirties the
+  # working tree. ralphex refuses to create branches with uncommitted changes.
+  docker exec -u vscode "${CONTAINER_ID}" bash -c \
+    'cd "'"${WORKSPACE_INNER}"'" && git checkout -- .claude/settings.json 2>/dev/null || true'
+
+  echo "Launching ralphex in vibeshield container..."
+  # ralphex runs claude as a subprocess with --output-format stream-json.
+  # No tmux needed — ralphex handles its own process management.
+  # Uses --dangerously-skip-permissions (ralphex default).
+  docker exec -it -u vscode \
+    -e TERM=xterm-256color \
+    ${ENV_FLAGS[@]+"${ENV_FLAGS[@]}"} \
+    -w "${WORKSPACE_INNER}" \
+    "${CONTAINER_ID}" \
+    ralphex ${RALPHEX_ARGS[@]+"${RALPHEX_ARGS[@]}"}
+  exit $?
+fi
+
+# --- Launch ---
+# Use tmux as a PTY insulation layer. Docker's PTY relay deadlocks when
+# Node.js/Ink toggles raw mode between TUI component transitions.
+# tmux creates its own PTY pair and never stops reading from Docker's PTY,
+# preventing the deadlock. Secrets are passed via -e flags (memory only).
+CLAUDE_CMD="cd ${WORKSPACE_INNER} && exec claude"
+if [[ "${SKIP_PERMISSIONS}" == "true" ]]; then
+  CLAUDE_CMD="cd ${WORKSPACE_INNER} && exec claude --dangerously-skip-permissions"
+  echo "WARNING: Running with --dangerously-skip-permissions"
+elif [[ "${AUTO_ALLOW}" == "true" ]]; then
+  echo "Running with sandbox auto-allow (deny rules active, sandbox enforced)"
+fi
+
+echo "Launching Claude Code in vibeshield container..."
+# Note: no 'exec' — EXIT trap must fire to restore .env.vibeshield
+if docker exec -u vscode "${CONTAINER_ID}" tmux has-session -t claude 2>/dev/null; then
+  # Reattach to existing session (preserves context after disconnect)
+  docker exec -it -u vscode -e TERM=xterm-256color "${CONTAINER_ID}" \
+    tmux -u -2 attach -t claude
+else
+  # Create detached tmux session with env vars, configure it, then attach
+  docker exec -u vscode -e TERM=xterm-256color \
+    ${ENV_FLAGS[@]+"${ENV_FLAGS[@]}"} \
+    "${CONTAINER_ID}" \
+    tmux -u -2 new-session -d -s claude
+  # Hide status bar, set inner TERM for Ink compatibility, increase scrollback.
+  # mouse=on: enable mouse wheel scrollback without entering copy mode manually.
+  # Shift+Enter: requires Ghostty keybind (keybind = shift+enter=text:\x1b\r),
+  # not a tmux config — see anthropics/claude-code#1282.
+  docker exec -u vscode "${CONTAINER_ID}" \
+    tmux set-option -t claude status off \; \
+    set-option -t claude default-terminal xterm-256color \; \
+    set-option -t claude history-limit 10000 \; \
+    set-option -t claude mouse on
+  # Launch claude inside the tmux session
+  docker exec -u vscode "${CONTAINER_ID}" \
+    tmux send-keys -t claude "${CLAUDE_CMD}" Enter
+  # Attach interactively
+  docker exec -it -u vscode -e TERM=xterm-256color "${CONTAINER_ID}" \
+    tmux -u -2 attach -t claude
+fi
