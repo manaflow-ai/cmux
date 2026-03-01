@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Generate dark mode app icon variants.
 
-Takes the AppIcon PNGs (white background with blue chevron) and creates
-dark mode variants by recompositing the foreground over a dark background.
+Composites the Figma chevron layer (on transparent background) over a dark
+squircle background derived from the light icon's alpha channel. This
+preserves the exact chevron colors and glow without any halo artifacts.
 
-The algorithm estimates foreground opacity from each pixel's deviation from
-white, then recomposites that foreground over the dark background color.
-This preserves the chevron gradient and handles anti-aliased edges cleanly.
+Requires the Figma export at: design/cmux-icon-chevron.png
+Falls back to mathematical recomposition if the Figma layer is missing.
 """
 import json
 import os
+import sys
 
 from PIL import Image
 
@@ -17,6 +18,14 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Apple systemBackground dark
 DARK_BG = (28, 28, 30)
+
+# Figma chevron layer (exported from Figma at native resolution)
+FIGMA_CHEVRON = os.path.join(REPO, "design", "cmux-icon-chevron.png")
+
+# Offset to place the 639x818 Figma chevron layer in a 1024x1024 frame.
+# Computed by aligning the solid chevron bounding box between the Figma
+# frame export and the chevron layer export.
+FIGMA_OFFSET = (232, 104)
 
 SIZES = [
     ("16.png", 16),
@@ -32,13 +41,38 @@ SIZES = [
 ]
 
 
-def make_dark(img: Image.Image) -> Image.Image:
-    """Convert a light-background icon to dark-background.
+def make_dark_from_figma(light_1024: Image.Image, chevron: Image.Image) -> Image.Image:
+    """Create dark icon by compositing Figma chevron over dark background.
 
-    For each pixel, estimates the foreground alpha from max deviation from
-    white, then recomposites over the dark background:
-        new_channel = original - (1 - fg_alpha) * (255 - dark_bg)
+    Uses the light icon's alpha channel for the squircle shape mask,
+    fills it with the dark background color, then composites the
+    chevron layer on top at the precomputed offset.
     """
+    size = 1024
+    light = light_1024.convert("RGBA")
+    if light.size != (size, size):
+        light = light.resize((size, size), Image.LANCZOS)
+
+    # Create dark background with the squircle shape from the light icon
+    dark_bg = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    light_px = light.load()
+    dark_px = dark_bg.load()
+    for y in range(size):
+        for x in range(size):
+            _, _, _, a = light_px[x, y]
+            if a > 0:
+                dark_px[x, y] = (DARK_BG[0], DARK_BG[1], DARK_BG[2], a)
+
+    # Composite chevron at the correct offset
+    chev = chevron.convert("RGBA")
+    ox, oy = FIGMA_OFFSET
+    dark_bg.paste(chev, (ox, oy), chev)
+
+    return dark_bg
+
+
+def make_dark_fallback(img: Image.Image) -> Image.Image:
+    """Fallback: mathematical recomposition when Figma layer is unavailable."""
     img = img.convert("RGBA")
     w, h = img.size
     pixels = img.load()
@@ -48,17 +82,12 @@ def make_dark(img: Image.Image) -> Image.Image:
             r, g, b, a = pixels[x, y]
             if a == 0:
                 continue
-
-            # Foreground alpha: how much this pixel deviates from white
             max_dev = max(255 - r, 255 - g, 255 - b)
-            fg_alpha = max_dev / 255.0
-
-            # Recomposite: C' = C - (1-a)*(255-D)
+            fg_alpha = min(max_dev / 60.0, 1.0)
             bg_factor = 1.0 - fg_alpha
             nr = max(0, int(r - bg_factor * (255 - DARK_BG[0])))
             ng = max(0, int(g - bg_factor * (255 - DARK_BG[1])))
             nb = max(0, int(b - bg_factor * (255 - DARK_BG[2])))
-
             pixels[x, y] = (nr, ng, nb, a)
 
     return img
@@ -79,7 +108,6 @@ def update_contents_json(icon_dir: str) -> None:
         )
     ]
 
-    # Add dark entries for each size
     dark_images = []
     for img in images:
         filename = img.get("filename", "")
@@ -118,7 +146,17 @@ def generate_dark_icons(icon_set: str) -> None:
         print(f"SKIP {icon_set} (not found)")
         return
 
-    print(f"\n{icon_set}:")
+    use_figma = os.path.exists(FIGMA_CHEVRON)
+    if use_figma:
+        print(f"\n{icon_set} (using Figma chevron layer):")
+        chevron = Image.open(FIGMA_CHEVRON)
+        light_1024_path = os.path.join(src_dir, "512@2x.png")
+        light_1024 = Image.open(light_1024_path)
+        dark_1024 = make_dark_from_figma(light_1024, chevron)
+    else:
+        print(f"\n{icon_set} (fallback: mathematical recomposition):")
+        dark_1024 = None
+
     for filename, pixel_size in SIZES:
         src_path = os.path.join(src_dir, filename)
         if not os.path.exists(src_path):
@@ -128,11 +166,15 @@ def generate_dark_icons(icon_set: str) -> None:
         base, ext = os.path.splitext(filename)
         dst_path = os.path.join(src_dir, f"{base}_dark{ext}")
 
-        img = Image.open(src_path)
-        if img.size != (pixel_size, pixel_size):
-            img = img.resize((pixel_size, pixel_size), Image.LANCZOS)
+        if use_figma:
+            # Downscale the 1024x1024 Figma composite
+            dark_img = dark_1024.resize((pixel_size, pixel_size), Image.LANCZOS)
+        else:
+            img = Image.open(src_path)
+            if img.size != (pixel_size, pixel_size):
+                img = img.resize((pixel_size, pixel_size), Image.LANCZOS)
+            dark_img = make_dark_fallback(img)
 
-        dark_img = make_dark(img)
         dark_img.save(dst_path, "PNG")
         print(f"  {base}_dark{ext} ({pixel_size}x{pixel_size})")
 
@@ -140,8 +182,6 @@ def generate_dark_icons(icon_set: str) -> None:
 
 
 def main():
-    # Only generate for the main AppIcon (release builds).
-    # Debug and Nightly icons can be extended later.
     generate_dark_icons("AppIcon")
 
 
