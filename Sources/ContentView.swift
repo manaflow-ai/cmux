@@ -2036,7 +2036,7 @@ struct ContentView: View {
                             .padding(.top, 4)
                     }
                 }
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
         )
 
