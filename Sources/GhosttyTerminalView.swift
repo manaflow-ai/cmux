@@ -2813,6 +2813,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var keyTextAccumulatorForTesting: [String]? {
         keyTextAccumulator
     }
+    func shouldSuppressShiftSpaceFallbackTextForTesting(event: NSEvent, markedTextBefore: Bool) -> Bool {
+        shouldSuppressShiftSpaceFallbackText(event: event, markedTextBefore: markedTextBefore)
+    }
 
     // Test-only IME point override so firstRect behavior can be regression tested.
     private var imePointOverrideForTesting: (x: Double, y: Double, width: Double, height: Double)?
@@ -3117,12 +3120,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.composing = markedText.length > 0 || markedTextBefore
 
         // Use accumulated text from insertText (for IME), or compute text for key
-        if let accumulated = keyTextAccumulator, !accumulated.isEmpty {
+        let accumulatedText = keyTextAccumulator ?? []
+        if !accumulatedText.isEmpty {
             // Accumulated text comes from insertText (IME composition result).
             // These never have "composing" set to true because these are the
             // result of a composition.
             keyEvent.composing = false
-            for text in accumulated {
+            for text in accumulatedText {
                 if shouldSendText(text) {
                     text.withCString { ptr in
                         keyEvent.text = ptr
@@ -3137,8 +3141,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Get the appropriate text for this key event
             // For control characters, this returns the unmodified character
             // so Ghostty's KeyEncoder can handle ctrl encoding
+            let suppressShiftSpaceFallbackText =
+                shouldSuppressShiftSpaceFallbackText(
+                    event: translationEvent,
+                    markedTextBefore: markedTextBefore
+                )
             if let text = textForKeyEvent(translationEvent) {
-                if shouldSendText(text) {
+                if shouldSendText(text), !suppressShiftSpaceFallbackText {
                     text.withCString { ptr in
                         keyEvent.text = ptr
                         _ = ghostty_surface_key(surface, keyEvent)
@@ -3248,6 +3257,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func shouldSendText(_ text: String) -> Bool {
         guard let first = text.utf8.first else { return false }
         return first >= 0x20
+    }
+
+    /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
+    /// can return without insertText and without a detectable layout ID change.
+    /// In that case we must not synthesize a literal space fallback.
+    private func shouldSuppressShiftSpaceFallbackText(event: NSEvent, markedTextBefore: Bool) -> Bool {
+        guard event.keyCode == 49 else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == [.shift] else { return false }
+        guard !markedTextBefore, markedText.length == 0 else { return false }
+        return true
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
