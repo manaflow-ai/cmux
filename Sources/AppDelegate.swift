@@ -727,30 +727,53 @@ struct CommandPaletteDebugSnapshot {
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> BrowserZoomShortcutAction? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
-    let key = chars.lowercased()
     let hasCommand = normalizedFlags.contains(.command)
     let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
 
     guard hasOnlyCommandAndOptionalShift else { return nil }
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
 
-    if key == "=" || key == "+" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if key == "-" || key == "_" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
         return .reset
     }
 
     return nil
+}
+
+func browserZoomShortcutKeyCandidates(
+    chars: String,
+    literalChars: String?,
+    keyCode: UInt16
+) -> Set<String> {
+    var keys: Set<String> = [chars.lowercased()]
+
+    if let literalChars, !literalChars.isEmpty {
+        keys.insert(literalChars.lowercased())
+    }
+
+    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+        keys.insert(layoutChar)
+    }
+
+    return keys
 }
 
 func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -768,10 +791,16 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> Bool {
     guard firstResponderIsGhostty else { return false }
-    return browserZoomShortcutAction(flags: flags, chars: chars, keyCode: keyCode) != nil
+    return browserZoomShortcutAction(
+        flags: flags,
+        chars: chars,
+        keyCode: keyCode,
+        literalChars: literalChars
+    ) != nil
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
@@ -826,15 +855,20 @@ private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
 func browserZoomShortcutTraceCandidate(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
     guard normalizedFlags.contains(.command) else { return false }
 
-    let key = chars.lowercased()
-    if key == "=" || key == "+" || key == "-" || key == "_" || key == "0" {
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
+    if keys.contains("=") || keys.contains("+") || keys.contains("-") || keys.contains("_") || keys.contains("0") {
         return true
     }
     switch keyCode {
@@ -1065,6 +1099,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var socketListenerHealthTimer: DispatchSourceTimer?
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
+    private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
+    private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1320,6 +1358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
@@ -1347,6 +1386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        startSocketListenerHealthMonitorIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -1955,6 +1995,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
         TerminalController.shared.stop()
         TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+    }
+
+    private func startSocketListenerHealthMonitorIfNeeded() {
+        guard socketListenerHealthTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.socketListenerHealthCheckInterval,
+            repeating: Self.socketListenerHealthCheckInterval
+        )
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.restartSocketListenerIfNeededForHealthCheck(source: "health.timer")
+            }
+        }
+        timer.resume()
+        socketListenerHealthTimer = timer
+    }
+
+    private func stopSocketListenerHealthMonitor() {
+        socketListenerHealthTimer?.cancel()
+        socketListenerHealthTimer = nil
+    }
+
+    private func restartSocketListenerIfNeededForHealthCheck(source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+        guard !health.isHealthy else {
+            lastSocketListenerUnhealthyCaptureAt = .distantPast
+            return
+        }
+        let failureSignals = health.failureSignals
+        let data: [String: Any] = [
+            "source": source,
+            "path": config.path,
+            "isRunning": health.isRunning ? 1 : 0,
+            "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
+            "socketPathMatches": health.socketPathMatches ? 1 : 0,
+            "socketPathExists": health.socketPathExists ? 1 : 0,
+            "failureSignals": failureSignals
+        ]
+        sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
+        let now = Date()
+        if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
+            lastSocketListenerUnhealthyCaptureAt = now
+            sentryCaptureWarning(
+                "socket.listener.unhealthy",
+                category: "socket",
+                data: data,
+                contextKey: "socket_listener_health"
+            )
+        }
+        restartSocketListenerIfEnabled(source: source)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -4218,13 +4310,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Keep the test hermetic: ensure the app does not accidentally pass using a persisted
             // KeyboardShortcutSettings override instead of the Ghostty config-trigger path.
             UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusLeftKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusRightKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusUpKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusDownKey)
         } else {
             // For this UI test we want a letter-based shortcut (Cmd+Ctrl+H) to drive pane navigation,
             // since arrow keys can't be recorded by the shortcut recorder.
-            let shortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
-            if let data = try? JSONEncoder().encode(shortcut) {
-                UserDefaults.standard.set(data, forKey: KeyboardShortcutSettings.focusLeftKey)
-            }
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "h", command: true, shift: false, option: false, control: true),
+                for: .focusLeft
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "l", command: true, shift: false, option: false, control: true),
+                for: .focusRight
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "k", command: true, shift: false, option: false, control: true),
+                for: .focusUp
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "j", command: true, shift: false, option: false, control: true),
+                for: .focusDown
+            )
         }
 
         installGotoSplitUITestFocusObserversIfNeeded()
@@ -4956,7 +5063,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
+        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // (e.g., split that doesn't properly blur the address bar). If the first responder
+        // is a terminal surface, the address bar can't be focused.
+        if browserAddressBarFocusedPanelId != nil,
+           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+#if DEBUG
+            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+#endif
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+        }
+
+        // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
+        // suggestion navigation, and avoid opening command palette switcher.
+        // Scope the omnibar check to the shortcut's routed window context so a
+        // focused omnibar in another window does not suppress Cmd+P here.
+        let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let isCommandP = !hasFocusedAddressBarInShortcutContext
+            && normalizedFlags == [.command]
+            && (chars == "p" || event.keyCode == 35)
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
@@ -5049,18 +5175,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
-        }
-
-        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
-        // (e.g., split that doesn't properly blur the address bar). If the first responder
-        // is a terminal surface, the address bar can't be focused.
-        if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
-#if DEBUG
-            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
-#endif
-            browserAddressBarFocusedPanelId = nil
-            stopBrowserOmnibarSelectionRepeat()
         }
 
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
@@ -5458,7 +5572,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         logBrowserZoomShortcutTrace(stage: "probe", event: event, flags: flags, chars: chars)
         #endif
-        let zoomAction = browserZoomShortcutAction(flags: flags, chars: chars, keyCode: event.keyCode)
+        let zoomAction = browserZoomShortcutAction(
+            flags: flags,
+            chars: chars,
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        )
         #if DEBUG
         logBrowserZoomShortcutTrace(stage: "match", event: event, flags: flags, chars: chars, action: zoomAction)
         #endif
@@ -5552,7 +5671,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: BrowserZoomShortcutAction? = nil,
         handled: Bool? = nil
     ) {
-        guard browserZoomShortcutTraceCandidate(flags: flags, chars: chars, keyCode: event.keyCode) else {
+        guard browserZoomShortcutTraceCandidate(
+            flags: flags,
+            chars: chars,
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) else {
             return
         }
 
@@ -5603,6 +5727,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
         browserAddressBarFocusedPanelId
+    }
+
+    private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
+        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event),
+              let workspace = context.tabManager.selectedWorkspace,
+              workspace.browserPanel(for: panelId) != nil else {
+            return nil
+        }
+        return panelId
     }
 
     @discardableResult
@@ -7485,7 +7619,8 @@ private extension NSWindow {
                 firstResponderIsGhostty: true,
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
-                keyCode: event.keyCode
+                keyCode: event.keyCode,
+                literalChars: event.characters
             ) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
@@ -7538,7 +7673,8 @@ private extension NSWindow {
             if browserZoomShortcutTraceCandidate(
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
-                keyCode: event.keyCode
+                keyCode: event.keyCode,
+                literalChars: event.characters
             ) {
                 dlog(
                     "zoom.shortcut stage=window.mainMenuBypass event=\(Self.keyDescription(event)) " +

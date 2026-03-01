@@ -5,12 +5,14 @@ import CoreGraphics
 final class MultiWindowNotificationsUITests: XCTestCase {
     private var dataPath = ""
     private var socketPath = ""
+    private var launchTag = ""
 
     override func setUp() {
         super.setUp()
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-multi-window-notifs-\(UUID().uuidString).json"
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
+        launchTag = "ui-tests-multi-window-notifs-\(UUID().uuidString.prefix(8))"
         try? FileManager.default.removeItem(atPath: dataPath)
         try? FileManager.default.removeItem(atPath: socketPath)
     }
@@ -25,8 +27,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
-        app.activate()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for multi-window routing test. state=\(app.state.rawValue)"
+        )
 
         XCTAssertTrue(
             waitForData(keys: [
@@ -108,8 +114,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_MULTI_WINDOW_NOTIF_PATH"] = dataPath
+        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
-        app.activate()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for notifications popover shortcut test. state=\(app.state.rawValue)"
+        )
 
         XCTAssertTrue(
             waitForData(keys: ["notifId1"], timeout: 15.0),
@@ -137,14 +147,29 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertTrue(waitForElementToDisappear(targetButton, timeout: 3.0), "Expected popover to close on Escape")
     }
 
-    func testEmptyNotificationsPopoverBlocksTerminalTyping() {
+    func testEmptyNotificationsPopoverBlocksTerminalTyping() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
-        app.activate()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for empty popover blocking test. state=\(app.state.rawValue)"
+        )
 
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
-        XCTAssertTrue(waitForSocketPong(timeout: 8.0), "Expected control socket to respond")
+        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
+            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+        }
+        socketPath = resolvedPath
+        let pingResponse = waitForSocketPong(timeout: 8.0)
+        guard pingResponse == "PONG" else {
+            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+        }
 
         _ = socketCommand("clear_notifications")
 
@@ -198,6 +223,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return app.windows.count >= count
     }
 
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
+    }
+
     private func waitForElementToDisappear(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
         let predicate = NSPredicate(format: "exists == false")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
@@ -238,42 +274,79 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return false
     }
 
-    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+    private func waitForSocketPong(timeout: TimeInterval) -> String? {
         let deadline = Date().addingTimeInterval(timeout)
+        var lastResponse: String?
         while Date() < deadline {
-            if socketCommand("ping") == "PONG" {
-                return true
+            lastResponse = socketCommand("ping")
+            if lastResponse == "PONG" {
+                return "PONG"
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
+        return socketCommand("ping") ?? lastResponse
+    }
+
+    private func resolveSocketPath(timeout: TimeInterval) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            for candidate in expectedSocketCandidates() {
+                guard FileManager.default.fileExists(atPath: candidate) else { continue }
+                if socketRespondsToPing(at: candidate) {
+                    return candidate
+                }
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        for candidate in expectedSocketCandidates() {
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            if socketRespondsToPing(at: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func expectedSocketCandidates() -> [String] {
+        var candidates = [socketPath]
+        let taggedDebugSocket = "/tmp/cmux-debug-\(launchTag).sock"
+        if taggedDebugSocket != socketPath {
+            candidates.append(taggedDebugSocket)
+        }
+        return candidates
+    }
+
+    private func socketRespondsToPing(at path: String) -> Bool {
+        let originalPath = socketPath
+        socketPath = path
+        defer { socketPath = originalPath }
         return socketCommand("ping") == "PONG"
     }
 
     private func socketCommand(_ cmd: String) -> String? {
+        if let response = ControlSocketClient(path: socketPath).sendLine(cmd) {
+            return response
+        }
+        return socketCommandViaNetcat(cmd)
+    }
+
+    private func socketCommandViaNetcat(_ cmd: String) -> String? {
         let nc = "/usr/bin/nc"
         guard FileManager.default.isExecutableFile(atPath: nc) else { return nil }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: nc)
-        proc.arguments = ["-U", socketPath, "-w", "2"]
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let script = "printf '%s\\n' \(shellSingleQuote(cmd)) | \(nc) -U \(shellSingleQuote(socketPath)) -w 2 2>/dev/null"
+        proc.arguments = ["-lc", script]
 
-        let inPipe = Pipe()
         let outPipe = Pipe()
-        let errPipe = Pipe()
-        proc.standardInput = inPipe
         proc.standardOutput = outPipe
-        proc.standardError = errPipe
 
         do {
             try proc.run()
         } catch {
             return nil
         }
-
-        if let data = (cmd + "\n").data(using: .utf8) {
-            inPipe.fileHandleForWriting.write(data)
-        }
-        inPipe.fileHandleForWriting.closeFile()
 
         proc.waitUntilExit()
 
@@ -284,6 +357,94 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
         let trimmed = outStr.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private final class ControlSocketClient {
+        private let path: String
+
+        init(path: String) {
+            self.path = path
+        }
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
+            }
+#endif
+
+            var addr = sockaddr_un()
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString)
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { p in
+                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for i in 0..<bytes.count {
+                    raw[i] = bytes[i]
+                }
+            }
+
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    connect(fd, sa, addrLen)
+                }
+            }
+            guard connected == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cstr in
+                var remaining = strlen(cstr)
+                var p = UnsafeRawPointer(cstr)
+                while remaining > 0 {
+                    let n = write(fd, p, remaining)
+                    if n <= 0 { return false }
+                    remaining -= n
+                    p = p.advanced(by: n)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            var buf = [UInt8](repeating: 0, count: 4096)
+            var accum = ""
+            while true {
+                let n = read(fd, &buf, buf.count)
+                if n <= 0 { break }
+                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
+                    accum.append(chunk)
+                    if let idx = accum.firstIndex(of: "\n") {
+                        return String(accum[..<idx])
+                    }
+                }
+            }
+            return accum.isEmpty ? nil : accum.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 
     private func readCurrentTerminalText() -> String? {

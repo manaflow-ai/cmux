@@ -690,6 +690,12 @@ struct CMUXCLI {
             return
         }
 
+        // If the argument looks like a path (not a known command), open a workspace there.
+        if looksLikePath(command) {
+            try openPath(command, socketPath: socketPath)
+            return
+        }
+
         // Check for --help/-h on subcommands before connecting to the socket,
         // so help text is available even when cmux is not running.
         if commandArgs.contains("--help") || commandArgs.contains("-h") {
@@ -875,22 +881,25 @@ struct CMUXCLI {
             }
 
         case "new-workspace":
-            let (commandOpt, remaining) = parseOption(commandArgs, name: "--command")
+            let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let (cwdOpt, remaining) = parseOption(rem0, name: "--cwd")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>, --cwd <path>")
             }
-            let response = try sendV1Command("new_workspace", client: client)
-            print(response)
-            if let commandText = commandOpt {
-                guard response.hasPrefix("OK ") else {
-                    throw CLIError(message: "new-workspace failed, cannot run --command")
-                }
-                let wsId = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var params: [String: Any] = [:]
+            if let cwdOpt {
+                let resolved = resolvePath(cwdOpt)
+                params["cwd"] = resolved
+            }
+            let response = try client.sendV2(method: "workspace.create", params: params)
+            let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            print("OK \(wsId)")
+            if let commandText = commandOpt, !wsId.isEmpty {
                 // Wait for shell to initialize
                 Thread.sleep(forTimeInterval: 0.5)
                 let text = unescapeSendText(commandText + "\\n")
-                let params: [String: Any] = ["text": text, "workspace_id": wsId]
-                _ = try client.sendV2(method: "surface.send_text", params: params)
+                let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
 
         case "new-split":
@@ -1497,6 +1506,97 @@ struct CMUXCLI {
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
+    }
+
+    private func resolvePath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        if expanded.hasPrefix("/") { return expanded }
+        let cwd = FileManager.default.currentDirectoryPath
+        return (cwd as NSString).appendingPathComponent(expanded)
+    }
+
+    /// Returns true if the argument looks like a filesystem path rather than a CLI command.
+    private func looksLikePath(_ arg: String) -> Bool {
+        if arg == "." || arg == ".." { return true }
+        if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
+        if arg.contains("/") { return true }
+        return false
+    }
+
+    /// Open a path in cmux by creating a new workspace with the given directory.
+    /// Launches the app if it isn't already running.
+    private func openPath(_ path: String, socketPath: String) throws {
+        let resolved = resolvePath(path)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
+
+        let directory: String
+        if exists && isDir.boolValue {
+            directory = resolved
+        } else if exists {
+            // It's a file; use its parent directory
+            directory = (resolved as NSString).deletingLastPathComponent
+        } else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+
+        // Try connecting to the socket. If it fails, launch the app and retry.
+        let client = SocketClient(path: socketPath)
+        if (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+            // Poll until socket accepts connections (up to 10 seconds)
+            let pollClient = SocketClient(path: socketPath)
+            var connected = false
+            for _ in 0..<100 {
+                if (try? pollClient.connect()) != nil {
+                    connected = true
+                    break
+                }
+                pollClient.close()
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            guard connected else {
+                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
+            }
+            // Use pollClient since it's connected
+            defer { pollClient.close() }
+            let params: [String: Any] = ["cwd": directory]
+            let response = try pollClient.sendV2(method: "workspace.create", params: params)
+            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            if !wsRef.isEmpty {
+                print("OK \(wsRef)")
+            }
+            try activateApp()
+            return
+        }
+        defer { client.close() }
+
+        let params: [String: Any] = ["cwd": directory]
+        let response = try client.sendV2(method: "workspace.create", params: params)
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        if !wsRef.isEmpty {
+            print("OK \(wsRef)")
+        }
+
+        // Bring the app to front
+        try activateApp()
+    }
+
+    private func launchApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func activateApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
     }
 
     private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
@@ -3626,16 +3726,18 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--command <text>]
+            Usage: cmux new-workspace [--cwd <path>] [--command <text>]
 
             Create a new workspace in the current window.
 
             Flags:
+              --cwd <path>      Set the working directory for the new workspace
               --command <text>   Send text+Enter to the new workspace after creation
 
             Example:
               cmux new-workspace
-              cmux new-workspace --command "npm test"
+              cmux new-workspace --cwd ~/projects/myapp
+              cmux new-workspace --cwd . --command "npm test"
             """
         case "list-workspaces":
             return """
@@ -6221,7 +6323,8 @@ struct CMUXCLI {
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] [--version] <command> [options]
+          cmux <path>                Open a directory in a new workspace (launches cmux if needed)
+          cmux [global-options] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
@@ -6245,7 +6348,7 @@ struct CMUXCLI {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
-          new-workspace [--command <text>]
+          new-workspace [--cwd <path>] [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
