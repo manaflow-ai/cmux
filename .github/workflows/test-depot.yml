@@ -7,8 +7,13 @@ on:
         description: Branch or SHA to test
         required: false
         default: ""
+      skip_unit_tests:
+        description: Skip unit tests (run only UI tests)
+        required: false
+        default: false
+        type: boolean
       skip_ui_tests:
-        description: Skip UI tests (headless Depot runners may not support them)
+        description: Skip UI tests (run only unit tests)
         required: false
         default: false
         type: boolean
@@ -95,6 +100,7 @@ jobs:
           done
 
       - name: Run unit tests
+        if: ${{ !inputs.skip_unit_tests }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -143,4 +149,4 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -only-testing:cmuxUITests/UpdatePillUITests test
+            -only-testing:cmuxUITests test
