@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -57,6 +59,8 @@ type sessionState struct {
 	lastKnownRows int
 }
 
+const maxRPCFrameBytes = 4 * 1024 * 1024
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
@@ -108,13 +112,32 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 	}
 	defer server.closeAll()
 
-	scanner := bufio.NewScanner(stdin)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	reader := bufio.NewReaderSize(stdin, 64*1024)
 	writer := bufio.NewWriter(stdout)
 	defer writer.Flush()
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
+	for {
+		line, oversized, readErr := readRPCFrame(reader, maxRPCFrameBytes)
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil
+			}
+			return readErr
+		}
+		if oversized {
+			if err := writeResponse(writer, rpcResponse{
+				OK: false,
+				Error: &rpcError{
+					Code:    "invalid_request",
+					Message: "request frame exceeds maximum size",
+				},
+			}); err != nil {
+				return err
+			}
+			continue
+		}
+		line = bytes.TrimSuffix(line, []byte{'\n'})
+		line = bytes.TrimSuffix(line, []byte{'\r'})
 		if len(line) == 0 {
 			continue
 		}
@@ -138,11 +161,51 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 			return err
 		}
 	}
+}
 
-	if err := scanner.Err(); err != nil {
+func readRPCFrame(reader *bufio.Reader, maxBytes int) ([]byte, bool, error) {
+	frame := make([]byte, 0, 1024)
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if len(chunk) > 0 {
+			if len(frame)+len(chunk) > maxBytes {
+				if errors.Is(err, bufio.ErrBufferFull) {
+					if drainErr := discardUntilNewline(reader); drainErr != nil && !errors.Is(drainErr, io.EOF) {
+						return nil, false, drainErr
+					}
+				}
+				return nil, true, nil
+			}
+			frame = append(frame, chunk...)
+		}
+
+		if err == nil {
+			return frame, false, nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			if len(frame) == 0 {
+				return nil, false, io.EOF
+			}
+			return frame, false, nil
+		}
+		return nil, false, err
+	}
+}
+
+func discardUntilNewline(reader *bufio.Reader) error {
+	for {
+		_, err := reader.ReadSlice('\n')
+		if err == nil || errors.Is(err, io.EOF) {
+			return err
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
 		return err
 	}
-	return nil
 }
 
 func writeResponse(w *bufio.Writer, resp rpcResponse) error {
@@ -376,9 +439,37 @@ func (s *rpcServer) handleProxyWrite(req rpcRequest) rpcResponse {
 		}
 	}
 
+	timeoutMs := 8000
+	if parsed, hasTimeout := getIntParam(req.Params, "timeout_ms"); hasTimeout {
+		timeoutMs = parsed
+	}
+	if timeoutMs > 0 {
+		if err := conn.SetWriteDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)); err != nil {
+			return rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "stream_error",
+					Message: err.Error(),
+				},
+			}
+		}
+		defer conn.SetWriteDeadline(time.Time{})
+	}
+
 	total := 0
 	for total < len(payload) {
 		written, writeErr := conn.Write(payload[total:])
+		if written == 0 && writeErr == nil {
+			return rpcResponse{
+				ID: req.ID,
+				OK: false,
+				Error: &rpcError{
+					Code:    "stream_error",
+					Message: "write made no progress",
+				},
+			}
+		}
 		total += written
 		if writeErr != nil {
 			return rpcResponse{

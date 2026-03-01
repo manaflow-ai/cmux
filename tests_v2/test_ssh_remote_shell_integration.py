@@ -310,9 +310,9 @@ def main() -> int:
 
             try:
                 client.close_workspace(workspace_id)
+                workspace_id = ""
             except Exception:
                 pass
-            workspace_id = ""
 
         print(
             "PASS: cmux ssh enables Ghostty shell integration niceties "

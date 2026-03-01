@@ -594,6 +594,8 @@ extension Workspace {
 }
 
 private final class WorkspaceRemoteDaemonRPCClient {
+    private static let maxStdoutBufferBytes = 256 * 1024
+
     private let configuration: WorkspaceRemoteConfiguration
     private let remotePath: String
     private let onUnexpectedTermination: (String) -> Void
@@ -854,6 +856,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
         }
 
         stdoutBuffer.append(data)
+        if stdoutBuffer.count > Self.maxStdoutBufferBytes {
+            stdoutBuffer.removeAll(keepingCapacity: false)
+            signalPendingFailureLocked("daemon transport stdout exceeded \(Self.maxStdoutBufferBytes) bytes without message framing")
+            process?.terminate()
+            return
+        }
         while let newlineIndex = stdoutBuffer.firstIndex(of: 0x0A) {
             var lineData = Data(stdoutBuffer[..<newlineIndex])
             stdoutBuffer.removeSubrange(...newlineIndex)
@@ -1035,6 +1043,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
 private final class WorkspaceRemoteDaemonProxyTunnel {
     private final class ProxySession {
+        private static let maxHandshakeBytes = 64 * 1024
+
         private enum HandshakeProtocol {
             case undecided
             case socks5
@@ -1106,6 +1116,10 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
 
                 if let data, !data.isEmpty {
                     if self.streamID == nil {
+                        if self.handshakeBuffer.count + data.count > Self.maxHandshakeBytes {
+                            self.close(reason: "proxy handshake exceeded \(Self.maxHandshakeBytes) bytes")
+                            return
+                        }
                         self.handshakeBuffer.append(data)
                         self.processHandshakeBuffer()
                     } else {
@@ -1315,7 +1329,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                         return
                     }
                     if !pendingPayload.isEmpty {
-                        self.forwardToRemote(pendingPayload)
+                        self.forwardToRemote(pendingPayload, allowAfterEOF: true)
                     }
                     self.scheduleRemoteReadLoop()
                 })
@@ -1324,9 +1338,9 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             }
         }
 
-        private func forwardToRemote(_ data: Data) {
+        private func forwardToRemote(_ data: Data, allowAfterEOF: Bool = false) {
             guard !isClosed else { return }
-            guard !localInputEOF else { return }
+            guard !localInputEOF || allowAfterEOF else { return }
             guard let streamID else { return }
             do {
                 try rpcClient.writeStream(streamID: streamID, data: data)
@@ -1852,6 +1866,7 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.\(UUID().uuidString)", qos: .utility)
+    private let queueKey = DispatchSpecificKey<Void>()
     private weak var workspace: Workspace?
     private let configuration: WorkspaceRemoteConfiguration
 
@@ -1867,6 +1882,7 @@ private final class WorkspaceRemoteSessionController {
     init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
         self.workspace = workspace
         self.configuration = configuration
+        queue.setSpecific(key: queueKey, value: ())
     }
 
     func start() {
@@ -1878,8 +1894,12 @@ private final class WorkspaceRemoteSessionController {
     }
 
     func stop() {
-        queue.async { [weak self] in
-            self?.stopAllLocked()
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            stopAllLocked()
+            return
+        }
+        queue.sync {
+            stopAllLocked()
         }
     }
 
@@ -2255,9 +2275,13 @@ private final class WorkspaceRemoteSessionController {
     }
 
     private func buildLocalDaemonBinary(goOS: String, goArch: String, version: String) throws -> URL {
+        if let bundledBinary = Self.findBundledDaemonBinary(goOS: goOS, goArch: goArch, version: version) {
+            return bundledBinary
+        }
+
         guard let repoRoot = Self.findRepoRoot() else {
             throw NSError(domain: "cmux.remote.daemon", code: 20, userInfo: [
-                NSLocalizedDescriptionKey: "cannot locate cmux repo root for daemon build",
+                NSLocalizedDescriptionKey: "cannot locate cmux repo root for daemon build and no bundled cmuxd-remote binary was found",
             ])
         }
         let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
@@ -2269,7 +2293,7 @@ private final class WorkspaceRemoteSessionController {
         }
         guard let goBinary = Self.which("go") else {
             throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
-                NSLocalizedDescriptionKey: "go is required to build cmuxd-remote",
+                NSLocalizedDescriptionKey: "go is required to build cmuxd-remote when no bundled binary is available",
             ])
         }
 
@@ -2305,6 +2329,27 @@ private final class WorkspaceRemoteSessionController {
             ])
         }
         return output
+    }
+
+    private static func findBundledDaemonBinary(goOS: String, goArch: String, version: String) -> URL? {
+        let fm = FileManager.default
+        var candidates: [URL] = []
+        let env = ProcessInfo.processInfo.environment
+        if let explicit = env["CMUX_REMOTE_DAEMON_BINARY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            candidates.append(URL(fileURLWithPath: explicit, isDirectory: false))
+        }
+        if let resourceRoot = Bundle.main.resourceURL {
+            candidates.append(resourceRoot.appendingPathComponent("bin/cmuxd-remote-\(goOS)-\(goArch)", isDirectory: false))
+            candidates.append(resourceRoot.appendingPathComponent("bin/cmuxd-remote", isDirectory: false))
+            candidates.append(resourceRoot.appendingPathComponent("cmuxd-remote/\(goOS)-\(goArch)/cmuxd-remote", isDirectory: false))
+            candidates.append(resourceRoot.appendingPathComponent("cmuxd-remote/\(version)/\(goOS)-\(goArch)/cmuxd-remote", isDirectory: false))
+        }
+
+        for candidate in candidates.map(\.standardizedFileURL) where fm.isExecutableFile(atPath: candidate.path) {
+            return candidate
+        }
+        return nil
     }
 
     private func uploadRemoteDaemonBinaryLocked(localBinary: URL, remotePath: String) throws {

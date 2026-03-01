@@ -2775,6 +2775,9 @@ class TerminalController {
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let fallbackTabManager = v2ResolveTabManager(params: params)
         let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
         guard let workspaceId else {
@@ -2814,6 +2817,7 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
         ])
 
+        // Must run on main for v2MainSync because Workspace.configureRemoteConnection mutates TabManager/UI-owned workspace state.
         v2MainSync {
             guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
                   let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
@@ -2844,6 +2848,9 @@ class TerminalController {
 
     private func v2WorkspaceRemoteDisconnect(params: [String: Any]) -> V2CallResult {
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let fallbackTabManager = v2ResolveTabManager(params: params)
         let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
         guard let workspaceId else {
@@ -2856,6 +2863,7 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
         ])
 
+        // Must run on main for v2MainSync because disconnect mutates TabManager/UI-owned workspace state.
         v2MainSync {
             guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
                   let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
@@ -2878,6 +2886,9 @@ class TerminalController {
 
     private func v2WorkspaceRemoteReconnect(params: [String: Any]) -> V2CallResult {
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let fallbackTabManager = v2ResolveTabManager(params: params)
         let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
         guard let workspaceId else {
@@ -2889,6 +2900,7 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
         ])
 
+        // Must run on main for v2MainSync because reconnect mutates TabManager/UI-owned workspace state.
         v2MainSync {
             guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
                   let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
@@ -2919,6 +2931,9 @@ class TerminalController {
 
     private func v2WorkspaceRemoteStatus(params: [String: Any]) -> V2CallResult {
         let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
         let fallbackTabManager = v2ResolveTabManager(params: params)
         let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
         guard let workspaceId else {
@@ -2930,6 +2945,7 @@ class TerminalController {
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
         ])
 
+        // Must run on main for v2MainSync because Workspace.remoteStatusPayload reads TabManager/UI-owned state.
         v2MainSync {
             guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
                   let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {

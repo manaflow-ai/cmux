@@ -88,8 +88,8 @@ final class TerminalPanel: Panel, ObservableObject {
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
-        var mergedEnvironment = initialEnvironmentOverrides
-        for (key, value) in additionalEnvironment {
+        var mergedEnvironment = additionalEnvironment
+        for (key, value) in initialEnvironmentOverrides {
             mergedEnvironment[key] = value
         }
         let surface = TerminalSurface(
