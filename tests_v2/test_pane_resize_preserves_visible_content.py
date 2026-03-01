@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import sys
 import time
@@ -14,6 +15,8 @@ from cmux import cmux, cmuxError
 
 
 DEFAULT_SOCKET_PATHS = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+OSC_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -28,6 +31,13 @@ def _wait_for(pred, timeout_s: float = 5.0, step_s: float = 0.05) -> None:
             return
         time.sleep(step_s)
     raise cmuxError("Timed out waiting for condition")
+
+
+def _clean_line(raw: str) -> str:
+    line = OSC_ESCAPE_RE.sub("", raw)
+    line = ANSI_ESCAPE_RE.sub("", line)
+    line = line.replace("\r", "")
+    return line.strip()
 
 
 def _layout_panes(client: cmux) -> list[dict]:
@@ -74,9 +84,28 @@ def _surface_scrollback_text(client: cmux, workspace_id: str, surface_id: str) -
     return str(payload.get("text") or "")
 
 
+def _surface_scrollback_lines(client: cmux, workspace_id: str, surface_id: str) -> list[str]:
+    text = _surface_scrollback_text(client, workspace_id, surface_id)
+    return [_clean_line(raw) for raw in text.splitlines()]
+
+
 def _scrollback_has_exact_line(client: cmux, workspace_id: str, surface_id: str, token: str) -> bool:
-    lines = [raw.strip() for raw in _surface_scrollback_text(client, workspace_id, surface_id).splitlines()]
-    return token in lines
+    return token in _surface_scrollback_lines(client, workspace_id, surface_id)
+
+
+def _wait_for_surface_command_roundtrip(client: cmux, workspace_id: str, surface_id: str) -> None:
+    for _attempt in range(1, 5):
+        token = f"CMUX_READY_{secrets.token_hex(4)}"
+        client.send_surface(surface_id, f"echo {token}\n")
+        try:
+            _wait_for(
+                lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, token),
+                timeout_s=2.5,
+            )
+            return
+        except cmuxError:
+            time.sleep(0.1)
+    raise cmuxError("Timed out waiting for surface command roundtrip")
 
 
 def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pane: str) -> tuple[str, str]:
@@ -113,14 +142,25 @@ def _run_once(socket_path: str) -> int:
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
+            _wait_for_surface_command_roundtrip(client, workspace_id, surface_id)
 
             stamp = secrets.token_hex(4)
             resize_lines = [f"CMUX_LOCAL_RESIZE_LINE_{stamp}_{index:02d}" for index in range(1, 33)]
-            clear_and_draw = "printf '\\033[2J\\033[H'; " + "; ".join(
-                f"printf '{line}\\n'" for line in resize_lines
+            clear_and_draw = (
+                "clear; "
+                f"for i in $(seq 1 {len(resize_lines)}); do "
+                "n=$(printf '%02d' \"$i\"); "
+                f"echo CMUX_LOCAL_RESIZE_LINE_{stamp}_$n; "
+                "done"
             )
             client.send_surface(surface_id, f"{clear_and_draw}\n")
             _wait_for(lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, resize_lines[-1]), timeout_s=8.0)
+            pre_resize_scrollback_lines = _surface_scrollback_lines(client, workspace_id, surface_id)
+            pre_resize_anchors = [line for line in (resize_lines[0], resize_lines[-1]) if line in pre_resize_scrollback_lines]
+            _must(
+                len(pre_resize_anchors) == 2,
+                f"pre-resize scrollback missing anchor lines: anchors={pre_resize_anchors}",
+            )
 
             pre_resize_visible = client.read_terminal_text(surface_id)
             pre_visible_lines = [line for line in resize_lines if line in pre_resize_visible]
@@ -167,16 +207,16 @@ def _run_once(socket_path: str) -> int:
             )
 
             post_token = f"CMUX_LOCAL_RESIZE_POST_{stamp}"
-            client.send_surface(surface_id, f"printf '{post_token}\\n'\n")
+            client.send_surface(surface_id, f"echo {post_token}\n")
             _wait_for(lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, post_token), timeout_s=8.0)
 
-            scrollback_text = _surface_scrollback_text(client, workspace_id, surface_id)
+            scrollback_lines = _surface_scrollback_lines(client, workspace_id, surface_id)
             _must(
-                resize_lines[0] in scrollback_text and resize_lines[-1] in scrollback_text,
+                all(anchor in scrollback_lines for anchor in pre_resize_anchors),
                 "terminal scrollback lost pre-resize lines after pane resize",
             )
             _must(
-                post_token in scrollback_text,
+                post_token in scrollback_lines,
                 "terminal scrollback missing post-resize token after pane resize",
             )
 

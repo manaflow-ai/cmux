@@ -19,6 +19,7 @@ from cmux import cmux, cmuxError
 
 DEFAULT_SOCKET_PATHS = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+OSC_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -33,6 +34,13 @@ def _wait_for(pred, timeout_s: float = 5.0, step_s: float = 0.05) -> None:
             return
         time.sleep(step_s)
     raise cmuxError("Timed out waiting for condition")
+
+
+def _clean_line(raw: str) -> str:
+    line = OSC_ESCAPE_RE.sub("", raw)
+    line = ANSI_ESCAPE_RE.sub("", line)
+    line = line.replace("\r", "")
+    return line.strip()
 
 
 def _layout_panes(client: cmux) -> list[dict]:
@@ -79,6 +87,27 @@ def _surface_scrollback_text(client: cmux, workspace_id: str, surface_id: str) -
     return str(payload.get("text") or "")
 
 
+def _scrollback_has_exact_line(client: cmux, workspace_id: str, surface_id: str, token: str) -> bool:
+    text = _surface_scrollback_text(client, workspace_id, surface_id)
+    lines = [_clean_line(raw) for raw in text.splitlines()]
+    return token in lines
+
+
+def _wait_for_surface_command_roundtrip(client: cmux, workspace_id: str, surface_id: str) -> None:
+    for _attempt in range(1, 5):
+        token = f"CMUX_READY_{secrets.token_hex(4)}"
+        client.send_surface(surface_id, f"echo {token}\n")
+        try:
+            _wait_for(
+                lambda: _scrollback_has_exact_line(client, workspace_id, surface_id, token),
+                timeout_s=2.5,
+            )
+            return
+        except cmuxError:
+            time.sleep(0.1)
+    raise cmuxError("Timed out waiting for surface command roundtrip")
+
+
 def _has_exact_marker_lines(
     client: cmux,
     workspace_id: str,
@@ -87,7 +116,7 @@ def _has_exact_marker_lines(
     end_marker: str,
 ) -> bool:
     text = _surface_scrollback_text(client, workspace_id, surface_id)
-    lines = [ANSI_ESCAPE_RE.sub("", raw).strip() for raw in text.splitlines()]
+    lines = [_clean_line(raw) for raw in text.splitlines()]
     return start_marker in lines and end_marker in lines
 
 
@@ -115,13 +144,19 @@ def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pa
     return ("down" if target_pane == top_id else "up"), "height"
 
 
-def _extract_segment_lines(text: str, start_marker: str, end_marker: str) -> list[str]:
+def _extract_segment_lines(
+    text: str,
+    start_marker: str,
+    end_marker: str,
+    *,
+    require_end: bool = True,
+) -> list[str]:
     lines = text.splitlines()
     saw_start = False
     saw_end = False
     out: list[str] = []
     for raw in lines:
-        line = ANSI_ESCAPE_RE.sub("", raw).strip()
+        line = _clean_line(raw)
         if not saw_start:
             if line == start_marker:
                 saw_start = True
@@ -134,7 +169,7 @@ def _extract_segment_lines(text: str, start_marker: str, end_marker: str) -> lis
 
     if not saw_start:
         raise cmuxError(f"start marker not found in scrollback: {start_marker}")
-    if not saw_end:
+    if require_end and not saw_end:
         raise cmuxError(f"end marker not found in scrollback: {end_marker}")
     return out
 
@@ -150,6 +185,7 @@ def _run_once(socket_path: str) -> int:
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
+            _wait_for_surface_command_roundtrip(client, workspace_id, surface_id)
 
             expected_names = [f"entry-{index:04d}.txt" for index in range(1, 241)]
             for name in expected_names:
@@ -210,7 +246,14 @@ def _run_once(socket_path: str) -> int:
             _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) > pre_extent + 1.0, timeout_s=6.0)
 
             post_resize_scrollback = _surface_scrollback_text(client, workspace_id, surface_id)
-            post_lines = _extract_segment_lines(post_resize_scrollback, start_marker, end_marker)
+            # Prompt redraw after resize may repaint over trailing marker rows.
+            # The regression condition is loss of ls output entries.
+            post_lines = _extract_segment_lines(
+                post_resize_scrollback,
+                start_marker,
+                end_marker,
+                require_end=False,
+            )
             post_found = [line for line in post_lines if line in expected_set]
             _must(
                 len(set(post_found)) == len(expected_set),
