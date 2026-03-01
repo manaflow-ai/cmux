@@ -8023,6 +8023,75 @@ final class WindowBrowserHostViewTests: XCTestCase {
             )
         )
     }
+
+    func testHostViewKeepsHostedInspectorDividerInteractive() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        // Underlying app layout split that should still be pass-through.
+        let appSplit = NSSplitView(frame: contentView.bounds)
+        appSplit.autoresizingMask = [.width, .height]
+        appSplit.isVertical = true
+        appSplit.dividerStyle = .thin
+        let appSplitDelegate = BonsplitMockSplitDelegate()
+        appSplit.delegate = appSplitDelegate
+        let leading = NSView(frame: NSRect(x: 0, y: 0, width: 210, height: contentView.bounds.height))
+        let trailing = NSView(frame: NSRect(x: 211, y: 0, width: 209, height: contentView.bounds.height))
+        appSplit.addSubview(leading)
+        appSplit.addSubview(trailing)
+        contentView.addSubview(appSplit)
+        appSplit.adjustSubviews()
+
+        let host = WindowBrowserHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        contentView.addSubview(host)
+
+        // WebKit inspector uses an internal split (page + console). Divider drags
+        // here must stay in hosted content, not pass through to appSplit behind it.
+        let inspectorSplit = NSSplitView(frame: host.bounds)
+        inspectorSplit.autoresizingMask = [.width, .height]
+        inspectorSplit.isVertical = false
+        inspectorSplit.dividerStyle = .thin
+        let inspectorDelegate = BonsplitMockSplitDelegate()
+        inspectorSplit.delegate = inspectorDelegate
+        let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 160))
+        let consoleView = CapturingView(frame: NSRect(x: 0, y: 161, width: host.bounds.width, height: 99))
+        inspectorSplit.addSubview(pageView)
+        inspectorSplit.addSubview(consoleView)
+        host.addSubview(inspectorSplit)
+        inspectorSplit.setPosition(160, ofDividerAt: 0)
+        inspectorSplit.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInInspector = NSPoint(
+            x: inspectorSplit.bounds.midX,
+            y: inspectorSplit.arrangedSubviews[0].frame.maxY + (inspectorSplit.dividerThickness * 0.5)
+        )
+        let dividerPointInWindow = inspectorSplit.convert(dividerPointInInspector, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let hit = host.hitTest(dividerPointInHost)
+
+        XCTAssertNotNil(
+            hit,
+            "Inspector divider should receive hit-testing in hosted content, not pass through"
+        )
+        XCTAssertFalse(hit === host)
+        if let hit {
+            XCTAssertTrue(
+                hit === inspectorSplit || hit.isDescendant(of: inspectorSplit),
+                "Expected hit to remain inside inspector split subtree"
+            )
+        }
+    }
 }
 
 @MainActor

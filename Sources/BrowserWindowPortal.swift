@@ -24,6 +24,11 @@ final class WindowBrowserHostView: NSView {
         let isVertical: Bool
     }
 
+    private struct DividerHit {
+        let kind: DividerCursorKind
+        let isInHostedContent: Bool
+    }
+
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -208,10 +213,11 @@ final class WindowBrowserHostView: NSView {
             return
         }
 
-        guard let nextKind = splitDividerCursorKind(at: point) else {
+        guard let dividerHit = splitDividerHit(at: point) else {
             clearActiveDividerCursor(restoreArrow: true)
             return
         }
+        let nextKind = dividerHit.kind
         activeDividerCursorKind = nextKind
         nextKind.cursor.set()
     }
@@ -225,15 +231,18 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
+    private func splitDividerHit(at point: NSPoint) -> DividerHit? {
         guard let window else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = window.contentView else { return nil }
-        return Self.dividerCursorKind(at: windowPoint, in: rootView)
+        return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
-        splitDividerCursorKind(at: point) != nil
+        guard let dividerHit = splitDividerHit(at: point) else { return false }
+        // Portal host should pass split-divider events through to app layout splits,
+        // but keep WebKit inspector/internal split dividers interactive.
+        return !dividerHit.isInHostedContent
     }
 
     static func shouldPassThroughToDragTargets(
@@ -261,7 +270,11 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    private static func dividerCursorKind(at windowPoint: NSPoint, in view: NSView) -> DividerCursorKind? {
+    private static func dividerHit(
+        at windowPoint: NSPoint,
+        in view: NSView,
+        hostView: WindowBrowserHostView
+    ) -> DividerHit? {
         guard !view.isHidden else { return nil }
 
         if let splitView = view as? NSSplitView {
@@ -299,15 +312,18 @@ final class WindowBrowserHostView: NSView {
                     }
                     let expanded = dividerRect.insetBy(dx: -expansion, dy: -expansion)
                     if expanded.contains(pointInSplit) {
-                        return splitView.isVertical ? .vertical : .horizontal
+                        return DividerHit(
+                            kind: splitView.isVertical ? .vertical : .horizontal,
+                            isInHostedContent: splitView.isDescendant(of: hostView)
+                        )
                     }
                 }
             }
         }
 
         for subview in view.subviews.reversed() {
-            if let kind = dividerCursorKind(at: windowPoint, in: subview) {
-                return kind
+            if let hit = dividerHit(at: windowPoint, in: subview, hostView: hostView) {
+                return hit
             }
         }
 
