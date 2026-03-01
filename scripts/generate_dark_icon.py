@@ -22,10 +22,11 @@ DARK_BG = (28, 28, 30)
 # Figma chevron layer (exported from Figma at native resolution)
 FIGMA_CHEVRON = os.path.join(REPO, "design", "cmux-icon-chevron.png")
 
-# Offset to place the 639x818 Figma chevron layer in a 1024x1024 frame.
-# Computed by aligning the solid chevron bounding box between the Figma
-# frame export and the chevron layer export.
-FIGMA_OFFSET = (232, 104)
+# The Figma export is ~25% larger than the repo icon. Scale and offset
+# computed by matching the solid chevron (sat>0.5) bounding box center
+# between the repo light icon and the scaled Figma chevron layer.
+FIGMA_SCALE = 0.7996
+FIGMA_OFFSET = (290, 187)
 
 SIZES = [
     ("16.png", 16),
@@ -63,8 +64,12 @@ def make_dark_from_figma(light_1024: Image.Image, chevron: Image.Image) -> Image
             if a > 0:
                 dark_px[x, y] = (DARK_BG[0], DARK_BG[1], DARK_BG[2], a)
 
-    # Composite chevron at the correct offset
+    # Scale and composite chevron at the correct offset
     chev = chevron.convert("RGBA")
+    cw, ch = chev.size
+    scaled_w = int(cw * FIGMA_SCALE)
+    scaled_h = int(ch * FIGMA_SCALE)
+    chev = chev.resize((scaled_w, scaled_h), Image.LANCZOS)
     ox, oy = FIGMA_OFFSET
     dark_bg.paste(chev, (ox, oy), chev)
 
