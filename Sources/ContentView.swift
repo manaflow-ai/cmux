@@ -6525,6 +6525,13 @@ private struct TabItemView: View {
                         .foregroundColor(activeSecondaryColor(0.8))
                 }
 
+                if tab.isRemoteWorkspace {
+                    Image(systemName: remoteStateIcon(tab.remoteConnectionState))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(remoteStateColor(tab.remoteConnectionState, isActive: isActive))
+                        .help(remoteStateHelpText)
+                }
+
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
@@ -6827,6 +6834,10 @@ private struct TabItemView: View {
         }
         .contextMenu {
             let targetIds = contextTargetIds()
+            let targetWorkspaces = targetIds.compactMap { id in tabManager.tabs.first(where: { $0.id == id }) }
+            let remoteTargetWorkspaces = targetWorkspaces.filter { $0.isRemoteWorkspace }
+            let reconnectLabel = remoteTargetWorkspaces.count > 1 ? "Reconnect Workspaces" : "Reconnect Workspace"
+            let disconnectLabel = remoteTargetWorkspaces.count > 1 ? "Disconnect Workspaces" : "Disconnect Workspace"
             let tabColorPalette = WorkspaceTabColorSettings.palette()
             let shouldPin = !tab.isPinned
             let pinLabel = targetIds.count > 1
@@ -6861,6 +6872,24 @@ private struct TabItemView: View {
                 Button("Remove Custom Workspace Name") {
                     tabManager.clearCustomTitle(tabId: tab.id)
                 }
+            }
+
+            if !remoteTargetWorkspaces.isEmpty {
+                Divider()
+
+                Button(reconnectLabel) {
+                    for workspace in remoteTargetWorkspaces {
+                        workspace.reconnectRemoteConnection()
+                    }
+                }
+                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .connecting })
+
+                Button(disconnectLabel) {
+                    for workspace in remoteTargetWorkspaces {
+                        workspace.disconnectRemoteConnection(clearConfiguration: false)
+                    }
+                }
+                .disabled(remoteTargetWorkspaces.allSatisfy { $0.remoteConnectionState == .disconnected })
             }
 
             Menu("Workspace Color") {
@@ -7162,6 +7191,24 @@ private struct TabItemView: View {
         }
     }
 
+    private var remoteStateHelpText: String {
+        let target = tab.remoteDisplayTarget ?? "remote host"
+        let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch tab.remoteConnectionState {
+        case .connected:
+            return "SSH connected to \(target)"
+        case .connecting:
+            return "SSH connecting to \(target)"
+        case .error:
+            if let detail, !detail.isEmpty {
+                return "SSH error for \(target): \(detail)"
+            }
+            return "SSH error for \(target)"
+        case .disconnected:
+            return "SSH disconnected from \(target)"
+        }
+    }
+
     private func moveWorkspaces(_ workspaceIds: [UUID], toWindow windowId: UUID) {
         guard let app = AppDelegate.shared else { return }
         let orderedWorkspaceIds = tabManager.tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
@@ -7365,6 +7412,57 @@ private struct TabItemView: View {
         case .warning: return .orange
         case .error: return .red
         }
+    }
+
+    private func remoteStateIcon(_ state: WorkspaceRemoteConnectionState) -> String {
+        switch state {
+        case .connected:
+            return "network"
+        case .connecting:
+            return "network.badge.shield.half.filled"
+        case .error:
+            return "network.slash"
+        case .disconnected:
+            return "network.slash"
+        }
+    }
+
+    private func remoteStateColor(_ state: WorkspaceRemoteConnectionState, isActive: Bool) -> Color {
+        if isActive {
+            switch state {
+            case .connected:
+                return .white.opacity(0.9)
+            case .connecting:
+                return .white.opacity(0.85)
+            case .error:
+                return .white.opacity(0.9)
+            case .disconnected:
+                return .white.opacity(0.65)
+            }
+        }
+
+        switch state {
+        case .connected:
+            return .green
+        case .connecting:
+            return .blue
+        case .error:
+            return .red
+        case .disconnected:
+            return .secondary
+        }
+    }
+
+    private func shortenPath(_ path: String, home: String) -> String {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return path }
+        if trimmed == home {
+            return "~"
+        }
+        if trimmed.hasPrefix(home + "/") {
+            return "~" + trimmed.dropFirst(home.count)
+        }
+        return trimmed
     }
 
     private struct PullRequestStatusIcon: View {

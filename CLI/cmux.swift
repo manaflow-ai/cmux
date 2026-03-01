@@ -866,13 +866,24 @@ struct CMUXCLI {
                         let selected = (ws["selected"] as? Bool) == true
                         let handle = textHandle(ws, idFormat: idFormat)
                         let title = (ws["title"] as? String) ?? ""
+                        let remoteTag: String = {
+                            guard let remote = ws["remote"] as? [String: Any],
+                                  (remote["enabled"] as? Bool) == true else {
+                                return ""
+                            }
+                            let state = (remote["state"] as? String) ?? "unknown"
+                            return "  [ssh:\(state)]"
+                        }()
                         let prefix = selected ? "* " : "  "
                         let selTag = selected ? "  [selected]" : ""
                         let titlePart = title.isEmpty ? "" : "  \(title)"
-                        print("\(prefix)\(handle)\(titlePart)\(selTag)")
+                        print("\(prefix)\(handle)\(titlePart)\(remoteTag)\(selTag)")
                     }
                 }
             }
+
+        case "ssh":
+            try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "new-workspace":
             let (commandOpt, remaining) = parseOption(commandArgs, name: "--command")
@@ -2113,6 +2124,297 @@ struct CMUXCLI {
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
 
+    private struct SSHCommandOptions {
+        let destination: String
+        let port: Int?
+        let identityFile: String?
+        let workspaceName: String?
+        let sshOptions: [String]
+        let extraArguments: [String]
+    }
+
+    private func runSSH(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let sshOptions = try parseSSHCommandOptions(commandArgs)
+        let sshCommand = buildSSHCommandText(sshOptions)
+        let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
+        let sshStartupCommand = buildSSHStartupCommand(sshCommand: sshCommand, shellFeatures: shellFeaturesValue)
+
+        let workspaceCreateParams: [String: Any] = [
+            "initial_command": sshStartupCommand,
+        ]
+
+        let workspaceCreate = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+        guard let workspaceId = workspaceCreate["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+
+        let remoteSSHOptions = sshOptionsWithControlSocketDefaults(sshOptions.sshOptions)
+        let configuredPayload: [String: Any]
+        do {
+            if let workspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !workspaceName.isEmpty {
+                _ = try client.sendV2(method: "workspace.rename", params: [
+                    "workspace_id": workspaceId,
+                    "title": workspaceName,
+                ])
+            }
+
+            var configureParams: [String: Any] = [
+                "workspace_id": workspaceId,
+                "destination": sshOptions.destination,
+                "auto_connect": true,
+            ]
+            if let port = sshOptions.port {
+                configureParams["port"] = port
+            }
+            if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
+                configureParams["identity_file"] = identityFile
+            }
+            if !remoteSSHOptions.isEmpty {
+                configureParams["ssh_options"] = remoteSSHOptions
+            }
+
+            configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+            _ = try client.sendV2(method: "workspace.select", params: [
+                "workspace_id": workspaceId,
+            ])
+        } catch {
+            _ = try? client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
+            throw error
+        }
+
+        var payload = configuredPayload
+
+        payload["ssh_command"] = sshCommand
+        payload["ssh_startup_command"] = sshStartupCommand
+        payload["ssh_env_overrides"] = [
+            "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
+        ]
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? workspaceId
+            let remote = payload["remote"] as? [String: Any]
+            let state = (remote?["state"] as? String) ?? "unknown"
+            print("OK workspace=\(workspaceHandle) target=\(sshOptions.destination) state=\(state)")
+        }
+    }
+
+    private func parseSSHCommandOptions(_ commandArgs: [String]) throws -> SSHCommandOptions {
+        var destination: String?
+        var port: Int?
+        var identityFile: String?
+        var workspaceName: String?
+        var sshOptions: [String] = []
+        var extraArguments: [String] = []
+
+        var passthrough = false
+        var index = 0
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if passthrough {
+                extraArguments.append(arg)
+                index += 1
+                continue
+            }
+
+            switch arg {
+            case "--":
+                passthrough = true
+                index += 1
+            case "--port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh: --port must be 1-65535")
+                }
+                port = parsed
+                index += 2
+            case "--identity":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --identity requires a path")
+                }
+                identityFile = commandArgs[index + 1]
+                index += 2
+            case "--name":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --name requires a workspace title")
+                }
+                workspaceName = commandArgs[index + 1]
+                index += 2
+            case "--ssh-option":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --ssh-option requires a value")
+                }
+                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    sshOptions.append(value)
+                }
+                index += 2
+            default:
+                if arg.hasPrefix("--") {
+                    throw CLIError(message: "ssh: unknown flag '\(arg)'")
+                }
+                if destination == nil {
+                    if arg.hasPrefix("-") {
+                        throw CLIError(
+                            message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
+                        )
+                    }
+                    destination = arg
+                } else {
+                    extraArguments.append(arg)
+                }
+                index += 1
+            }
+        }
+
+        guard let destination else {
+            throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
+        }
+        if destination.hasPrefix("-") {
+            throw CLIError(
+                message: "ssh: destination must be <user@host>. Use --port/--identity/--ssh-option for SSH flags and `--` for remote command args."
+            )
+        }
+
+        return SSHCommandOptions(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            workspaceName: workspaceName,
+            sshOptions: sshOptions,
+            extraArguments: extraArguments
+        )
+    }
+
+    private func buildSSHCommandText(_ options: SSHCommandOptions) -> String {
+        let effectiveSSHOptions = sshOptionsWithControlSocketDefaults(options.sshOptions)
+        var parts: [String] = ["ssh"]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            parts += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        if let port = options.port {
+            parts += ["-p", String(port)]
+        }
+        if let identityFile = normalizedSSHIdentityPath(options.identityFile) {
+            parts += ["-i", identityFile]
+        }
+        for option in effectiveSSHOptions {
+            parts += ["-o", option]
+        }
+        parts.append(options.destination)
+        parts.append(contentsOf: options.extraArguments)
+        return parts.map(shellQuote).joined(separator: " ")
+    }
+
+    private func sshOptionsWithControlSocketDefaults(_ options: [String]) -> [String] {
+        var merged: [String] = []
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            merged.append(trimmed)
+        }
+        if !hasSSHOptionKey(merged, key: "ControlMaster") {
+            merged.append("ControlMaster=auto")
+        }
+        if !hasSSHOptionKey(merged, key: "ControlPersist") {
+            merged.append("ControlPersist=600")
+        }
+        if !hasSSHOptionKey(merged, key: "ControlPath") {
+            merged.append("ControlPath=\(defaultSSHControlPathTemplate())")
+        }
+        return merged
+    }
+
+    private func scopedGhosttyShellFeaturesValue() -> String {
+        let rawExisting = ProcessInfo.processInfo.environment["GHOSTTY_SHELL_FEATURES"] ?? ""
+        var seen: Set<String> = []
+        var merged: [String] = []
+
+        for token in rawExisting.split(separator: ",") {
+            let feature = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !feature.isEmpty else { continue }
+            if seen.insert(feature).inserted {
+                merged.append(feature)
+            }
+        }
+
+        for required in ["ssh-env", "ssh-terminfo"] {
+            if seen.insert(required).inserted {
+                merged.append(required)
+            }
+        }
+
+        return merged.joined(separator: ",")
+    }
+
+    private func buildSSHStartupCommand(sshCommand: String, shellFeatures: String) -> String {
+        let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
+            ? ""
+            : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
+        // Run through an interactive zsh so Ghostty's ssh-env/ssh-terminfo wrappers are actually loaded.
+        let sourceGhosttyZshIntegration = """
+if [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+  _cmux_ghostty_integration="${GHOSTTY_RESOURCES_DIR}/shell-integration/zsh/ghostty-integration"
+  if [[ -r "$_cmux_ghostty_integration" ]]; then
+    builtin source -- "$_cmux_ghostty_integration"
+    (( $+functions[_ghostty_deferred_init] )) && _ghostty_deferred_init
+  fi
+  builtin unset _cmux_ghostty_integration
+fi
+"""
+        let script = [shellFeaturesBootstrap, sourceGhosttyZshIntegration, "\(sshCommand); exec ${SHELL:-/bin/zsh} -l"]
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n")
+        return "/bin/zsh -ilc \(shellQuote(script))"
+    }
+
+    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let token = trimmed.split(whereSeparator: { $0 == "=" || $0.isWhitespace }).first.map(String.init)?.lowercased()
+            if token == loweredKey {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func defaultSSHControlPathTemplate() -> String {
+        "/tmp/cmux-ssh-\(getuid())-%C"
+    }
+
+    private func normalizedSSHIdentityPath(_ rawPath: String?) -> String? {
+        guard let rawPath else { return nil }
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.hasPrefix("~") {
+            let expanded = (trimmed as NSString).expandingTildeInPath
+            if !expanded.isEmpty {
+                return expanded
+            }
+        }
+        return trimmed
+    }
+
+    private func shellQuote(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func runRenameTab(
         commandArgs: [String],
         client: SocketClient,
@@ -2161,7 +2463,6 @@ struct CMUXCLI {
             windowOverride: windowOverride
         )
     }
-
     private func runBrowserCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -3645,6 +3946,24 @@ struct CMUXCLI {
 
             Example:
               cmux list-workspaces
+            """
+        case "ssh":
+            return """
+            Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
+
+            Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
+            cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
+
+            Flags:
+              --name <title>          Optional workspace title
+              --port <n>              SSH port
+              --identity <path>       SSH identity file path
+              --ssh-option <opt>      Extra SSH -o option (repeatable)
+
+            Example:
+              cmux ssh dev@my-host
+              cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
             """
         case "new-split":
             return """
@@ -6246,6 +6565,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
           new-workspace [--command <text>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]

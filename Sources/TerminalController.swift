@@ -1232,6 +1232,14 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
+        case "workspace.remote.configure":
+            return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
+        case "workspace.remote.reconnect":
+            return v2Result(id: id, self.v2WorkspaceRemoteReconnect(params: params))
+        case "workspace.remote.disconnect":
+            return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
+        case "workspace.remote.status":
+            return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
 
 
         // Surfaces / input
@@ -1585,6 +1593,10 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.remote.configure",
+            "workspace.remote.reconnect",
+            "workspace.remote.disconnect",
+            "workspace.remote.status",
             "surface.list",
             "surface.current",
             "surface.focus",
@@ -2163,6 +2175,42 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func v2StringArray(_ params: [String: Any], _ key: String) -> [String]? {
+        if let raw = params[key] as? [String] {
+            let normalized = raw
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return normalized
+        }
+        if let raw = params[key] as? [Any] {
+            let normalized = raw
+                .compactMap { $0 as? String }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return normalized
+        }
+        if let single = v2String(params, key) {
+            return [single]
+        }
+        return nil
+    }
+
+    private func v2StringMap(_ params: [String: Any], _ key: String) -> [String: String]? {
+        guard let raw = params[key] else { return nil }
+        if let dict = raw as? [String: String] {
+            return dict
+        }
+        if let anyDict = raw as? [String: Any] {
+            var out: [String: String] = [:]
+            for (k, value) in anyDict {
+                guard let stringValue = value as? String else { continue }
+                out[k] = stringValue
+            }
+            return out
+        }
+        return nil
+    }
+
     private func v2ActionKey(_ params: [String: Any], _ key: String = "action") -> String? {
         guard let action = v2String(params, key) else { return nil }
         return action.lowercased().replacingOccurrences(of: "-", with: "_")
@@ -2222,6 +2270,40 @@ class TerminalController {
         if let i = params[key] as? Int { return i }
         if let n = params[key] as? NSNumber { return n.intValue }
         if let s = params[key] as? String { return Int(s) }
+        return nil
+    }
+
+    private func v2HasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
+        guard let raw = params[key] else { return false }
+        return !(raw is NSNull)
+    }
+
+    private func v2StrictInt(_ params: [String: Any], _ key: String) -> Int? {
+        v2StrictIntAny(params[key])
+    }
+
+    private func v2StrictIntAny(_ raw: Any?) -> Int? {
+        guard let raw else { return nil }
+
+        if let numberValue = raw as? NSNumber {
+            if CFGetTypeID(numberValue) == CFBooleanGetTypeID() {
+                return nil
+            }
+            let doubleValue = numberValue.doubleValue
+            guard doubleValue.isFinite, floor(doubleValue) == doubleValue else {
+                return nil
+            }
+            return Int(exactly: doubleValue)
+        }
+
+        if let intValue = raw as? Int {
+            return intValue
+        }
+
+        if let stringValue = raw as? String {
+            return Int(stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
         return nil
     }
 
@@ -2351,7 +2433,9 @@ class TerminalController {
                     "index": index,
                     "title": ws.title,
                     "selected": ws.id == tabManager.selectedTabId,
-                    "pinned": ws.isPinned
+                    "pinned": ws.isPinned,
+                    "listening_ports": ws.listeningPorts,
+                    "remote": ws.remoteStatusPayload()
                 ]
             }
         }
@@ -2368,13 +2452,31 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let requestedWorkingDirectory = v2RawString(params, "working_directory")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workingDirectory = (requestedWorkingDirectory?.isEmpty == false) ? requestedWorkingDirectory : nil
+
+        let requestedInitialCommand = v2RawString(params, "initial_command")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
+
+        let rawInitialEnv = v2StringMap(params, "initial_env") ?? [:]
+        let initialEnv = rawInitialEnv.reduce(into: [String: String]()) { result, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            result[key] = pair.value
+        }
+
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
         #if DEBUG
         let startedAt = ProcessInfo.processInfo.systemUptime
         #endif
         v2MainSync {
-            let ws = tabManager.addWorkspace(select: shouldFocus)
+            let ws = tabManager.addWorkspace(
+                workingDirectory: workingDirectory,
+                initialTerminalCommand: initialCommand,
+                initialTerminalEnvironment: initialEnv,
+                select: shouldFocus
+            )
             newId = ws.id
         }
         #if DEBUG
@@ -2430,8 +2532,20 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         var wsId: UUID?
+        var wsPayload: [String: Any]?
         v2MainSync {
             wsId = tabManager.selectedTabId
+            if let wsId, let workspace = tabManager.tabs.first(where: { $0.id == wsId }) {
+                wsPayload = [
+                    "id": workspace.id.uuidString,
+                    "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "title": workspace.title,
+                    "selected": true,
+                    "pinned": workspace.isPinned,
+                    "listening_ports": workspace.listeningPorts,
+                    "remote": workspace.remoteStatusPayload(),
+                ]
+            }
         }
         guard let wsId else {
             return .err(code: "not_found", message: "No workspace selected", data: nil)
@@ -2441,7 +2555,8 @@ class TerminalController {
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": wsId.uuidString,
-            "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+            "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+            "workspace": wsPayload ?? NSNull()
         ])
     }
     private func v2WorkspaceClose(params: [String: Any]) -> V2CallResult {
@@ -2655,6 +2770,197 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
         }
+        return result
+    }
+
+    private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+        guard let destination = v2String(params, "destination") else {
+            return .err(code: "invalid_params", message: "Missing destination", data: nil)
+        }
+
+        var sshPort: Int?
+        if v2HasNonNullParam(params, "port") {
+            guard let parsedPort = v2StrictInt(params, "port"),
+                  parsedPort > 0,
+                  parsedPort <= 65535 else {
+                return .err(code: "invalid_params", message: "port must be 1-65535", data: nil)
+            }
+            sshPort = parsedPort
+        }
+
+        // Internal deterministic test hook: pin the local proxy listener port to force bind conflicts.
+        var localProxyPort: Int?
+        if v2HasNonNullParam(params, "local_proxy_port") {
+            guard let parsedLocalProxyPort = v2StrictInt(params, "local_proxy_port"),
+                  parsedLocalProxyPort > 0,
+                  parsedLocalProxyPort <= 65535 else {
+                return .err(code: "invalid_params", message: "local_proxy_port must be 1-65535", data: nil)
+            }
+            localProxyPort = parsedLocalProxyPort
+        }
+
+        let identityFile = v2RawString(params, "identity_file")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sshOptions = v2StringArray(params, "ssh_options") ?? []
+        let autoConnect = v2Bool(params, "auto_connect") ?? true
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+        ])
+
+        // Must run on main for v2MainSync because Workspace.configureRemoteConnection mutates TabManager/UI-owned workspace state.
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+
+            let config = WorkspaceRemoteConfiguration(
+                destination: destination,
+                port: sshPort,
+                identityFile: identityFile?.isEmpty == true ? nil : identityFile,
+                sshOptions: sshOptions,
+                localProxyPort: localProxyPort
+            )
+            workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private func v2WorkspaceRemoteDisconnect(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+
+        let clearConfiguration = v2Bool(params, "clear") ?? false
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+        ])
+
+        // Must run on main for v2MainSync because disconnect mutates TabManager/UI-owned workspace state.
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+
+            workspace.disconnectRemoteConnection(clearConfiguration: clearConfiguration)
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private func v2WorkspaceRemoteReconnect(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+        ])
+
+        // Must run on main for v2MainSync because reconnect mutates TabManager/UI-owned workspace state.
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+
+            guard workspace.remoteConfiguration != nil else {
+                result = .err(code: "invalid_state", message: "Remote workspace is not configured", data: [
+                    "workspace_id": workspaceId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                ])
+                return
+            }
+
+            workspace.reconnectRemoteConnection()
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
+    }
+
+    private func v2WorkspaceRemoteStatus(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+        ])
+
+        // Must run on main for v2MainSync because Workspace.remoteStatusPayload reads TabManager/UI-owned state.
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
         return result
     }
 

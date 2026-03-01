@@ -1,5 +1,18 @@
 # TODO
 
+## Issue 151: Remote SSH (Living Execution)
+- [x] `cmux ssh` creates remote workspace metadata and does not require `--name`
+- [x] Remote daemon bootstrap/upload/start path with `cmuxd-remote serve --stdio`
+- [x] Reconnect/disconnect controls (CLI/API/context menu) + improved error surfacing
+- [x] Retry count/time surfaced in remote daemon/probe error details
+- [ ] Remove automatic remote service port mirroring (`ssh -L` from detected remote listening ports)
+- [ ] Add transport-scoped proxy broker (SOCKS5 + HTTP CONNECT) for remote traffic
+- [ ] Extend `cmuxd-remote` RPC beyond `hello/ping` with proxy stream methods (`proxy.open|close`)
+- [ ] Auto-wire WKWebView in remote workspaces to proxy via `WKWebsiteDataStore.proxyConfigurations`
+- [ ] Add browser proxy e2e tests (remote egress IP, websocket, reconnect continuity)
+- [ ] Implement PTY resize coordinator with tmux semantics (`smallest screen wins`)
+- [ ] Add resize tests for multi-attachment sessions (attach/detach/reconnect transitions)
+
 ## Socket API / Agent
 - [x] Add window handles + `window.list/current/focus/create/close` for multi-window socket control (v2) + v1 equivalents (`list_windows`, etc) + CLI support.
 - [x] Add surface move/reorder commands (move between panes, reorder within pane, move across workspaces/windows).
@@ -41,7 +54,7 @@
 - [ ] OpenCode integration
 
 ## Browser
-- [ ] Per-WKWebView local proxy for full network request/response inspection (URL, method, headers, body, status, timing)
+- [ ] Per-WKWebView proxy observability/inspection once remote proxy path is shipped (URL, method, headers, body, status, timing)
 
 ## Bugs
 - [ ] **P0** Terminal title updates are suppressed when workspace is not focused (e.g. Claude Code loading indicator doesn't update in sidebar until you switch to that tab)

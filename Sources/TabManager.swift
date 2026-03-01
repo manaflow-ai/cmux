@@ -760,6 +760,8 @@ class TabManager: ObservableObject {
     @discardableResult
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
+        initialTerminalCommand: String? = nil,
+        initialTerminalEnvironment: [String: String] = [:],
         select: Bool = true,
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Workspace {
@@ -772,7 +774,9 @@ class TabManager: ObservableObject {
             title: "Terminal \(tabs.count + 1)",
             workingDirectory: workingDirectory,
             portOrdinal: ordinal,
-            configTemplate: inheritedConfig
+            configTemplate: inheritedConfig,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalEnvironment: initialTerminalEnvironment
         )
         wireClosedBrowserTracking(for: newWorkspace)
         let insertIndex = newTabInsertIndex(placementOverride: placementOverride)
@@ -978,6 +982,7 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
