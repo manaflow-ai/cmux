@@ -22,6 +22,8 @@ from cmux import cmux, cmuxError
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 DOCKER_SSH_HOST = os.environ.get("CMUX_SSH_TEST_DOCKER_HOST", "127.0.0.1")
 DOCKER_PUBLISH_ADDR = os.environ.get("CMUX_SSH_TEST_DOCKER_BIND_ADDR", "127.0.0.1")
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+OSC_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -199,12 +201,44 @@ def _wait_for(pred, timeout_s: float = 5.0, step_s: float = 0.05) -> None:
     raise cmuxError("Timed out waiting for condition")
 
 
+def _wait_for_pane_count(client: cmux, minimum_count: int, timeout: float = 8.0) -> list[str]:
+    deadline = time.time() + timeout
+    last: list[str] = []
+    while time.time() < deadline:
+        last = [pid for _idx, pid, _count, _focused in client.list_panes()]
+        if len(last) >= minimum_count:
+            return last
+        time.sleep(0.1)
+    raise cmuxError(f"Timed out waiting for pane count >= {minimum_count}; saw {len(last)} panes: {last}")
+
+
 def _surface_text_scrollback(client: cmux, workspace_id: str, surface_id: str) -> str:
     payload = client._call(
         "surface.read_text",
         {"workspace_id": workspace_id, "surface_id": surface_id, "scrollback": True},
     ) or {}
     return str(payload.get("text") or "")
+
+
+def _clean_line(raw: str) -> str:
+    line = OSC_ESCAPE_RE.sub("", raw)
+    line = ANSI_ESCAPE_RE.sub("", line)
+    line = line.replace("\r", "")
+    return line.strip()
+
+
+def _surface_text_scrollback_lines(client: cmux, workspace_id: str, surface_id: str) -> list[str]:
+    return [_clean_line(raw) for raw in _surface_text_scrollback(client, workspace_id, surface_id).splitlines()]
+
+
+def _scrollback_has_all_lines(
+    client: cmux,
+    workspace_id: str,
+    surface_id: str,
+    lines: list[str],
+) -> bool:
+    available = set(_surface_text_scrollback_lines(client, workspace_id, surface_id))
+    return all(line in available for line in lines)
 
 
 def _wait_surface_contains(
@@ -407,43 +441,82 @@ def main() -> int:
             term_program_version = _read_probe_payload(client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-}\"")
             _must(bool(term_program_version), "ssh-env should propagate non-empty TERM_PROGRAM_VERSION")
 
-            resize_stamp = secrets.token_hex(4)
-            resize_lines = [f"CMUX_RESIZE_LINE_{resize_stamp}_{index:02d}" for index in range(1, 33)]
-            clear_and_draw = "printf '\\033[2J\\033[H'; " + "; ".join(
-                f"printf '{line}\\n'" for line in resize_lines
+            ls_stamp = secrets.token_hex(4)
+            ls_entries = [f"CMUX_RESIZE_LS_{ls_stamp}_{index:02d}" for index in range(1, 17)]
+            ls_start = f"CMUX_RESIZE_LS_START_{ls_stamp}"
+            ls_end = f"CMUX_RESIZE_LS_END_{ls_stamp}"
+            names = " ".join(ls_entries)
+            ls_script = (
+                "tmpdir=$(mktemp -d); "
+                f"echo {ls_start}; "
+                f"for name in {names}; do touch \"$tmpdir/$name\"; done; "
+                "ls -1 \"$tmpdir\"; "
+                f"echo {ls_end}; "
+                "rm -rf \"$tmpdir\""
             )
-            client.send_surface(surface_id, f"{clear_and_draw}\n")
-            _wait_surface_contains(client, workspace_id, surface_id, resize_lines[-1])
-            pre_resize_visible = client.read_terminal_text(surface_id)
-            pre_visible_lines = [line for line in resize_lines if line in pre_resize_visible]
+            client.send_surface(surface_id, f"{ls_script}\n")
+            _wait_surface_contains(client, workspace_id, surface_id, ls_end)
+            pre_resize_scrollback_lines = _surface_text_scrollback_lines(client, workspace_id, surface_id)
             _must(
-                len(pre_visible_lines) >= 4,
+                all(line in pre_resize_scrollback_lines for line in ls_entries),
+                "pre-resize scrollback missing ls output fixture lines",
+            )
+            pre_resize_anchors = [ls_entries[0], ls_entries[len(ls_entries) // 2], ls_entries[-1]]
+            _must(
+                len(pre_resize_anchors) == 3,
+                f"pre-resize scrollback missing anchor lines: {pre_resize_anchors}",
+            )
+            pre_resize_visible = client.read_terminal_text(surface_id)
+            pre_visible_lines = [line for line in ls_entries if line in pre_resize_visible]
+            _must(
+                len(pre_visible_lines) >= 2,
                 "pre-resize viewport did not contain enough reference lines for continuity checks",
             )
 
             client.select_workspace(workspace_id)
-            client.new_split("right")
-            time.sleep(0.3)
+            client.activate_app()
+            pane_count_before_split = len(client.list_panes())
+            client.simulate_shortcut("cmd+d")
+            pane_ids = _wait_for_pane_count(client, pane_count_before_split + 1, timeout=8.0)
 
-            pane_ids = [pid for _idx, pid, _count, _focused in client.list_panes()]
             pane_id = _pane_for_surface(client, surface_id)
             resize_direction, resize_axis = _pick_resize_direction_for_pane(client, pane_ids, pane_id)
-            pre_extent = _pane_extent(client, pane_id, resize_axis)
+            opposite_direction = {
+                "left": "right",
+                "right": "left",
+                "up": "down",
+                "down": "up",
+            }[resize_direction]
+            expected_sign_by_direction = {
+                resize_direction: +1,
+                opposite_direction: -1,
+            }
 
-            resize_result = client._call(
-                "pane.resize",
-                {
-                    "workspace_id": workspace_id,
-                    "pane_id": pane_id,
-                    "direction": resize_direction,
-                    "amount": 80,
-                },
-            ) or {}
-            _must(
-                str(resize_result.get("pane_id") or "") == pane_id,
-                f"pane.resize response missing expected pane_id: {resize_result}",
-            )
-            _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) > pre_extent + 1.0, timeout_s=5.0)
+            resize_sequence = [resize_direction, opposite_direction] * 8
+            current_extent = _pane_extent(client, pane_id, resize_axis)
+            for index, direction in enumerate(resize_sequence, start=1):
+                resize_result = client._call(
+                    "pane.resize",
+                    {
+                        "workspace_id": workspace_id,
+                        "pane_id": pane_id,
+                        "direction": direction,
+                        "amount": 80,
+                    },
+                ) or {}
+                _must(
+                    str(resize_result.get("pane_id") or "") == pane_id,
+                    f"pane.resize response missing expected pane_id: {resize_result}",
+                )
+                if expected_sign_by_direction[direction] > 0:
+                    _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) > current_extent + 1.0, timeout_s=5.0)
+                else:
+                    _wait_for(lambda: _pane_extent(client, pane_id, resize_axis) < current_extent - 1.0, timeout_s=5.0)
+                current_extent = _pane_extent(client, pane_id, resize_axis)
+                _must(
+                    _scrollback_has_all_lines(client, workspace_id, surface_id, pre_resize_anchors),
+                    f"resize iteration {index} lost pre-resize scrollback anchors",
+                )
 
             post_resize_visible = client.read_terminal_text(surface_id)
             visible_overlap = [line for line in pre_visible_lines if line in post_resize_visible]
@@ -453,16 +526,16 @@ def main() -> int:
             )
 
             resize_post_token = f"CMUX_RESIZE_POST_{secrets.token_hex(6)}"
-            client.send_surface(surface_id, f"printf '{resize_post_token}\\n'\n")
+            client.send_surface(surface_id, f"echo {resize_post_token}\n")
             _wait_surface_contains(client, workspace_id, surface_id, resize_post_token)
 
-            scrollback_text = _surface_text_scrollback(client, workspace_id, surface_id)
+            scrollback_lines = _surface_text_scrollback_lines(client, workspace_id, surface_id)
             _must(
-                resize_lines[0] in scrollback_text and resize_lines[-1] in scrollback_text,
+                all(anchor in scrollback_lines for anchor in pre_resize_anchors),
                 "terminal scrollback lost pre-resize lines after pane resize",
             )
             _must(
-                resize_post_token in scrollback_text,
+                resize_post_token in scrollback_lines,
                 f"terminal scrollback missing post-resize token after pane resize: {resize_post_token}",
             )
 

@@ -4228,11 +4228,21 @@ class TerminalController {
 
         var output: String
         if includeScrollback {
-            // Read history and active regions separately so resize reflow at the
-            // history/active boundary doesn't drop tail lines near the prompt.
+            func candidateScore(_ text: String) -> (lines: Int, bytes: Int) {
+                let lines = text.isEmpty ? 0 : text.split(separator: "\n", omittingEmptySubsequences: false).count
+                return (lines, text.utf8.count)
+            }
+
+            // Read all available regions and pick the most complete candidate.
+            // Different point tags can lose different rows around resize/reflow boundaries.
+            let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN)
             let history = readSelectionText(pointTag: GHOSTTY_POINT_SURFACE)
             let active = readSelectionText(pointTag: GHOSTTY_POINT_ACTIVE)
 
+            var candidates: [String] = []
+            if let screen {
+                candidates.append(screen)
+            }
             if history != nil || active != nil {
                 var merged = history ?? ""
                 if let active {
@@ -4241,9 +4251,18 @@ class TerminalController {
                     }
                     merged.append(active)
                 }
-                output = merged
-            } else if let screen = readSelectionText(pointTag: GHOSTTY_POINT_SCREEN) {
-                output = screen
+                candidates.append(merged)
+            }
+
+            if let best = candidates.max(by: { lhs, rhs in
+                let left = candidateScore(lhs)
+                let right = candidateScore(rhs)
+                if left.lines != right.lines {
+                    return left.lines < right.lines
+                }
+                return left.bytes < right.bytes
+            }) {
+                output = best
             } else {
                 return "ERROR: Failed to read terminal text"
             }
