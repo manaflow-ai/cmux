@@ -1519,6 +1519,7 @@ struct CMUXCLI {
     private func looksLikePath(_ arg: String) -> Bool {
         if arg == "." || arg == ".." { return true }
         if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
+        if arg.contains("/") { return true }
         return false
     }
 
@@ -1539,22 +1540,36 @@ struct CMUXCLI {
             throw CLIError(message: "Path does not exist: \(resolved)")
         }
 
-        // Ensure the app is running
-        let appRunning = FileManager.default.fileExists(atPath: socketPath)
-        if !appRunning {
-            launchApp()
-            // Poll for socket to appear (up to 10 seconds)
+        // Try connecting to the socket. If it fails, launch the app and retry.
+        let client = SocketClient(path: socketPath)
+        if (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+            // Poll until socket accepts connections (up to 10 seconds)
+            let pollClient = SocketClient(path: socketPath)
+            var connected = false
             for _ in 0..<100 {
-                if FileManager.default.fileExists(atPath: socketPath) { break }
+                if (try? pollClient.connect()) != nil {
+                    connected = true
+                    break
+                }
+                pollClient.close()
                 Thread.sleep(forTimeInterval: 0.1)
             }
-            guard FileManager.default.fileExists(atPath: socketPath) else {
+            guard connected else {
                 throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
             }
+            // Use pollClient since it's connected
+            defer { pollClient.close() }
+            let params: [String: Any] = ["cwd": directory]
+            let response = try pollClient.sendV2(method: "workspace.create", params: params)
+            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            if !wsRef.isEmpty {
+                print("OK \(wsRef)")
+            }
+            try activateApp()
+            return
         }
-
-        let client = SocketClient(path: socketPath)
-        try client.connect()
         defer { client.close() }
 
         let params: [String: Any] = ["cwd": directory]
@@ -1565,22 +1580,22 @@ struct CMUXCLI {
         }
 
         // Bring the app to front
-        activateApp()
+        try activateApp()
     }
 
-    private func launchApp() {
+    private func launchApp() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
-        try? process.run()
+        try process.run()
         process.waitUntilExit()
     }
 
-    private func activateApp() {
+    private func activateApp() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "cmux"]
-        try? process.run()
+        try process.run()
         process.waitUntilExit()
     }
 

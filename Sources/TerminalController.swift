@@ -2368,7 +2368,15 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let cwd = params["cwd"] as? String
+        let cwd: String?
+        if let raw = params["cwd"] {
+            guard let str = raw as? String else {
+                return .err(code: "invalid_params", message: "cwd must be a string", data: nil)
+            }
+            cwd = str
+        } else {
+            cwd = nil
+        }
 
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
