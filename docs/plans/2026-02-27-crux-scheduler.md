@@ -117,20 +117,20 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 6
 
 ### Task 6: SchedulerEngine singleton with timer and evaluation logic
-- [ ] create `Sources/Scheduler/SchedulerEngine.swift` — `@MainActor final class` with `static let shared`
-- [ ] implement 30-second `DispatchSource.makeTimerSource(queue: .main)` timer
-- [ ] implement `evaluateSchedules()` comparing `nextFireDate(after: lastEvaluatedAt)` vs `Date()`
-- [ ] implement startup cleanup marking stale `.running` records as `.cancelled`
-- [ ] wire `.environmentObject(SchedulerEngine.shared)` in `Sources/cmuxApp.swift:184`
-- [ ] wire `.environmentObject(SchedulerEngine.shared)` in `Sources/AppDelegate.swift:3703`
-- [ ] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
-- [ ] write tests for evaluateSchedules with enabled past-due task creates TaskRun
-- [ ] write tests for disabled task skipped
-- [ ] write tests for running task with allowOverlap=false skipped
-- [ ] write tests for maxConcurrentTasks limit respected
-- [ ] write tests for lastEvaluatedAt prevents duplicate fires
-- [ ] write tests for startup cleanup of stale running records
-- [ ] run project tests - must pass before task 7
+- [x] create `Sources/Scheduler/SchedulerEngine.swift` — `@MainActor final class` with `static let shared`
+- [x] implement 30-second `DispatchSource.makeTimerSource(queue: .main)` timer
+- [x] implement `evaluateSchedules()` comparing `nextFireDate(after: lastEvaluatedAt)` vs `Date()`
+- [x] implement startup cleanup marking stale `.running` records as `.cancelled`
+- [x] wire `.environmentObject(SchedulerEngine.shared)` in `Sources/cmuxApp.swift:184`
+- [x] wire `.environmentObject(SchedulerEngine.shared)` in `Sources/AppDelegate.swift:3703`
+- [x] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
+- [x] write tests for evaluateSchedules with enabled past-due task creates TaskRun
+- [x] write tests for disabled task skipped
+- [x] write tests for running task with allowOverlap=false skipped
+- [x] write tests for maxConcurrentTasks limit respected
+- [x] write tests for lastEvaluatedAt prevents duplicate fires
+- [x] write tests for startup cleanup of stale running records
+- [x] run project tests - must pass before task 7
 
 ### Task 7: Ghostty terminal surface execution with COMMAND_FINISHED handler
 - [ ] implement `schedulerWorkspace(in:)` — get or create dedicated workspace

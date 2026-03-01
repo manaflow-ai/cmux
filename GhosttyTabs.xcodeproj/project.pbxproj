@@ -25,6 +25,7 @@
 		A5001700 /* BrowserSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001701 /* BrowserSettings.swift */; };
 		A5001800 /* ScheduledTask.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001801 /* ScheduledTask.swift */; };
 		A5001802 /* SchedulerPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001803 /* SchedulerPersistence.swift */; };
+		A5001804 /* SchedulerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001805 /* SchedulerEngine.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
@@ -91,6 +92,7 @@
 					A5001810 /* ScheduledTaskModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001811 /* ScheduledTaskModelTests.swift */; };
 					A5001820 /* CronExpressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001821 /* CronExpressionTests.swift */; };
 					A5001840 /* SchedulerPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001841 /* SchedulerPersistenceTests.swift */; };
+					A5001850 /* SchedulerEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001851 /* SchedulerEngineTests.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -169,6 +171,7 @@
 		A5001701 /* BrowserSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSettings.swift; sourceTree = "<group>"; };
 		A5001801 /* ScheduledTask.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/ScheduledTask.swift; sourceTree = "<group>"; };
 		A5001803 /* SchedulerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/SchedulerPersistence.swift; sourceTree = "<group>"; };
+		A5001805 /* SchedulerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/SchedulerEngine.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
@@ -229,6 +232,7 @@
 				A5001811 /* ScheduledTaskModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduledTaskModelTests.swift; sourceTree = "<group>"; };
 				A5001821 /* CronExpressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CronExpressionTests.swift; sourceTree = "<group>"; };
 				A5001841 /* SchedulerPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerPersistenceTests.swift; sourceTree = "<group>"; };
+				A5001851 /* SchedulerEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerEngineTests.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -356,6 +360,7 @@
 				A5001701 /* BrowserSettings.swift */,
 				A5001801 /* ScheduledTask.swift */,
 				A5001803 /* SchedulerPersistence.swift */,
+				A5001805 /* SchedulerEngine.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001090 /* AppDelegate.swift */,
 				A5001091 /* NotificationsPage.swift */,
@@ -449,6 +454,7 @@
 					A5001811 /* ScheduledTaskModelTests.swift */,
 					A5001821 /* CronExpressionTests.swift */,
 					A5001841 /* SchedulerPersistenceTests.swift */,
+					A5001851 /* SchedulerEngineTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -602,6 +608,7 @@
 				A5001700 /* BrowserSettings.swift in Sources */,
 				A5001800 /* ScheduledTask.swift in Sources */,
 				A5001802 /* SchedulerPersistence.swift in Sources */,
+				A5001804 /* SchedulerEngine.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
@@ -666,6 +673,7 @@
 					A5001810 /* ScheduledTaskModelTests.swift in Sources */,
 					A5001820 /* CronExpressionTests.swift in Sources */,
 					A5001840 /* SchedulerPersistenceTests.swift in Sources */,
+					A5001850 /* SchedulerEngineTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
