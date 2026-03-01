@@ -5487,12 +5487,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -5514,7 +5514,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Open browser: Cmd+Shift+L
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }

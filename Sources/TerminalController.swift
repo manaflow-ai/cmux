@@ -1068,6 +1068,7 @@ class TerminalController {
 
         // Browser panel commands
         case "open_browser":
+            guard BrowserSettings.isEnabled else { return "ERROR: Browser is disabled" }
             return openBrowser(args)
 
         case "navigate":
@@ -1309,6 +1310,8 @@ class TerminalController {
             return v2Result(id: id, self.v2AppSimulateActive())
 
         // Browser
+        case _ where method.hasPrefix("browser.") && !BrowserSettings.isEnabled:
+            return v2Error(id: id, code: "browser_disabled", message: "Browser is disabled")
         case "browser.open_split":
             return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
         case "browser.navigate":

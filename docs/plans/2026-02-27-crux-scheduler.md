@@ -65,15 +65,15 @@ Task structure guidelines:
 - [x] verify clean working tree with `git status` (clean, only local .gitignore modification)
 
 ### Task 1: Browser kill-switch via UserDefaults guards
-- [ ] register `browserEnabled` default (true) in `Sources/cmuxApp.swift` init (lines 49-60)
-- [ ] add `@AppStorage("browserEnabled")` in `Sources/ContentView.swift` for reactive SwiftUI
-- [ ] guard `Sources/ContentView.swift:4061` — Cmd+Shift+L early return when disabled
-- [ ] guard `Sources/TerminalController.swift:927` — v1 `open_browser` error when disabled
-- [ ] guard `Sources/TerminalController.swift:5095` — v2 `browser.*` commands `.err` when disabled
-- [ ] guard `Sources/Workspace.swift:505` — session restore `.browser` returns nil when disabled
-- [ ] write tests for browserEnabled=false prevents BrowserPanel instantiation
-- [ ] write tests for browserEnabled=true allows browser creation (no regression)
-- [ ] run project tests - must pass before task 2
+- [x] register `browserEnabled` default (true) in `Sources/cmuxApp.swift` init (lines 49-60)
+- [x] add `@AppStorage("browserEnabled")` in `Sources/ContentView.swift` for reactive SwiftUI
+- [x] guard `Sources/ContentView.swift:4061` — Cmd+Shift+L early return when disabled
+- [x] guard `Sources/TerminalController.swift:927` — v1 `open_browser` error when disabled
+- [x] guard `Sources/TerminalController.swift:5095` — v2 `browser.*` commands `.err` when disabled
+- [x] guard `Sources/Workspace.swift:505` — session restore `.browser` returns nil when disabled
+- [x] write tests for browserEnabled=false prevents BrowserPanel instantiation
+- [x] write tests for browserEnabled=true allows browser creation (no regression)
+- [x] run project tests - must pass before task 2
 
 ### Task 2: ScheduledTask and TaskRun data models
 - [ ] create `Sources/Scheduler/ScheduledTask.swift` with `ScheduledTask` struct (id, name, cronExpression, command, workingDirectory, environment, isEnabled, allowOverlap, useWorktree, onSuccess, onFailure, createdAt)

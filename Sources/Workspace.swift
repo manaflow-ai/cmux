@@ -503,6 +503,7 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
+            guard BrowserSettings.isEnabled else { return nil }
             let initialURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
