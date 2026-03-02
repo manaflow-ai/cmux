@@ -81,10 +81,7 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: self-hosted
-    concurrency:
-      group: self-hosted-nightly
-      cancel-in-progress: false
+    runs-on: depot-macos-latest
     steps:
       - name: Checkout main
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -113,23 +110,34 @@ jobs:
 
       - name: Install build deps
         run: |
-          brew update
-          brew install zig
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd ghostty
-          zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
-          cd ..
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-
-      - name: Clear SPM cache
-        run: |
-          rm -rf ~/Library/Caches/org.swift.swiftpm
-          mkdir -p ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          set -euo pipefail
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
+          test -d GhosttyKit.xcframework
 
       - name: Configure SwiftPM cache
         run: |
