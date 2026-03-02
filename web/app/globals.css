@@ -75,6 +75,15 @@ body {
   animation: blink 1s step-end infinite;
 }
 
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 500ms ease-out;
+}
+
 /* Docs prose styles — in @layer base so Tailwind utilities can override */
 @layer base {
   .docs-content h1 {
