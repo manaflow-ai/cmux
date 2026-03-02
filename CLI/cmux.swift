@@ -204,7 +204,48 @@ struct NotificationInfo {
     let body: String
 }
 
-private struct ClaudeHookParsedInput {
+// MARK: - Agent hook configuration (shared by Claude Code, Cortex Code, etc.)
+
+private struct AgentHookConfig {
+    let name: String              // e.g. "Claude Code", "Cortex Code"
+    let statusKey: String         // e.g. "claude_code", "cortex_code"
+    let cliSubcommand: String     // e.g. "claude-hook", "cortex-hook"
+    let stateFilename: String     // e.g. "claude-hook-sessions.json"
+    let stateEnvVar: String       // e.g. "CMUX_CLAUDE_HOOK_STATE_PATH"
+    let statusColor: String       // e.g. "#4C8DFF", "#10B981"
+    let fallbackWaiting: String   // e.g. "Claude is waiting for your input"
+    let fallbackNeeds: String     // e.g. "Claude needs your input"
+    let fallbackCompleted: String // e.g. "Claude session completed"
+    let fallbackError: String     // e.g. "Claude reported an error"
+}
+
+private let claudeHookConfig = AgentHookConfig(
+    name: "Claude Code",
+    statusKey: "claude_code",
+    cliSubcommand: "claude-hook",
+    stateFilename: "claude-hook-sessions.json",
+    stateEnvVar: "CMUX_CLAUDE_HOOK_STATE_PATH",
+    statusColor: "#4C8DFF",
+    fallbackWaiting: "Claude is waiting for your input",
+    fallbackNeeds: "Claude needs your input",
+    fallbackCompleted: "Claude session completed",
+    fallbackError: "Claude reported an error"
+)
+
+private let cortexHookConfig = AgentHookConfig(
+    name: "Cortex Code",
+    statusKey: "cortex_code",
+    cliSubcommand: "cortex-hook",
+    stateFilename: "cortex-hook-sessions.json",
+    stateEnvVar: "CMUX_CORTEX_HOOK_STATE_PATH",
+    statusColor: "#10B981",
+    fallbackWaiting: "Cortex Code is waiting for your input",
+    fallbackNeeds: "Cortex Code needs your input",
+    fallbackCompleted: "Cortex Code session completed",
+    fallbackError: "Cortex Code reported an error"
+)
+
+private struct AgentHookParsedInput {
     let rawInput: String
     let object: [String: Any]?
     let sessionId: String?
@@ -212,7 +253,7 @@ private struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-private struct ClaudeHookSessionRecord: Codable {
+private struct AgentHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -223,35 +264,38 @@ private struct ClaudeHookSessionRecord: Codable {
     var updatedAt: TimeInterval
 }
 
-private struct ClaudeHookSessionStoreFile: Codable {
+private struct AgentHookSessionStoreFile: Codable {
     var version: Int = 1
-    var sessions: [String: ClaudeHookSessionRecord] = [:]
+    var sessions: [String: AgentHookSessionRecord] = [:]
 }
 
-private final class ClaudeHookSessionStore {
-    private static let defaultStatePath = "~/.cmuxterm/claude-hook-sessions.json"
+private final class AgentHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
 
     private let statePath: String
     private let fileManager: FileManager
+    private let config: AgentHookConfig
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
+        config: AgentHookConfig,
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) {
-        if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        self.config = config
+        let defaultPath = "~/.cmuxterm/\(config.stateFilename)"
+        if let overridePath = processEnv[config.stateEnvVar]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
             self.statePath = NSString(string: overridePath).expandingTildeInPath
         } else {
-            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
+            self.statePath = NSString(string: defaultPath).expandingTildeInPath
         }
         self.fileManager = fileManager
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
-    func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
+    func lookup(sessionId: String) throws -> AgentHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
@@ -271,7 +315,7 @@ private final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             let now = Date().timeIntervalSince1970
-            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+            var record = state.sessions[normalized] ?? AgentHookSessionRecord(
                 sessionId: normalized,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
@@ -301,7 +345,7 @@ private final class ClaudeHookSessionStore {
         sessionId: String?,
         workspaceId: String?,
         surfaceId: String?
-    ) throws -> ClaudeHookSessionRecord? {
+    ) throws -> AgentHookSessionRecord? {
         let normalizedSessionId = normalizeOptional(sessionId)
         let normalizedWorkspace = normalizeOptional(workspaceId)
         let normalizedSurface = normalizeOptional(surfaceId)
@@ -324,10 +368,10 @@ private final class ClaudeHookSessionStore {
     }
 
     private func fallbackRecord(
-        sessions: [ClaudeHookSessionRecord],
+        sessions: [AgentHookSessionRecord],
         workspaceId: String?,
         surfaceId: String?
-    ) -> ClaudeHookSessionRecord? {
+    ) -> AgentHookSessionRecord? {
         if let surfaceId {
             let matches = sessions.filter { $0.surfaceId == surfaceId }
             return matches.max(by: { $0.updatedAt < $1.updatedAt })
@@ -341,16 +385,16 @@ private final class ClaudeHookSessionStore {
         return nil
     }
 
-    private func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+    private func withLockedState<T>(_ body: (inout AgentHookSessionStoreFile) throws -> T) throws -> T {
         let lockPath = statePath + ".lock"
         let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
         if fd < 0 {
-            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+            throw CLIError(message: "Failed to open \(config.name) hook state lock: \(lockPath)")
         }
         defer { Darwin.close(fd) }
 
         if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+            throw CLIError(message: "Failed to lock \(config.name) hook state: \(lockPath)")
         }
         defer { _ = flock(fd, LOCK_UN) }
 
@@ -361,18 +405,18 @@ private final class ClaudeHookSessionStore {
         return result
     }
 
-    private func loadUnlocked() -> ClaudeHookSessionStoreFile {
+    private func loadUnlocked() -> AgentHookSessionStoreFile {
         guard fileManager.fileExists(atPath: statePath) else {
-            return ClaudeHookSessionStoreFile()
+            return AgentHookSessionStoreFile()
         }
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
-              let decoded = try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data) else {
-            return ClaudeHookSessionStoreFile()
+              let decoded = try? decoder.decode(AgentHookSessionStoreFile.self, from: data) else {
+            return AgentHookSessionStoreFile()
         }
         return decoded
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+    private func saveUnlocked(_ state: AgentHookSessionStoreFile) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
         try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
@@ -380,7 +424,7 @@ private final class ClaudeHookSessionStore {
         try data.write(to: stateURL, options: .atomic)
     }
 
-    private func pruneExpired(_ state: inout ClaudeHookSessionStoreFile) {
+    private func pruneExpired(_ state: inout AgentHookSessionStoreFile) {
         let now = Date().timeIntervalSince1970
         let cutoff = now - Self.maxStateAgeSeconds
         state.sessions = state.sessions.filter { _, record in
@@ -1311,11 +1355,22 @@ struct CMUXCLI {
         case "claude-hook":
             cliTelemetry.breadcrumb("claude-hook.dispatch")
             do {
-                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                try runAgentHook(config: claudeHookConfig, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
                 cliTelemetry.breadcrumb("claude-hook.completed")
             } catch {
                 cliTelemetry.breadcrumb("claude-hook.failure")
                 cliTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "cortex-hook":
+            cliTelemetry.breadcrumb("cortex-hook.dispatch")
+            do {
+                try runAgentHook(config: cortexHookConfig, commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("cortex-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("cortex-hook.failure")
+                cliTelemetry.captureError(stage: "cortex_hook_dispatch", error: error)
                 throw error
             }
 
@@ -4447,6 +4502,28 @@ struct CMUXCLI {
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
             """
+        case "cortex-hook":
+            return """
+            Usage: cmux cortex-hook <session-start|active|stop|idle|notification|notify> [flags]
+
+            Hook for Cortex Code integration. Reads JSON from stdin.
+
+            Subcommands:
+              session-start   Signal that a Cortex Code session has started
+              active          Alias for session-start
+              stop            Signal that a Cortex Code session has stopped
+              idle            Alias for stop
+              notification    Forward a Cortex Code notification
+              notify          Alias for notification
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              echo '{"session_id":"abc"}' | cmux cortex-hook session-start
+              echo '{}' | cmux cortex-hook stop
+            """
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -5606,7 +5683,8 @@ struct CMUXCLI {
         }
     }
 
-    private func runClaudeHook(
+    private func runAgentHook(
+        config: AgentHookConfig,
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry
@@ -5617,10 +5695,10 @@ struct CMUXCLI {
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
-        let sessionStore = ClaudeHookSessionStore()
+        let parsedInput = parseAgentHookInput(rawInput: rawInput)
+        let sessionStore = AgentHookSessionStore(config: config)
         telemetry.breadcrumb(
-            "claude-hook.input",
+            "\(config.cliSubcommand).input",
             data: [
                 "subcommand": subcommand,
                 "has_session_id": parsedInput.sessionId != nil,
@@ -5628,14 +5706,14 @@ struct CMUXCLI {
                 "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
             ]
         )
-        let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
+        let fallbackWorkspaceId = try resolveWorkspaceIdForAgentHook(workspaceArg, client: client)
         let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
 
         switch subcommand {
         case "session-start", "active":
-            telemetry.breadcrumb("claude-hook.session-start")
+            telemetry.breadcrumb("\(config.cliSubcommand).session-start")
             let workspaceId = fallbackWorkspaceId
-            let surfaceId = try resolveSurfaceIdForClaudeHook(
+            let surfaceId = try resolveSurfaceIdForAgentHook(
                 surfaceArg,
                 workspaceId: workspaceId,
                 client: client
@@ -5648,35 +5726,36 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd
                 )
             }
-            try setClaudeStatus(
+            try setAgentStatus(
+                config: config,
                 client: client,
                 workspaceId: workspaceId,
                 value: "Running",
-                icon: "bolt.fill",
-                color: "#4C8DFF"
+                icon: "bolt.fill"
             )
             print("OK")
 
         case "stop", "idle":
-            telemetry.breadcrumb("claude-hook.stop")
+            telemetry.breadcrumb("\(config.cliSubcommand).stop")
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
                 surfaceId: fallbackSurfaceId
             )
             let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
-            try clearClaudeStatus(client: client, workspaceId: workspaceId)
+            try clearAgentStatus(config: config, client: client, workspaceId: workspaceId)
 
-            if let completion = summarizeClaudeHookStop(
+            if let completion = summarizeAgentHookStop(
+                config: config,
                 parsedInput: parsedInput,
                 sessionRecord: consumedSession
             ) {
-                let surfaceId = try resolveSurfaceIdForClaudeHook(
+                let surfaceId = try resolveSurfaceIdForAgentHook(
                     consumedSession?.surfaceId ?? surfaceArg,
                     workspaceId: workspaceId,
                     client: client
                 )
-                let title = "Claude Code"
+                let title = config.name
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
@@ -5687,25 +5766,25 @@ struct CMUXCLI {
             }
 
         case "notification", "notify":
-            telemetry.breadcrumb("claude-hook.notification")
-            let summary = summarizeClaudeHookNotification(rawInput: rawInput)
+            telemetry.breadcrumb("\(config.cliSubcommand).notification")
+            let summary = summarizeAgentHookNotification(config: config, rawInput: rawInput)
 
             var workspaceId = fallbackWorkspaceId
             var preferredSurface = surfaceArg
             if let sessionId = parsedInput.sessionId,
                let mapped = try? sessionStore.lookup(sessionId: sessionId),
-               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+               let mappedWorkspace = try? resolveWorkspaceIdForAgentHook(mapped.workspaceId, client: client) {
                 workspaceId = mappedWorkspace
                 preferredSurface = mapped.surfaceId
             }
 
-            let surfaceId = try resolveSurfaceIdForClaudeHook(
+            let surfaceId = try resolveSurfaceIdForAgentHook(
                 preferredSurface,
                 workspaceId: workspaceId,
                 client: client
             )
 
-            let title = "Claude Code"
+            let title = config.name
             let subtitle = sanitizeNotificationField(summary.subtitle)
             let body = sanitizeNotificationField(summary.body)
             let payload = "\(title)|\(subtitle)|\(body)"
@@ -5722,45 +5801,45 @@ struct CMUXCLI {
             }
 
             let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-            _ = try? setClaudeStatus(
+            _ = try? setAgentStatus(
+                config: config,
                 client: client,
                 workspaceId: workspaceId,
                 value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                icon: "bell.fill"
             )
             print(response)
 
         case "help", "--help", "-h":
-            telemetry.breadcrumb("claude-hook.help")
+            telemetry.breadcrumb("\(config.cliSubcommand).help")
             print(
                 """
-                cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
+                cmux \(config.cliSubcommand) <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
         default:
-            throw CLIError(message: "Unknown claude-hook subcommand: \(subcommand)")
+            throw CLIError(message: "Unknown \(config.cliSubcommand) subcommand: \(subcommand)")
         }
     }
 
-    private func setClaudeStatus(
+    private func setAgentStatus(
+        config: AgentHookConfig,
         client: SocketClient,
         workspaceId: String,
         value: String,
-        icon: String,
-        color: String
+        icon: String
     ) throws {
         _ = try client.send(
-            command: "set_status claude_code \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+            command: "set_status \(config.statusKey) \(value) --icon=\(icon) --color=\(config.statusColor) --tab=\(workspaceId)"
         )
     }
 
-    private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
-        _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    private func clearAgentStatus(config: AgentHookConfig, client: SocketClient, workspaceId: String) throws {
+        _ = try client.send(command: "clear_status \(config.statusKey) --tab=\(workspaceId)")
     }
 
-    private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
+    private func resolveWorkspaceIdForAgentHook(_ raw: String?, client: SocketClient) throws -> String {
         if let raw, !raw.isEmpty, let candidate = try? resolveWorkspaceId(raw, client: client) {
             let probe = try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])
             if probe != nil {
@@ -5770,7 +5849,7 @@ struct CMUXCLI {
         return try resolveWorkspaceId(nil, client: client)
     }
 
-    private func resolveSurfaceIdForClaudeHook(
+    private func resolveSurfaceIdForAgentHook(
         _ raw: String?,
         workspaceId: String,
         client: SocketClient
@@ -5781,26 +5860,25 @@ struct CMUXCLI {
         return try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
     }
 
-    private func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
+    private func parseAgentHookInput(rawInput: String) -> AgentHookParsedInput {
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
               let object = json as? [String: Any] else {
-            return ClaudeHookParsedInput(rawInput: rawInput, object: nil, sessionId: nil, cwd: nil, transcriptPath: nil)
+            return AgentHookParsedInput(rawInput: rawInput, object: nil, sessionId: nil, cwd: nil, transcriptPath: nil)
         }
 
-        let sessionId = extractClaudeHookSessionId(from: object)
-        let cwd = extractClaudeHookCWD(from: object)
+        let sessionId = extractAgentHookSessionId(from: object)
+        let cwd = extractAgentHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
-        return ClaudeHookParsedInput(rawInput: rawInput, object: object, sessionId: sessionId, cwd: cwd, transcriptPath: transcriptPath)
+        return AgentHookParsedInput(rawInput: rawInput, object: object, sessionId: sessionId, cwd: cwd, transcriptPath: transcriptPath)
     }
 
-    private func extractClaudeHookSessionId(from object: [String: Any]) -> String? {
+    private func extractAgentHookSessionId(from object: [String: Any]) -> String? {
         if let id = firstString(in: object, keys: ["session_id", "sessionId"]) {
             return id
         }
-
         if let nested = object["notification"] as? [String: Any],
            let id = firstString(in: nested, keys: ["session_id", "sessionId"]) {
             return id
@@ -5820,7 +5898,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func extractClaudeHookCWD(from object: [String: Any]) -> String? {
+    private func extractAgentHookCWD(from object: [String: Any]) -> String? {
         let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]
         if let cwd = firstString(in: object, keys: cwdKeys) {
             return cwd
@@ -5840,9 +5918,10 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookStop(
-        parsedInput: ClaudeHookParsedInput,
-        sessionRecord: ClaudeHookSessionRecord?
+    private func summarizeAgentHookStop(
+        config: AgentHookConfig,
+        parsedInput: AgentHookParsedInput,
+        sessionRecord: AgentHookSessionRecord?
     ) -> (subtitle: String, body: String)? {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
@@ -5870,7 +5949,7 @@ struct CMUXCLI {
         let hasContext = cwd != nil || lastMessage != nil
         guard hasContext else { return nil }
 
-        var body = "Claude session completed"
+        var body = config.fallbackCompleted
         if let projectName, !projectName.isEmpty {
             body += " in \(projectName)"
         }
@@ -5931,17 +6010,17 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(rawInput: String) -> (subtitle: String, body: String) {
+    private func summarizeAgentHookNotification(config: AgentHookConfig, rawInput: String) -> (subtitle: String, body: String) {
         let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            return ("Waiting", "Claude is waiting for your input")
+            return ("Waiting", config.fallbackWaiting)
         }
 
         guard let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
               let object = json as? [String: Any] else {
             let fallback = truncate(normalizedSingleLine(trimmed), maxLength: 180)
-            return classifyClaudeNotification(signal: fallback, message: fallback)
+            return classifyAgentNotification(config: config, signal: fallback, message: fallback)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -5955,11 +6034,11 @@ struct CMUXCLI {
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
         let session = firstString(in: object, keys: ["session_id", "sessionId"])
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let message = messageCandidates.compactMap { $0 }.first ?? config.fallbackNeeds
         let dedupedMessage = dedupeBranchContextLines(message)
         let normalizedMessage = normalizedSingleLine(dedupedMessage)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+        var classified = classifyAgentNotification(config: config, signal: signal, message: normalizedMessage)
 
         if let session, !session.isEmpty {
             let shortSession = String(session.prefix(8))
@@ -5972,21 +6051,21 @@ struct CMUXCLI {
         return classified
     }
 
-    private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
+    private func classifyAgentNotification(config: AgentHookConfig, signal: String, message: String) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
             let body = message.isEmpty ? "Approval needed" : message
             return ("Permission", body)
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
+            let body = message.isEmpty ? config.fallbackError : message
             return ("Error", body)
         }
         if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("prompt") {
-            let body = message.isEmpty ? "Claude is waiting for your input" : message
+            let body = message.isEmpty ? config.fallbackWaiting : message
             return ("Waiting", body)
         }
-        let body = message.isEmpty ? "Claude needs your input" : message
+        let body = message.isEmpty ? config.fallbackNeeds : message
         return ("Attention", body)
     }
 
@@ -6381,6 +6460,7 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          cortex-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
 
           # sidebar metadata commands
           set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
