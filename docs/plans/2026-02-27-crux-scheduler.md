@@ -190,12 +190,12 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 12
 
 ### Task 12: App lifecycle integration
-- [ ] initialize SchedulerEngine in `AppDelegate.applicationDidFinishLaunching()`
-- [ ] persist task list in `applicationWillTerminate()`
-- [ ] verify second window creation with EnvironmentObject
-- [ ] write tests for SchedulerEngine loads persisted tasks on init
-- [ ] write tests for app quit persists task list
-- [ ] run project tests - must pass before task 13
+- [x] initialize SchedulerEngine in `AppDelegate.applicationDidFinishLaunching()`
+- [x] persist task list in `applicationWillTerminate()`
+- [x] verify second window creation with EnvironmentObject
+- [x] write tests for SchedulerEngine loads persisted tasks on init
+- [x] write tests for app quit persists task list
+- [x] run project tests - must pass before task 13
 
 ### Task 13: Task chaining post-run hooks
 - [ ] implement chaining in `handleTaskCompletion()` — check onSuccess/onFailure fields

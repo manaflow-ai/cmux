@@ -1388,6 +1388,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
         startSocketListenerHealthMonitorIfNeeded()
+
+        // Start the scheduler engine's evaluation timer and wire the execution callback.
+        // Must happen after tabManager is set so executeTask can create terminal surfaces.
+        let schedulerEngine = SchedulerEngine.shared
+        schedulerEngine.onTaskDue = { [weak self] task, run in
+            guard let tabManager = self?.tabManager else { return }
+            schedulerEngine.executeTask(task, run: run, tabManager: tabManager)
+        }
+        schedulerEngine.start()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()

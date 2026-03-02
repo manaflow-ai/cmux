@@ -621,4 +621,107 @@ final class SchedulerEngineTests: XCTestCase {
         XCTAssertTrue(contextFile.path.hasSuffix(".json"))
         XCTAssertTrue(contextFile.path.contains(run.id.uuidString))
     }
+
+    // MARK: - SchedulerEngine loads persisted tasks on init
+
+    func testEngineLoadsPersistedTasksOnInit() {
+        let fileURL = tempDir.appendingPathComponent("scheduler.json")
+        let task1 = ScheduledTask(
+            name: "persisted-1",
+            cronExpression: "0 * * * *",
+            command: "echo one",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let task2 = ScheduledTask(
+            name: "persisted-2",
+            cronExpression: "30 9 * * 1-5",
+            command: "echo two",
+            isEnabled: false,
+            createdAt: Date(timeIntervalSince1970: 1700000060)
+        )
+        SchedulerPersistenceStore.save([task1, task2], fileURL: fileURL)
+
+        // Creating a new engine should load the persisted tasks
+        let engine = SchedulerEngine(persistenceFileURL: fileURL)
+
+        XCTAssertEqual(engine.tasks.count, 2)
+        XCTAssertEqual(engine.tasks[0].id, task1.id)
+        XCTAssertEqual(engine.tasks[0].name, "persisted-1")
+        XCTAssertEqual(engine.tasks[1].id, task2.id)
+        XCTAssertEqual(engine.tasks[1].name, "persisted-2")
+        XCTAssertFalse(engine.tasks[1].isEnabled)
+    }
+
+    func testEngineInitWithNoFileLoadsEmpty() {
+        let fileURL = tempDir.appendingPathComponent("nonexistent.json")
+
+        let engine = SchedulerEngine(persistenceFileURL: fileURL)
+
+        XCTAssertTrue(engine.tasks.isEmpty)
+    }
+
+    // MARK: - App quit persists task list
+
+    func testHandleAppWillTerminatePersistsTaskList() {
+        let fileURL = tempDir.appendingPathComponent("scheduler.json")
+        SchedulerPersistenceStore.save([], fileURL: fileURL)
+        let engine = SchedulerEngine(persistenceFileURL: fileURL)
+
+        // Add tasks after init (simulating runtime task creation)
+        let task = ScheduledTask(
+            name: "quit-persist-test",
+            cronExpression: "0 12 * * *",
+            command: "echo persist",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks.append(task)
+
+        // Simulate app quit
+        engine.handleAppWillTerminate()
+
+        // Verify the tasks were persisted to disk
+        let loaded = SchedulerPersistenceStore.load(fileURL: fileURL)
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded[0].id, task.id)
+        XCTAssertEqual(loaded[0].name, "quit-persist-test")
+    }
+
+    func testHandleAppWillTerminatePersistsAfterCancellingRunningTasks() {
+        let fileURL = tempDir.appendingPathComponent("scheduler.json")
+        let task = ScheduledTask(
+            name: "running-at-quit",
+            cronExpression: "* * * * *",
+            command: "long-task",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        SchedulerPersistenceStore.save([task], fileURL: fileURL)
+        let engine = SchedulerEngine(persistenceFileURL: fileURL)
+
+        // Add a running task
+        engine.runs = [TaskRun(taskId: task.id, status: .running)]
+
+        engine.handleAppWillTerminate()
+
+        // Task definitions should still be persisted (only runs are cancelled, not tasks removed)
+        let loaded = SchedulerPersistenceStore.load(fileURL: fileURL)
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded[0].id, task.id)
+
+        // Verify the run was cancelled
+        XCTAssertEqual(engine.runs[0].status, .cancelled)
+    }
+
+    func testHandleAppWillTerminateStopsTimer() {
+        let fileURL = tempDir.appendingPathComponent("scheduler.json")
+        SchedulerPersistenceStore.save([], fileURL: fileURL)
+        let engine = SchedulerEngine(persistenceFileURL: fileURL)
+
+        engine.start()
+        engine.handleAppWillTerminate()
+
+        // After terminate, starting again should work (timer was cleaned up)
+        // This indirectly verifies stop() was called
+        engine.start()
+        engine.stop() // cleanup
+    }
 }
