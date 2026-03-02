@@ -146,6 +146,121 @@ enum WorkspacePlacementSettings {
     }
 }
 
+enum NewWorkspaceDirectoryMode: String, CaseIterable, Identifiable {
+    case inheritCurrent
+    case customPath
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .inheritCurrent:
+            return "Inherit Current"
+        case .customPath:
+            return "Custom Path"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .inheritCurrent:
+            return "Use the focused panel's current directory when creating a workspace."
+        case .customPath:
+            return "Always start new workspaces in a custom directory."
+        }
+    }
+}
+
+enum WorkspaceDirectorySettings {
+    enum CustomDirectoryValidation: Equatable {
+        case empty
+        case valid(path: String)
+        case invalid(path: String, reason: String)
+    }
+
+    static let modeKey = "newWorkspaceDirectoryMode"
+    static let customPathKey = "newWorkspaceDirectoryCustomPath"
+    static let defaultMode: NewWorkspaceDirectoryMode = .inheritCurrent
+    static let defaultCustomPath = ""
+
+    static func current(defaults: UserDefaults = .standard) -> NewWorkspaceDirectoryMode {
+        guard let raw = defaults.string(forKey: modeKey) else {
+            return defaultMode
+        }
+        return NewWorkspaceDirectoryMode(rawValue: raw) ?? defaultMode
+    }
+
+    static func defaultWorkingDirectory(
+        mode: NewWorkspaceDirectoryMode,
+        inheritedDirectory: String?,
+        customDirectory: String?
+    ) -> String? {
+        switch mode {
+        case .inheritCurrent:
+            return inheritedDirectory
+        case .customPath:
+            return customDirectory ?? inheritedDirectory
+        }
+    }
+
+    static func currentCustomDirectory(defaults: UserDefaults = .standard) -> String? {
+        let rawPath = defaults.string(forKey: customPathKey) ?? defaultCustomPath
+        switch validateCustomDirectory(rawPath, homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path) {
+        case .valid(let path):
+            return path
+        case .empty, .invalid:
+            return nil
+        }
+    }
+
+    static func validateCustomDirectory(
+        _ rawPath: String?,
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path
+    ) -> CustomDirectoryValidation {
+        guard let normalized = normalizedCustomDirectory(rawPath, homeDirectory: homeDirectory) else {
+            return .empty
+        }
+
+        var isDirectory: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory)
+        guard exists else {
+            return .invalid(path: normalized, reason: "Path does not exist.")
+        }
+        guard isDirectory.boolValue else {
+            return .invalid(path: normalized, reason: "Path is not a directory.")
+        }
+        return .valid(path: normalized)
+    }
+
+    static func normalizedCustomDirectory(_ rawPath: String?, homeDirectory: String) -> String? {
+        guard let rawPath else { return nil }
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let fileURLPath: String?
+        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
+            fileURLPath = url.path
+        } else {
+            fileURLPath = nil
+        }
+
+        let candidate = fileURLPath ?? trimmed
+        let expanded: String
+        if candidate == "~" {
+            expanded = homeDirectory
+        } else if candidate.hasPrefix("~/") {
+            let relative = String(candidate.dropFirst(2))
+            expanded = (homeDirectory as NSString).appendingPathComponent(relative)
+        } else {
+            expanded = NSString(string: candidate).expandingTildeInPath
+        }
+        let absolute = expanded.hasPrefix("/") ? expanded : (homeDirectory as NSString).appendingPathComponent(expanded)
+        let standardized = NSString(string: absolute).standardizingPath
+        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
@@ -764,7 +879,7 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Workspace {
         sentryBreadcrumb("workspace.create", data: ["tabCount": tabs.count + 1])
-        let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? preferredWorkingDirectoryForNewTab()
+        let workingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) ?? defaultWorkingDirectoryForNewWorkspace()
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace()
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
@@ -867,6 +982,17 @@ class TabManager: ObservableObject {
         let normalized = normalizeDirectory(candidate)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : normalized
+    }
+
+    private func defaultWorkingDirectoryForNewWorkspace() -> String? {
+        let inheritedDirectory = preferredWorkingDirectoryForNewTab()
+        let mode = WorkspaceDirectorySettings.current()
+        let customDirectory = WorkspaceDirectorySettings.currentCustomDirectory()
+        return WorkspaceDirectorySettings.defaultWorkingDirectory(
+            mode: mode,
+            inheritedDirectory: inheritedDirectory,
+            customDirectory: customDirectory
+        )
     }
 
     func moveTabToTop(_ tabId: UUID) {
