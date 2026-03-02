@@ -35,6 +35,17 @@ enum KeyboardShortcutSettings {
         case splitBrowserRight
         case splitBrowserDown
 
+        // Numbered surface selection (Ctrl+1-9 by default)
+        case selectSurface1
+        case selectSurface2
+        case selectSurface3
+        case selectSurface4
+        case selectSurface5
+        case selectSurface6
+        case selectSurface7
+        case selectSurface8
+        case selectSurface9
+
         // Panels
         case openBrowser
         case toggleBrowserDeveloperTools
@@ -69,6 +80,15 @@ enum KeyboardShortcutSettings {
             case .toggleSplitZoom: return "Toggle Pane Zoom"
             case .splitBrowserRight: return "Split Browser Right"
             case .splitBrowserDown: return "Split Browser Down"
+            case .selectSurface1: return "Select Surface 1"
+            case .selectSurface2: return "Select Surface 2"
+            case .selectSurface3: return "Select Surface 3"
+            case .selectSurface4: return "Select Surface 4"
+            case .selectSurface5: return "Select Surface 5"
+            case .selectSurface6: return "Select Surface 6"
+            case .selectSurface7: return "Select Surface 7"
+            case .selectSurface8: return "Select Surface 8"
+            case .selectSurface9: return "Select Last Surface"
             case .openBrowser: return "Open Browser"
             case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
             case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
@@ -102,6 +122,15 @@ enum KeyboardShortcutSettings {
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
+            case .selectSurface1: return "shortcut.selectSurface1"
+            case .selectSurface2: return "shortcut.selectSurface2"
+            case .selectSurface3: return "shortcut.selectSurface3"
+            case .selectSurface4: return "shortcut.selectSurface4"
+            case .selectSurface5: return "shortcut.selectSurface5"
+            case .selectSurface6: return "shortcut.selectSurface6"
+            case .selectSurface7: return "shortcut.selectSurface7"
+            case .selectSurface8: return "shortcut.selectSurface8"
+            case .selectSurface9: return "shortcut.selectSurface9"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -160,6 +189,24 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .selectSurface1:
+                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
+            case .selectSurface2:
+                return StoredShortcut(key: "2", command: false, shift: false, option: false, control: true)
+            case .selectSurface3:
+                return StoredShortcut(key: "3", command: false, shift: false, option: false, control: true)
+            case .selectSurface4:
+                return StoredShortcut(key: "4", command: false, shift: false, option: false, control: true)
+            case .selectSurface5:
+                return StoredShortcut(key: "5", command: false, shift: false, option: false, control: true)
+            case .selectSurface6:
+                return StoredShortcut(key: "6", command: false, shift: false, option: false, control: true)
+            case .selectSurface7:
+                return StoredShortcut(key: "7", command: false, shift: false, option: false, control: true)
+            case .selectSurface8:
+                return StoredShortcut(key: "8", command: false, shift: false, option: false, control: true)
+            case .selectSurface9:
+                return StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
