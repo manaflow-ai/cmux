@@ -992,6 +992,13 @@ class GhosttyApp {
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
     }
 
+    @MainActor
+    private func tabManagerForSurfaceAction(tabId: UUID?) -> TabManager? {
+        guard let app = AppDelegate.shared else { return nil }
+        guard let tabId else { return app.tabManager }
+        return app.tabManagerFor(tabId: tabId) ?? app.tabManager
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -1120,37 +1127,39 @@ class GhosttyApp {
                 surfaceId: callbackSurfaceId ?? surfaceView.terminalSurface?.id
             )
         }
+        let actionTabId = callbackTabId ?? surfaceView.tabId
+        let actionSurfaceId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
 
         switch action.tag {
         case GHOSTTY_ACTION_NEW_SPLIT:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id,
+            guard let tabId = actionTabId,
+                  let surfaceId = actionSurfaceId,
                   let direction = splitDirection(from: action.action.new_split) else {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let tabManager = tabManagerForSurfaceAction(tabId: tabId) else { return false }
                 return tabManager.newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction) != nil
             }
         case GHOSTTY_ACTION_GOTO_SPLIT:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id,
+            guard let tabId = actionTabId,
+                  let surfaceId = actionSurfaceId,
                   let direction = focusDirection(from: action.action.goto_split) else {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let tabManager = tabManagerForSurfaceAction(tabId: tabId) else { return false }
                 return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id,
+            guard let tabId = actionTabId,
+                  let surfaceId = actionSurfaceId,
                   let direction = resizeDirection(from: action.action.resize_split.direction) else {
                 return false
             }
             let amount = action.action.resize_split.amount
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let tabManager = tabManagerForSurfaceAction(tabId: tabId) else { return false }
                 return tabManager.resizeSplit(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -1159,20 +1168,20 @@ class GhosttyApp {
                 )
             }
         case GHOSTTY_ACTION_EQUALIZE_SPLITS:
-            guard let tabId = surfaceView.tabId else {
+            guard let tabId = actionTabId else {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let tabManager = tabManagerForSurfaceAction(tabId: tabId) else { return false }
                 return tabManager.equalizeSplits(tabId: tabId)
             }
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM:
-            guard let tabId = surfaceView.tabId,
-                  let surfaceId = surfaceView.terminalSurface?.id else {
+            guard let tabId = actionTabId,
+                  let surfaceId = actionSurfaceId else {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let tabManager = tabManagerForSurfaceAction(tabId: tabId) else { return false }
                 return tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
             }
         case GHOSTTY_ACTION_SCROLLBAR:
