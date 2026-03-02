@@ -2258,6 +2258,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
+    var reparentFocusSuppressionGeneration: UInt64 = 0
     var tabId: UUID?
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
@@ -2739,6 +2740,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
+                suppressingReparentFocus = false
 #if DEBUG
                 dlog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -4754,10 +4756,29 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func scheduleReparentFocusSuppressionClear(generation: UInt64, remainingPasses: Int = 2) {
+        guard remainingPasses > 0 else {
+            guard surfaceView.reparentFocusSuppressionGeneration == generation else { return }
+            surfaceView.suppressingReparentFocus = false
+            return
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            self?.scheduleReparentFocusSuppressionClear(
+                generation: generation,
+                remainingPasses: remainingPasses - 1
+            )
+        }
+    }
+
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
-    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
+    /// SwiftUI reparenting (programmatic splits). Clear automatically after the next couple
+    /// of main-queue turns to avoid long fixed-time suppression windows.
     func suppressReparentFocus() {
+        surfaceView.reparentFocusSuppressionGeneration &+= 1
+        let generation = surfaceView.reparentFocusSuppressionGeneration
         surfaceView.suppressingReparentFocus = true
+        scheduleReparentFocusSuppressionClear(generation: generation)
     }
 
     func clearSuppressReparentFocus() {

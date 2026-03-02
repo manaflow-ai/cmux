@@ -5469,22 +5469,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
-                return true
-            }
-            _ = performSplitShortcut(direction: .right)
-            return true
+            return performSplitShortcutWithTransientFocusRecovery(direction: .right)
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
 #if DEBUG
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .down) {
-                return true
-            }
-            _ = performSplitShortcut(direction: .down)
-            return true
+            return performSplitShortcutWithTransientFocusRecovery(direction: .down)
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
@@ -5659,6 +5651,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "frame=\(String(format: "%.1fx%.1f", hostedSize.width, hostedSize.height))"
         )
 #endif
+        return true
+    }
+
+    @discardableResult
+    private func performSplitShortcutWithTransientFocusRecovery(direction: SplitDirection) -> Bool {
+        guard shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: direction) else {
+            return performSplitShortcut(direction: direction)
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard !self.shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: direction) else { return }
+#if DEBUG
+            let directionLabel: String
+            switch direction {
+            case .left: directionLabel = "left"
+            case .right: directionLabel = "right"
+            case .up: directionLabel = "up"
+            case .down: directionLabel = "down"
+            }
+            dlog("split.shortcut retry dir=\(directionLabel) reason=postFocusReconcile")
+#endif
+            _ = self.performSplitShortcut(direction: direction)
+        }
         return true
     }
 

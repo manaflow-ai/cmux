@@ -1950,9 +1950,6 @@ final class Workspace: Identifiable, ObservableObject {
         if focus {
             previousHostedView?.suppressReparentFocus()
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -1960,6 +1957,7 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+        scheduleTerminalGeometryReconcile(runImmediately: true)
 
         return newPanel
     }
@@ -2076,9 +2074,6 @@ final class Workspace: Identifiable, ObservableObject {
         if focus {
             previousHostedView?.suppressReparentFocus()
             focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -2086,6 +2081,7 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+        scheduleTerminalGeometryReconcile(runImmediately: true)
 
         installBrowserPanelSubscription(browserPanel)
 
@@ -2711,6 +2707,28 @@ final class Workspace: Identifiable, ObservableObject {
             allowPreviousHostedView: true
         )
 
+        scheduleDeferredNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId,
+            previousHostedView: previousHostedView,
+            remainingPasses: 1
+        )
+    }
+
+    private func scheduleDeferredNonFocusSplitFocusReassert(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID,
+        previousHostedView: GhosttySurfaceScrollView?,
+        remainingPasses: Int
+    ) {
+        guard remainingPasses > 0 else {
+            scheduleFocusReconcile()
+            clearNonFocusSplitFocusReassert(generation: generation)
+            return
+        }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.reassertFocusAfterNonFocusSplit(
@@ -2720,19 +2738,13 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView,
                 allowPreviousHostedView: false
             )
-
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.reassertFocusAfterNonFocusSplit(
-                    generation: generation,
-                    preferredPanelId: preferredPanelId,
-                    splitPanelId: splitPanelId,
-                    previousHostedView: previousHostedView,
-                    allowPreviousHostedView: false
-                )
-                self.scheduleFocusReconcile()
-                self.clearNonFocusSplitFocusReassert(generation: generation)
-            }
+            self.scheduleDeferredNonFocusSplitFocusReassert(
+                generation: generation,
+                preferredPanelId: preferredPanelId,
+                splitPanelId: splitPanelId,
+                previousHostedView: previousHostedView,
+                remainingPasses: remainingPasses - 1
+            )
         }
     }
 
@@ -3197,15 +3209,23 @@ final class Workspace: Identifiable, ObservableObject {
         geometryReconcileNeedsRerun = false
     }
 
-    private func scheduleTerminalGeometryReconcile() {
+    private func scheduleTerminalGeometryReconcile(runImmediately: Bool = false) {
+        if runImmediately {
+            let needsFollowUpPass = reconcileTerminalGeometryPass()
+            if needsFollowUpPass {
+                geometryReconcileNeedsRerun = true
+            }
+        }
+
         guard !geometryReconcileScheduled else {
             geometryReconcileNeedsRerun = true
             return
         }
         geometryReconcileScheduled = true
+        let deferredPassCount = runImmediately ? 3 : 4
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.runScheduledTerminalGeometryReconcile(remainingPasses: 4)
+            self.runScheduledTerminalGeometryReconcile(remainingPasses: deferredPassCount)
         }
     }
 
@@ -3733,7 +3753,7 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(runImmediately: true)
             if !isDetaching {
                 scheduleFocusReconcile()
             }
@@ -3795,7 +3815,7 @@ extension Workspace: BonsplitDelegate {
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
             if isDetaching {
-                scheduleTerminalGeometryReconcile()
+                scheduleTerminalGeometryReconcile(runImmediately: true)
                 return
             }
 
@@ -3806,7 +3826,7 @@ extension Workspace: BonsplitDelegate {
                 bonsplitController.selectTab(replacementTabId)
                 applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
             }
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(runImmediately: true)
             scheduleFocusReconcile()
             return
         }
@@ -3829,7 +3849,7 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(runImmediately: true)
         if !isDetaching {
             scheduleFocusReconcile()
         }
@@ -3887,7 +3907,7 @@ extension Workspace: BonsplitDelegate {
 #endif
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(runImmediately: true)
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -3944,7 +3964,7 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(runImmediately: true)
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
@@ -3997,7 +4017,7 @@ extension Workspace: BonsplitDelegate {
         guard !isProgrammaticSplit else {
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(runImmediately: true)
             return
         }
 
@@ -4078,7 +4098,7 @@ extension Workspace: BonsplitDelegate {
             }
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(runImmediately: true)
             return
         }
 
@@ -4140,7 +4160,7 @@ extension Workspace: BonsplitDelegate {
             if self.bonsplitController.focusedPaneId == newPane {
                 self.bonsplitController.selectTab(newTabId)
             }
-            self.scheduleTerminalGeometryReconcile()
+            self.scheduleTerminalGeometryReconcile(runImmediately: true)
             self.scheduleFocusReconcile()
         }
     }
@@ -4201,7 +4221,7 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         _ = snapshot
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(runImmediately: true)
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
