@@ -231,6 +231,26 @@ enum KeyboardShortcutSettings {
         return shortcut
     }
 
+    /// Returns the set of distinct modifier flags used across all surface selection shortcuts.
+    static var surfaceShortcutModifierFlagSets: [(rawValue: UInt, symbol: String)] {
+        let actions: [Action] = [
+            .selectSurface1, .selectSurface2, .selectSurface3,
+            .selectSurface4, .selectSurface5, .selectSurface6,
+            .selectSurface7, .selectSurface8, .selectSurface9,
+        ]
+        var seen: [(rawValue: UInt, symbol: String)] = []
+        for action in actions {
+            let sc = shortcut(for: action)
+            let flags = sc.modifierFlags
+            guard !flags.isEmpty else { continue }
+            let raw = flags.rawValue
+            if !seen.contains(where: { $0.rawValue == raw }) {
+                seen.append((rawValue: raw, symbol: sc.modifierSymbol))
+            }
+        }
+        return seen
+    }
+
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
         if let data = try? JSONEncoder().encode(shortcut) {
             UserDefaults.standard.set(data, forKey: action.defaultsKey)
@@ -314,6 +334,16 @@ struct StoredShortcut: Codable, Equatable {
             keyText = key.uppercased()
         }
         parts.append(keyText)
+        return parts.joined()
+    }
+
+    /// Returns just the modifier symbol portion (e.g. "⌃", "⌥", "⌘⇧").
+    var modifierSymbol: String {
+        var parts: [String] = []
+        if control { parts.append("⌃") }
+        if option { parts.append("⌥") }
+        if shift { parts.append("⇧") }
+        if command { parts.append("⌘") }
         return parts.joined()
     }
 
