@@ -1653,6 +1653,9 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
         guard Self.remoteLoopbackHosts.contains(host) else { return url }
 
+        // WebKit bypasses proxy settings for loopback hosts. Rewrite to a hostname
+        // that still resolves to 127.0.0.1 so requests go through the per-workspace
+        // SOCKS/CONNECT proxy endpoint instead of direct local dial.
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         components?.host = Self.remoteLoopbackProxyAliasHost
         return components?.url ?? url

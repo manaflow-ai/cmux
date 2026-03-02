@@ -1510,6 +1510,8 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             let normalized = trimmed
                 .trimmingCharacters(in: CharacterSet(charactersIn: "."))
                 .lowercased()
+            // BrowserPanel rewrites loopback URLs to this alias so proxy routing works.
+            // Resolve it back to true loopback before dialing from the remote daemon.
             if normalized == remoteLoopbackProxyAliasHost {
                 return "127.0.0.1"
             }

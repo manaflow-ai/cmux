@@ -98,7 +98,7 @@ def _resolve_workspace_id(client: cmux, payload: dict, *, before_workspace_ids: 
     raise cmuxError(f"Unable to resolve workspace_id from payload: {payload}")
 
 
-def _wait_remote_ready(client: cmux, workspace_id: str, timeout_s: float = 60.0) -> None:
+def _wait_remote_ready(client: cmux, workspace_id: str, timeout_s: float = 60.0) -> dict:
     deadline = time.time() + timeout_s
     last = {}
     while time.time() < deadline:
@@ -111,7 +111,7 @@ def _wait_remote_ready(client: cmux, workspace_id: str, timeout_s: float = 60.0)
             and str(daemon.get("state") or "") == "ready"
             and str(proxy.get("state") or "") == "ready"
         ):
-            return
+            return last
         time.sleep(0.25)
     raise cmuxError(f"Remote did not reach connected+ready+proxy-ready state: {last}")
 
@@ -159,6 +159,23 @@ def _wait_browser_contains(client: cmux, surface_id: str, token: str, timeout_s:
     raise cmuxError(f"Timed out waiting for browser content token {token!r}; last body sample={last_text[:240]!r}")
 
 
+def _assert_browser_does_not_contain(client: cmux, surface_id: str, token: str, sample_window_s: float = 6.0) -> str:
+    deadline = time.time() + sample_window_s
+    last_text = ""
+    while time.time() < deadline:
+        try:
+            last_text = _browser_body_text(client, surface_id)
+        except cmuxError:
+            time.sleep(0.2)
+            continue
+        if token in last_text:
+            raise cmuxError(
+                f"browser unexpectedly loaded remote marker before SSH proxy rebind; token={token!r} body={last_text[:240]!r}"
+            )
+        time.sleep(0.2)
+    return last_text
+
+
 def main() -> int:
     if not SSH_HOST:
         print("SKIP: set CMUX_SSH_TEST_HOST to run remote browser move/proxy regression")
@@ -196,7 +213,13 @@ def main() -> int:
 
             payload = _run_cli_json(cli, ssh_args)
             remote_workspace_id = _resolve_workspace_id(client, payload, before_workspace_ids=before_workspace_ids)
-            _wait_remote_ready(client, remote_workspace_id, timeout_s=65.0)
+            remote_status = _wait_remote_ready(client, remote_workspace_id, timeout_s=65.0)
+            remote_payload = remote_status.get("remote") or {}
+            forwarded_ports = remote_payload.get("forwarded_ports") or []
+            _must(
+                forwarded_ports == [],
+                f"remote workspace should rely on proxy endpoint, not explicit forwarded ports: {forwarded_ports!r}",
+            )
 
             surfaces = client.list_surfaces(remote_workspace_id)
             _must(bool(surfaces), f"remote workspace should have at least one surface: {remote_workspace_id}")
@@ -224,6 +247,13 @@ def main() -> int:
             _wait_surface_contains(client, remote_workspace_id, remote_surface_id, ready_token, timeout_s=12.0)
 
             browser_surface_id = str(client._resolve_surface_id(browser_surface_id))
+            client._call("browser.navigate", {"surface_id": browser_surface_id, "url": url})
+            local_body = _assert_browser_does_not_contain(client, browser_surface_id, marker_body, sample_window_s=5.0)
+            _must(
+                marker_body not in local_body,
+                f"browser should not reach remote localhost before moving into ssh workspace: {local_body[:240]!r}",
+            )
+
             client.move_surface(browser_surface_id, workspace=remote_workspace_id, focus=True)
 
             def _browser_in_remote_workspace() -> bool:
@@ -241,7 +271,10 @@ def main() -> int:
             _must(marker_body in body, f"browser did not load remote localhost content over SSH proxy: {body[:240]!r}")
             _must("Can't reach this page" not in body, f"browser rendered local error page instead of remote content: {body[:240]!r}")
 
-            print("PASS: browser moved into ssh workspace rebinds proxy endpoint and reaches remote localhost")
+            print(
+                "PASS: browser proxy stays scoped to SSH workspace surfaces, uses proxy endpoint without explicit forwarded ports, "
+                "and reaches remote localhost after move"
+            )
             return 0
     finally:
         if remote_surface_id and remote_workspace_id:
