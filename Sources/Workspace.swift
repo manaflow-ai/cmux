@@ -2935,6 +2935,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard allPanes.count > 1 else { return }
         guard let sourcePaneId = bonsplitController.focusedPaneId else { return }
 
+        // Remember the user's current tab so we can restore focus after merging.
+        let currentPanelId = focusedPanelId
+
         // Find an adjacent pane by trying each direction.
         var targetPaneId: PaneID?
         for dir: NavigationDirection in [.left, .right, .up, .down] {
@@ -2961,10 +2964,9 @@ final class Workspace: Identifiable, ObservableObject {
             moveSurface(panelId: panelId, toPane: targetPaneId, focus: false)
         }
 
-        // Focus the last-moved tab in the target pane.
-        if let lastTab = bonsplitController.selectedTab(inPane: targetPaneId),
-           let panelId = surfaceIdToPanelId[lastTab.id] {
-            focusPanel(panelId)
+        // Re-focus the tab the user was on before the join.
+        if let currentPanelId {
+            focusPanel(currentPanelId)
         }
     }
 
