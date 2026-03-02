@@ -190,10 +190,30 @@ jobs:
           # SidebarResizeUITests hangs on headless Depot runners (mouse drag
           # simulation doesn't work without a physical display, even with virtual
           # display). Skip it in CI; it runs fine on local machines.
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 120 \
-            -only-testing:cmuxUITests \
-            -skip-testing:cmuxUITests/SidebarResizeUITests test
+          run_ui_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -maximum-test-execution-time-allowance 120 \
+              -only-testing:cmuxUITests \
+              -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1
+          }
+
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
+          set +e
+          OUTPUT=$(run_ui_tests)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
