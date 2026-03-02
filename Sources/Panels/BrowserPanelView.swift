@@ -729,17 +729,99 @@ struct BrowserPanelView: View {
                     }
                 })
             } else {
-                Color(nsColor: browserChromeBackgroundColor)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        onRequestPanelFocus()
-                        if addressBarFocused {
-                            addressBarFocused = false
-                        }
+                ZStack(alignment: .topLeading) {
+                    Color(nsColor: browserChromeBackgroundColor)
+                    if let status = panel.remoteWorkspaceStatus {
+                        remoteWorkspaceBlankStateIndicator(status)
+                            .padding(.top, 12)
+                            .padding(.leading, 12)
+                            .allowsHitTesting(false)
                     }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onRequestPanelFocus()
+                    if addressBarFocused {
+                        addressBarFocused = false
+                    }
+                }
             }
         }
         .zIndex(0)
+    }
+
+    @ViewBuilder
+    private func remoteWorkspaceBlankStateIndicator(_ status: BrowserRemoteWorkspaceStatus) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: remoteStatusSymbolName(status.connectionState))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(remoteStatusColor(status.connectionState))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("SSH \(status.target)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.primary.opacity(0.92))
+                    .lineLimit(1)
+                Text(remoteStatusDetailText(status))
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(Color.primary.opacity(0.72))
+                    .lineLimit(1)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.85))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                )
+        }
+    }
+
+    private func remoteStatusSymbolName(_ state: WorkspaceRemoteConnectionState) -> String {
+        switch state {
+        case .connected:
+            return "network"
+        case .connecting:
+            return "arrow.triangle.2.circlepath"
+        case .error:
+            return "exclamationmark.triangle.fill"
+        case .disconnected:
+            return "network.slash"
+        }
+    }
+
+    private func remoteStatusColor(_ state: WorkspaceRemoteConnectionState) -> Color {
+        switch state {
+        case .connected:
+            return .green
+        case .connecting:
+            return .orange
+        case .error:
+            return .red
+        case .disconnected:
+            return .secondary
+        }
+    }
+
+    private func remoteStatusDetailText(_ status: BrowserRemoteWorkspaceStatus) -> String {
+        switch status.connectionState {
+        case .connected:
+            guard let lastHeartbeat = status.lastHeartbeatAt else {
+                return "Connected, waiting for heartbeat"
+            }
+            let ageSeconds = max(0, Int(Date().timeIntervalSince(lastHeartbeat)))
+            return "Connected, heartbeat #\(status.heartbeatCount) \(ageSeconds)s ago"
+        case .connecting:
+            return "Connecting..."
+        case .error:
+            return "Connection error"
+        case .disconnected:
+            return "Disconnected"
+        }
     }
 
     private func triggerFocusFlashAnimation() {

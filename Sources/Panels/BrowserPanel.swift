@@ -10,6 +10,13 @@ struct BrowserProxyEndpoint: Equatable {
     let port: Int
 }
 
+struct BrowserRemoteWorkspaceStatus: Equatable {
+    let target: String
+    let connectionState: WorkspaceRemoteConnectionState
+    let heartbeatCount: Int
+    let lastHeartbeatAt: Date?
+}
+
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
@@ -1305,6 +1312,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Published loading state
     @Published private(set) var isLoading: Bool = false
 
+    /// Snapshot of remote SSH connection status for this panel's workspace.
+    @Published private(set) var remoteWorkspaceStatus: BrowserRemoteWorkspaceStatus?
+
     /// Published download state for browser downloads (navigation + context menu).
     @Published private(set) var isDownloading: Bool = false
 
@@ -1511,6 +1521,11 @@ final class BrowserPanel: Panel, ObservableObject {
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
         applyRemoteProxyConfigurationIfAvailable()
+    }
+
+    func setRemoteWorkspaceStatus(_ status: BrowserRemoteWorkspaceStatus?) {
+        guard remoteWorkspaceStatus != status else { return }
+        remoteWorkspaceStatus = status
     }
 
     private func applyRemoteProxyConfigurationIfAvailable() {
