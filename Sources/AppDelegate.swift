@@ -7750,6 +7750,7 @@ enum MenuBarIconRenderer {
             drawBadge(text: text, in: config.badgeRect, config: config)
         }
 
+        image.isTemplate = true
         return image
     }
 
@@ -7778,7 +7779,7 @@ enum MenuBarIconRenderer {
         path.line(to: map(384.0, 369.0))
         path.close()
 
-        NSColor.white.setFill()
+        NSColor.black.setFill()
         path.fill()
     }
 
