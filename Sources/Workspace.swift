@@ -1080,6 +1080,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
 private final class WorkspaceRemoteDaemonProxyTunnel {
     private final class ProxySession {
         private static let maxHandshakeBytes = 64 * 1024
+        private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
 
         private enum HandshakeProtocol {
             case undecided
@@ -1361,7 +1362,8 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         ) {
             guard !isClosed else { return }
             do {
-                let streamID = try rpcClient.openStream(host: host, port: port)
+                let targetHost = Self.normalizedProxyTargetHost(host)
+                let streamID = try rpcClient.openStream(host: targetHost, port: port)
                 self.streamID = streamID
                 connection.send(content: successResponse, completion: .contentProcessed { [weak self] error in
                     guard let self else { return }
@@ -1501,6 +1503,17 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
             guard !host.isEmpty else { return nil }
             guard let port = Int(portString), port > 0, port <= 65535 else { return nil }
             return (host, port)
+        }
+
+        private static func normalizedProxyTargetHost(_ host: String) -> String {
+            let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = trimmed
+                .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+                .lowercased()
+            if normalized == remoteLoopbackProxyAliasHost {
+                return "127.0.0.1"
+            }
+            return host
         }
 
         private static func httpResponse(status: String, closeAfterResponse: Bool = true) -> Data {
@@ -5023,6 +5036,7 @@ final class Workspace: Identifiable, ObservableObject {
             terminalPanel.updateWorkspaceId(id)
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.updateWorkspaceId(id)
+            browserPanel.setRemoteProxyEndpoint(remoteProxyEndpoint)
             installBrowserPanelSubscription(browserPanel)
         }
 

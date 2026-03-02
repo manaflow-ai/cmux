@@ -1124,6 +1124,13 @@ private enum BrowserInsecureHTTPNavigationIntent {
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
+    private static let remoteLoopbackHosts: Set<String> = [
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "0.0.0.0",
+    ]
 
     static let telemetryHookBootstrapScriptSource = """
     (() => {
@@ -1621,8 +1628,29 @@ final class BrowserPanel: Panel, ObservableObject {
         applyRemoteProxyConfigurationIfAvailable()
 
         if shouldRestoreNavigation, let restoreURL {
-            replacement.load(browserPreparedNavigationRequest(URLRequest(url: restoreURL)))
+            replacement.load(preparedNavigationRequest(URLRequest(url: restoreURL)))
         }
+    }
+
+    private func rewriteLoopbackURLForRemoteProxyIfNeeded(_ url: URL) -> URL {
+        guard remoteProxyEndpoint != nil else { return url }
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return url }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
+        guard Self.remoteLoopbackHosts.contains(host) else { return url }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = Self.remoteLoopbackProxyAliasHost
+        return components?.url ?? url
+    }
+
+    private func preparedNavigationRequest(_ request: URLRequest) -> URLRequest {
+        var prepared = browserPreparedNavigationRequest(request)
+        guard let url = prepared.url else { return prepared }
+        let rewrittenURL = rewriteLoopbackURLForRemoteProxyIfNeeded(url)
+        if rewrittenURL != url {
+            prepared.url = rewrittenURL
+        }
+        return prepared
     }
 
     func triggerFlash() {
@@ -2006,7 +2034,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        webView.load(browserPreparedNavigationRequest(request))
+        webView.load(preparedNavigationRequest(request))
     }
 
     /// Navigate with smart URL/search detection
