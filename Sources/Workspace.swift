@@ -1948,6 +1948,10 @@ private final class WorkspaceRemoteSessionController {
     private var daemonRemotePath: String?
     private var reconnectRetryCount = 0
     private var reconnectWorkItem: DispatchWorkItem?
+    private var heartbeatWorkItem: DispatchWorkItem?
+    private var heartbeatCount: Int = 0
+
+    private static let heartbeatInterval: TimeInterval = 3.0
 
     init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
         self.workspace = workspace
@@ -1979,6 +1983,7 @@ private final class WorkspaceRemoteSessionController {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
         reconnectRetryCount = 0
+        stopHeartbeatLocked(reset: true)
 
         proxyLease?.release()
         proxyLease = nil
@@ -1994,6 +1999,7 @@ private final class WorkspaceRemoteSessionController {
         guard !isStopping else { return }
 
         reconnectWorkItem = nil
+        stopHeartbeatLocked(reset: true)
         let connectDetail: String
         let bootstrapDetail: String
         if reconnectRetryCount > 0 {
@@ -2072,7 +2078,10 @@ private final class WorkspaceRemoteSessionController {
             reconnectWorkItem?.cancel()
             reconnectWorkItem = nil
             reconnectRetryCount = 0
-            guard proxyEndpoint != endpoint else { return }
+            guard proxyEndpoint != endpoint else {
+                startHeartbeatLocked()
+                return
+            }
             proxyEndpoint = endpoint
             publishProxyEndpoint(endpoint)
             publishPortsSnapshotLocked()
@@ -2080,8 +2089,10 @@ private final class WorkspaceRemoteSessionController {
                 .connected,
                 detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
             )
+            startHeartbeatLocked()
         case .error(let detail):
             proxyEndpoint = nil
+            stopHeartbeatLocked(reset: false)
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
             publishState(.error, detail: "Remote proxy to \(configuration.displayTarget) unavailable: \(detail)")
@@ -2180,6 +2191,55 @@ private final class WorkspaceRemoteSessionController {
                 conflicts: [],
                 target: workspace.remoteDisplayTarget ?? "remote host"
             )
+        }
+    }
+
+    private func startHeartbeatLocked() {
+        guard !isStopping else { return }
+        guard daemonReady else { return }
+        guard proxyLease != nil else { return }
+        guard heartbeatWorkItem == nil else { return }
+
+        heartbeatCount += 1
+        publishHeartbeat(count: heartbeatCount, at: Date())
+        scheduleNextHeartbeatLocked()
+    }
+
+    private func scheduleNextHeartbeatLocked() {
+        guard !isStopping else { return }
+        guard daemonReady else { return }
+        guard proxyLease != nil else { return }
+
+        heartbeatWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.heartbeatWorkItem = nil
+            guard !self.isStopping else { return }
+            guard self.daemonReady else { return }
+            guard self.proxyLease != nil else { return }
+            self.heartbeatCount += 1
+            self.publishHeartbeat(count: self.heartbeatCount, at: Date())
+            self.scheduleNextHeartbeatLocked()
+        }
+        heartbeatWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + Self.heartbeatInterval, execute: workItem)
+    }
+
+    private func stopHeartbeatLocked(reset: Bool) {
+        heartbeatWorkItem?.cancel()
+        heartbeatWorkItem = nil
+        if reset {
+            heartbeatCount = 0
+            publishHeartbeat(count: 0, at: nil)
+        }
+    }
+
+    private func publishHeartbeat(count: Int, at date: Date?) {
+        let controllerID = self.controllerID
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.applyRemoteHeartbeatUpdate(count: count, lastSeenAt: date)
         }
     }
 
@@ -3160,6 +3220,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteForwardedPorts: [Int] = []
     @Published var remotePortConflicts: [Int] = []
     @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
+    @Published var remoteHeartbeatCount: Int = 0
+    @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
@@ -3170,6 +3232,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
+    private static let remoteHeartbeatDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
@@ -3478,6 +3545,25 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panelSubscriptions[browserPanel.id] = subscription
     }
+
+    private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
+        guard let target = remoteDisplayTarget else { return nil }
+        return BrowserRemoteWorkspaceStatus(
+            target: target,
+            connectionState: remoteConnectionState,
+            heartbeatCount: remoteHeartbeatCount,
+            lastHeartbeatAt: remoteLastHeartbeatAt
+        )
+    }
+
+    private func applyBrowserRemoteWorkspaceStatusToPanels() {
+        let snapshot = browserRemoteWorkspaceStatusSnapshot()
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            browserPanel.setRemoteWorkspaceStatus(snapshot)
+        }
+    }
+
     // MARK: - Panel Access
 
     func panel(for surfaceId: TabID) -> (any Panel)? {
@@ -3906,6 +3992,14 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func remoteStatusPayload() -> [String: Any] {
+        let heartbeatAgeSeconds: Any = {
+            guard let last = remoteLastHeartbeatAt else { return NSNull() }
+            return max(0, Date().timeIntervalSince(last))
+        }()
+        let heartbeatTimestamp: Any = {
+            guard let last = remoteLastHeartbeatAt else { return NSNull() }
+            return Self.remoteHeartbeatDateFormatter.string(from: last)
+        }()
         var payload: [String: Any] = [
             "enabled": remoteConfiguration != nil,
             "state": remoteConnectionState.rawValue,
@@ -3915,6 +4009,11 @@ final class Workspace: Identifiable, ObservableObject {
             "forwarded_ports": remoteForwardedPorts,
             "conflicted_ports": remotePortConflicts,
             "detail": remoteConnectionDetail ?? NSNull(),
+            "heartbeat": [
+                "count": remoteHeartbeatCount,
+                "last_seen_at": heartbeatTimestamp,
+                "age_seconds": heartbeatAgeSeconds,
+            ],
         ]
         if let endpoint = remoteProxyEndpoint {
             payload["proxy"] = [
@@ -3965,6 +4064,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteForwardedPorts = []
         remotePortConflicts = []
         remoteProxyEndpoint = nil
+        remoteHeartbeatCount = 0
+        remoteLastHeartbeatAt = nil
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
         statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
@@ -3979,13 +4080,16 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController = nil
         previousController?.stop()
         applyRemoteProxyEndpointUpdate(nil)
+        applyBrowserRemoteWorkspaceStatusToPanels()
 
         guard autoConnect else {
             remoteConnectionState = .disconnected
+            applyBrowserRemoteWorkspaceStatusToPanels()
             return
         }
 
         remoteConnectionState = .connecting
+        applyBrowserRemoteWorkspaceStatusToPanels()
         let controllerID = UUID()
         let controller = WorkspaceRemoteSessionController(
             workspace: self,
@@ -4011,6 +4115,8 @@ final class Workspace: Identifiable, ObservableObject {
         remoteForwardedPorts = []
         remotePortConflicts = []
         remoteProxyEndpoint = nil
+        remoteHeartbeatCount = 0
+        remoteLastHeartbeatAt = nil
         remoteConnectionState = .disconnected
         remoteConnectionDetail = nil
         remoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -4023,6 +4129,7 @@ final class Workspace: Identifiable, ObservableObject {
             remoteConfiguration = nil
         }
         applyRemoteProxyEndpointUpdate(nil)
+        applyBrowserRemoteWorkspaceStatusToPanels()
         recomputeListeningPorts()
     }
 
@@ -4037,6 +4144,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         remoteConnectionState = state
         remoteConnectionDetail = detail
+        applyBrowserRemoteWorkspaceStatusToPanels()
 
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         if state == .error, let trimmedDetail, !trimmedDetail.isEmpty {
@@ -4080,6 +4188,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     fileprivate func applyRemoteDaemonStatusUpdate(_ status: WorkspaceRemoteDaemonStatus, target: String) {
         remoteDaemonStatus = status
+        applyBrowserRemoteWorkspaceStatusToPanels()
         guard status.state == .error else {
             remoteLastDaemonErrorFingerprint = nil
             return
@@ -4101,6 +4210,13 @@ final class Workspace: Identifiable, ObservableObject {
             guard let browserPanel = panel as? BrowserPanel else { continue }
             browserPanel.setRemoteProxyEndpoint(endpoint)
         }
+        applyBrowserRemoteWorkspaceStatusToPanels()
+    }
+
+    fileprivate func applyRemoteHeartbeatUpdate(count: Int, lastSeenAt: Date?) {
+        remoteHeartbeatCount = max(0, count)
+        remoteLastHeartbeatAt = lastSeenAt
+        applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
     fileprivate func applyRemotePortsSnapshot(detected: [Int], forwarded: [Int], conflicts: [Int], target: String) {
@@ -4522,6 +4638,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
     }
@@ -4580,6 +4697,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
     }
@@ -5037,6 +5155,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.updateWorkspaceId(id)
             browserPanel.setRemoteProxyEndpoint(remoteProxyEndpoint)
+            browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
             installBrowserPanelSubscription(browserPanel)
         }
 

@@ -101,6 +101,29 @@ def _wait_for_remote_connected(client: cmux, workspace_id: str, timeout: float =
     raise cmuxError(f"Remote did not converge to connected/ready under slow login profile: {last_status}")
 
 
+def _heartbeat_count(status: dict) -> int:
+    remote = status.get("remote") or {}
+    heartbeat = remote.get("heartbeat") or {}
+    raw = heartbeat.get("count")
+    try:
+        return int(raw or 0)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _wait_for_heartbeat_advance(client: cmux, workspace_id: str, minimum_count: int, timeout: float = 20.0) -> dict:
+    deadline = time.time() + timeout
+    last_status: dict = {}
+    while time.time() < deadline:
+        last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+        if _heartbeat_count(last_status) >= minimum_count:
+            return last_status
+        time.sleep(0.5)
+    raise cmuxError(
+        f"Remote heartbeat did not advance to >= {minimum_count} within {timeout:.1f}s: {last_status}"
+    )
+
+
 def main() -> int:
     if not _docker_available():
         print("SKIP: docker is not available")
@@ -181,6 +204,36 @@ chmod 0644 "$HOME/.profile"
             detail = str(remote.get("detail") or "").lower()
             _must("timed out" not in detail, f"remote detail should not report bootstrap timeout: {status}")
 
+            baseline_heartbeat = _heartbeat_count(status)
+            status = _wait_for_heartbeat_advance(
+                client,
+                workspace_id,
+                minimum_count=max(1, baseline_heartbeat + 1),
+                timeout=15.0,
+            )
+
+            opened = client._call("browser.open_split", {"workspace_id": workspace_id}) or {}
+            browser_surface_id = str(opened.get("surface_id") or "")
+            _must(bool(browser_surface_id), f"browser.open_split returned no surface_id: {opened}")
+
+            after_open_heartbeat = _heartbeat_count(status)
+            status_after_blank_tab = _wait_for_heartbeat_advance(
+                client,
+                workspace_id,
+                minimum_count=after_open_heartbeat + 2,
+                timeout=20.0,
+            )
+            remote_after_blank_tab = status_after_blank_tab.get("remote") or {}
+            _must(
+                str(remote_after_blank_tab.get("state") or "") == "connected",
+                f"remote should remain connected after blank browser open: {status_after_blank_tab}",
+            )
+            heartbeat_payload = remote_after_blank_tab.get("heartbeat") or {}
+            _must(
+                heartbeat_payload.get("last_seen_at") is not None,
+                f"remote heartbeat should expose last_seen_at after bootstrap: {status_after_blank_tab}",
+            )
+
             try:
                 client.close_workspace(workspace_id)
             except Exception:
@@ -203,4 +256,3 @@ chmod 0644 "$HOME/.profile"
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
