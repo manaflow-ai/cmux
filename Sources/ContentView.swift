@@ -1824,12 +1824,6 @@ struct ContentView: View {
     }
 
     private func shellEscapePath(_ path: String) -> String {
-        let needsQuoting = path.contains(" ") || path.contains("'") || path.contains("\"")
-            || path.contains("(") || path.contains(")") || path.contains("&")
-            || path.contains("|") || path.contains(";") || path.contains("$")
-            || path.contains("`") || path.contains("!")
-        guard needsQuoting else { return path }
-        // Use single quotes with escaped inner single quotes
         let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
         return "'\(escaped)'"
     }

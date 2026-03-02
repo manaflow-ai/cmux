@@ -9,6 +9,7 @@ final class FileTreeModel: ObservableObject {
 
     private var fsEventStream: FSEventStreamRef?
     private var refreshCoalesceTask: Task<Void, Never>?
+    private var scanVersion: UInt64 = 0
 
     deinit {
         if let stream = fsEventStream {
@@ -20,8 +21,12 @@ final class FileTreeModel: ObservableObject {
 
     func loadDirectory(_ path: String) {
         rootPath = path
-        Task {
-            let nodes = await scanDirectory(path)
+        scanVersion &+= 1
+        let version = scanVersion
+        Task { [weak self] in
+            guard let self else { return }
+            let nodes = await self.scanDirectory(path)
+            guard version == self.scanVersion else { return }
             self.rootNodes = nodes
         }
         startWatching(path: path)
@@ -51,11 +56,16 @@ final class FileTreeModel: ObservableObject {
 
     func refresh() {
         guard !rootPath.isEmpty else { return }
+        let path = rootPath
         let expandedIds = collectExpandedIds(rootNodes)
-        Task {
-            let nodes = await scanDirectory(rootPath)
+        scanVersion &+= 1
+        let version = scanVersion
+        Task { [weak self] in
+            guard let self else { return }
+            let nodes = await self.scanDirectory(path)
+            guard version == self.scanVersion else { return }
             var result = nodes
-            restoreExpandedState(in: &result, expandedIds: expandedIds)
+            self.restoreExpandedState(in: &result, expandedIds: expandedIds)
             self.rootNodes = result
         }
     }
@@ -63,6 +73,13 @@ final class FileTreeModel: ObservableObject {
     func toggleHiddenFiles() {
         showHiddenFiles.toggle()
         refresh()
+    }
+
+    func clearDirectory() {
+        refreshCoalesceTask?.cancel()
+        stopWatching()
+        rootPath = ""
+        rootNodes = []
     }
 
     // MARK: - FSEvents Watching
@@ -196,7 +213,8 @@ final class FileTreeModel: ObservableObject {
                     nodes[i].children = []
                     Task { @MainActor [weak self] in
                         guard let self else { return }
-                        let children = await self.scanDirectory(path)
+                        var children = await self.scanDirectory(path)
+                        self.restoreExpandedState(in: &children, expandedIds: expandedIds)
                         var current = self.rootNodes
                         let _ = self.findAndUpdate(in: &current, id: nodeId) { n in
                             n.children = children

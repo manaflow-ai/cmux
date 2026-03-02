@@ -172,7 +172,7 @@ enum KeyboardShortcutSettings {
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleFileTree:
-                return StoredShortcut(key: "e", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             }
         }
 

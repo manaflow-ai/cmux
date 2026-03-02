@@ -67,7 +67,10 @@ struct FileTreeSidebar: View {
         }
         .onChange(of: workspace.currentDirectory) {
             let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty && trimmed != model.rootPath {
+            if trimmed.isEmpty {
+                model.clearDirectory()
+                selectedFilePath = nil
+            } else if trimmed != model.rootPath {
                 model.loadDirectory(trimmed)
                 selectedFilePath = nil
             }
