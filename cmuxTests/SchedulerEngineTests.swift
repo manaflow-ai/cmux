@@ -271,6 +271,10 @@ final class SchedulerEngineTests: XCTestCase {
         let firstRuns = engine.evaluateSchedules(now: baseTime)
         XCTAssertEqual(firstRuns.count, 1)
 
+        // Complete the first run so overlap check (allowOverlap=false) doesn't block
+        engine.runs[0].status = .succeeded
+        engine.runs[0].completedAt = baseTime
+
         // Advance time by 2 more minutes — should fire again
         let laterRuns = engine.evaluateSchedules(now: twoMinutesLater)
         XCTAssertEqual(laterRuns.count, 1)

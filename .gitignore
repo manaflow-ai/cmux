@@ -60,3 +60,6 @@ vibeshield
 .env.vibeshield.example
 .vibeshield-launch.log
 .vibeshield-state/
+
+# ralphex progress logs
+.ralphex/progress/

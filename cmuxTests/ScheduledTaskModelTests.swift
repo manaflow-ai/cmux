@@ -52,7 +52,8 @@ final class ScheduledTaskModelTests: XCTestCase {
         let task = ScheduledTask(
             name: "simple",
             cronExpression: "*/5 * * * *",
-            command: "echo hello"
+            command: "echo hello",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
         )
 
         let encoder = JSONEncoder()
@@ -183,8 +184,8 @@ final class ScheduledTaskModelTests: XCTestCase {
 
     func testScheduledTaskArrayCodableRoundTrip() throws {
         let tasks = [
-            ScheduledTask(name: "task1", cronExpression: "0 * * * *", command: "echo 1"),
-            ScheduledTask(name: "task2", cronExpression: "*/10 * * * *", command: "echo 2", isEnabled: false),
+            ScheduledTask(name: "task1", cronExpression: "0 * * * *", command: "echo 1", createdAt: Date(timeIntervalSince1970: 1700000000)),
+            ScheduledTask(name: "task2", cronExpression: "*/10 * * * *", command: "echo 2", isEnabled: false, createdAt: Date(timeIntervalSince1970: 1700000060)),
         ]
 
         let encoder = JSONEncoder()
