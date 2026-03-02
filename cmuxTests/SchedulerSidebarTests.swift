@@ -57,19 +57,14 @@ final class SchedulerSidebarTests: XCTestCase {
     // MARK: - Fingerprint hasher handles scheduler case
 
     func testFingerprintHasherDistinguishesSchedulerFromTabsAndNotifications() {
-        // The hasher maps tabs → 0, notifications → 1, scheduler → 2.
-        // Verify they produce distinct hash contributions by checking the mapped values.
-        // We can't test Hasher output directly (randomized), but we can verify
-        // the mapping is distinct via the enum itself.
-        let allCases: [SidebarSelection] = [.tabs, .notifications, .scheduler]
-        let hashValues = allCases.map { selection -> Int in
-            switch selection {
-            case .tabs: return 0
-            case .notifications: return 1
-            case .scheduler: return 2
-            }
-        }
-        XCTAssertEqual(Set(hashValues).count, 3, "All sidebar selections must hash to distinct values")
+        // Verify the enum's Hashable conformance produces distinct entries in a Set.
+        let allCases: Set<SidebarSelection> = [.tabs, .notifications, .scheduler]
+        XCTAssertEqual(allCases.count, 3, "All sidebar selections must be distinct in a Set")
+
+        // Verify each case survives round-trip through Set insertion
+        XCTAssertTrue(allCases.contains(.tabs))
+        XCTAssertTrue(allCases.contains(.notifications))
+        XCTAssertTrue(allCases.contains(.scheduler))
     }
 
     // MARK: - KeyboardShortcutSettings.showScheduler

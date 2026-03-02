@@ -257,11 +257,37 @@ cmux scheduler delete <task_id>
 
 ### Socket API
 
-The scheduler exposes 10 v2 socket commands: `scheduler.list`, `scheduler.create`, `scheduler.delete`, `scheduler.update`, `scheduler.enable`, `scheduler.disable`, `scheduler.run`, `scheduler.cancel`, `scheduler.logs`, `scheduler.snapshot`.
+The scheduler exposes 10 v2 socket commands: `scheduler.list`, `scheduler.create`, `scheduler.delete`, `scheduler.update`, `scheduler.enable`, `scheduler.disable`, `scheduler.run`, `scheduler.cancel`, `scheduler.logs`, `scheduler.snapshot`. Note: `scheduler.update` and `scheduler.snapshot` are socket-API-only (no CLI subcommand).
+
+### Environment Variables
+
+Commands run by the scheduler receive these environment variables:
+
+| Variable | Description |
+|---|---|
+| `CMUX_SCHEDULED_TASK_ID` | UUID of the task definition |
+| `CMUX_SCHEDULED_TASK_NAME` | Human-readable task name |
+| `CMUX_TASK_RUN_ID` | UUID of this specific run |
+| `CMUX_TASK_CONTEXT_FILE` | Path to a JSON file with task metadata |
+| `CMUX_WORKTREE_PATH` | Path to the git worktree (only set when worktree isolation is active) |
+
+### Configuration
+
+| UserDefaults Key | Default | Description |
+|---|---|---|
+| `schedulerWorktreeIsolation` | `false` | When `true`, tasks with a git-repo `workingDirectory` run in a temporary worktree. Per-task `--use-worktree` overrides this. |
 
 ### Browser Kill-Switch
 
-The WKWebView browser can be disabled via UserDefaults (`browserEnabled`). When disabled, all browser creation paths return errors — keyboard shortcut, socket API, and session restore. Re-enable by setting the default back to `true`.
+The WKWebView browser can be disabled via UserDefaults (`browserEnabled`). When disabled, all browser creation paths return errors — keyboard shortcut, socket API, and session restore.
+
+```bash
+# Disable the browser
+defaults write com.cmuxterm.app browserEnabled -bool false
+
+# Re-enable the browser
+defaults write com.cmuxterm.app browserEnabled -bool true
+```
 
 ## Nightly Builds
 
@@ -276,6 +302,7 @@ On relaunch, cmux currently restores app layout and metadata only:
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
+- Scheduled task definitions (active runs are cancelled on quit)
 
 cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
 

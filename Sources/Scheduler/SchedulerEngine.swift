@@ -42,12 +42,18 @@ final class SchedulerEngine: ObservableObject {
     private var timer: DispatchSourceTimer?
     private let persistenceFileURL: URL?
 
+    /// Whether the evaluation timer is currently running.
+    var isTimerRunning: Bool { timer != nil }
+
     /// Interval between schedule evaluations (30 seconds).
     static let evaluationInterval: TimeInterval = 30
 
     /// Maximum chain depth for onSuccess/onFailure task chaining.
     /// Prevents infinite loops (e.g., A -> B -> A -> B ...).
     static let maxChainDepth = 3
+
+    /// Shared date formatter for ISO8601 serialization.
+    private static let isoFormatter = ISO8601DateFormatter()
 
     /// Directory for session memory context files.
     static let contextDirectory: URL = {
@@ -175,6 +181,23 @@ final class SchedulerEngine: ObservableObject {
 
     var runningTaskCount: Int {
         runs.filter { $0.status == .running }.count
+    }
+
+    // MARK: - Manual Run
+
+    /// Trigger a manual "Run Now" with overlap and concurrent task limit checks.
+    /// Returns the new TaskRun on success, or nil if blocked by constraints.
+    func manuallyRunTask(_ task: ScheduledTask) -> TaskRun? {
+        if !task.allowOverlap {
+            let alreadyRunning = runs.contains { $0.taskId == task.id && $0.status == .running }
+            if alreadyRunning { return nil }
+        }
+        if runningTaskCount >= maxConcurrentTasks { return nil }
+
+        let run = TaskRun(taskId: task.id, startedAt: Date())
+        runs.append(run)
+        onTaskDue?(task, run)
+        return run
     }
 
     // MARK: - Task Execution
@@ -305,8 +328,9 @@ final class SchedulerEngine: ObservableObject {
             )
         }
 
-        // Persist updated state
-        saveTasks()
+        // Clean up context file
+        let contextFile = Self.contextDirectory.appendingPathComponent("\(runId).json")
+        try? FileManager.default.removeItem(at: contextFile)
 
         // Task chaining: trigger onSuccess/onFailure follow-up task
         if currentChainDepth < Self.maxChainDepth, let task = task {
@@ -357,6 +381,10 @@ final class SchedulerEngine: ObservableObject {
                 gitRunner: gitRunner
             )
         }
+
+        // Clean up context file
+        let contextFile = Self.contextDirectory.appendingPathComponent("\(runId).json")
+        try? FileManager.default.removeItem(at: contextFile)
     }
 
     /// Focus a running task's terminal by switching to its workspace and panel.
@@ -380,7 +408,7 @@ final class SchedulerEngine: ObservableObject {
     // MARK: - Session Memory
 
     /// Create a context file with task metadata for the running command to read.
-    private func createContextFile(for task: ScheduledTask, run: TaskRun, at url: URL) {
+    func createContextFile(for task: ScheduledTask, run: TaskRun, at url: URL) {
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
@@ -391,7 +419,7 @@ final class SchedulerEngine: ObservableObject {
             "command": task.command,
             "working_directory": task.workingDirectory ?? "",
             "cron_expression": task.cronExpression,
-            "started_at": ISO8601DateFormatter().string(from: run.startedAt),
+            "started_at": Self.isoFormatter.string(from: run.startedAt),
         ]
 
         if let data = try? JSONSerialization.data(withJSONObject: context, options: [.sortedKeys]) {

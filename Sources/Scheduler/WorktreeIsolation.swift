@@ -129,16 +129,33 @@ struct ProcessGitCommandRunner: GitCommandRunner {
     }
 
     func removeWorktree(repoPath: String, worktreePath: String) {
+        // Derive the branch name from the worktree path (scheduler-<prefix> -> crux/scheduler/<prefix>)
+        let worktreeName = (worktreePath as NSString).lastPathComponent
+        let branchName: String? = worktreeName.hasPrefix("scheduler-")
+            ? "crux/scheduler/\(worktreeName.dropFirst("scheduler-".count))"
+            : nil
+
         // Remove the worktree directory
         try? FileManager.default.removeItem(atPath: worktreePath)
 
         // Prune stale worktree references
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = ["-C", repoPath, "worktree", "prune"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-        process.waitUntilExit()
+        let pruneProcess = Process()
+        pruneProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        pruneProcess.arguments = ["-C", repoPath, "worktree", "prune"]
+        pruneProcess.standardOutput = FileHandle.nullDevice
+        pruneProcess.standardError = FileHandle.nullDevice
+        try? pruneProcess.run()
+        pruneProcess.waitUntilExit()
+
+        // Delete the orphaned branch
+        if let branchName {
+            let branchProcess = Process()
+            branchProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            branchProcess.arguments = ["-C", repoPath, "branch", "-D", branchName]
+            branchProcess.standardOutput = FileHandle.nullDevice
+            branchProcess.standardError = FileHandle.nullDevice
+            try? branchProcess.run()
+            branchProcess.waitUntilExit()
+        }
     }
 }

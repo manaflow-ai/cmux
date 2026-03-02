@@ -4,12 +4,6 @@ import Foundation
 /// Follows the same pattern as `SessionPersistenceStore`: enum namespace with static methods,
 /// atomic JSON writes to App Support directory, bundle-ID-based filename isolation.
 enum SchedulerPersistenceStore {
-    private static let persistenceQueue = DispatchQueue(
-        label: "com.cmuxterm.app.schedulerPersistence",
-        qos: .utility
-    )
-
-    // MARK: - Synchronous (for use in tests and direct callers)
 
     static func load(fileURL: URL? = nil) -> [ScheduledTask] {
         guard let fileURL = fileURL ?? defaultSchedulerFileURL() else { return [] }
@@ -38,22 +32,6 @@ enum SchedulerPersistenceStore {
             return true
         } catch {
             return false
-        }
-    }
-
-    // MARK: - Async (dispatched to background queue)
-
-    static func loadAsync(fileURL: URL? = nil, completion: @escaping ([ScheduledTask]) -> Void) {
-        persistenceQueue.async {
-            let tasks = load(fileURL: fileURL)
-            completion(tasks)
-        }
-    }
-
-    static func saveAsync(_ tasks: [ScheduledTask], fileURL: URL? = nil, completion: ((Bool) -> Void)? = nil) {
-        persistenceQueue.async {
-            let result = save(tasks, fileURL: fileURL)
-            completion?(result)
         }
     }
 

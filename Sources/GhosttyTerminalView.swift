@@ -1121,15 +1121,21 @@ class GhosttyApp {
                 "exitCode=\(exitCode) duration=\(finished.duration)ns"
             )
 #endif
-            DispatchQueue.main.async {
-                guard let panelId = callbackSurfaceId else { return }
-                SchedulerEngine.shared.handleTaskCompletion(
-                    panelId: panelId,
-                    exitCode: Int32(exitCode),
-                    workspaceId: callbackTabId
-                )
+            // Only claim "handled" if this is a scheduler-managed surface
+            let isSchedulerSurface = callbackSurfaceId.flatMap {
+                SchedulerEngine.shared.panelToRunId[$0]
+            } != nil
+            if isSchedulerSurface {
+                DispatchQueue.main.async {
+                    guard let panelId = callbackSurfaceId else { return }
+                    SchedulerEngine.shared.handleTaskCompletion(
+                        panelId: panelId,
+                        exitCode: Int32(exitCode),
+                        workspaceId: callbackTabId
+                    )
+                }
+                return true
             }
-            return true
         }
 
         guard let surfaceView = callbackContext?.surfaceView else { return false }

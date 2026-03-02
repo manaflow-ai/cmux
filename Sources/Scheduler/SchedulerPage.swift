@@ -3,6 +3,7 @@ import SwiftUI
 struct SchedulerPage: View {
     @EnvironmentObject var schedulerEngine: SchedulerEngine
     @Binding var selection: SidebarSelection
+    @State private var cachedUsage = ClaudeTokenTracker.TokenUsage()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,9 +26,7 @@ struct SchedulerPage: View {
                                     schedulerEngine.updateTask(updated)
                                 },
                                 onRunNow: {
-                                    let run = TaskRun(taskId: task.id, startedAt: Date())
-                                    schedulerEngine.runs.append(run)
-                                    schedulerEngine.onTaskDue?(task, run)
+                                    _ = schedulerEngine.manuallyRunTask(task)
                                 },
                                 onDelete: {
                                     schedulerEngine.removeTask(id: task.id)
@@ -48,6 +47,12 @@ struct SchedulerPage: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .task {
+            let usage = await Task.detached(priority: .utility) {
+                ClaudeTokenTracker.aggregateUsage()
+            }.value
+            cachedUsage = usage
+        }
     }
 
     private var header: some View {
@@ -58,14 +63,13 @@ struct SchedulerPage: View {
 
             Spacer()
 
-            // Cost/token summary
-            let usage = ClaudeTokenTracker.aggregateUsage()
-            if usage.totalTokens > 0 {
+            // Cost/token summary (loaded asynchronously)
+            if cachedUsage.totalTokens > 0 {
                 HStack(spacing: 6) {
-                    Text(ClaudeTokenTracker.formatTokens(usage.totalTokens) + " tokens")
+                    Text(ClaudeTokenTracker.formatTokens(cachedUsage.totalTokens) + " tokens")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text(ClaudeTokenTracker.formatCost(usage.estimatedCostUSD))
+                    Text(ClaudeTokenTracker.formatCost(cachedUsage.estimatedCostUSD))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

@@ -616,10 +616,24 @@ final class SchedulerEngineTests: XCTestCase {
         let contextDir = tempDir.appendingPathComponent("context", isDirectory: true)
         let contextFile = contextDir.appendingPathComponent("\(run.id.uuidString).json")
 
-        // Access private method via the engine's executeTask flow is not possible in unit tests,
-        // but we can verify the context file path format is correct
-        XCTAssertTrue(contextFile.path.hasSuffix(".json"))
-        XCTAssertTrue(contextFile.path.contains(run.id.uuidString))
+        // Call the actual method and verify the file is created with correct content
+        engine.createContextFile(for: task, run: run, at: contextFile)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: contextFile.path))
+
+        guard let data = try? Data(contentsOf: contextFile),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            XCTFail("Context file is not valid JSON")
+            return
+        }
+
+        XCTAssertEqual(json["task_id"] as? String, task.id.uuidString)
+        XCTAssertEqual(json["task_name"] as? String, "context-test")
+        XCTAssertEqual(json["run_id"] as? String, run.id.uuidString)
+        XCTAssertEqual(json["command"] as? String, "echo test")
+        XCTAssertEqual(json["working_directory"] as? String, "/tmp")
+        XCTAssertEqual(json["cron_expression"] as? String, "* * * * *")
+        XCTAssertNotNil(json["started_at"] as? String)
     }
 
     // MARK: - SchedulerEngine loads persisted tasks on init
@@ -717,12 +731,10 @@ final class SchedulerEngineTests: XCTestCase {
         let engine = SchedulerEngine(persistenceFileURL: fileURL)
 
         engine.start()
-        engine.handleAppWillTerminate()
+        XCTAssertTrue(engine.isTimerRunning, "Timer should be running after start()")
 
-        // After terminate, starting again should work (timer was cleaned up)
-        // This indirectly verifies stop() was called
-        engine.start()
-        engine.stop() // cleanup
+        engine.handleAppWillTerminate()
+        XCTAssertFalse(engine.isTimerRunning, "Timer should be stopped after handleAppWillTerminate()")
     }
 
     // MARK: - Task chaining: onSuccess triggers follow-up on exit 0

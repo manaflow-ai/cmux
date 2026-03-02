@@ -398,6 +398,8 @@ extension TerminalController {
 
     // MARK: - Serialization Helpers
 
+    private static let isoFormatter = ISO8601DateFormatter()
+
     private func schedulerTaskDict(_ task: ScheduledTask) -> [String: Any] {
         var dict: [String: Any] = [
             "id": task.id.uuidString,
@@ -406,7 +408,7 @@ extension TerminalController {
             "command": task.command,
             "is_enabled": task.isEnabled,
             "allow_overlap": task.allowOverlap,
-            "created_at": ISO8601DateFormatter().string(from: task.createdAt)
+            "created_at": Self.isoFormatter.string(from: task.createdAt)
         ]
         if let workDir = task.workingDirectory { dict["working_directory"] = workDir }
         if let env = task.environment { dict["environment"] = env }
@@ -416,7 +418,7 @@ extension TerminalController {
 
         // Include next fire date if cron is valid
         if let nextFire = task.nextFireDate(after: Date()) {
-            dict["next_fire"] = ISO8601DateFormatter().string(from: nextFire)
+            dict["next_fire"] = Self.isoFormatter.string(from: nextFire)
         }
         return dict
     }
@@ -426,11 +428,11 @@ extension TerminalController {
             "id": run.id.uuidString,
             "task_id": run.taskId.uuidString,
             "status": run.status.rawValue,
-            "started_at": ISO8601DateFormatter().string(from: run.startedAt)
+            "started_at": Self.isoFormatter.string(from: run.startedAt)
         ]
         if let panelId = run.panelId { dict["panel_id"] = panelId.uuidString }
         if let completedAt = run.completedAt {
-            dict["completed_at"] = ISO8601DateFormatter().string(from: completedAt)
+            dict["completed_at"] = Self.isoFormatter.string(from: completedAt)
         }
         if let exitCode = run.exitCode { dict["exit_code"] = exitCode }
         return dict
