@@ -206,15 +206,15 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 14
 
 ### Task 14: Verify acceptance criteria
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify browser kill-switch prevents WKWebView instantiation
-- [ ] verify scheduler sidebar, task list, status indicators, cost display
-- [ ] verify Ghostty surfaces provide live terminal with ANSI rendering
-- [ ] verify notifications fire on task completion
-- [ ] verify all 10 socket API commands work
-- [ ] verify CLI subcommands work end-to-end
-- [ ] run full test suite (unit tests)
-- [ ] run linter - all issues must be fixed
+- [x] verify all requirements from Overview are implemented
+- [x] verify browser kill-switch prevents WKWebView instantiation
+- [x] verify scheduler sidebar, task list, status indicators, cost display
+- [x] verify Ghostty surfaces provide live terminal with ANSI rendering
+- [x] verify notifications fire on task completion
+- [x] verify all 10 socket API commands work
+- [x] verify CLI subcommands work end-to-end
+- [x] run full test suite (unit tests)
+- [x] run linter - all issues must be fixed
 
 ### Task 15: [Final] Update documentation
 - [ ] update README.md with scheduler feature documentation
