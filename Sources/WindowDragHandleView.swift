@@ -359,6 +359,13 @@ struct WindowDragHandleView: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             let currentEvent = NSApp.currentEvent
+            // Fast bail-out: only claim hits for left-mouse-down events.
+            // For mouseMoved / mouseEntered / etc., return nil immediately
+            // to avoid re-entering SwiftUI view state during layout passes,
+            // which causes exclusive-access crashes.
+            guard currentEvent?.type == .leftMouseDown else {
+                return nil
+            }
             let shouldCapture = windowDragHandleShouldCaptureHit(
                 point,
                 in: self,
