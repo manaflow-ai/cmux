@@ -1225,6 +1225,8 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @AppStorage("sidebarContentMode") private var sidebarContentMode = SidebarContentMode.tabs.rawValue
+    @StateObject private var fileTreeModel = FileTreeModel()
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1773,14 +1775,63 @@ struct ContentView: View {
         }
     }
 
-    private var sidebarView: some View {
+    private var tabsSidebarContent: some View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
+    }
+
+    private var fileTreeSidebarContent: some View {
+        Group {
+            if let workspace = tabManager.selectedTab {
+                FileTreeSidebar(
+                    model: fileTreeModel,
+                    workspace: workspace,
+                    onComposePath: { path in
+                        sendPathToFocusedTerminal(path)
+                    }
+                )
+            } else {
+                Text("No workspace")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var sidebarView: some View {
+        VStack(spacing: 0) {
+            if sidebarContentMode == SidebarContentMode.fileTree.rawValue {
+                fileTreeSidebarContent
+            } else {
+                tabsSidebarContent
+            }
+        }
         .frame(width: sidebarWidth)
+        .background(SidebarBackdrop().ignoresSafeArea())
+    }
+
+    private func sendPathToFocusedTerminal(_ path: String) {
+        guard let workspace = tabManager.selectedTab,
+              let terminalPanel = workspace.focusedTerminalPanel else { return }
+        // Shell-escape the path so spaces and special chars don't break commands
+        let escaped = shellEscapePath(path)
+        terminalPanel.sendText(escaped)
+    }
+
+    private func shellEscapePath(_ path: String) -> String {
+        let needsQuoting = path.contains(" ") || path.contains("'") || path.contains("\"")
+            || path.contains("(") || path.contains(")") || path.contains("&")
+            || path.contains("|") || path.contains(";") || path.contains("$")
+            || path.contains("`") || path.contains("!")
+        guard needsQuoting else { return path }
+        // Use single quotes with escaped inner single quotes
+        let escaped = path.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -1868,6 +1919,17 @@ struct ContentView: View {
             notificationStore: TerminalNotificationStore.shared,
             viewModel: fullscreenControlsViewModel,
             onToggleSidebar: { sidebarState.toggle() },
+            onToggleFileTree: {
+                let current = UserDefaults.standard.string(forKey: "sidebarContentMode") ?? SidebarContentMode.tabs.rawValue
+                if current == SidebarContentMode.fileTree.rawValue {
+                    UserDefaults.standard.set(SidebarContentMode.tabs.rawValue, forKey: "sidebarContentMode")
+                } else {
+                    UserDefaults.standard.set(SidebarContentMode.fileTree.rawValue, forKey: "sidebarContentMode")
+                    if !sidebarState.isVisible {
+                        sidebarState.toggle()
+                    }
+                }
+            },
             onToggleNotifications: { [fullscreenControlsViewModel] in
                 AppDelegate.shared?.toggleNotificationsPopover(
                     animated: true,
@@ -2493,7 +2555,7 @@ struct ContentView: View {
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState
+                sidebarSelectionState: sidebarSelectionState,
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
         }))
@@ -5665,7 +5727,6 @@ struct VerticalTabsSidebar: View {
         }
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
-        .background(SidebarBackdrop().ignoresSafeArea())
         .background(
             WindowAccessor { window in
                 commandKeyMonitor.setHostWindow(window)
@@ -8374,7 +8435,7 @@ enum SidebarSelection {
     case notifications
 }
 
-private struct ClearScrollBackground: ViewModifier {
+struct ClearScrollBackground: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 13.0, *) {
             content

@@ -39,6 +39,7 @@ enum KeyboardShortcutSettings {
         case openBrowser
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
+        case toggleFileTree
 
         var id: String { rawValue }
 
@@ -72,6 +73,7 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return "Open Browser"
             case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
             case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
+            case .toggleFileTree: return "Toggle File Tree"
             }
         }
 
@@ -105,6 +107,7 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
+            case .toggleFileTree: return "shortcut.toggleFileTree"
             }
         }
 
@@ -168,6 +171,8 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .toggleFileTree:
+                return StoredShortcut(key: "e", command: true, shift: false, option: false, control: false)
             }
         }
 
@@ -241,6 +246,8 @@ enum KeyboardShortcutSettings {
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
+
+    static func toggleFileTreeShortcut() -> StoredShortcut { shortcut(for: .toggleFileTree) }
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
