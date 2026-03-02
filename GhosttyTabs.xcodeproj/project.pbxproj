@@ -99,6 +99,8 @@
 					A5001850 /* SchedulerEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001851 /* SchedulerEngineTests.swift */; };
 					A5001860 /* WorktreeIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001861 /* WorktreeIsolationTests.swift */; };
 					A5001870 /* SchedulerSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001871 /* SchedulerSidebarTests.swift */; };
+		A5001880 /* TerminalController+Scheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001881 /* TerminalController+Scheduler.swift */; };
+					A5001882 /* SchedulerSocketAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001883 /* SchedulerSocketAPITests.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -245,6 +247,8 @@
 				A5001851 /* SchedulerEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerEngineTests.swift; sourceTree = "<group>"; };
 				A5001861 /* WorktreeIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeIsolationTests.swift; sourceTree = "<group>"; };
 				A5001871 /* SchedulerSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSidebarTests.swift; sourceTree = "<group>"; };
+		A5001881 /* TerminalController+Scheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Scheduler.swift"; sourceTree = "<group>"; };
+				A5001883 /* SchedulerSocketAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSocketAPITests.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -367,6 +371,7 @@
 				A5001531 /* TerminalWindowPortal.swift */,
 				A5001533 /* BrowserWindowPortal.swift */,
 				A5001019 /* TerminalController.swift */,
+				A5001881 /* TerminalController+Scheduler.swift */,
 				A5001541 /* PortScanner.swift */,
 				A5001225 /* SocketControlSettings.swift */,
 				A5001701 /* BrowserSettings.swift */,
@@ -473,6 +478,7 @@
 					A5001851 /* SchedulerEngineTests.swift */,
 					A5001861 /* WorktreeIsolationTests.swift */,
 					A5001871 /* SchedulerSidebarTests.swift */,
+					A5001883 /* SchedulerSocketAPITests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -621,6 +627,7 @@
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
+				A5001880 /* TerminalController+Scheduler.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 				A5001700 /* BrowserSettings.swift in Sources */,
@@ -698,6 +705,7 @@
 					A5001850 /* SchedulerEngineTests.swift in Sources */,
 					A5001860 /* WorktreeIsolationTests.swift in Sources */,
 					A5001870 /* SchedulerSidebarTests.swift in Sources */,
+					A5001882 /* SchedulerSocketAPITests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};

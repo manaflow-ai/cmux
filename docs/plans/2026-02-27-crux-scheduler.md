@@ -171,16 +171,16 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 10
 
 ### Task 10: Socket API — scheduler.* v2 commands
-- [ ] create `Sources/TerminalController+Scheduler.swift` as extension
-- [ ] implement 10 v2 handlers: list, create, delete, update, enable, disable, run, cancel, logs, snapshot
-- [ ] implement cron validation in create/update returning `invalid_cron` error
-- [ ] implement `scheduler.snapshot` delegating to `ghostty_surface_read_text()`
-- [ ] add all 10 methods to `v2Capabilities()` list
-- [ ] write tests for scheduler.create with valid params returns task_id
-- [ ] write tests for scheduler.create with invalid cron returns error
-- [ ] write tests for scheduler.list returns all tasks
-- [ ] write tests for scheduler.snapshot returns terminal text
-- [ ] run project tests - must pass before task 11
+- [x] create `Sources/TerminalController+Scheduler.swift` as extension
+- [x] implement 10 v2 handlers: list, create, delete, update, enable, disable, run, cancel, logs, snapshot
+- [x] implement cron validation in create/update returning `invalid_cron` error
+- [x] implement `scheduler.snapshot` delegating to `ghostty_surface_read_text()`
+- [x] add all 10 methods to `v2Capabilities()` list
+- [x] write tests for scheduler.create with valid params returns task_id
+- [x] write tests for scheduler.create with invalid cron returns error
+- [x] write tests for scheduler.list returns all tasks
+- [x] write tests for scheduler.snapshot returns terminal text
+- [x] run project tests - must pass before task 11
 
 ### Task 11: CLI — cmux scheduler subcommands
 - [ ] add `case "scheduler":` to command dispatcher in `CLI/cmux.swift:732`

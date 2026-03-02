@@ -1546,6 +1546,12 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugScreenshot(params: params))
 #endif
 
+        // Scheduler
+        case "scheduler.list", "scheduler.create", "scheduler.delete", "scheduler.update",
+             "scheduler.enable", "scheduler.disable", "scheduler.run", "scheduler.cancel",
+             "scheduler.logs", "scheduler.snapshot":
+            return v2Result(id: id, self.v2SchedulerDispatch(method: method, params: params))
+
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -1706,6 +1712,16 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
+            "scheduler.list",
+            "scheduler.create",
+            "scheduler.delete",
+            "scheduler.update",
+            "scheduler.enable",
+            "scheduler.disable",
+            "scheduler.run",
+            "scheduler.cancel",
+            "scheduler.logs",
+            "scheduler.snapshot",
         ]
 #if DEBUG
         methods.append(contentsOf: [
@@ -2042,7 +2058,7 @@ class TerminalController {
         return NSNull()
     }
 
-    private func v2MainSync<T>(_ body: () -> T) -> T {
+    func v2MainSync<T>(_ body: () -> T) -> T {
         if Thread.isMainThread {
             return body()
         }
@@ -2069,7 +2085,7 @@ class TerminalController {
         ])
     }
 
-    private enum V2CallResult {
+    enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
     }
@@ -3896,7 +3912,7 @@ class TerminalController {
         return result
     }
 
-    private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+    func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
         guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
 
         let pointTag: ghostty_point_tag_e = includeScrollback ? GHOSTTY_POINT_SCREEN : GHOSTTY_POINT_VIEWPORT
