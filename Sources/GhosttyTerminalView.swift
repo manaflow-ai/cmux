@@ -4199,7 +4199,6 @@ final class GhosttySurfaceScrollView: NSView {
     func setVisibleInUI(_ visible: Bool) {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
-        isHidden = !visible
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
@@ -4210,14 +4209,29 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
 #endif
-        if !visible {
-            // If we were focused, yield first responder.
-            if let window, let fr = window.firstResponder as? NSView,
-               fr === surfaceView || fr.isDescendant(of: surfaceView) {
-                window.makeFirstResponder(nil)
+        // Defer isHidden mutation + first-responder to the next run-loop
+        // iteration. Setting isHidden inside SwiftUI's updateNSView triggers
+        // recursive _postWindowNeedsUpdateConstraints during an active
+        // constraint pass, crashing with EXC_BREAKPOINT (issue #743).
+        // The surfaceView.isVisibleInUI flag is set synchronously above so
+        // any code that checks logical visibility sees the correct state
+        // immediately; only the AppKit property is deferred.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Coalesce: only apply if this is still the desired state.
+            // A newer setVisibleInUI call may have superseded this one.
+            guard self.surfaceView.isVisibleInUI == visible else { return }
+            self.isHidden = !visible
+            if !visible {
+                // If we were focused, yield first responder.
+                if let window = self.window,
+                   let fr = window.firstResponder as? NSView,
+                   fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+                    window.makeFirstResponder(nil)
+                }
+            } else {
+                self.applyFirstResponderIfNeeded()
             }
-        } else {
-            applyFirstResponderIfNeeded()
         }
     }
 
