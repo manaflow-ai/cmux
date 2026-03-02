@@ -5757,18 +5757,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
-           let manager = tabManager,
-           let num = Int(chars),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+        // Numeric shortcuts for specific sidebar tabs (default: Cmd+1-9, customizable via Settings)
+        if let manager = tabManager {
+            let workspaceShortcutActions: [(KeyboardShortcutSettings.Action, Int?)] = [
+                (.selectWorkspace1, 0), (.selectWorkspace2, 1), (.selectWorkspace3, 2),
+                (.selectWorkspace4, 3), (.selectWorkspace5, 4), (.selectWorkspace6, 5),
+                (.selectWorkspace7, 6), (.selectWorkspace8, 7), (.selectWorkspace9, nil),
+            ]
+            for (action, workspaceIndex) in workspaceShortcutActions {
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
+                    let targetIndex: Int
+                    if let index = workspaceIndex {
+                        guard index < manager.tabs.count else { continue }
+                        targetIndex = index
+                    } else {
+                        guard manager.tabs.count > 0 else { continue }
+                        targetIndex = manager.tabs.count - 1
+                    }
 #if DEBUG
-            dlog(
-                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-            )
+                    dlog(
+                        "shortcut.action name=workspaceDigit targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
 #endif
-            manager.selectTab(at: targetIndex)
-            return true
+                    manager.selectTab(at: targetIndex)
+                    return true
+                }
+            }
         }
 
         // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)

@@ -35,6 +35,17 @@ enum KeyboardShortcutSettings {
         case splitBrowserRight
         case splitBrowserDown
 
+        // Numbered workspace selection (Cmd+1-9 by default)
+        case selectWorkspace1
+        case selectWorkspace2
+        case selectWorkspace3
+        case selectWorkspace4
+        case selectWorkspace5
+        case selectWorkspace6
+        case selectWorkspace7
+        case selectWorkspace8
+        case selectWorkspace9
+
         // Panels
         case openBrowser
         case toggleBrowserDeveloperTools
@@ -69,6 +80,15 @@ enum KeyboardShortcutSettings {
             case .toggleSplitZoom: return "Toggle Pane Zoom"
             case .splitBrowserRight: return "Split Browser Right"
             case .splitBrowserDown: return "Split Browser Down"
+            case .selectWorkspace1: return "Select Workspace 1"
+            case .selectWorkspace2: return "Select Workspace 2"
+            case .selectWorkspace3: return "Select Workspace 3"
+            case .selectWorkspace4: return "Select Workspace 4"
+            case .selectWorkspace5: return "Select Workspace 5"
+            case .selectWorkspace6: return "Select Workspace 6"
+            case .selectWorkspace7: return "Select Workspace 7"
+            case .selectWorkspace8: return "Select Workspace 8"
+            case .selectWorkspace9: return "Select Last Workspace"
             case .openBrowser: return "Open Browser"
             case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
             case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
@@ -102,6 +122,15 @@ enum KeyboardShortcutSettings {
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
+            case .selectWorkspace1: return "shortcut.selectWorkspace1"
+            case .selectWorkspace2: return "shortcut.selectWorkspace2"
+            case .selectWorkspace3: return "shortcut.selectWorkspace3"
+            case .selectWorkspace4: return "shortcut.selectWorkspace4"
+            case .selectWorkspace5: return "shortcut.selectWorkspace5"
+            case .selectWorkspace6: return "shortcut.selectWorkspace6"
+            case .selectWorkspace7: return "shortcut.selectWorkspace7"
+            case .selectWorkspace8: return "shortcut.selectWorkspace8"
+            case .selectWorkspace9: return "shortcut.selectWorkspace9"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -160,6 +189,24 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace1:
+                return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace2:
+                return StoredShortcut(key: "2", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace3:
+                return StoredShortcut(key: "3", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace4:
+                return StoredShortcut(key: "4", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace5:
+                return StoredShortcut(key: "5", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace6:
+                return StoredShortcut(key: "6", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace7:
+                return StoredShortcut(key: "7", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace8:
+                return StoredShortcut(key: "8", command: true, shift: false, option: false, control: false)
+            case .selectWorkspace9:
+                return StoredShortcut(key: "9", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
@@ -174,6 +221,40 @@ enum KeyboardShortcutSettings {
         func tooltip(_ base: String) -> String {
             "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
         }
+    }
+
+    /// Returns the workspace selection action for the given zero-based index (0-7),
+    /// or `.selectWorkspace9` (last workspace) when `isLast` is true.
+    static func workspaceAction(at index: Int, isLast: Bool) -> Action? {
+        if isLast { return .selectWorkspace9 }
+        switch index {
+        case 0: return .selectWorkspace1
+        case 1: return .selectWorkspace2
+        case 2: return .selectWorkspace3
+        case 3: return .selectWorkspace4
+        case 4: return .selectWorkspace5
+        case 5: return .selectWorkspace6
+        case 6: return .selectWorkspace7
+        case 7: return .selectWorkspace8
+        default: return nil
+        }
+    }
+
+    /// Returns the set of distinct modifier flags used across all workspace selection shortcuts.
+    static var workspaceShortcutModifierFlagSets: [NSEvent.ModifierFlags] {
+        let actions: [Action] = [
+            .selectWorkspace1, .selectWorkspace2, .selectWorkspace3,
+            .selectWorkspace4, .selectWorkspace5, .selectWorkspace6,
+            .selectWorkspace7, .selectWorkspace8, .selectWorkspace9,
+        ]
+        var seen: [NSEvent.ModifierFlags] = []
+        for action in actions {
+            let flags = shortcut(for: action).modifierFlags
+            if !flags.isEmpty && !seen.contains(flags) {
+                seen.append(flags)
+            }
+        }
+        return seen
     }
 
     static func shortcut(for action: Action) -> StoredShortcut {

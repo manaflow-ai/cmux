@@ -34,6 +34,15 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace1.defaultsKey) private var selectWorkspace1ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace2.defaultsKey) private var selectWorkspace2ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace3.defaultsKey) private var selectWorkspace3ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace4.defaultsKey) private var selectWorkspace4ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace5.defaultsKey) private var selectWorkspace5ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace6.defaultsKey) private var selectWorkspace6ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace7.defaultsKey) private var selectWorkspace7ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace8.defaultsKey) private var selectWorkspace8ShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspace9.defaultsKey) private var selectWorkspace9ShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -584,15 +593,40 @@ struct cmuxApp: App {
 
                 Divider()
 
-                // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
-                ForEach(1...9, id: \.self) { number in
-                    Button("Workspace \(number)") {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
-                        }
+                // Workspace selection shortcuts (default: Cmd+1-9, customizable via Settings).
+                // Keyboard shortcuts are handled by the local event monitor in handleCustomShortcut.
+                // We intentionally omit .keyboardShortcut() here because SwiftUI's menu system
+                // does not reliably update key equivalents when settings change at runtime,
+                // which causes stale shortcuts to fire via performKeyEquivalent -> mainMenu fallback.
+                workspaceMenuButton("Workspace 1", shortcut: selectWorkspace1MenuShortcut) {
+                    selectWorkspaceByIndex(0)
+                }
+                workspaceMenuButton("Workspace 2", shortcut: selectWorkspace2MenuShortcut) {
+                    selectWorkspaceByIndex(1)
+                }
+                workspaceMenuButton("Workspace 3", shortcut: selectWorkspace3MenuShortcut) {
+                    selectWorkspaceByIndex(2)
+                }
+                workspaceMenuButton("Workspace 4", shortcut: selectWorkspace4MenuShortcut) {
+                    selectWorkspaceByIndex(3)
+                }
+                workspaceMenuButton("Workspace 5", shortcut: selectWorkspace5MenuShortcut) {
+                    selectWorkspaceByIndex(4)
+                }
+                workspaceMenuButton("Workspace 6", shortcut: selectWorkspace6MenuShortcut) {
+                    selectWorkspaceByIndex(5)
+                }
+                workspaceMenuButton("Workspace 7", shortcut: selectWorkspace7MenuShortcut) {
+                    selectWorkspaceByIndex(6)
+                }
+                workspaceMenuButton("Workspace 8", shortcut: selectWorkspace8MenuShortcut) {
+                    selectWorkspaceByIndex(7)
+                }
+                workspaceMenuButton("Last Workspace", shortcut: selectWorkspace9MenuShortcut) {
+                    let manager = activeTabManager
+                    if manager.tabs.count > 0 {
+                        manager.selectTab(at: manager.tabs.count - 1)
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
                 }
 
                 Divider()
@@ -796,6 +830,50 @@ struct cmuxApp: App {
             return
         }
         _ = tabManager.createBrowserSplit(direction: direction)
+    }
+
+
+    // MARK: - Workspace selection menu shortcuts
+
+    private var selectWorkspace1MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace1ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace1.defaultShortcut)
+    }
+    private var selectWorkspace2MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace2ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace2.defaultShortcut)
+    }
+    private var selectWorkspace3MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace3ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace3.defaultShortcut)
+    }
+    private var selectWorkspace4MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace4ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace4.defaultShortcut)
+    }
+    private var selectWorkspace5MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace5ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace5.defaultShortcut)
+    }
+    private var selectWorkspace6MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace6ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace6.defaultShortcut)
+    }
+    private var selectWorkspace7MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace7ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace7.defaultShortcut)
+    }
+    private var selectWorkspace8MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace8ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace8.defaultShortcut)
+    }
+    private var selectWorkspace9MenuShortcut: StoredShortcut {
+        decodeShortcut(from: selectWorkspace9ShortcutData, fallback: KeyboardShortcutSettings.Action.selectWorkspace9.defaultShortcut)
+    }
+
+    private func selectWorkspaceByIndex(_ index: Int) {
+        let manager = activeTabManager
+        if index < manager.tabs.count {
+            manager.selectTab(at: index)
+        }
+    }
+
+    /// Menu button for workspace selection. Displays the shortcut hint in the title
+    /// but does NOT register a `.keyboardShortcut()` — the local event monitor handles the actual binding.
+    private func workspaceMenuButton(_ title: String, shortcut: StoredShortcut, action: @escaping () -> Void) -> some View {
+        Button("\(title)\t\(shortcut.displayString)", action: action)
     }
 
     @ViewBuilder
