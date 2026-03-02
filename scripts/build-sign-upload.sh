@@ -59,13 +59,23 @@ done
 echo "Pre-flight checks passed"
 
 # --- Build GhosttyKit (if needed) ---
+# Always rebuild if the existing xcframework is missing the x86_64 slice,
+# which happens when setup.sh seeds a native-only (arm64) build.
+NEED_BUILD="false"
 if [ ! -d "GhosttyKit.xcframework" ]; then
-  echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast && cd ..
+  NEED_BUILD="true"
+elif [ ! -d "GhosttyKit.xcframework/macos-arm64_x86_64" ]; then
+  echo "GhosttyKit.xcframework exists but is not universal, rebuilding..."
+  NEED_BUILD="true"
+fi
+
+if [ "$NEED_BUILD" = "true" ]; then
+  echo "Building universal GhosttyKit..."
+  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
   rm -rf GhosttyKit.xcframework
   cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 else
-  echo "GhosttyKit.xcframework exists, skipping build"
+  echo "GhosttyKit.xcframework exists and is universal, skipping build"
 fi
 
 # --- Build app (Release, unsigned) ---
