@@ -488,6 +488,21 @@ final class WorkspaceChromeThemeTests: XCTestCase {
         XCTAssertEqual(colors.backgroundHex, "#272822")
         XCTAssertNil(colors.borderHex)
     }
+
+    func testResolvedChromeColorsUsesExplicitSplitDividerColor() {
+        guard let backgroundColor = NSColor(hex: "#272822"),
+              let splitDividerColor = NSColor(hex: "#45475A") else {
+            XCTFail("Expected valid test colors")
+            return
+        }
+
+        let colors = Workspace.resolvedChromeColors(
+            from: backgroundColor,
+            splitDividerColor: splitDividerColor
+        )
+        XCTAssertEqual(colors.backgroundHex, "#272822")
+        XCTAssertEqual(colors.borderHex, "#45475A")
+    }
 }
 
 final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {

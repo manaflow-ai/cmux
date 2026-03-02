@@ -1000,11 +1000,12 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
         bonsplitAppearance(
             from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity
+            backgroundOpacity: config.backgroundOpacity,
+            splitDividerColor: config.splitDividerColor
         )
     }
 
-    static func bonsplitChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
+    nonisolated static func bonsplitChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
         let themedColor = GhosttyBackgroundTheme.color(
             backgroundColor: backgroundColor,
             opacity: backgroundOpacity
@@ -1014,23 +1015,35 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     nonisolated static func resolvedChromeColors(
-        from backgroundColor: NSColor
+        from backgroundColor: NSColor,
+        backgroundOpacity: Double = 1.0,
+        splitDividerColor: NSColor? = nil
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
-        .init(backgroundHex: backgroundColor.hexString())
+        let borderHex = splitDividerColor.map { color in
+            let includeAlpha = color.alphaComponent < 0.999
+            return color.hexString(includeAlpha: includeAlpha)
+        }
+        return .init(
+            backgroundHex: bonsplitChromeHex(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity
+            ),
+            borderHex: borderHex
+        )
     }
 
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
-        backgroundOpacity: Double
+        backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil
     ) -> BonsplitConfiguration.Appearance {
         BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: .init(
-                backgroundHex: Self.bonsplitChromeHex(
-                    backgroundColor: backgroundColor,
-                    backgroundOpacity: backgroundOpacity
-                )
+            chromeColors: Self.resolvedChromeColors(
+                from: backgroundColor,
+                backgroundOpacity: backgroundOpacity,
+                splitDividerColor: splitDividerColor
             )
         )
     }
@@ -1039,29 +1052,41 @@ final class Workspace: Identifiable, ObservableObject {
         applyGhosttyChrome(
             backgroundColor: config.backgroundColor,
             backgroundOpacity: config.backgroundOpacity,
+            splitDividerColor: config.splitDividerColor,
             reason: reason
         )
     }
 
-    func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
-        let nextHex = Self.bonsplitChromeHex(
-            backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity
+    func applyGhosttyChrome(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double,
+        splitDividerColor: NSColor? = nil,
+        reason: String = "unspecified"
+    ) {
+        let nextChromeColors = Self.resolvedChromeColors(
+            from: backgroundColor,
+            backgroundOpacity: backgroundOpacity,
+            splitDividerColor: splitDividerColor
         )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
-        let isNoOp = currentChromeColors.backgroundHex == nextHex
+        let isNoOp = currentChromeColors.backgroundHex == nextChromeColors.backgroundHex &&
+            currentChromeColors.borderHex == nextChromeColors.borderHex
 
         if GhosttyApp.shared.backgroundLogEnabled {
             let currentBackgroundHex = currentChromeColors.backgroundHex ?? "nil"
+            let currentBorderHex = currentChromeColors.borderHex ?? "nil"
+            let nextBackgroundHex = nextChromeColors.backgroundHex ?? "nil"
+            let nextBorderHex = nextChromeColors.borderHex ?? "nil"
             GhosttyApp.shared.logBackground(
-                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) nextBg=\(nextHex) noop=\(isNoOp)"
+                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) currentBorder=\(currentBorderHex) nextBg=\(nextBackgroundHex) nextBorder=\(nextBorderHex) noop=\(isNoOp)"
             )
         }
 
         if isNoOp {
             return
         }
-        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextChromeColors.backgroundHex
+        bonsplitController.configuration.appearance.chromeColors.borderHex = nextChromeColors.borderHex
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") resultingBorder=\(bonsplitController.configuration.appearance.chromeColors.borderHex ?? "nil")"
