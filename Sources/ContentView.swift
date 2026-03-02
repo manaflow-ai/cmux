@@ -653,9 +653,8 @@ final class FileDropOverlayView: NSView {
               let themeFrame = contentView.superview else { return "-" }
 
         let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
-        isHidden = true
-        defer { isHidden = false }
-
+        // Don't toggle isHidden here — it triggers setNeedsDisplay which can
+        // exceed AppKit's display-pass limit during cursor-update display cycles.
         guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
         var chain: [String] = []
         var current: NSView? = hit
