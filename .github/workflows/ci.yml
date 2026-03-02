@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Validate self-hosted runner guards
+      - name: Validate Depot runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
       - name: Validate create-dmg version pinning
@@ -44,12 +44,9 @@ jobs:
         run: bun tsc --noEmit
 
   tests:
-    # Never run self-hosted jobs for fork pull requests.
+    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: self-hosted
-    concurrency:
-      group: self-hosted-ci
-      cancel-in-progress: true
+    runs-on: depot-macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -75,24 +72,47 @@ jobs:
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-path
 
-      - name: Download Metal Toolchain
-        run: xcodebuild -downloadComponent MetalToolchain
-
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if ! command -v zig >/dev/null 2>&1; then
-            if command -v brew >/dev/null 2>&1; then
-              brew install zig
-            else
-              echo "zig is required to build GhosttyKit.xcframework. Install zig and retry." >&2
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
               exit 1
             fi
-          fi
-          (cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false)
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          echo "=== Display before ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
+          echo ""
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          /tmp/create-virtual-display &
+          VDISPLAY_PID=$!
+          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
+          sleep 3
+          echo "=== Display after ==="
+          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
       - name: Clean DerivedData
         run: |
@@ -138,7 +158,7 @@ jobs:
           EXIT_CODE=$?
           set -e
 
-          # SwiftPM binary artifact resolution can occasionally fail on self-hosted
+          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
           if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
@@ -167,8 +187,33 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxUITests test
+          # SidebarResizeUITests hangs on headless Depot runners (mouse drag
+          # simulation doesn't work without a physical display, even with virtual
+          # display). Skip it in CI; it runs fine on local machines.
+          run_ui_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -maximum-test-execution-time-allowance 120 \
+              -only-testing:cmuxUITests \
+              -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1
+          }
+
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
+          set +e
+          OUTPUT=$(run_ui_tests)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
