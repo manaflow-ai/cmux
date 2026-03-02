@@ -134,6 +134,12 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(rgb255(darkConfig.backgroundColor), RGB(red: 0, green: 43, blue: 54))
     }
 
+    func testParseBackgroundOpacityReadsConfigValue() {
+        var config = GhosttyConfig()
+        config.parse("background-opacity = 0.42")
+        XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -526,6 +532,84 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
+    }
+}
+
+@MainActor
+final class WorkspaceChromeColorTests: XCTestCase {
+    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
+        XCTAssertEqual(hex, "#1122337F")
+    }
+
+    func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
+        let color = NSColor(
+            srgbRed: 17.0 / 255.0,
+            green: 34.0 / 255.0,
+            blue: 51.0 / 255.0,
+            alpha: 1.0
+        )
+
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        XCTAssertEqual(hex, "#112233")
+    }
+}
+
+final class WindowTransparencyDecisionTests: XCTestCase {
+    private let sidebarBlendModeKey = "sidebarBlendMode"
+    private let bgGlassEnabledKey = "bgGlassEnabled"
+
+    func testTranslucentOpacityForcesClearWindowBackgroundOutsideSidebarBlendModePath() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("withinWindow", forKey: sidebarBlendModeKey)
+            defaults.set(false, forKey: bgGlassEnabledKey)
+
+            XCTAssertFalse(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 0.80))
+            XCTAssertFalse(cmuxShouldUseClearWindowBackground(for: 1.0))
+        }
+    }
+
+    func testBehindWindowGlassPathStillControlsTransparentWindowFallback() {
+        withTemporaryWindowBackgroundDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set("behindWindow", forKey: sidebarBlendModeKey)
+            defaults.set(true, forKey: bgGlassEnabledKey)
+
+            let expectedTransparentFallback = !WindowGlassEffect.isAvailable
+            XCTAssertEqual(cmuxShouldUseTransparentBackgroundWindow(), expectedTransparentFallback)
+            XCTAssertEqual(
+                cmuxShouldUseClearWindowBackground(for: 1.0),
+                expectedTransparentFallback
+            )
+        }
+    }
+
+    private func withTemporaryWindowBackgroundDefaults(_ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let originalBlendMode = defaults.object(forKey: sidebarBlendModeKey)
+        let originalGlassEnabled = defaults.object(forKey: bgGlassEnabledKey)
+        defer {
+            restoreDefaultsValue(originalBlendMode, key: sidebarBlendModeKey, defaults: defaults)
+            restoreDefaultsValue(originalGlassEnabled, key: bgGlassEnabledKey, defaults: defaults)
+        }
+        body()
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 }
 
