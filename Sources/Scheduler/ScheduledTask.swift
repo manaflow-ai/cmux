@@ -92,8 +92,10 @@ struct CronExpression: Equatable, Sendable {
         // Convert cron day-of-week (0=Sun, 1=Mon, ..., 6=Sat, 7=Sun) to Calendar (1=Sun, ..., 7=Sat)
         self.daysOfWeek = Set(dows.map { ($0 % 7) + 1 })
 
-        self.dayOfMonthRestricted = (fields[2] != "*")
-        self.dayOfWeekRestricted = (fields[4] != "*")
+        // Use set comparison to determine restriction. This correctly handles equivalent
+        // expressions like */1, 1-31, etc. that expand to the full range but aren't literal "*".
+        self.dayOfMonthRestricted = (doms != Set(1...31))
+        self.dayOfWeekRestricted = (self.daysOfWeek != Set(1...7))
     }
 
     /// Find the next fire date after the given date. DST-safe via Calendar date construction.

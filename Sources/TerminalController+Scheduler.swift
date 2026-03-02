@@ -145,7 +145,12 @@ extension TerminalController {
 
             // Apply updates for provided fields
             if let name = params["name"] as? String {
-                task.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    result = .err(code: "invalid_params", message: "Name cannot be empty", data: nil)
+                    return
+                }
+                task.name = trimmed
             }
             if let cron = params["cron"] as? String {
                 let trimmedCron = cron.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -156,10 +161,16 @@ extension TerminalController {
                 task.cronExpression = trimmedCron
             }
             if let command = params["command"] as? String {
-                task.command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else {
+                    result = .err(code: "invalid_params", message: "Command cannot be empty", data: nil)
+                    return
+                }
+                task.command = trimmed
             }
             if let workDir = params["working_directory"] as? String {
-                task.workingDirectory = workDir.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = workDir.trimmingCharacters(in: .whitespacesAndNewlines)
+                task.workingDirectory = trimmed.isEmpty ? nil : trimmed
             }
             if let env = params["environment"] as? [String: String] {
                 task.environment = env
