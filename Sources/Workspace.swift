@@ -970,7 +970,8 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
     private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
         let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
-        let command = "sh -lc \(shellSingleQuoted(script))"
+        // Use non-login sh so remote ~/.profile noise does not interfere with daemon transport startup.
+        let command = "sh -c \(shellSingleQuoted(script))"
         return sshCommonArguments(configuration: configuration, batchMode: true) + [configuration.destination, command]
     }
 
@@ -2352,7 +2353,7 @@ private final class WorkspaceRemoteSessionController {
 
     private func resolveRemotePlatformLocked() throws -> RemotePlatform {
         let script = "uname -s; uname -m"
-        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
@@ -2383,7 +2384,7 @@ private final class WorkspaceRemoteSessionController {
 
     private func remoteDaemonExistsLocked(remotePath: String) throws -> Bool {
         let script = "if [ -x \(Self.shellSingleQuoted(remotePath)) ]; then echo yes; else echo no; fi"
-        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
         guard result.status == 0 else { return false }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "yes"
@@ -2472,7 +2473,7 @@ private final class WorkspaceRemoteSessionController {
         let remoteTempPath = "\(remotePath).tmp-\(UUID().uuidString.prefix(8))"
 
         let mkdirScript = "mkdir -p \(Self.shellSingleQuoted(remoteDirectory))"
-        let mkdirCommand = "sh -lc \(Self.shellSingleQuoted(mkdirScript))"
+        let mkdirCommand = "sh -c \(Self.shellSingleQuoted(mkdirScript))"
         let mkdirResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, mkdirCommand], timeout: 12)
         guard mkdirResult.status == 0 else {
             let detail = Self.bestErrorLine(stderr: mkdirResult.stderr, stdout: mkdirResult.stdout) ?? "ssh exited \(mkdirResult.status)"
@@ -2511,7 +2512,7 @@ private final class WorkspaceRemoteSessionController {
         chmod 755 \(Self.shellSingleQuoted(remoteTempPath)) && \
         mv \(Self.shellSingleQuoted(remoteTempPath)) \(Self.shellSingleQuoted(remotePath))
         """
-        let finalizeCommand = "sh -lc \(Self.shellSingleQuoted(finalizeScript))"
+        let finalizeCommand = "sh -c \(Self.shellSingleQuoted(finalizeScript))"
         let finalizeResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand], timeout: 12)
         guard finalizeResult.status == 0 else {
             let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ?? "ssh exited \(finalizeResult.status)"
@@ -2524,7 +2525,7 @@ private final class WorkspaceRemoteSessionController {
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
         let script = "printf '%s\\n' \(Self.shellSingleQuoted(request)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
-        let command = "sh -lc \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
@@ -3157,6 +3158,15 @@ final class Workspace: Identifiable, ObservableObject {
     private static let remoteErrorStatusKey = "remote.error"
     private static let remotePortConflictStatusKey = "remote.port_conflicts"
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
+        let lowered = detail.lowercased()
+        return lowered.contains("remote proxy")
+            || lowered.contains("proxy_unavailable")
+            || lowered.contains("local daemon proxy")
+            || lowered.contains("proxy failure")
+            || lowered.contains("daemon transport")
+    }
 
     var focusedSurfaceId: UUID? { focusedPanelId }
     var surfaceDirectories: [UUID: String] {
@@ -4017,10 +4027,15 @@ final class Workspace: Identifiable, ObservableObject {
 
         let trimmedDetail = detail?.trimmingCharacters(in: .whitespacesAndNewlines)
         if state == .error, let trimmedDetail, !trimmedDetail.isEmpty {
+            let proxyOnlyError = Self.isProxyOnlyRemoteError(trimmedDetail)
+            let statusPrefix = proxyOnlyError ? "Remote proxy unavailable" : "SSH error"
+            let statusIcon = proxyOnlyError ? "exclamationmark.triangle.fill" : "network.slash"
+            let notificationTitle = proxyOnlyError ? "Remote Proxy Unavailable" : "Remote SSH Error"
+            let logSource = proxyOnlyError ? "remote-proxy" : "remote"
             statusEntries[Self.remoteErrorStatusKey] = SidebarStatusEntry(
                 key: Self.remoteErrorStatusKey,
-                value: "SSH error (\(target)): \(trimmedDetail)",
-                icon: "network.slash",
+                value: "\(statusPrefix) (\(target)): \(trimmedDetail)",
+                icon: statusIcon,
                 color: nil,
                 timestamp: Date()
             )
@@ -4029,14 +4044,14 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteLastErrorFingerprint != fingerprint {
                 remoteLastErrorFingerprint = fingerprint
                 appendSidebarLog(
-                    message: "SSH error (\(target)): \(trimmedDetail)",
+                    message: "\(statusPrefix) (\(target)): \(trimmedDetail)",
                     level: .error,
-                    source: "remote"
+                    source: logSource
                 )
                 AppDelegate.shared?.notificationStore?.addNotification(
                     tabId: id,
                     surfaceId: nil,
-                    title: "Remote SSH Error",
+                    title: notificationTitle,
                     subtitle: target,
                     body: trimmedDetail
                 )
