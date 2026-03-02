@@ -217,9 +217,9 @@ Task structure guidelines:
 - [x] run linter - all issues must be fixed
 
 ### Task 15: [Final] Update documentation
-- [ ] update README.md with scheduler feature documentation
-- [ ] verify `docs/dev-setup.md` is current
-- [ ] update project knowledge docs if new patterns discovered
+- [x] update README.md with scheduler feature documentation
+- [x] verify `docs/dev-setup.md` is current
+- [x] update project knowledge docs if new patterns discovered
 
 *Note: ralphex automatically moves completed plans to `docs/plans/completed/`*
 

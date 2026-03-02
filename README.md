@@ -63,9 +63,18 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Task scheduler</h3>
+Cron-based task runner that executes commands in Ghostty terminal surfaces with full PTY, ANSI rendering, and interactivity. Manage via sidebar, CLI, or socket API.
+</td>
+<td width="60%">
+<!-- TODO: add scheduler screenshot -->
+</td>
+</tr>
 </table>
 
-- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, automate the browser, and manage scheduled tasks
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
@@ -175,6 +184,12 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
 
+### Scheduler
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ J | Show scheduler panel |
+
 ### Find
 
 | Shortcut | Action |
@@ -202,6 +217,51 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌘ , | Settings |
 | ⌘ ⇧ , | Reload configuration |
 | ⌘ Q | Quit |
+
+## Task Scheduler
+
+cmux includes a built-in cron-based task scheduler that runs commands in Ghostty terminal surfaces. Tasks get full PTY support, ANSI rendering, scrollback, and interactivity — not just piped log output.
+
+### Features
+
+- **Cron scheduling** — Standard 5-field cron expressions (`*/5 * * * *`, `0 9 * * 1-5`, etc.)
+- **Live terminal output** — Each task runs in a dedicated Ghostty surface with full terminal capabilities
+- **Sidebar panel** — View task list, run status, and history from the scheduler panel (⌘ J)
+- **Notifications** — Task completions trigger cmux's notification system (blue rings, badges)
+- **Task chaining** — Chain tasks with `--on-success` and `--on-failure` hooks (max depth 3)
+- **Git worktree isolation** — Optionally run tasks in isolated git worktrees
+- **Session memory** — Each task gets a context file via `CMUX_TASK_CONTEXT_FILE` env var
+
+### CLI
+
+```bash
+# List all scheduled tasks
+cmux scheduler list --json
+
+# Create a task that runs every hour
+cmux scheduler create --name "hourly-build" --cron "0 * * * *" --command "make build"
+
+# Create with working directory and chaining
+cmux scheduler create --name "test-suite" --cron "0 */2 * * *" \
+  --command "npm test" --working-directory ~/project \
+  --on-failure <notify-task-id>
+
+# Manage tasks
+cmux scheduler enable <task_id>
+cmux scheduler disable <task_id>
+cmux scheduler run <task_id>          # manual trigger
+cmux scheduler cancel <run_id>
+cmux scheduler logs --task-id <id> --limit 10
+cmux scheduler delete <task_id>
+```
+
+### Socket API
+
+The scheduler exposes 10 v2 socket commands: `scheduler.list`, `scheduler.create`, `scheduler.delete`, `scheduler.update`, `scheduler.enable`, `scheduler.disable`, `scheduler.run`, `scheduler.cancel`, `scheduler.logs`, `scheduler.snapshot`.
+
+### Browser Kill-Switch
+
+The WKWebView browser can be disabled via UserDefaults (`browserEnabled`). When disabled, all browser creation paths return errors — keyboard shortcut, socket API, and session restore. Re-enable by setting the default back to `true`.
 
 ## Nightly Builds
 
