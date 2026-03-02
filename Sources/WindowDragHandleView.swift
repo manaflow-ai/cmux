@@ -256,7 +256,30 @@ struct WindowDragHandleView: NSViewRepresentable {
     private final class DraggableView: NSView {
         override var mouseDownCanMoveWindow: Bool { false }
 
+        private func shouldParticipateInHitTesting(for eventType: NSEvent.EventType?) -> Bool {
+            switch eventType {
+            case .mouseMoved, .cursorUpdate, .mouseEntered, .mouseExited,
+                 .flagsChanged, .appKitDefined, .systemDefined,
+                 .applicationDefined, .periodic:
+                // Keep hover/cursor routing on underlying titlebar controls.
+                // We only need drag-handle capture for click/drag interactions.
+                return false
+            default:
+                return true
+            }
+        }
+
         override func hitTest(_ point: NSPoint) -> NSView? {
+            let eventType = NSApp.currentEvent?.type
+            guard shouldParticipateInHitTesting(for: eventType) else {
+                #if DEBUG
+                let eventText = eventType.map { "\($0.rawValue)" } ?? "nil"
+                dlog(
+                    "titlebar.dragHandle.hitTestResult capture=false reason=passiveEvent type=\(eventText) point=\(windowDragHandleFormatPoint(point))"
+                )
+                #endif
+                return nil
+            }
             let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self)
             #if DEBUG
             dlog(
