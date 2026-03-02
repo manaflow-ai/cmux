@@ -48,8 +48,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: self-hosted
     concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
+      group: self-hosted-ci
+      cancel-in-progress: true
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
