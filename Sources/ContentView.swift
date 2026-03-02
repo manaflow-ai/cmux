@@ -3984,6 +3984,30 @@ struct ContentView: View {
         }
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebStop",
+                title: constant("Stop VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "stop", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebRestart",
+                title: constant("Restart VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "restart", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
                 title: constant("Find…"),
                 subtitle: terminalPanelSubtitle,
@@ -4324,6 +4348,14 @@ struct ContentView: View {
                 if !openFocusedDirectory(in: target) {
                     NSSound.beep()
                 }
+            }
+        }
+        registry.register(commandId: "palette.vscodeServeWebStop") {
+            stopInlineVSCodeServeWeb()
+        }
+        registry.register(commandId: "palette.vscodeServeWebRestart") {
+            if !restartInlineVSCodeServeWeb() {
+                NSSound.beep()
             }
         }
         registry.register(commandId: "palette.terminalFind") {
@@ -4959,12 +4991,62 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
+        case .vscode:
+            return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
             NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
             return true
         }
+    }
+
+    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL(),
+              let workspace = tabManager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        let sourceTabId = workspace.id
+        let tabManager = tabManager
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: directoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+            guard tabManager.newBrowserSplit(
+                tabId: sourceTabId,
+                fromPanelId: sourcePanelId,
+                orientation: SplitDirection.right.orientation,
+                insertFirst: SplitDirection.right.insertFirst,
+                url: openFolderURL,
+                focus: true
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+        return true
+    }
+
+    private func stopInlineVSCodeServeWeb() {
+        VSCodeServeWebController.shared.stop()
+    }
+
+    private func restartInlineVSCodeServeWeb() -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL() else {
+            return false
+        }
+        VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            if serveWebURL == nil {
+                NSSound.beep()
+            }
+        }
+        return true
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {
