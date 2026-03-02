@@ -187,9 +187,13 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # SidebarResizeUITests hangs on headless Depot runners (mouse drag
+          # simulation doesn't work without a physical display, even with virtual
+          # display). Skip it in CI; it runs fine on local machines.
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance 120 \
-            -only-testing:cmuxUITests test
+            -only-testing:cmuxUITests \
+            -skip-testing:cmuxUITests/SidebarResizeUITests test
