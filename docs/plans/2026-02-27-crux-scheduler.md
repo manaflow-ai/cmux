@@ -148,13 +148,13 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 8
 
 ### Task 8: Optional git worktree isolation
-- [ ] add `schedulerWorktreeIsolation` UserDefaults (default false)
-- [ ] implement worktree creation before task launch when enabled
-- [ ] implement per-task override via `ScheduledTask.useWorktree: Bool?`
-- [ ] write tests for worktree OFF runs in configured workingDirectory
-- [ ] write tests for worktree ON sets cwd to worktree path
-- [ ] write tests for per-task useWorktree overrides global setting
-- [ ] run project tests - must pass before task 9
+- [x] add `schedulerWorktreeIsolation` UserDefaults (default false)
+- [x] implement worktree creation before task launch when enabled
+- [x] implement per-task override via `ScheduledTask.useWorktree: Bool?`
+- [x] write tests for worktree OFF runs in configured workingDirectory
+- [x] write tests for worktree ON sets cwd to worktree path
+- [x] write tests for per-task useWorktree overrides global setting
+- [x] run project tests - must pass before task 9
 
 ### Task 9: Sidebar UI — SidebarSelection.scheduler and SchedulerPage
 - [ ] add `case scheduler` to `SidebarSelection` in `Sources/ContentView.swift:8276`

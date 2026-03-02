@@ -30,6 +30,12 @@ final class SchedulerEngine: ObservableObject {
     /// Maps panelId -> runId for tracking which terminal surface belongs to which run.
     var panelToRunId: [UUID: UUID] = [:]
 
+    /// Maps runId -> worktree info for cleanup after task completion.
+    var runWorktreeInfo: [UUID: (repoPath: String, worktreePath: String)] = [:]
+
+    /// Injectable git command runner (swapped in tests).
+    var gitRunner: GitCommandRunner = ProcessGitCommandRunner()
+
     /// The workspace ID used for scheduler task terminals (lazily created).
     var schedulerWorkspaceId: UUID?
 
@@ -188,11 +194,28 @@ final class SchedulerEngine: ObservableObject {
     func executeTask(_ task: ScheduledTask, run: TaskRun, tabManager: TabManager) {
         let workspace = schedulerWorkspace(in: tabManager)
 
+        // Resolve working directory (may create a git worktree if isolation is enabled)
+        let worktreeResult = WorktreeIsolation.resolveWorkingDirectory(
+            task: task,
+            runId: run.id,
+            gitRunner: gitRunner
+        )
+        let effectiveWorkDir = worktreeResult.effectiveDirectory
+
+        // Track worktree for cleanup after task completes
+        if let wtPath = worktreeResult.worktreePath,
+           let repoPath = task.workingDirectory {
+            runWorktreeInfo[run.id] = (repoPath: repoPath, worktreePath: wtPath)
+        }
+
         // Build environment with session memory context
         var env: [String: String] = task.environment ?? [:]
         env["CMUX_SCHEDULED_TASK_ID"] = task.id.uuidString
         env["CMUX_SCHEDULED_TASK_NAME"] = task.name
         env["CMUX_TASK_RUN_ID"] = run.id.uuidString
+        if let wtPath = worktreeResult.worktreePath {
+            env["CMUX_WORKTREE_PATH"] = wtPath
+        }
 
         // Create session memory context file
         let contextFileURL = Self.contextDirectory
@@ -208,7 +231,7 @@ final class SchedulerEngine: ObservableObject {
 
         // Set working directory if specified
         let workdirCString: UnsafeMutablePointer<CChar>?
-        if let workDir = task.workingDirectory {
+        if let workDir = effectiveWorkDir {
             workdirCString = strdup(workDir)
             config.working_directory = UnsafePointer(workdirCString)
         } else {
@@ -220,7 +243,7 @@ final class SchedulerEngine: ObservableObject {
             workspaceId: workspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: config,
-            workingDirectory: task.workingDirectory,
+            workingDirectory: effectiveWorkDir,
             additionalEnvironment: env
         )
 
@@ -267,6 +290,15 @@ final class SchedulerEngine: ObservableObject {
             body: "Task \(statusText)"
         )
 
+        // Clean up worktree if one was created for this run
+        if let wtInfo = runWorktreeInfo.removeValue(forKey: runId) {
+            WorktreeIsolation.cleanupWorktree(
+                repoPath: wtInfo.repoPath,
+                worktreePath: wtInfo.worktreePath,
+                gitRunner: gitRunner
+            )
+        }
+
         // Persist updated state
         saveTasks()
     }
@@ -293,6 +325,15 @@ final class SchedulerEngine: ObservableObject {
 
         if let panelId = runs[runIndex].panelId {
             panelToRunId.removeValue(forKey: panelId)
+        }
+
+        // Clean up worktree if one was created for this run
+        if let wtInfo = runWorktreeInfo.removeValue(forKey: runId) {
+            WorktreeIsolation.cleanupWorktree(
+                repoPath: wtInfo.repoPath,
+                worktreePath: wtInfo.worktreePath,
+                gitRunner: gitRunner
+            )
         }
     }
 
@@ -340,13 +381,20 @@ final class SchedulerEngine: ObservableObject {
 
     /// Persist state and cancel running tasks on app termination.
     func handleAppWillTerminate() {
-        // Cancel all running tasks
+        // Cancel all running tasks and clean up worktrees
         for i in runs.indices {
             if runs[i].status == .running {
                 runs[i].status = .cancelled
                 runs[i].completedAt = Date()
                 if let panelId = runs[i].panelId {
                     panelToRunId.removeValue(forKey: panelId)
+                }
+                if let wtInfo = runWorktreeInfo.removeValue(forKey: runs[i].id) {
+                    WorktreeIsolation.cleanupWorktree(
+                        repoPath: wtInfo.repoPath,
+                        worktreePath: wtInfo.worktreePath,
+                        gitRunner: gitRunner
+                    )
                 }
             }
         }
