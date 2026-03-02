@@ -52,6 +52,10 @@ final class SchedulerEngine: ObservableObject {
     /// Prevents infinite loops (e.g., A -> B -> A -> B ...).
     static let maxChainDepth = 3
 
+    /// Maximum number of completed runs to retain in memory.
+    /// Oldest completed runs are pruned when this limit is exceeded.
+    static let maxCompletedRuns = 500
+
     /// Shared date formatter for ISO8601 serialization.
     private static let isoFormatter = ISO8601DateFormatter()
 
@@ -129,6 +133,18 @@ final class SchedulerEngine: ObservableObject {
 
         lastEvaluatedAt = now
         return newRuns
+    }
+
+    // MARK: - Run Pruning
+
+    /// Remove oldest completed runs when the count exceeds `maxCompletedRuns`.
+    private func pruneCompletedRuns() {
+        let completedRuns = runs.filter { $0.status != .running }
+        guard completedRuns.count > Self.maxCompletedRuns else { return }
+        let sorted = completedRuns.sorted { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) }
+        let excess = completedRuns.count - Self.maxCompletedRuns
+        let idsToRemove = Set(sorted.prefix(excess).map(\.id))
+        runs.removeAll { idsToRemove.contains($0.id) }
     }
 
     // MARK: - Startup Cleanup
@@ -250,20 +266,10 @@ final class SchedulerEngine: ObservableObject {
         createContextFile(for: task, run: run, at: contextFileURL)
         env["CMUX_TASK_CONTEXT_FILE"] = contextFileURL.path
 
-        // Build surface config with command
+        // Build surface config (command and working_directory are passed as Swift
+        // Strings so TerminalSurface can derive live C pointers in createSurface)
         var config = ghostty_surface_config_new()
-        let commandCString = strdup(task.command)
-        config.command = UnsafePointer(commandCString)
         config.wait_after_command = true
-
-        // Set working directory if specified
-        let workdirCString: UnsafeMutablePointer<CChar>?
-        if let workDir = effectiveWorkDir {
-            workdirCString = strdup(workDir)
-            config.working_directory = UnsafePointer(workdirCString)
-        } else {
-            workdirCString = nil
-        }
 
         // Create terminal panel in the scheduler workspace
         let panel = TerminalPanel(
@@ -271,12 +277,9 @@ final class SchedulerEngine: ObservableObject {
             context: GHOSTTY_SURFACE_CONTEXT_TAB,
             configTemplate: config,
             workingDirectory: effectiveWorkDir,
+            command: task.command,
             additionalEnvironment: env
         )
-
-        // Free C strings after TerminalPanel has copied them
-        free(commandCString)
-        free(workdirCString)
 
         // Register panel in workspace
         workspace.addTerminalPanel(panel, title: "[\(task.name)]")
@@ -332,21 +335,34 @@ final class SchedulerEngine: ObservableObject {
         let contextFile = Self.contextDirectory.appendingPathComponent("\(runId).json")
         try? FileManager.default.removeItem(at: contextFile)
 
-        // Task chaining: trigger onSuccess/onFailure follow-up task
+        // Task chaining: trigger onSuccess/onFailure follow-up task.
+        // Apply the same guards (isEnabled, overlap, concurrency) as evaluateSchedules.
         if currentChainDepth < Self.maxChainDepth, let task = task {
             let chainTargetId: String? = exitCode == 0 ? task.onSuccess : task.onFailure
             if let targetIdString = chainTargetId,
                let targetId = UUID(uuidString: targetIdString),
-               let targetTask = tasks.first(where: { $0.id == targetId }) {
-                let chainRun = TaskRun(
-                    taskId: targetTask.id,
-                    startedAt: Date(),
-                    chainDepth: currentChainDepth + 1
-                )
-                runs.append(chainRun)
-                onTaskDue?(targetTask, chainRun)
+               let targetTask = tasks.first(where: { $0.id == targetId }),
+               targetTask.isEnabled {
+                var blocked = false
+                if !targetTask.allowOverlap {
+                    blocked = runs.contains { $0.taskId == targetTask.id && $0.status == .running }
+                }
+                if !blocked && runningTaskCount >= maxConcurrentTasks {
+                    blocked = true
+                }
+                if !blocked {
+                    let chainRun = TaskRun(
+                        taskId: targetTask.id,
+                        startedAt: Date(),
+                        chainDepth: currentChainDepth + 1
+                    )
+                    runs.append(chainRun)
+                    onTaskDue?(targetTask, chainRun)
+                }
             }
         }
+
+        pruneCompletedRuns()
     }
 
     /// Cancel a running task by requesting its terminal surface to close.

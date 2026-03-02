@@ -83,6 +83,7 @@ final class TerminalPanel: Panel, ObservableObject {
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
+        command: String? = nil,
         additionalEnvironment: [String: String] = [:],
         portOrdinal: Int = 0
     ) {
@@ -91,6 +92,7 @@ final class TerminalPanel: Panel, ObservableObject {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
+            command: command,
             additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal

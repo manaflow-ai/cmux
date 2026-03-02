@@ -1111,6 +1111,9 @@ class GhosttyApp {
 
         // Scheduler: handle command completion for task terminal surfaces.
         // This fires when a surface created with surfaceConfig.command finishes.
+        // The panelToRunId check is dispatched to main to avoid a data race
+        // (this callback can fire on any thread, but SchedulerEngine is @MainActor).
+        // wait_after_command keeps the surface alive so async dispatch is safe.
         if action.tag == GHOSTTY_ACTION_COMMAND_FINISHED {
             let finished = action.action.command_finished
             let exitCode = finished.exit_code
@@ -1121,20 +1124,14 @@ class GhosttyApp {
                 "exitCode=\(exitCode) duration=\(finished.duration)ns"
             )
 #endif
-            // Only claim "handled" if this is a scheduler-managed surface
-            let isSchedulerSurface = callbackSurfaceId.flatMap {
-                SchedulerEngine.shared.panelToRunId[$0]
-            } != nil
-            if isSchedulerSurface {
-                DispatchQueue.main.async {
-                    guard let panelId = callbackSurfaceId else { return }
-                    SchedulerEngine.shared.handleTaskCompletion(
-                        panelId: panelId,
-                        exitCode: Int32(exitCode),
-                        workspaceId: callbackTabId
-                    )
-                }
-                return true
+            DispatchQueue.main.async {
+                guard let panelId = callbackSurfaceId,
+                      SchedulerEngine.shared.panelToRunId[panelId] != nil else { return }
+                SchedulerEngine.shared.handleTaskCompletion(
+                    panelId: panelId,
+                    exitCode: Int32(exitCode),
+                    workspaceId: callbackTabId
+                )
             }
         }
 
@@ -1548,6 +1545,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
+    private let command: String?
     private let additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
     private let surfaceView: GhosttyNSView
@@ -1595,6 +1593,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         context: ghostty_surface_context_e,
         configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
+        command: String? = nil,
         additionalEnvironment: [String: String] = [:]
     ) {
         self.id = UUID()
@@ -1602,6 +1601,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceContext = context
         self.configTemplate = configTemplate
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.command = command
         self.additionalEnvironment = additionalEnvironment
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
@@ -1905,13 +1905,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        if let workingDirectory, !workingDirectory.isEmpty {
-            workingDirectory.withCString { cWorkingDir in
-                surfaceConfig.working_directory = cWorkingDir
+        // Apply working_directory and command via withCString so the C pointers
+        // remain valid for the duration of ghostty_surface_new.
+        let applyAndCreate = {
+            if let workingDirectory = self.workingDirectory, !workingDirectory.isEmpty {
+                workingDirectory.withCString { cWorkingDir in
+                    surfaceConfig.working_directory = cWorkingDir
+                    createSurface()
+                }
+            } else {
                 createSurface()
             }
+        }
+
+        if let command, !command.isEmpty {
+            command.withCString { cCommand in
+                surfaceConfig.command = UnsafePointer(cCommand)
+                applyAndCreate()
+            }
         } else {
-            createSurface()
+            applyAndCreate()
         }
 
         if surface == nil {
