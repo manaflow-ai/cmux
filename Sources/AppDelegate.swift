@@ -2084,6 +2084,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
+            case .scheduler:
+                hasher.combine(2)
             }
 
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
@@ -4672,6 +4674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .scheduler: return "scheduler"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -4695,6 +4698,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
+    }
+
+    func toggleSchedulerPage() {
+        guard let selectionState = sidebarSelectionState else { return }
+        if selectionState.selection == .scheduler {
+            selectionState.selection = .tabs
+        } else {
+            selectionState.selection = .scheduler
+        }
     }
 
     func jumpToLatestUnread() {
@@ -5252,6 +5264,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
+            return true
+        }
+
+        // Check Show Scheduler shortcut
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showScheduler)) {
+            toggleSchedulerPage()
             return true
         }
 

@@ -1832,6 +1832,10 @@ struct ContentView: View {
             NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+
+            SchedulerPage(selection: $sidebarSelectionState.selection)
+                .opacity(sidebarSelectionState.selection == .scheduler ? 1 : 0)
+                .allowsHitTesting(sidebarSelectionState.selection == .scheduler)
         }
         .padding(.top, titlebarPadding)
         .overlay(alignment: .top) {
@@ -3377,6 +3381,8 @@ struct ContentView: View {
             return .toggleSidebar
         case "palette.showNotifications":
             return .showNotifications
+        case "palette.showScheduler":
+            return .showScheduler
         case "palette.jumpUnread":
             return .jumpToUnread
         case "palette.renameTab":
@@ -3658,6 +3664,14 @@ struct ContentView: View {
                 title: constant("Show Notifications"),
                 subtitle: constant("Notifications"),
                 keywords: ["notifications", "inbox"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.showScheduler",
+                title: constant("Show Scheduler"),
+                subtitle: constant("Scheduler"),
+                keywords: ["scheduler", "cron", "tasks", "schedule"]
             )
         )
         contributions.append(
@@ -4161,6 +4175,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
+        }
+        registry.register(commandId: "palette.showScheduler") {
+            AppDelegate.shared?.toggleSchedulerPage()
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
@@ -8373,6 +8390,7 @@ private final class MiddleClickCaptureView: NSView {
 enum SidebarSelection {
     case tabs
     case notifications
+    case scheduler
 }
 
 private struct ClearScrollBackground: ViewModifier {

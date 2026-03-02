@@ -170,6 +170,7 @@ struct SessionDisplaySnapshot: Codable, Sendable {
 enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
     case tabs
     case notifications
+    case scheduler
 
     init(selection: SidebarSelection) {
         switch selection {
@@ -177,6 +178,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             self = .tabs
         case .notifications:
             self = .notifications
+        case .scheduler:
+            self = .scheduler
         }
     }
 
@@ -186,6 +189,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
             return .tabs
         case .notifications:
             return .notifications
+        case .scheduler:
+            return .scheduler
         }
     }
 }

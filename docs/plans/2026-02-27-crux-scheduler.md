@@ -157,18 +157,18 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 9
 
 ### Task 9: Sidebar UI — SidebarSelection.scheduler and SchedulerPage
-- [ ] add `case scheduler` to `SidebarSelection` in `Sources/ContentView.swift:8276`
-- [ ] add `case scheduler` to `SessionSidebarSelection` in `Sources/SessionPersistence.swift:170`
-- [ ] add switch cases in `Sources/AppDelegate.swift` (line 1989 hasher, line 4562 debug)
-- [ ] add SchedulerPage to ZStack in ContentView with opacity/hitTesting pattern
-- [ ] add sidebar toggle button — audit `KeyboardShortcutSettings.Action` for collision first
-- [ ] create `Sources/Scheduler/SchedulerPage.swift` following `NotificationsPage.swift` pattern
-- [ ] implement cost/token tracking: parse `~/.claude/projects/` JSONL for `total_tokens`
-- [ ] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
-- [ ] write tests for SidebarSelection.scheduler round-trips through SessionSidebarSelection
-- [ ] write tests for fingerprint hasher handles scheduler case
-- [ ] write tests for SchedulerPage empty state rendering
-- [ ] run project tests - must pass before task 10
+- [x] add `case scheduler` to `SidebarSelection` in `Sources/ContentView.swift:8276`
+- [x] add `case scheduler` to `SessionSidebarSelection` in `Sources/SessionPersistence.swift:170`
+- [x] add switch cases in `Sources/AppDelegate.swift` (line 1989 hasher, line 4562 debug)
+- [x] add SchedulerPage to ZStack in ContentView with opacity/hitTesting pattern
+- [x] add sidebar toggle button — audit `KeyboardShortcutSettings.Action` for collision first
+- [x] create `Sources/Scheduler/SchedulerPage.swift` following `NotificationsPage.swift` pattern
+- [x] implement cost/token tracking: parse `~/.claude/projects/` JSONL for `total_tokens`
+- [x] add file to `GhosttyTabs.xcodeproj/project.pbxproj`
+- [x] write tests for SidebarSelection.scheduler round-trips through SessionSidebarSelection
+- [x] write tests for fingerprint hasher handles scheduler case
+- [x] write tests for SchedulerPage empty state rendering
+- [x] run project tests - must pass before task 10
 
 ### Task 10: Socket API — scheduler.* v2 commands
 - [ ] create `Sources/TerminalController+Scheduler.swift` as extension

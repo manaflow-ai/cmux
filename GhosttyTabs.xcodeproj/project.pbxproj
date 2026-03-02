@@ -28,6 +28,8 @@
 		A5001804 /* SchedulerEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001805 /* SchedulerEngine.swift */; };
 		A5001806 /* SchedulerSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001807 /* SchedulerSettings.swift */; };
 		A5001808 /* WorktreeIsolation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001809 /* WorktreeIsolation.swift */; };
+		A500180A /* SchedulerPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500180B /* SchedulerPage.swift */; };
+		A500180C /* ClaudeTokenTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500180D /* ClaudeTokenTracker.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
@@ -96,6 +98,7 @@
 					A5001840 /* SchedulerPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001841 /* SchedulerPersistenceTests.swift */; };
 					A5001850 /* SchedulerEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001851 /* SchedulerEngineTests.swift */; };
 					A5001860 /* WorktreeIsolationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001861 /* WorktreeIsolationTests.swift */; };
+					A5001870 /* SchedulerSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001871 /* SchedulerSidebarTests.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -177,6 +180,8 @@
 		A5001805 /* SchedulerEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/SchedulerEngine.swift; sourceTree = "<group>"; };
 		A5001807 /* SchedulerSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/SchedulerSettings.swift; sourceTree = "<group>"; };
 		A5001809 /* WorktreeIsolation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/WorktreeIsolation.swift; sourceTree = "<group>"; };
+		A500180B /* SchedulerPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/SchedulerPage.swift; sourceTree = "<group>"; };
+		A500180D /* ClaudeTokenTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Scheduler/ClaudeTokenTracker.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
@@ -239,6 +244,7 @@
 				A5001841 /* SchedulerPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerPersistenceTests.swift; sourceTree = "<group>"; };
 				A5001851 /* SchedulerEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerEngineTests.swift; sourceTree = "<group>"; };
 				A5001861 /* WorktreeIsolationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeIsolationTests.swift; sourceTree = "<group>"; };
+				A5001871 /* SchedulerSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSidebarTests.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -369,6 +375,8 @@
 				A5001805 /* SchedulerEngine.swift */,
 				A5001807 /* SchedulerSettings.swift */,
 				A5001809 /* WorktreeIsolation.swift */,
+				A500180B /* SchedulerPage.swift */,
+				A500180D /* ClaudeTokenTracker.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001090 /* AppDelegate.swift */,
 				A5001091 /* NotificationsPage.swift */,
@@ -464,6 +472,7 @@
 					A5001841 /* SchedulerPersistenceTests.swift */,
 					A5001851 /* SchedulerEngineTests.swift */,
 					A5001861 /* WorktreeIsolationTests.swift */,
+					A5001871 /* SchedulerSidebarTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -620,6 +629,8 @@
 				A5001804 /* SchedulerEngine.swift in Sources */,
 				A5001806 /* SchedulerSettings.swift in Sources */,
 				A5001808 /* WorktreeIsolation.swift in Sources */,
+				A500180A /* SchedulerPage.swift in Sources */,
+				A500180C /* ClaudeTokenTracker.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
@@ -686,6 +697,7 @@
 					A5001840 /* SchedulerPersistenceTests.swift in Sources */,
 					A5001850 /* SchedulerEngineTests.swift in Sources */,
 					A5001860 /* WorktreeIsolationTests.swift in Sources */,
+					A5001870 /* SchedulerSidebarTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
