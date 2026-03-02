@@ -45,6 +45,10 @@ final class SchedulerEngine: ObservableObject {
     /// Interval between schedule evaluations (30 seconds).
     static let evaluationInterval: TimeInterval = 30
 
+    /// Maximum chain depth for onSuccess/onFailure task chaining.
+    /// Prevents infinite loops (e.g., A -> B -> A -> B ...).
+    static let maxChainDepth = 3
+
     /// Directory for session memory context files.
     static let contextDirectory: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -269,13 +273,15 @@ final class SchedulerEngine: ObservableObject {
         guard let runId = panelToRunId[panelId],
               let runIndex = runs.firstIndex(where: { $0.id == runId }) else { return }
 
+        let currentChainDepth = runs[runIndex].chainDepth
+
         runs[runIndex].status = exitCode == 0 ? .succeeded : .failed
         runs[runIndex].exitCode = exitCode
         runs[runIndex].completedAt = Date()
 
         panelToRunId.removeValue(forKey: panelId)
 
-        // Look up the task for notification
+        // Look up the task for notification and chaining
         let taskId = runs[runIndex].taskId
         let task = tasks.first(where: { $0.id == taskId })
         let taskName = task?.name ?? "Unknown Task"
@@ -301,6 +307,22 @@ final class SchedulerEngine: ObservableObject {
 
         // Persist updated state
         saveTasks()
+
+        // Task chaining: trigger onSuccess/onFailure follow-up task
+        if currentChainDepth < Self.maxChainDepth, let task = task {
+            let chainTargetId: String? = exitCode == 0 ? task.onSuccess : task.onFailure
+            if let targetIdString = chainTargetId,
+               let targetId = UUID(uuidString: targetIdString),
+               let targetTask = tasks.first(where: { $0.id == targetId }) {
+                let chainRun = TaskRun(
+                    taskId: targetTask.id,
+                    startedAt: Date(),
+                    chainDepth: currentChainDepth + 1
+                )
+                runs.append(chainRun)
+                onTaskDue?(targetTask, chainRun)
+            }
+        }
     }
 
     /// Cancel a running task by requesting its terminal surface to close.

@@ -724,4 +724,323 @@ final class SchedulerEngineTests: XCTestCase {
         engine.start()
         engine.stop() // cleanup
     }
+
+    // MARK: - Task chaining: onSuccess triggers follow-up on exit 0
+
+    func testOnSuccessTriggersFollowUpOnExitZero() {
+        let engine = makeEngine()
+
+        // Create two tasks: taskA chains to taskB on success
+        let taskB = ScheduledTask(
+            name: "follow-up-task",
+            cronExpression: "0 * * * *",
+            command: "echo follow-up",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "primary-task",
+            cronExpression: "0 * * * *",
+            command: "echo primary",
+            onSuccess: taskB.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, taskB]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        // Verify taskB was triggered as a chained run
+        XCTAssertEqual(chainedInvocations.count, 1)
+        XCTAssertEqual(chainedInvocations[0].0.id, taskB.id)
+        XCTAssertEqual(chainedInvocations[0].1.taskId, taskB.id)
+        XCTAssertEqual(chainedInvocations[0].1.chainDepth, 1)
+        XCTAssertEqual(chainedInvocations[0].1.status, .running)
+
+        // Verify the chained run was added to the engine's runs
+        XCTAssertEqual(engine.runs.count, 2) // original + chained
+        XCTAssertEqual(engine.runs[1].taskId, taskB.id)
+    }
+
+    func testOnSuccessNotTriggeredOnNonZeroExit() {
+        let engine = makeEngine()
+
+        let taskB = ScheduledTask(
+            name: "follow-up-task",
+            cronExpression: "0 * * * *",
+            command: "echo follow-up",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "primary-task",
+            cronExpression: "0 * * * *",
+            command: "echo primary",
+            onSuccess: taskB.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, taskB]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        // Task fails — onSuccess should NOT fire
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 1, workspaceId: nil)
+
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1) // no chained run added
+    }
+
+    // MARK: - Task chaining: onFailure triggers follow-up on non-zero exit
+
+    func testOnFailureTriggersFollowUpOnNonZeroExit() {
+        let engine = makeEngine()
+
+        let errorHandler = ScheduledTask(
+            name: "error-handler",
+            cronExpression: "0 * * * *",
+            command: "echo handle-error",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "primary-task",
+            cronExpression: "0 * * * *",
+            command: "echo primary",
+            onFailure: errorHandler.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, errorHandler]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 1, workspaceId: nil)
+
+        // Verify error handler was triggered
+        XCTAssertEqual(chainedInvocations.count, 1)
+        XCTAssertEqual(chainedInvocations[0].0.id, errorHandler.id)
+        XCTAssertEqual(chainedInvocations[0].1.taskId, errorHandler.id)
+        XCTAssertEqual(chainedInvocations[0].1.chainDepth, 1)
+    }
+
+    func testOnFailureNotTriggeredOnExitZero() {
+        let engine = makeEngine()
+
+        let errorHandler = ScheduledTask(
+            name: "error-handler",
+            cronExpression: "0 * * * *",
+            command: "echo handle-error",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "primary-task",
+            cronExpression: "0 * * * *",
+            command: "echo primary",
+            onFailure: errorHandler.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, errorHandler]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        // Task succeeds — onFailure should NOT fire
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1)
+    }
+
+    // MARK: - Task chaining: chain depth > 3 stops
+
+    func testChainDepthExceedsMaxStopsChaining() {
+        let engine = makeEngine()
+
+        let taskB = ScheduledTask(
+            name: "chained-task",
+            cronExpression: "0 * * * *",
+            command: "echo chained",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "deep-chain-task",
+            cronExpression: "0 * * * *",
+            command: "echo deep",
+            onSuccess: taskB.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, taskB]
+
+        // Simulate a run that's already at max chain depth
+        let panelId = UUID()
+        let run = TaskRun(
+            id: UUID(), taskId: taskA.id, panelId: panelId,
+            status: .running, chainDepth: SchedulerEngine.maxChainDepth
+        )
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        // Chaining should NOT fire because we're at max depth
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1) // no chained run added
+    }
+
+    func testChainDepthJustBelowMaxAllowsChaining() {
+        let engine = makeEngine()
+
+        let taskB = ScheduledTask(
+            name: "chained-task",
+            cronExpression: "0 * * * *",
+            command: "echo chained",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        let taskA = ScheduledTask(
+            name: "almost-deep-task",
+            cronExpression: "0 * * * *",
+            command: "echo almost",
+            onSuccess: taskB.id.uuidString,
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA, taskB]
+
+        // Run is at depth maxChainDepth - 1, so one more chain should be allowed
+        let panelId = UUID()
+        let run = TaskRun(
+            id: UUID(), taskId: taskA.id, panelId: panelId,
+            status: .running, chainDepth: SchedulerEngine.maxChainDepth - 1
+        )
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        // Chaining SHOULD fire (depth was below max)
+        XCTAssertEqual(chainedInvocations.count, 1)
+        XCTAssertEqual(chainedInvocations[0].1.chainDepth, SchedulerEngine.maxChainDepth)
+    }
+
+    func testChainTargetNotFoundIsNoop() {
+        let engine = makeEngine()
+
+        let taskA = ScheduledTask(
+            name: "orphan-chain-task",
+            cronExpression: "0 * * * *",
+            command: "echo orphan",
+            onSuccess: UUID().uuidString, // points to a non-existent task
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        // No chaining should happen because the target task doesn't exist
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1)
+    }
+
+    func testChainWithInvalidUUIDStringIsNoop() {
+        let engine = makeEngine()
+
+        let taskA = ScheduledTask(
+            name: "bad-uuid-task",
+            cronExpression: "0 * * * *",
+            command: "echo bad",
+            onSuccess: "not-a-valid-uuid",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1)
+    }
+
+    func testNoOnSuccessOrOnFailureIsNoop() {
+        let engine = makeEngine()
+
+        // Task has no chaining configured
+        let taskA = ScheduledTask(
+            name: "no-chain-task",
+            cronExpression: "0 * * * *",
+            command: "echo noop",
+            createdAt: Date(timeIntervalSince1970: 1700000000)
+        )
+        engine.tasks = [taskA]
+
+        let panelId = UUID()
+        let run = TaskRun(id: UUID(), taskId: taskA.id, panelId: panelId, status: .running)
+        engine.runs = [run]
+        engine.panelToRunId[panelId] = run.id
+
+        var chainedInvocations: [(ScheduledTask, TaskRun)] = []
+        engine.onTaskDue = { task, run in
+            chainedInvocations.append((task, run))
+        }
+
+        engine.handleTaskCompletion(panelId: panelId, exitCode: 0, workspaceId: nil)
+
+        XCTAssertTrue(chainedInvocations.isEmpty)
+        XCTAssertEqual(engine.runs.count, 1)
+    }
 }

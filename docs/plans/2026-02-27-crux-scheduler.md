@@ -198,12 +198,12 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 13
 
 ### Task 13: Task chaining post-run hooks
-- [ ] implement chaining in `handleTaskCompletion()` — check onSuccess/onFailure fields
-- [ ] enforce chain depth max 3 to prevent infinite loops
-- [ ] write tests for onSuccess triggers follow-up on exit 0
-- [ ] write tests for onFailure triggers follow-up on non-zero exit
-- [ ] write tests for chain depth > 3 stops
-- [ ] run project tests - must pass before task 14
+- [x] implement chaining in `handleTaskCompletion()` — check onSuccess/onFailure fields
+- [x] enforce chain depth max 3 to prevent infinite loops
+- [x] write tests for onSuccess triggers follow-up on exit 0
+- [x] write tests for onFailure triggers follow-up on non-zero exit
+- [x] write tests for chain depth > 3 stops
+- [x] run project tests - must pass before task 14
 
 ### Task 14: Verify acceptance criteria
 - [ ] verify all requirements from Overview are implemented

@@ -323,6 +323,8 @@ struct TaskRun: Codable, Identifiable, Equatable, Sendable {
     var completedAt: Date?
     var exitCode: Int32?
     var status: TaskRunStatus
+    /// Tracks how deep this run is in a chain (0 = direct/scheduled, 1+ = chained).
+    var chainDepth: Int
 
     init(
         id: UUID = UUID(),
@@ -331,7 +333,8 @@ struct TaskRun: Codable, Identifiable, Equatable, Sendable {
         startedAt: Date = Date(),
         completedAt: Date? = nil,
         exitCode: Int32? = nil,
-        status: TaskRunStatus = .running
+        status: TaskRunStatus = .running,
+        chainDepth: Int = 0
     ) {
         self.id = id
         self.taskId = taskId
@@ -340,5 +343,19 @@ struct TaskRun: Codable, Identifiable, Equatable, Sendable {
         self.completedAt = completedAt
         self.exitCode = exitCode
         self.status = status
+        self.chainDepth = chainDepth
+    }
+
+    // Custom Codable to default chainDepth to 0 when decoding old JSON without the key.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        taskId = try container.decode(UUID.self, forKey: .taskId)
+        panelId = try container.decodeIfPresent(UUID.self, forKey: .panelId)
+        startedAt = try container.decode(Date.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+        status = try container.decode(TaskRunStatus.self, forKey: .status)
+        chainDepth = try container.decodeIfPresent(Int.self, forKey: .chainDepth) ?? 0
     }
 }
