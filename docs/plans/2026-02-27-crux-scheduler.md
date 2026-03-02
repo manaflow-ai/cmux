@@ -183,11 +183,11 @@ Task structure guidelines:
 - [x] run project tests - must pass before task 11
 
 ### Task 11: CLI — cmux scheduler subcommands
-- [ ] add `case "scheduler":` to command dispatcher in `CLI/cmux.swift:732`
-- [ ] implement subcommands: list, create, delete, enable, disable, run, cancel, logs
-- [ ] write tests for `cmux scheduler list --json` returns valid JSON
-- [ ] write tests for `cmux scheduler create` with valid args succeeds
-- [ ] run project tests - must pass before task 12
+- [x] add `case "scheduler":` to command dispatcher in `CLI/cmux.swift:732`
+- [x] implement subcommands: list, create, delete, enable, disable, run, cancel, logs
+- [x] write tests for `cmux scheduler list --json` returns valid JSON
+- [x] write tests for `cmux scheduler create` with valid args succeeds
+- [x] run project tests - must pass before task 12
 
 ### Task 12: App lifecycle integration
 - [ ] initialize SchedulerEngine in `AppDelegate.applicationDidFinishLaunching()`

@@ -101,6 +101,7 @@
 					A5001870 /* SchedulerSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001871 /* SchedulerSidebarTests.swift */; };
 		A5001880 /* TerminalController+Scheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001881 /* TerminalController+Scheduler.swift */; };
 					A5001882 /* SchedulerSocketAPITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001883 /* SchedulerSocketAPITests.swift */; };
+					A5001890 /* SchedulerCLITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001891 /* SchedulerCLITests.swift */; };
 			/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -249,6 +250,7 @@
 				A5001871 /* SchedulerSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSidebarTests.swift; sourceTree = "<group>"; };
 		A5001881 /* TerminalController+Scheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Scheduler.swift"; sourceTree = "<group>"; };
 				A5001883 /* SchedulerSocketAPITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerSocketAPITests.swift; sourceTree = "<group>"; };
+				A5001891 /* SchedulerCLITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SchedulerCLITests.swift; sourceTree = "<group>"; };
 			/* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -479,6 +481,7 @@
 					A5001861 /* WorktreeIsolationTests.swift */,
 					A5001871 /* SchedulerSidebarTests.swift */,
 					A5001883 /* SchedulerSocketAPITests.swift */,
+					A5001891 /* SchedulerCLITests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -706,6 +709,7 @@
 					A5001860 /* WorktreeIsolationTests.swift in Sources */,
 					A5001870 /* SchedulerSidebarTests.swift in Sources */,
 					A5001882 /* SchedulerSocketAPITests.swift in Sources */,
+					A5001890 /* SchedulerCLITests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
