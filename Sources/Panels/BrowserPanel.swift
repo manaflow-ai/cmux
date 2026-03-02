@@ -1658,6 +1658,16 @@ final class BrowserPanel: Panel, ObservableObject {
         return components?.url ?? url
     }
 
+    private func canonicalLoopbackURLForDisplayIfNeeded(_ url: URL) -> URL {
+        guard remoteProxyEndpoint != nil else { return url }
+        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
+        guard host == Self.remoteLoopbackProxyAliasHost else { return url }
+
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        components?.host = "localhost"
+        return components?.url ?? url
+    }
+
     private func preparedNavigationRequest(_ request: URLRequest) -> URLRequest {
         var prepared = browserPreparedNavigationRequest(request)
         guard let url = prepared.url else { return prepared }
@@ -2608,14 +2618,18 @@ extension BrowserPanel {
     /// Returns the most reliable URL string for omnibar-related matching and UI decisions.
     /// `currentURL` can lag behind navigation changes, so prefer the live WKWebView URL.
     func preferredURLStringForOmnibar() -> String? {
-        if let webViewURL = webView.url?.absoluteString
+        if let webViewURL = webView.url
+            .map(canonicalLoopbackURLForDisplayIfNeeded)?
+            .absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !webViewURL.isEmpty,
            webViewURL != blankURLString {
             return webViewURL
         }
 
-        if let current = currentURL?.absoluteString
+        if let current = currentURL
+            .map(canonicalLoopbackURLForDisplayIfNeeded)?
+            .absoluteString
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !current.isEmpty,
            current != blankURLString {
