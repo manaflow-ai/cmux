@@ -191,4 +191,5 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 120 \
             -only-testing:cmuxUITests test
