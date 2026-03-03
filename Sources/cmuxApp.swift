@@ -2735,6 +2735,8 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
+    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
@@ -2972,6 +2974,20 @@ struct SettingsView: View {
                             Toggle("", isOn: $commandPaletteRenameSelectAllOnFocus)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Shortcut Hint Visibility",
+                            subtitle: alwaysShowShortcutHints
+                                ? "Hints are always visible in sidebar, titlebar, and pane tabs."
+                                : "Hold Cmd or Ctrl to reveal shortcut hints."
+                        ) {
+                            Toggle("", isOn: $alwaysShowShortcutHints)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsAlwaysShowShortcutHintsToggle")
                         }
 
                         SettingsCardDivider()
@@ -3607,6 +3623,7 @@ struct SettingsView: View {
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
+        alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
