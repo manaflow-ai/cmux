@@ -16,6 +16,22 @@ After making code changes, always run the reload script with a tag to launch the
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
+When reporting a tagged reload result in chat, use the format for your agent type:
+
+**Claude Code** (markdown link with correct derived-data path, cmd+clickable):
+```markdown
+=======================================================
+[cmux DEV <tag-name>.app](file:///tmp/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+=======================================================
+```
+
+**Codex** (plain text format):
+```
+=======================================================
+[<tag-name>: file:///tmp/cmux-<tag-name>.app](file:///tmp/cmux-<tag-name>.app)
+=======================================================
+```
+
 After making code changes, always run the build:
 
 ```bash
