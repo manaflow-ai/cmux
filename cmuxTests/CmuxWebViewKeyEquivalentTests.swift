@@ -2598,7 +2598,7 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
     }
 
     func testShortcutHintUsesIntentionalHoldDelay() {
-        XCTAssertGreaterThanOrEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.25)
+        XCTAssertEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.30, accuracy: 0.001)
     }
 
     func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
