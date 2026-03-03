@@ -404,6 +404,55 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         wait(for: [switcherExpectation], timeout: 0.15)
     }
 
+    func testCmdPWithCapsLockStillTriggersCommandPaletteSwitcher() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let switcherExpectation = expectation(description: "Cmd+P with Caps Lock should request command palette switcher")
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .capsLock],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "p",
+            charactersIgnoringModifiers: "p",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Cmd+P + Caps Lock event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
+
     func testCmdShiftPhysicalPWithDvorakCharactersDoesNotTriggerCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
