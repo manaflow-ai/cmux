@@ -251,8 +251,7 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 #### Initial Setup
 
 ```bash
-# Initialize submodules (with proxy if needed)
-export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897
+# Initialize submodules
 git submodule update --init --recursive
 
 # Build GhosttyKit (required for full app)
