@@ -8,6 +8,29 @@ import XCTest
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
+    private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
+
+    override func setUp() {
+        super.setUp()
+        savedShortcutsByAction = Dictionary(
+            uniqueKeysWithValues: KeyboardShortcutSettings.Action.allCases.map { action in
+                (action, KeyboardShortcutSettings.shortcut(for: action))
+            }
+        )
+        KeyboardShortcutSettings.resetAll()
+    }
+
+    override func tearDown() {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            if let savedShortcut = savedShortcutsByAction[action] {
+                KeyboardShortcutSettings.setShortcut(savedShortcut, for: action)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: action)
+            }
+        }
+        super.tearDown()
+    }
+
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

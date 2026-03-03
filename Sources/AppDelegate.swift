@@ -1000,7 +1000,8 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16) -> String? = KeyboardLayout.character(forKeyCode:)
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
@@ -1016,8 +1017,8 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 
     // Fallback to layout translation only when characters are unavailable (for
     // synthetic/key-equivalent paths that can report an empty string).
-    if KeyboardLayout.character(forKeyCode: keyCode) == "f" {
-        return true
+    if let translatedCharacter = layoutCharacterProvider(keyCode), !translatedCharacter.isEmpty {
+        return translatedCharacter == "f"
     }
 
     // Keep ANSI fallback as a final safety net when layout translation is unavailable.

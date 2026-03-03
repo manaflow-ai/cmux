@@ -2037,7 +2037,19 @@ final class FullScreenShortcutTests: XCTestCase {
             shouldToggleMainWindowFullScreenForCommandControlFShortcut(
                 flags: [.command, .control],
                 chars: "",
-                keyCode: 3
+                keyCode: 3,
+                layoutCharacterProvider: { _ in nil }
+            )
+        )
+    }
+
+    func testDoesNotFallbackToANSIWhenLayoutTranslationReturnsNonFCharacter() {
+        XCTAssertFalse(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "",
+                keyCode: 3,
+                layoutCharacterProvider: { _ in "u" }
             )
         )
     }
