@@ -1848,6 +1848,150 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
     }
 }
 
+// MARK: - #645: Customizable Workspace Shortcut Tests
+
+final class WorkspaceActionMappingTests: XCTestCase {
+    func testIndexZeroToSevenMapsToSelectWorkspace1Through8() {
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 0, isLast: false), .selectWorkspace1)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 1, isLast: false), .selectWorkspace2)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 2, isLast: false), .selectWorkspace3)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 3, isLast: false), .selectWorkspace4)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 4, isLast: false), .selectWorkspace5)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 5, isLast: false), .selectWorkspace6)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 6, isLast: false), .selectWorkspace7)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 7, isLast: false), .selectWorkspace8)
+    }
+
+    func testIndexEightOrAboveReturnsNilWhenNotLast() {
+        XCTAssertNil(KeyboardShortcutSettings.workspaceAction(at: 8, isLast: false))
+        XCTAssertNil(KeyboardShortcutSettings.workspaceAction(at: 9, isLast: false))
+        XCTAssertNil(KeyboardShortcutSettings.workspaceAction(at: 100, isLast: false))
+    }
+
+    func testIsLastAlwaysReturnsSelectWorkspace9RegardlessOfIndex() {
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 0, isLast: true), .selectWorkspace9)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 3, isLast: true), .selectWorkspace9)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 7, isLast: true), .selectWorkspace9)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 50, isLast: true), .selectWorkspace9)
+    }
+
+    func testNegativeIndexReturnsNil() {
+        XCTAssertNil(KeyboardShortcutSettings.workspaceAction(at: -1, isLast: false))
+    }
+
+    func testIsLastAtHighIndexReturnsSelectWorkspace9() {
+        // Regression: index 8+ with isLast must return selectWorkspace9 for the hint label.
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 8, isLast: true), .selectWorkspace9)
+        XCTAssertEqual(KeyboardShortcutSettings.workspaceAction(at: 14, isLast: true), .selectWorkspace9)
+    }
+
+    func testIndexEightWithoutIsLastReturnsNil() {
+        // Index 8 is only reachable via isLast (selectWorkspace9). Without isLast, no shortcut.
+        XCTAssertNil(KeyboardShortcutSettings.workspaceAction(at: 8, isLast: false))
+    }
+}
+
+final class WorkspaceShortcutDefaultValuesTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        // Ensure no stored overrides interfere with default value tests.
+        for action: KeyboardShortcutSettings.Action in [
+            .selectWorkspace1, .selectWorkspace2, .selectWorkspace3,
+            .selectWorkspace4, .selectWorkspace5, .selectWorkspace6,
+            .selectWorkspace7, .selectWorkspace8, .selectWorkspace9,
+        ] {
+            KeyboardShortcutSettings.resetShortcut(for: action)
+        }
+    }
+
+    func testAllWorkspaceShortcutsDefaultToCommandPlusDigit() {
+        let actions: [(KeyboardShortcutSettings.Action, String)] = [
+            (.selectWorkspace1, "1"), (.selectWorkspace2, "2"), (.selectWorkspace3, "3"),
+            (.selectWorkspace4, "4"), (.selectWorkspace5, "5"), (.selectWorkspace6, "6"),
+            (.selectWorkspace7, "7"), (.selectWorkspace8, "8"), (.selectWorkspace9, "9"),
+        ]
+        for (action, expectedKey) in actions {
+            let sc = KeyboardShortcutSettings.shortcut(for: action)
+            XCTAssertTrue(sc.command, "\(action) should have command modifier")
+            XCTAssertFalse(sc.shift, "\(action) should not have shift modifier")
+            XCTAssertFalse(sc.option, "\(action) should not have option modifier")
+            XCTAssertFalse(sc.control, "\(action) should not have control modifier")
+            XCTAssertEqual(sc.key, expectedKey, "\(action) should use key \(expectedKey)")
+        }
+    }
+
+    func testDefaultDisplayStringsAreCommandSymbolPlusDigit() {
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspace1).displayString, "⌘1")
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspace5).displayString, "⌘5")
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspace9).displayString, "⌘9")
+    }
+
+    func testDefaultModifierFlagSetsContainsOnlyCommand() {
+        let flagSets = KeyboardShortcutSettings.workspaceShortcutModifierFlagSets
+        XCTAssertEqual(flagSets.count, 1)
+        XCTAssertEqual(flagSets.first, NSEvent.ModifierFlags.command)
+    }
+}
+
+final class WorkspaceShortcutCustomizationTests: XCTestCase {
+    private let customizedActions: [KeyboardShortcutSettings.Action] = [
+        .selectWorkspace1, .selectWorkspace2, .selectWorkspace3,
+    ]
+
+    override func tearDown() {
+        // Always clean up any custom shortcuts we stored.
+        for action in customizedActions {
+            KeyboardShortcutSettings.resetShortcut(for: action)
+        }
+        super.tearDown()
+    }
+
+    func testCustomShortcutOverridesDefault() {
+        let custom = StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+        KeyboardShortcutSettings.setShortcut(custom, for: .selectWorkspace1)
+        let retrieved = KeyboardShortcutSettings.shortcut(for: .selectWorkspace1)
+        XCTAssertEqual(retrieved, custom)
+        XCTAssertEqual(retrieved.displayString, "⌥1")
+    }
+
+    func testModifierFlagSetsReflectsCustomShortcuts() {
+        // Change workspace 1-3 to Option+N
+        for (i, action) in customizedActions.enumerated() {
+            let custom = StoredShortcut(key: "\(i + 1)", command: false, shift: false, option: true, control: false)
+            KeyboardShortcutSettings.setShortcut(custom, for: action)
+        }
+
+        let flagSets = KeyboardShortcutSettings.workspaceShortcutModifierFlagSets
+        // Should contain both .option (from workspace 1-3) and .command (from workspace 4-9)
+        XCTAssertTrue(flagSets.contains(NSEvent.ModifierFlags.option), "Option modifier should be present")
+        XCTAssertTrue(flagSets.contains(NSEvent.ModifierFlags.command), "Command modifier should still be present")
+        XCTAssertEqual(flagSets.count, 2)
+    }
+
+    func testHintPolicyRespectsCustomModifiers() {
+        // Default: only Command triggers hints
+        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
+        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.option]))
+
+        // Change workspace 1 to Option+1
+        let custom = StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+        KeyboardShortcutSettings.setShortcut(custom, for: .selectWorkspace1)
+
+        // Now both Command and Option should trigger hints
+        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
+        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.option]))
+    }
+
+    func testResetShortcutRestoresDefault() {
+        let custom = StoredShortcut(key: "1", command: false, shift: false, option: true, control: false)
+        KeyboardShortcutSettings.setShortcut(custom, for: .selectWorkspace1)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspace1).displayString, "⌥1")
+
+        KeyboardShortcutSettings.resetShortcut(for: .selectWorkspace1)
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .selectWorkspace1).displayString, "⌘1")
+    }
+}
+
 final class BrowserOmnibarCommandNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(

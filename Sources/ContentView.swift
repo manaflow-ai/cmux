@@ -6572,8 +6572,13 @@ private struct TabItemView: View {
     }
 
     private var workspaceShortcutLabel: String? {
-        guard let action = KeyboardShortcutSettings.workspaceAction(at: index, isLast: false) else { return nil }
-        return KeyboardShortcutSettings.shortcut(for: action).displayString
+        if let action = KeyboardShortcutSettings.workspaceAction(at: index, isLast: false) {
+            return KeyboardShortcutSettings.shortcut(for: action).displayString
+        }
+        if index == tabManager.tabs.count - 1 {
+            return KeyboardShortcutSettings.shortcut(for: .selectWorkspace9).displayString
+        }
+        return nil
     }
 
     private var showsWorkspaceShortcutHint: Bool {
