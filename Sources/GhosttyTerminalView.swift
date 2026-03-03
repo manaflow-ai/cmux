@@ -209,9 +209,20 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
 
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
+    #if DEBUG
+    dlog("link.resolve input=\(trimmed)")
+    #endif
+    guard !trimmed.isEmpty else {
+        #if DEBUG
+        dlog("link.resolve result=nil (empty)")
+        #endif
+        return nil
+    }
 
     if NSString(string: trimmed).isAbsolutePath {
+        #if DEBUG
+        dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        #endif
         return .external(URL(fileURLWithPath: trimmed))
     }
 
@@ -219,21 +230,44 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
+                #if DEBUG
+                dlog("link.resolve result=external(invalidHost) url=\(parsed)")
+                #endif
                 return .external(parsed)
             }
+            #if DEBUG
+            dlog("link.resolve result=embeddedBrowser url=\(parsed)")
+            #endif
             return .embeddedBrowser(parsed)
         }
+        #if DEBUG
+        dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
+        #endif
         return .external(parsed)
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
         guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
+            #if DEBUG
+            dlog("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
+            #endif
             return .external(webURL)
         }
+        #if DEBUG
+        dlog("link.resolve result=embeddedBrowser(bareHost) url=\(webURL)")
+        #endif
         return .embeddedBrowser(webURL)
     }
 
-    guard let fallback = URL(string: trimmed) else { return nil }
+    guard let fallback = URL(string: trimmed) else {
+        #if DEBUG
+        dlog("link.resolve result=nil (unparseable)")
+        #endif
+        return nil
+    }
+    #if DEBUG
+    dlog("link.resolve result=external(fallback) url=\(fallback)")
+    #endif
     return .external(fallback)
 }
 
@@ -1355,20 +1389,48 @@ class GhosttyApp {
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
-            let urlString = String(cString: cstr)
-            guard let target = resolveTerminalOpenURLTarget(urlString) else { return false }
+            let urlString = String(
+                data: Data(bytes: cstr, count: Int(openUrl.len)),
+                encoding: .utf8
+            ) ?? ""
+            #if DEBUG
+            dlog("link.openURL raw=\(urlString)")
+            #endif
+            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+                #if DEBUG
+                dlog("link.openURL resolve failed, returning false")
+                #endif
+                return false
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                #if DEBUG
+                dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+                #endif
                 return performOnMain {
                     NSWorkspace.shared.open(target.url)
                 }
             }
             switch target {
             case let .external(url):
+                #if DEBUG
+                dlog("link.openURL target=external, opening externally url=\(url)")
+                #endif
                 return performOnMain {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
+                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
+                    #endif
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
+                    #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
@@ -1376,21 +1438,41 @@ class GhosttyApp {
 
                 // If a host whitelist is configured and this host isn't in it, open externally.
                 if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                    #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
                 }
                 guard let tabId = surfaceView.tabId,
-                      let surfaceId = surfaceView.terminalSurface?.id else { return false }
+                      let surfaceId = surfaceView.terminalSurface?.id else {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but tabId/surfaceId=nil")
+                    #endif
+                    return false
+                }
+                #if DEBUG
+                dlog("link.openURL target=embedded, opening in browser pane host=\(host) url=\(url) tabId=\(tabId) surfaceId=\(surfaceId)")
+                #endif
                 return performOnMain {
                     guard let app = AppDelegate.shared,
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
                           let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                        #if DEBUG
+                        dlog("link.openURL embedded but workspace lookup failed tabId=\(tabId)")
+                        #endif
                         return false
                     }
                     if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                        #if DEBUG
+                        dlog("link.openURL opening in existing browser pane=\(targetPane)")
+                        #endif
                         return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
                     } else {
+                        #if DEBUG
+                        dlog("link.openURL opening as new browser split from surface=\(surfaceId)")
+                        #endif
                         return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
                     }
                 }
@@ -1531,6 +1613,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private enum PortalLifecycleState: String {
+        case live
+        case closing
+        case closed
+    }
+    private var portalLifecycleState: PortalLifecycleState = .live
+    private var portalLifecycleGeneration: UInt64 = 1
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1589,6 +1678,52 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    func portalBindingGeneration() -> UInt64 {
+        portalLifecycleGeneration
+    }
+
+    func portalBindingStateLabel() -> String {
+        portalLifecycleState.rawValue
+    }
+
+    func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
+        guard portalLifecycleState == .live else { return false }
+        if let expectedSurfaceId, expectedSurfaceId != id {
+            return false
+        }
+        if let expectedGeneration, expectedGeneration != portalLifecycleGeneration {
+            return false
+        }
+        return true
+    }
+
+    func beginPortalCloseLifecycle(reason: String) {
+        guard portalLifecycleState != .closed else { return }
+        guard portalLifecycleState != .closing else { return }
+        portalLifecycleState = .closing
+        portalLifecycleGeneration &+= 1
+#if DEBUG
+        dlog(
+            "surface.lifecycle.close.begin surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
+            "generation=\(portalLifecycleGeneration)"
+        )
+#endif
+    }
+
+    private func markPortalLifecycleClosed(reason: String) {
+        guard portalLifecycleState != .closed else { return }
+        portalLifecycleState = .closed
+        portalLifecycleGeneration &+= 1
+#if DEBUG
+        dlog(
+            "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
+            "generation=\(portalLifecycleGeneration)"
+        )
+#endif
     }
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
@@ -2206,6 +2341,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        markPortalLifecycleClosed(reason: "deinit")
+
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
@@ -2217,9 +2354,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = nil
 
         guard let surfaceToFree else {
+#if DEBUG
+            dlog(
+                "surface.lifecycle.deinit.skip surface=\(id.uuidString.prefix(5)) " +
+                "workspace=\(tabId.uuidString.prefix(5)) reason=noRuntimeSurface"
+            )
+#endif
             callbackContext?.release()
             return
         }
+
+#if DEBUG
+        let surfaceToken = String(id.uuidString.prefix(5))
+        let workspaceToken = String(tabId.uuidString.prefix(5))
+        dlog(
+            "surface.lifecycle.deinit.begin surface=\(surfaceToken) " +
+            "workspace=\(workspaceToken) hasAttachedView=\(attachedView != nil ? 1 : 0) " +
+            "hostedInWindow=\(hostedView.window != nil ? 1 : 0)"
+        )
+#endif
 
         // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
         // callback userdata until surface free completes so callbacks never dereference
@@ -2227,6 +2380,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+#if DEBUG
+            dlog(
+                "surface.lifecycle.deinit.end surface=\(surfaceToken) " +
+                "workspace=\(workspaceToken) freed=1"
+            )
+#endif
         }
     }
 }
@@ -2703,20 +2862,96 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    // MARK: - Clipboard image paste
+
+    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+
+    /// Quick check: does the clipboard have image data and no text?
+    private static func clipboardHasImageOnly() -> Bool {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return false }
+        return types.contains(.tiff) || types.contains(.png)
+    }
+
+    /// When the clipboard contains only image data (no text/HTML), saves it as
+    /// a temporary PNG file and returns the file path. Returns nil if the
+    /// clipboard contains text or no image.
+    private static func saveClipboardImageIfNeeded() -> String? {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+
+        // If pasteboard has text/HTML, this is a normal copy — let Ghostty handle it.
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return nil }
+
+        // Check for image types (TIFF from screenshots, PNG from some tools).
+        guard types.contains(.tiff) || types.contains(.png) else { return nil }
+        guard let image = NSImage(pasteboard: pb),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        guard pngData.count <= maxClipboardImageSize else {
+#if DEBUG
+            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
+#endif
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
+        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
+
+        do {
+            try pngData.write(to: URL(fileURLWithPath: path))
+        } catch {
+#if DEBUG
+            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+            return nil
+        }
+
+        return path
+    }
+
+    /// Pastes clipboard content into the terminal. If the clipboard contains only
+    /// image data, saves it as a temporary PNG and pastes the shell-escaped file path.
     @IBAction func paste(_ sender: Any?) {
+        // When the clipboard contains only image data (e.g. from Cmd+Ctrl+Shift+4
+        // screenshot), save it as a temporary PNG and paste the file path so that
+        // CLI tools like Claude Code can accept the image.
+        if let path = Self.saveClipboardImageIfNeeded() {
+#if DEBUG
+            dlog("terminal.paste.image path=\(path)")
+#endif
+            terminalSurface?.sendText(Self.escapeDropForShell(path))
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
-        case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
+        case #selector(paste(_:)):
+            return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+                || Self.clipboardHasImageOnly()
+        case #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
@@ -3350,9 +3585,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Mouse Handling
 
+    #if DEBUG
+    private func debugModifierString(_ flags: NSEvent.ModifierFlags) -> String {
+        [
+            flags.contains(.command) ? "cmd" : nil,
+            flags.contains(.shift) ? "shift" : nil,
+            flags.contains(.control) ? "ctrl" : nil,
+            flags.contains(.option) ? "opt" : nil,
+        ].compactMap { $0 }.joined(separator: "+")
+    }
+    #endif
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
-        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        let debugPoint = convert(event.locationInWindow, from: nil)
+        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -3362,6 +3609,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseUp(with event: NSEvent) {
+        #if DEBUG
+        dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
+        #endif
         guard let surface = surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
@@ -3591,6 +3841,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     deinit {
         // Surface lifecycle is managed by TerminalSurface, not the view
+#if DEBUG
+        dlog(
+            "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +
+            "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0)"
+        )
+#endif
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
@@ -3938,6 +4195,25 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            return (surfaceId: nil, generation: nil, state: "missingSurface")
+        }
+        return (
+            surfaceId: terminalSurface.id,
+            generation: terminalSurface.portalBindingGeneration(),
+            state: terminalSurface.portalBindingStateLabel()
+        )
+    }
+
+    func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
+        guard let terminalSurface = surfaceView.terminalSurface else { return false }
+        return terminalSurface.canAcceptPortalBinding(
+            expectedSurfaceId: expectedSurfaceId,
+            expectedGeneration: expectedGeneration
+        )
+    }
+
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
@@ -4076,6 +4352,13 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     deinit {
+#if DEBUG
+        dlog(
+            "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+            "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0) " +
+            "hidden=\(isHidden ? 1 : 0) frame=\(String(format: "%.1fx%.1f", frame.width, frame.height))"
+        )
+#endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         cancelFocusRequest()
@@ -5487,6 +5770,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setSearchOverlay(searchState: searchState)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
+        let portalExpectedSurfaceId = terminalSurface.id
+        let portalExpectedGeneration = terminalSurface.portalBindingGeneration()
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
 #if DEBUG
         if coordinator.lastPaneDropZone != paneDropZone {
@@ -5522,7 +5807,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView: hostedView,
                     to: host,
                     visibleInUI: coordinator.desiredIsVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    expectedSurfaceId: portalExpectedSurfaceId,
+                    expectedGeneration: portalExpectedGeneration
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -5546,7 +5833,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
                     )
                     coordinator.lastBoundHostId = ObjectIdentifier(host)
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -5569,7 +5858,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
                     )
                     coordinator.lastBoundHostId = hostId
                 }

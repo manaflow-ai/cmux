@@ -1521,6 +1521,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugRenderStats(params: params))
         case "debug.layout":
             return v2Result(id: id, self.v2DebugLayout())
+        case "debug.portal.stats":
+            return v2Result(id: id, self.v2DebugPortalStats())
         case "debug.bonsplit_underflow.count":
             return v2Result(id: id, self.v2DebugBonsplitUnderflowCount())
         case "debug.bonsplit_underflow.reset":
@@ -1725,6 +1727,7 @@ class TerminalController {
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
             "debug.layout",
+            "debug.portal.stats",
             "debug.bonsplit_underflow.count",
             "debug.bonsplit_underflow.reset",
             "debug.empty_panel.count",
@@ -5252,11 +5255,40 @@ class TerminalController {
         }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let url,
+               respectExternalOpenRules,
+               BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                guard NSWorkspace.shared.open(url) else {
+                    result = .err(
+                        code: "external_open_failed",
+                        message: "Failed to open URL externally",
+                        data: ["url": url.absoluteString]
+                    )
+                    return
+                }
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(nil),
+                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                    "surface_id": v2OrNull(nil),
+                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                    "created_split": false,
+                    "placement_strategy": "external",
+                    "opened_externally": true,
+                    "url": url.absoluteString
+                ])
                 return
             }
             v2MaybeFocusWindow(for: tabManager)
@@ -8495,6 +8527,13 @@ class TerminalController {
             return .err(code: "internal_error", message: "layout_debug JSON decode failed", data: ["payload": String(jsonStr.prefix(200))])
         }
         return .ok(["layout": obj])
+    }
+
+    private func v2DebugPortalStats() -> V2CallResult {
+        let payload: [String: Any] = v2MainSync {
+            TerminalWindowPortalRegistry.debugPortalStats()
+        }
+        return .ok(payload)
     }
 
     private func v2DebugBonsplitUnderflowCount() -> V2CallResult {
