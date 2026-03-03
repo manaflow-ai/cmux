@@ -231,6 +231,95 @@ cmux does **not** restore live process state inside terminal apps. For example, 
 
 ## Contributing
 
+### Development Guide
+
+#### Prerequisites
+
+- **Xcode** - Full Xcode installation (not just Command Line Tools)
+  ```bash
+  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+  ```
+- **zig 0.14.x** - Required for building GhosttyKit
+  ```bash
+  brew install zig@0.14
+  ```
+- **xcodeproj gem** - For adding files to Xcode project
+  ```bash
+  sudo gem install xcodeproj
+  ```
+
+#### Initial Setup
+
+```bash
+# Initialize submodules (with proxy if needed)
+export https_proxy=http://127.0.0.1:7897 http_proxy=http://127.0.0.1:7897
+git submodule update --init --recursive
+
+# Build GhosttyKit (required for full app)
+cd ghostty
+zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+cd ..
+```
+
+#### Building
+
+```bash
+# Build CLI only (fastest, for testing CLI changes)
+xcodebuild -project GhosttyTabs.xcodeproj \
+  -scheme cmux-cli \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  build
+
+# Build full app
+xcodebuild -project GhosttyTabs.xcodeproj \
+  -scheme cmux \
+  -configuration Debug \
+  -destination 'platform=macOS' \
+  build
+
+# Build with tag (for parallel development)
+./scripts/reload.sh --tag your-feature
+```
+
+#### Adding New Code
+
+When adding new Swift files to the project, you need to add them to the Xcode target:
+
+```bash
+# Using Ruby xcodeproj
+ruby -e '
+require "xcodeproj"
+
+project = Xcodeproj::Project.open("GhosttyTabs.xcodeproj")
+target = project.targets.find { |t| t.name == "cmux-cli" }
+cli_group = project.main_group.find_subpath("CLI", true)
+
+files = ["YourNewFile.swift"]
+files.each do |file|
+  file_ref = cli_group.new_file(file)
+  target.add_file_references([file_ref])
+end
+
+project.save
+'
+```
+
+#### Running and Testing
+
+```bash
+# Binary location after build
+~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*/Build/Products/Debug/cmux
+
+# Run in MCP mode (for testing MCP tools)
+./cmux --mcp
+
+# Run reload script to launch Debug app
+./scripts/reload.sh --tag your-feature
+```
+
+---
+
 Ways to get involved:
 
 - Follow us on X for updates [@manaflowai](https://x.com/manaflowai) or [@lawrencecchen](https://x.com/lawrencecchen)
