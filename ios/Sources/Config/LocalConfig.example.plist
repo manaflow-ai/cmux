@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+    Local developer configuration overrides.
+    Copy this file to LocalConfig.plist and customize for your environment.
+    LocalConfig.plist is gitignored.
+-->
+<dict>
+    <!-- Public Convex endpoints -->
+    <key>CONVEX_URL_DEV</key>
+    <string></string>
+    <key>CONVEX_URL_PROD</key>
+    <string></string>
+
+    <!-- Public Stack project settings -->
+    <key>STACK_PROJECT_ID_DEV</key>
+    <string></string>
+    <key>STACK_PROJECT_ID_PROD</key>
+    <string></string>
+    <key>STACK_PUBLISHABLE_CLIENT_KEY_DEV</key>
+    <string></string>
+    <key>STACK_PUBLISHABLE_CLIENT_KEY_PROD</key>
+    <string></string>
+
+    <!-- Public API origins -->
+    <key>API_BASE_URL_DEV</key>
+    <string></string>
+    <key>API_BASE_URL_PROD</key>
+    <string></string>
+
+    <!-- Backward-compatible single Convex override -->
+    <key>CONVEX_URL</key>
+    <string></string>
+</dict>
+</plist>
