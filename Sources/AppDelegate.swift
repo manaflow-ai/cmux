@@ -4701,8 +4701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let topRight = workspace.newTerminalSplit(
             from: topLeftPanelId,
             orientation: .horizontal,
-            focus: false,
-            preserveFocusWhenNotFocusing: false
+            focus: false
         ) else {
             return false
         }
@@ -4710,8 +4709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard workspace.newTerminalSplit(
             from: topLeftPanelId,
             orientation: .vertical,
-            focus: false,
-            preserveFocusWhenNotFocusing: false
+            focus: false
         ) != nil else {
             return false
         }
@@ -4719,8 +4717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard workspace.newTerminalSplit(
             from: topRight.id,
             orientation: .vertical,
-            focus: false,
-            preserveFocusWhenNotFocusing: false
+            focus: false
         ) != nil else {
             return false
         }
