@@ -69,6 +69,7 @@
 			B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 			B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 			B9AA0002C0D1E2F3A4B5C6D7 /* TmuxControlModeProofUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AA0001C0D1E2F3A4B5C6D7 /* TmuxControlModeProofUITests.swift */; };
+			B9AB0002C0D1E2F3A4B5C6D7 /* TmuxRunnerProofUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AB0001C0D1E2F3A4B5C6D7 /* TmuxRunnerProofUITests.swift */; };
 			C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */; };
 					B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */; };
 					B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
@@ -202,6 +203,7 @@
 				B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
 				B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
 				B9AA0001C0D1E2F3A4B5C6D7 /* TmuxControlModeProofUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxControlModeProofUITests.swift; sourceTree = "<group>"; };
+				B9AB0001C0D1E2F3A4B5C6D7 /* TmuxRunnerProofUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxRunnerProofUITests.swift; sourceTree = "<group>"; };
 					B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
 					B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 					B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
@@ -407,6 +409,7 @@
 						children = (
 							B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */,
 							B9AA0001C0D1E2F3A4B5C6D7 /* TmuxControlModeProofUITests.swift */,
+							B9AB0001C0D1E2F3A4B5C6D7 /* TmuxRunnerProofUITests.swift */,
 							B9000013A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift */,
 							B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */,
 							B9000019A1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift */,
@@ -618,6 +621,7 @@
 						files = (
 							B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
 							B9AA0002C0D1E2F3A4B5C6D7 /* TmuxControlModeProofUITests.swift in Sources */,
+							B9AB0002C0D1E2F3A4B5C6D7 /* TmuxRunnerProofUITests.swift in Sources */,
 							B9000014A1B2C3D4E5F60719 /* JumpToUnreadUITests.swift in Sources */,
 							B900001AA1B2C3D4E5F60719 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
 							B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */,

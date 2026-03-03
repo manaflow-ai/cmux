@@ -209,6 +209,22 @@ jobs:
             exit 1
           fi
 
+      - name: Export xcresult attachments
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/xcresult-attachments
+          XCRESULT="$(find ~/Library/Developer/Xcode/DerivedData -type d -name '*.xcresult' -path '*/Logs/Test/*' -print0 2>/dev/null | xargs -0 ls -td 2>/dev/null | head -n 1 || true)"
+          if [ -z "$XCRESULT" ]; then
+            echo "No xcresult bundle found."
+            exit 0
+          fi
+          echo "Exporting attachments from $XCRESULT"
+          xcrun xcresulttool export attachments --path "$XCRESULT" --output-path /tmp/xcresult-attachments || true
+          rm -rf /tmp/latest-test.xcresult
+          cp -R "$XCRESULT" /tmp/latest-test.xcresult || true
+          ls -R /tmp/xcresult-attachments || true
+
       - name: Stop screen recording
         if: ${{ always() && inputs.record_video && env.RECORD_PID != '' }}
         run: |
@@ -244,6 +260,16 @@ jobs:
             /tmp/cmux-screenshots/*.png
             /tmp/cmux-ui-test-tmux-proof-*.json
           if-no-files-found: ignore
+
+      - name: Upload xcresult artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: xcresult-artifacts
+          path: |
+            /tmp/xcresult-attachments/**
+            /tmp/latest-test.xcresult/**
+          if-no-files-found: warn
 
       - name: Post results to cmux-dev-artifacts
         if: always()
