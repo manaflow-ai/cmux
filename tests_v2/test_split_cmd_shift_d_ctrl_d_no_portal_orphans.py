@@ -121,8 +121,8 @@ def _wait_for_panes(c: cmux, target_panes: int, *, timeout_s: float, context: st
     )
 
 
-def _portal_stats(c: cmux) -> dict:
-    stats = c._call("debug.portal.stats") or {}
+def _portal_stats(c: cmux, *, timeout_s: float) -> dict:
+    stats = c._call("debug.portal.stats", timeout_s=timeout_s) or {}
     if not isinstance(stats, dict):
         raise cmuxError(f"debug.portal.stats returned non-dict payload: {stats!r}")
     return stats
@@ -167,7 +167,10 @@ def _wait_for_portal_integrity(c: cmux, *, timeout_s: float, context: str) -> No
     last = None
     error = None
     while time.time() < deadline:
-        last = _portal_stats(c)
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        last = _portal_stats(c, timeout_s=min(remaining, 0.5))
         error = _portal_integrity_error(last)
         if error is None:
             return

@@ -8530,9 +8530,8 @@ class TerminalController {
     }
 
     private func v2DebugPortalStats() -> V2CallResult {
-        var payload: [String: Any] = [:]
-        DispatchQueue.main.sync {
-            payload = TerminalWindowPortalRegistry.debugPortalStats()
+        let payload: [String: Any] = v2MainSync {
+            TerminalWindowPortalRegistry.debugPortalStats()
         }
         return .ok(payload)
     }
