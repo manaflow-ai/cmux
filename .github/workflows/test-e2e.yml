@@ -100,20 +100,38 @@ jobs:
       - name: Grant TCC screen recording permission
         continue-on-error: true
         run: |
-          # Ephemeral CI runner, TCC database is writable
           TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
           if [ -f "$TCC_DB" ]; then
-            sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '/usr/sbin/screencapture', 1, 2, 4, 1);" 2>/dev/null || true
+            for client in /usr/sbin/screencapture /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg; do
+              sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '$client', 1, 2, 4, 1);" 2>/dev/null || true
+            done
           fi
 
       - name: Start screen recording
         if: ${{ inputs.record_video }}
         run: |
-          screencapture -v -D 1 -x /tmp/test-recording.mov &
+          # List available AVFoundation devices for debugging
+          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+
+          # Find the screen capture device index (usually "Capture screen 0")
+          SCREEN_INDEX=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 \
+            | grep -n "Capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/' || echo "1")
+          echo "Using AVFoundation screen device index: $SCREEN_INDEX"
+
+          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+            -i "${SCREEN_INDEX}:none" \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+            /tmp/test-recording.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
           RECORD_PID=$!
           echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
           sleep 2
-          echo "Recording started (PID $RECORD_PID)"
+
+          if kill -0 "$RECORD_PID" 2>/dev/null; then
+            echo "Recording started (PID $RECORD_PID)"
+          else
+            echo "::warning::ffmpeg failed to start recording"
+            cat /tmp/ffmpeg.log
+          fi
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
@@ -185,9 +203,9 @@ jobs:
       - name: Stop screen recording
         if: ${{ always() && inputs.record_video && env.RECORD_PID != '' }}
         run: |
+          # Send quit signal to ffmpeg for clean finalization
           kill -INT "$RECORD_PID" 2>/dev/null || true
-          # Wait for screencapture to finalize the .mov file
-          for i in $(seq 1 30); do
+          for i in $(seq 1 15); do
             if ! kill -0 "$RECORD_PID" 2>/dev/null; then
               echo "Recording stopped after ${i}s"
               break
@@ -195,14 +213,17 @@ jobs:
             sleep 1
           done
           kill -9 "$RECORD_PID" 2>/dev/null || true
-          ls -lh /tmp/test-recording.mov 2>/dev/null || echo "No recording file found"
+          echo "=== ffmpeg log ==="
+          cat /tmp/ffmpeg.log 2>/dev/null || true
+          echo "=== recording file ==="
+          ls -lh /tmp/test-recording.mp4 2>/dev/null || echo "No recording file found"
 
       - name: Upload recording artifact
         if: ${{ always() && inputs.record_video }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: test-recording
-          path: /tmp/test-recording.mov
+          path: /tmp/test-recording.mp4
           if-no-files-found: warn
 
       - name: Post results to cmux-dev-artifacts
