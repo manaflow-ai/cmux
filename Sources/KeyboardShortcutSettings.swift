@@ -23,6 +23,7 @@ enum KeyboardShortcutSettings {
         case renameWorkspace
         case closeWorkspace
         case newSurface
+        case toggleTerminalCopyMode
 
         // Panes / splits
         case focusLeft
@@ -60,6 +61,7 @@ enum KeyboardShortcutSettings {
             case .renameWorkspace: return "Rename Workspace"
             case .closeWorkspace: return "Close Workspace"
             case .newSurface: return "New Surface"
+            case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
             case .focusLeft: return "Focus Pane Left"
             case .focusRight: return "Focus Pane Right"
             case .focusUp: return "Focus Pane Up"
@@ -102,6 +104,7 @@ enum KeyboardShortcutSettings {
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
+            case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -160,6 +163,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .toggleTerminalCopyMode:
+                return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:

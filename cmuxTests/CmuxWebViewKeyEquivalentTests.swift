@@ -1217,6 +1217,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(prevShortcut.eventModifiers.contains(.control))
     }
 
+    func testToggleTerminalCopyModeShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleTerminalCopyMode.label, "Toggle Terminal Copy Mode")
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultsKey,
+            "shortcut.toggleTerminalCopyMode"
+        )
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleTerminalCopyMode.defaultShortcut
+        XCTAssertEqual(shortcut.key, "m")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
     func testMenuItemKeyEquivalentHandlesArrowAndTabKeys() {
         XCTAssertNotNil(StoredShortcut(key: "←", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
         XCTAssertNotNil(StoredShortcut(key: "→", command: true, shift: false, option: false, control: false).menuItemKeyEquivalent)
@@ -1231,6 +1246,155 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testShortcutDefaultsKeysRemainUnique() {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
+    }
+}
+
+final class TerminalKeyboardCopyModeActionTests: XCTestCase {
+    func testCopyModeBypassAllowsOnlyCommandShortcuts() {
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .shift]))
+        XCTAssertTrue(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.command, .option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.option, .shift]))
+        XCTAssertFalse(terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: [.control]))
+    }
+
+    func testJKWithoutSelectionScrollByLine() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+    }
+
+    func testCapsLockDoesNotBlockLetterMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [.capsLock],
+                hasSelection: false
+            ),
+            .scrollLines(1)
+        )
+    }
+
+    func testJKWithSelectionAdjustSelection() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 38,
+                charactersIgnoringModifiers: "j",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 40,
+                charactersIgnoringModifiers: "k",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.up)
+        )
+    }
+
+    func testControlPagingSupportsPrintableAndControlCharacters() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{15}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{04}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+    }
+
+    func testVGYMapping() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 16,
+                charactersIgnoringModifiers: "y",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .copyAndExit
+        )
+    }
+
+    func testGAndShiftGMapping() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .scrollToTop
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 5,
+                charactersIgnoringModifiers: "g",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .scrollToBottom
+        )
+    }
+
+    func testEscapeAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 53,
+                charactersIgnoringModifiers: "",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
     }
 }
 

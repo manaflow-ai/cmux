@@ -271,6 +271,109 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
+    case left
+    case right
+    case up
+    case down
+    case pageUp = "page_up"
+    case pageDown = "page_down"
+    case home
+    case end
+}
+
+enum TerminalKeyboardCopyModeAction: Equatable {
+    case exit
+    case startSelection
+    case clearSelection
+    case copyAndExit
+    case scrollLines(Int)
+    case scrollPage(Int)
+    case scrollToTop
+    case scrollToBottom
+    case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
+}
+
+func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
+    let normalized = modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalized.contains(.command)
+}
+
+func terminalKeyboardCopyModeAction(
+    keyCode: UInt16,
+    charactersIgnoringModifiers: String?,
+    modifierFlags: NSEvent.ModifierFlags,
+    hasSelection: Bool
+) -> TerminalKeyboardCopyModeAction? {
+    let normalized = modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    let chars = (charactersIgnoringModifiers ?? "").lowercased()
+
+    if keyCode == 53 { // Escape
+        return .exit
+    }
+
+    switch keyCode {
+    case 126: // Up
+        return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
+    case 125: // Down
+        return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
+    case 123: // Left
+        return hasSelection ? .adjustSelection(.left) : nil
+    case 124: // Right
+        return hasSelection ? .adjustSelection(.right) : nil
+    case 116: // Page Up
+        return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
+    case 121: // Page Down
+        return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
+    case 115: // Home
+        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+    case 119: // End
+        return hasSelection ? .adjustSelection(.end) : .scrollToBottom
+    default:
+        break
+    }
+
+    if normalized == [.control] {
+        if chars == "u" || chars == "\u{15}" {
+            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
+        }
+        if chars == "d" || chars == "\u{04}" {
+            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
+        }
+        return nil
+    }
+
+    guard normalized.isEmpty || normalized == [.shift] else { return nil }
+
+    switch chars {
+    case "q":
+        return .exit
+    case "v":
+        return hasSelection ? .clearSelection : .startSelection
+    case "y":
+        return hasSelection ? .copyAndExit : nil
+    case "j":
+        return hasSelection ? .adjustSelection(.down) : .scrollLines(1)
+    case "k":
+        return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
+    case "h":
+        return hasSelection ? .adjustSelection(.left) : nil
+    case "l":
+        return hasSelection ? .adjustSelection(.right) : nil
+    case "g":
+        if normalized == [.shift] {
+            return hasSelection ? .adjustSelection(.end) : .scrollToBottom
+        }
+        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+    default:
+        return nil
+    }
+}
+
 private final class GhosttySurfaceCallbackContext {
     weak var surfaceView: GhosttyNSView?
     weak var terminalSurface: TerminalSurface?
@@ -2264,6 +2367,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    @discardableResult
+    func toggleKeyboardCopyMode() -> Bool {
+        surfaceView.toggleKeyboardCopyMode()
+    }
+
     func hasSelection() -> Bool {
         guard let surface = surface else { return false }
         return ghostty_surface_has_selection(surface)
@@ -2349,6 +2457,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLoggedWindowBackgroundSignature: String?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
+    private var keyboardCopyModeActive = false
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1" {
@@ -2779,6 +2888,59 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    @discardableResult
+    func toggleKeyboardCopyMode() -> Bool {
+        guard surface != nil else { return false }
+        keyboardCopyModeActive.toggle()
+        if !keyboardCopyModeActive, let surface {
+            _ = ghostty_surface_clear_selection(surface)
+        }
+        return true
+    }
+
+    private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
+        guard keyboardCopyModeActive else { return false }
+
+        if terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: event.modifierFlags) {
+            return false
+        }
+
+        let hasSelection = ghostty_surface_has_selection(surface)
+        guard let action = terminalKeyboardCopyModeAction(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            modifierFlags: event.modifierFlags,
+            hasSelection: hasSelection
+        ) else {
+            return true
+        }
+
+        switch action {
+        case .exit:
+            _ = ghostty_surface_clear_selection(surface)
+            keyboardCopyModeActive = false
+        case .startSelection:
+            _ = ghostty_surface_select_cursor_cell(surface)
+        case .clearSelection:
+            _ = ghostty_surface_clear_selection(surface)
+        case .copyAndExit:
+            _ = performBindingAction("copy_to_clipboard")
+            _ = ghostty_surface_clear_selection(surface)
+            keyboardCopyModeActive = false
+        case let .scrollLines(delta):
+            _ = performBindingAction("scroll_page_lines:\(delta)")
+        case let .scrollPage(delta):
+            _ = performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up")
+        case .scrollToTop:
+            _ = performBindingAction("scroll_to_top")
+        case .scrollToBottom:
+            _ = performBindingAction("scroll_to_bottom")
+        case let .adjustSelection(direction):
+            _ = performBindingAction("adjust_selection:\(direction.rawValue)")
+        }
+        return true
+    }
+
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
@@ -3139,6 +3301,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func keyDown(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyDown(with: event)
+            return
+        }
+        if handleKeyboardCopyModeIfNeeded(event, surface: surface) {
             return
         }
 #if DEBUG
