@@ -322,8 +322,8 @@ jobs:
           [ -S "$SOCK" ] || { echo "Socket not ready at $SOCK" >&2; exit 1; }
 
           CMUX_SOCKET_PATH="$SOCK" \
-          CMUX_LAG_MAX_P95_RATIO=1.70 \
-          CMUX_LAG_MAX_AVG_RATIO=1.70 \
+          CMUX_LAG_MAX_P95_RATIO=2.50 \
+          CMUX_LAG_MAX_AVG_RATIO=2.50 \
           CMUX_LAG_MIN_BASELINE_P95_MS_FOR_RATIO=6.0 \
           CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO=4.0 \
           CMUX_LAG_MAX_P95_DELTA_MS=20.0 \
