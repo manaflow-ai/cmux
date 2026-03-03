@@ -133,6 +133,16 @@ export const testimonials = [
     url: "https://x.com/connorelsea/status/2026867085750440390",
     platform: "x" as const,
   },
+  {
+    name: "鹿野 壮 Takeshi Kano",
+    handle: "@tonkotsuboy_com",
+    avatar: "/avatars/tonkotsuboy_com.jpg",
+    text: "年初にWarpからGhosttyに乗り換えたけど、今はcmuxに乗り換えた\uD83D\uDCBB 垂直タブが便利で、Claude Codeのタスクの終了が通知されるのがありがたい。Ghosttyベースだから爆速動作はそのまま。ghosttyでやったブランチ表示や補完もそのまま使える",
+    translation:
+      "I switched from Warp to Ghostty at the start of the year, but now I've switched to cmux. The vertical tabs are convenient, and I appreciate getting notified when Claude Code tasks finish. It's Ghostty-based so the blazing fast performance carries over. Branch display and completions I set up in Ghostty still work too.",
+    url: "https://x.com/tonkotsuboy_com/status/2028458464801108212",
+    platform: "x" as const,
+  },
 ];
 
 export type Testimonial = (typeof testimonials)[number];
