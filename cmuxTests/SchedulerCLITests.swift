@@ -141,8 +141,8 @@ final class SchedulerCLITests: XCTestCase {
             "is_enabled": false,
             "allow_overlap": true,
             "use_worktree": true,
-            "on_success": "deploy-task-id",
-            "on_failure": "alert-task-id"
+            "on_success": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+            "on_failure": "B2C3D4E5-F6A7-8901-BCDE-F12345678901"
         ]
 
         let result = TerminalController.shared.v2SchedulerDispatch(method: "scheduler.create", params: params)
@@ -159,8 +159,8 @@ final class SchedulerCLITests: XCTestCase {
             XCTAssertEqual(taskDict?["is_enabled"] as? Bool, false)
             XCTAssertEqual(taskDict?["allow_overlap"] as? Bool, true)
             XCTAssertEqual(taskDict?["use_worktree"] as? Bool, true)
-            XCTAssertEqual(taskDict?["on_success"] as? String, "deploy-task-id")
-            XCTAssertEqual(taskDict?["on_failure"] as? String, "alert-task-id")
+            XCTAssertEqual(taskDict?["on_success"] as? String, "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
+            XCTAssertEqual(taskDict?["on_failure"] as? String, "B2C3D4E5-F6A7-8901-BCDE-F12345678901")
             XCTAssertEqual(taskDict?["working_directory"] as? String, "/tmp/project")
         case .err(let code, let msg, _):
             XCTFail("Expected .ok but got .err(\(code): \(msg))")

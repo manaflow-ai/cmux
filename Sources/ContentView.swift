@@ -1226,6 +1226,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @State private var sidebarWidth: CGFloat = 200
+    private let schedulerPanelWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
@@ -1783,6 +1784,11 @@ struct ContentView: View {
         .frame(width: sidebarWidth)
     }
 
+    private var schedulerPanelView: some View {
+        SchedulerPage(selection: $sidebarSelectionState.selection)
+            .frame(width: schedulerPanelWidth)
+    }
+
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
@@ -1831,10 +1837,6 @@ struct ContentView: View {
             NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
-
-            SchedulerPage(selection: $sidebarSelectionState.selection)
-                .opacity(sidebarSelectionState.selection == .scheduler ? 1 : 0)
-                .allowsHitTesting(sidebarSelectionState.selection == .scheduler)
         }
         .padding(.top, titlebarPadding)
         .overlay(alignment: .top) {
@@ -2023,8 +2025,17 @@ struct ContentView: View {
                 ZStack(alignment: .leading) {
                     terminalContentWithSidebarDropOverlay
                         .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                        .padding(.trailing, sidebarSelectionState.isSchedulerVisible ? schedulerPanelWidth : 0)
                     if sidebarState.isVisible {
                         sidebarView
+                    }
+                }
+                .overlay(alignment: .trailing) {
+                    if sidebarSelectionState.isSchedulerVisible {
+                        HStack(spacing: 0) {
+                            Divider()
+                            schedulerPanelView
+                        }
                     }
                 }
             )
@@ -2036,6 +2047,10 @@ struct ContentView: View {
                         sidebarView
                     }
                     terminalContentWithSidebarDropOverlay
+                    if sidebarSelectionState.isSchedulerVisible {
+                        Divider()
+                        schedulerPanelView
+                    }
                 }
             )
         }
@@ -2046,6 +2061,28 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
                             .zIndex(1000)
+                    }
+                }
+                // Update portal trailing constraint when scheduler visibility changes.
+                // Uses WindowAccessor to get the actual window (not NSApp.keyWindow which may be wrong).
+                .background(
+                    WindowAccessor { [weak sidebarSelectionState] window in
+                        let width = (sidebarSelectionState?.isSchedulerVisible ?? false) ? schedulerPanelWidth : 0
+                        TerminalWindowPortalRegistry.setTrailingExclusionWidth(width, window: window)
+                    }
+                    .frame(width: 0, height: 0)
+                )
+                .onChange(of: sidebarSelectionState.isSchedulerVisible) { _ in
+                    // WindowAccessor fires on window attach; onChange handles runtime toggles.
+                    // The accessor's onWindow closure captures the latest state, so re-trigger it
+                    // by forcing a layout pass.
+                    DispatchQueue.main.async {
+                        NSApp.windows.forEach { window in
+                            TerminalWindowPortalRegistry.setTrailingExclusionWidth(
+                                sidebarSelectionState.isSchedulerVisible ? schedulerPanelWidth : 0,
+                                window: window
+                            )
+                        }
                     }
                 }
         )

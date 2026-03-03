@@ -62,34 +62,6 @@ enum ClaudeTokenTracker {
         return total
     }
 
-    /// Parse token usage for a specific session ID.
-    static func usageForSession(_ sessionId: String, projectsDirectory: URL? = nil) -> TokenUsage {
-        let dir = projectsDirectory ?? defaultProjectsDirectory()
-        guard let dir else { return TokenUsage() }
-
-        // Search all subdirectories for JSONL files matching the session ID
-        guard let subdirs = try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: nil
-        ) else { return TokenUsage() }
-
-        for subdir in subdirs {
-            let targetFile: URL
-            if subdir.hasDirectoryPath {
-                targetFile = subdir.appendingPathComponent("\(sessionId).jsonl")
-            } else if subdir.lastPathComponent == "\(sessionId).jsonl" {
-                targetFile = subdir
-            } else {
-                continue
-            }
-
-            if FileManager.default.fileExists(atPath: targetFile.path) {
-                return parseJSONL(at: targetFile)
-            }
-        }
-
-        return TokenUsage()
-    }
-
     /// Parse a single JSONL file and extract token usage from assistant messages.
     static func parseJSONL(at url: URL) -> TokenUsage {
         guard let data = try? Data(contentsOf: url),

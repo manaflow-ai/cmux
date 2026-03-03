@@ -69,8 +69,8 @@ final class SchedulerSocketAPITests: XCTestCase {
             "is_enabled": false,
             "allow_overlap": true,
             "use_worktree": true,
-            "on_success": "deploy",
-            "on_failure": "notify"
+            "on_success": "A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+            "on_failure": "B2C3D4E5-F6A7-8901-BCDE-F12345678901"
         ]
 
         let result = TerminalController.shared.v2SchedulerDispatch(method: "scheduler.create", params: params)
@@ -84,8 +84,8 @@ final class SchedulerSocketAPITests: XCTestCase {
             XCTAssertEqual(taskDict?["allow_overlap"] as? Bool, true)
             XCTAssertEqual(taskDict?["use_worktree"] as? Bool, true)
             XCTAssertEqual(taskDict?["working_directory"] as? String, "/tmp/project")
-            XCTAssertEqual(taskDict?["on_success"] as? String, "deploy")
-            XCTAssertEqual(taskDict?["on_failure"] as? String, "notify")
+            XCTAssertEqual(taskDict?["on_success"] as? String, "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")
+            XCTAssertEqual(taskDict?["on_failure"] as? String, "B2C3D4E5-F6A7-8901-BCDE-F12345678901")
         case .err:
             XCTFail("Expected .ok but got .err")
         }

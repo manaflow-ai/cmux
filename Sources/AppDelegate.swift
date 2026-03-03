@@ -1394,7 +1394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let schedulerEngine = SchedulerEngine.shared
         schedulerEngine.onTaskDue = { [weak self] task, run in
             guard let tabManager = self?.tabManager else { return }
-            schedulerEngine.executeTask(task, run: run, tabManager: tabManager)
+            SchedulerEngine.shared.executeTask(task, run: run, tabManager: tabManager)
         }
         schedulerEngine.start()
 #if DEBUG
@@ -1576,6 +1576,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        // Restore scheduler panel visibility (independent of sidebar selection).
+        // Old sessions with .scheduler selection are mapped to .tabs + isSchedulerVisible=true.
+        context.sidebarSelectionState.isSchedulerVisible =
+            snapshot.sidebar.isSchedulerVisible ?? (snapshot.sidebar.selection == .scheduler)
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -2276,6 +2280,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                        isSchedulerVisible: context.sidebarSelectionState.isSchedulerVisible,
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
                     )
                 )
@@ -3798,8 +3803,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? true,
             persistedWidth: CGFloat(sidebarWidth)
         )
+        let schedulerVisible = sessionWindowSnapshot?.sidebar.isSchedulerVisible
+            ?? (sessionWindowSnapshot?.sidebar.selection == .scheduler)
         let sidebarSelectionState = SidebarSelectionState(
-            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
+            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs,
+            isSchedulerVisible: schedulerVisible
         )
         let notificationStore = TerminalNotificationStore.shared
 
@@ -4711,11 +4719,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleSchedulerPage() {
         guard let selectionState = sidebarSelectionState else { return }
-        if selectionState.selection == .scheduler {
-            selectionState.selection = .tabs
-        } else {
-            selectionState.selection = .scheduler
+        withAnimation(.easeOut(duration: 0.18)) {
+            selectionState.isSchedulerVisible.toggle()
         }
+    }
+
+    @objc func toggleSchedulerPageAction() {
+        toggleSchedulerPage()
     }
 
     func jumpToLatestUnread() {

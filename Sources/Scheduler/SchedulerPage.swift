@@ -58,34 +58,21 @@ struct SchedulerPage: View {
     private var header: some View {
         HStack {
             Text("Scheduler")
-                .font(.title2)
-                .fontWeight(.semibold)
+                .font(.headline)
 
             Spacer()
-
-            // Cost/token summary (loaded asynchronously)
-            if cachedUsage.totalTokens > 0 {
-                HStack(spacing: 6) {
-                    Text(ClaudeTokenTracker.formatTokens(cachedUsage.totalTokens) + " tokens")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(ClaudeTokenTracker.formatCost(cachedUsage.estimatedCostUSD))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
 
             if !schedulerEngine.tasks.isEmpty {
                 let running = schedulerEngine.runningTaskCount
                 if running > 0 {
                     Text("\(running) running")
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     private var emptyState: some View {
@@ -136,7 +123,7 @@ private struct SchedulerTaskRow: View {
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
 
-                Text(task.name)
+                Text(verbatim: task.name)
                     .font(.headline)
                     .foregroundColor(.primary)
 
@@ -153,7 +140,7 @@ private struct SchedulerTaskRow: View {
             }
 
             HStack {
-                Text(task.cronExpression)
+                Text(verbatim: task.cronExpression)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundColor(.secondary)
 
@@ -164,7 +151,7 @@ private struct SchedulerTaskRow: View {
                 }
             }
 
-            Text(task.command)
+            Text(verbatim: task.command)
                 .font(.system(.subheadline, design: .monospaced))
                 .foregroundColor(.secondary)
                 .lineLimit(2)

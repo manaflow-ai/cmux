@@ -179,7 +179,9 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .notifications:
             self = .notifications
         case .scheduler:
-            self = .scheduler
+            // Scheduler is now an independent right panel, not a sidebar selection.
+            // Map to .tabs for backward compatibility.
+            self = .tabs
         }
     }
 
@@ -190,7 +192,9 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .notifications:
             return .notifications
         case .scheduler:
-            return .scheduler
+            // Backward compat: old sessions with .scheduler restore to .tabs.
+            // The scheduler panel visibility is handled by isSchedulerVisible.
+            return .tabs
         }
     }
 }
@@ -198,6 +202,7 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 struct SessionSidebarSnapshot: Codable, Sendable {
     var isVisible: Bool
     var selection: SessionSidebarSelection
+    var isSchedulerVisible: Bool?
     var width: Double?
 }
 

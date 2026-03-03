@@ -60,6 +60,23 @@ extension TerminalController {
 
     // MARK: - scheduler.create
 
+    // Input length limits to prevent resource exhaustion
+    private static let maxNameLength = 256
+    private static let maxCommandLength = 65536
+    private static let maxCronLength = 128
+    private static let maxPathLength = 4096
+    private static let maxEnvEntries = 100
+    private static let maxEnvValueLength = 4096
+    private static let maxTasks = 500
+
+    // Environment variable names that cannot be set via scheduler API
+    private static let blockedEnvKeys: Set<String> = [
+        "PATH", "HOME", "SHELL", "USER", "LOGNAME",
+        "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+        "LD_PRELOAD", "LD_LIBRARY_PATH",
+        "BASH_ENV", "ENV", "PROMPT_COMMAND",
+    ]
+
     private func v2SchedulerCreate(params: [String: Any]) -> V2CallResult {
         guard let name = params["name"] as? String,
               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -74,10 +91,39 @@ extension TerminalController {
             return .err(code: "invalid_params", message: "Missing or empty 'command'", data: nil)
         }
 
+        // Enforce length limits
+        guard name.count <= Self.maxNameLength else {
+            return .err(code: "invalid_params", message: "Name exceeds maximum length (\(Self.maxNameLength))", data: nil)
+        }
+        guard command.count <= Self.maxCommandLength else {
+            return .err(code: "invalid_params", message: "Command exceeds maximum length (\(Self.maxCommandLength))", data: nil)
+        }
+        guard cronExpression.count <= Self.maxCronLength else {
+            return .err(code: "invalid_params", message: "Cron expression exceeds maximum length (\(Self.maxCronLength))", data: nil)
+        }
+        if let workDir = params["working_directory"] as? String, workDir.count > Self.maxPathLength {
+            return .err(code: "invalid_params", message: "Working directory exceeds maximum length (\(Self.maxPathLength))", data: nil)
+        }
+
+        // Validate environment: entry count, value lengths, blocked keys
+        if let env = params["environment"] as? [String: String] {
+            guard env.count <= Self.maxEnvEntries else {
+                return .err(code: "invalid_params", message: "Environment exceeds maximum entries (\(Self.maxEnvEntries))", data: nil)
+            }
+            for (key, value) in env {
+                if Self.blockedEnvKeys.contains(key) || key.hasPrefix("DYLD_") || key.hasPrefix("LD_") {
+                    return .err(code: "invalid_params", message: "Environment variable '\(key)' is not allowed", data: nil)
+                }
+                if value.count > Self.maxEnvValueLength {
+                    return .err(code: "invalid_params", message: "Environment value for '\(key)' exceeds maximum length", data: nil)
+                }
+            }
+        }
+
         // Validate cron expression
         let trimmedCron = cronExpression.trimmingCharacters(in: .whitespacesAndNewlines)
         guard CronExpression(trimmedCron) != nil else {
-            return .err(code: "invalid_cron", message: "Invalid cron expression: \(trimmedCron)", data: nil)
+            return .err(code: "invalid_cron", message: "Invalid cron expression", data: nil)
         }
 
         let task = ScheduledTask(
@@ -93,8 +139,20 @@ extension TerminalController {
             onFailure: params["on_failure"] as? String
         )
 
+        // Validate onSuccess/onFailure are valid UUIDs if provided
+        if let onSuccess = task.onSuccess, UUID(uuidString: onSuccess) == nil {
+            return .err(code: "invalid_params", message: "on_success must be a valid UUID", data: nil)
+        }
+        if let onFailure = task.onFailure, UUID(uuidString: onFailure) == nil {
+            return .err(code: "invalid_params", message: "on_failure must be a valid UUID", data: nil)
+        }
+
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create task", data: nil)
         v2MainSync {
+            guard SchedulerEngine.shared.tasks.count < Self.maxTasks else {
+                result = .err(code: "limit_reached", message: "Maximum task definitions reached (\(Self.maxTasks))", data: nil)
+                return
+            }
             SchedulerEngine.shared.addTask(task)
             result = .ok(["task_id": task.id.uuidString, "task": schedulerTaskDict(task)])
         }
@@ -155,7 +213,7 @@ extension TerminalController {
             if let cron = params["cron"] as? String {
                 let trimmedCron = cron.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard CronExpression(trimmedCron) != nil else {
-                    result = .err(code: "invalid_cron", message: "Invalid cron expression: \(trimmedCron)", data: nil)
+                    result = .err(code: "invalid_cron", message: "Invalid cron expression", data: nil)
                     return
                 }
                 task.cronExpression = trimmedCron
@@ -185,10 +243,20 @@ extension TerminalController {
                 task.useWorktree = params["use_worktree"] as? Bool
             }
             if params.keys.contains("on_success") {
-                task.onSuccess = params["on_success"] as? String
+                let val = params["on_success"] as? String
+                if let val, UUID(uuidString: val) == nil {
+                    result = .err(code: "invalid_params", message: "on_success must be a valid UUID", data: nil)
+                    return
+                }
+                task.onSuccess = val
             }
             if params.keys.contains("on_failure") {
-                task.onFailure = params["on_failure"] as? String
+                let val = params["on_failure"] as? String
+                if let val, UUID(uuidString: val) == nil {
+                    result = .err(code: "invalid_params", message: "on_failure must be a valid UUID", data: nil)
+                    return
+                }
+                task.onFailure = val
             }
 
             engine.updateTask(task)
@@ -257,27 +325,16 @@ extension TerminalController {
                 return
             }
 
-            // Check overlap if not allowed
-            if !task.allowOverlap {
-                let alreadyRunning = engine.runs.contains { $0.taskId == taskId && $0.status == .running }
-                if alreadyRunning {
+            // Delegate to manuallyRunTask which handles overlap and concurrency checks
+            guard let run = engine.manuallyRunTask(task) else {
+                // Distinguish between overlap and limit failures
+                if !task.allowOverlap && engine.runs.contains(where: { $0.taskId == taskId && $0.status == .running }) {
                     result = .err(code: "already_running", message: "Task is already running and allow_overlap is false", data: ["task_id": taskIdStr])
-                    return
+                } else {
+                    result = .err(code: "limit_reached", message: "Max concurrent tasks limit reached (\(engine.maxConcurrentTasks))", data: nil)
                 }
-            }
-
-            // Check concurrent task limit
-            if engine.runningTaskCount >= engine.maxConcurrentTasks {
-                result = .err(code: "limit_reached", message: "Max concurrent tasks limit reached (\(engine.maxConcurrentTasks))", data: nil)
                 return
             }
-
-            // Create a new run
-            let run = TaskRun(taskId: task.id, startedAt: Date())
-            engine.runs.append(run)
-
-            // Fire the execution callback (same as cron-triggered runs)
-            engine.onTaskDue?(task, run)
 
             result = .ok([
                 "task_id": taskIdStr,
@@ -304,7 +361,7 @@ extension TerminalController {
                 return
             }
             guard run.status == .running else {
-                result = .err(code: "invalid_state", message: "Run is not running (status: \(run.status.rawValue))", data: ["run_id": runIdStr])
+                result = .err(code: "invalid_state", message: "Run is not in a cancellable state", data: ["run_id": runIdStr])
                 return
             }
             engine.cancelTask(runId: runId)
@@ -337,7 +394,7 @@ extension TerminalController {
             runs.sort { $0.startedAt > $1.startedAt }
 
             // Limit results
-            let limit = (params["limit"] as? Int) ?? 50
+            let limit = max(1, min((params["limit"] as? Int) ?? 50, 500))
             if runs.count > limit {
                 runs = Array(runs.prefix(limit))
             }

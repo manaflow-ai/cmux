@@ -158,6 +158,7 @@ final class SchedulerEngine: ObservableObject {
                 runs[i].completedAt = Date()
             }
         }
+        pruneCompletedRuns()
     }
 
     // MARK: - Persistence
@@ -299,6 +300,10 @@ final class SchedulerEngine: ObservableObject {
         guard let runId = panelToRunId[panelId],
               let runIndex = runs.firstIndex(where: { $0.id == runId }) else { return }
 
+        // If the run was already cancelled (e.g., by cancelTask racing with COMMAND_FINISHED),
+        // do not overwrite its status or re-trigger cleanup/chaining.
+        guard runs[runIndex].status == .running else { return }
+
         let currentChainDepth = runs[runIndex].chainDepth
 
         runs[runIndex].status = exitCode == 0 ? .succeeded : .failed
@@ -401,6 +406,8 @@ final class SchedulerEngine: ObservableObject {
         // Clean up context file
         let contextFile = Self.contextDirectory.appendingPathComponent("\(runId).json")
         try? FileManager.default.removeItem(at: contextFile)
+
+        pruneCompletedRuns()
     }
 
     /// Focus a running task's terminal by switching to its workspace and panel.
@@ -440,6 +447,10 @@ final class SchedulerEngine: ObservableObject {
 
         if let data = try? JSONSerialization.data(withJSONObject: context, options: [.sortedKeys]) {
             try? data.write(to: url, options: .atomic)
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
         }
     }
 

@@ -10,10 +10,18 @@ final class SchedulerSidebarTests: XCTestCase {
 
     // MARK: - SidebarSelection ↔ SessionSidebarSelection round-trip
 
-    func testSidebarSelectionSchedulerRoundTripsToSessionSidebarSelection() {
+    func testSidebarSelectionSchedulerMapsToTabsInSessionSidebarSelection() {
+        // Scheduler is now an independent right panel, not a sidebar selection.
+        // Converting .scheduler to SessionSidebarSelection maps to .tabs.
         let session = SessionSidebarSelection(selection: .scheduler)
-        XCTAssertEqual(session, .scheduler)
-        XCTAssertEqual(session.sidebarSelection, .scheduler)
+        XCTAssertEqual(session, .tabs)
+        XCTAssertEqual(session.sidebarSelection, .tabs)
+    }
+
+    func testSessionSidebarSelectionSchedulerDecodesBackwardCompat() {
+        // Old sessions with .scheduler stored should map to .tabs on restore
+        let oldSession = SessionSidebarSelection.scheduler
+        XCTAssertEqual(oldSession.sidebarSelection, .tabs)
     }
 
     func testSidebarSelectionTabsRoundTripsToSessionSidebarSelection() {

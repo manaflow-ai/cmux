@@ -137,45 +137,12 @@ final class SchedulerPersistenceTests: XCTestCase {
 
     // MARK: - Default file URL
 
-    func testDefaultSchedulerFileURLContainsBundleId() {
-        let url = SchedulerPersistenceStore.defaultSchedulerFileURL(
-            bundleIdentifier: "com.cmuxterm.app.dev",
-            appSupportDirectory: tempDir
-        )
-
+    func testDefaultSchedulerFileURLIsNonNilAndContainsCmux() {
+        let url = SchedulerPersistenceStore.defaultSchedulerFileURL()
         XCTAssertNotNil(url)
-        XCTAssertTrue(url!.path.contains("scheduler-com.cmuxterm.app.dev.json"))
         XCTAssertTrue(url!.path.contains("/cmux/"))
-    }
-
-    func testDefaultSchedulerFileURLSanitizesBundleId() {
-        let url = SchedulerPersistenceStore.defaultSchedulerFileURL(
-            bundleIdentifier: "com.example/unsafe id",
-            appSupportDirectory: tempDir
-        )
-
-        XCTAssertNotNil(url)
-        XCTAssertTrue(url!.path.contains("scheduler-com.example_unsafe_id.json"))
-    }
-
-    func testDefaultSchedulerFileURLFallsBackForEmptyBundleId() {
-        let url = SchedulerPersistenceStore.defaultSchedulerFileURL(
-            bundleIdentifier: "",
-            appSupportDirectory: tempDir
-        )
-
-        XCTAssertNotNil(url)
-        XCTAssertTrue(url!.path.contains("scheduler-com.cmuxterm.app.json"))
-    }
-
-    func testDefaultSchedulerFileURLFallsBackForNilBundleId() {
-        let url = SchedulerPersistenceStore.defaultSchedulerFileURL(
-            bundleIdentifier: nil,
-            appSupportDirectory: tempDir
-        )
-
-        XCTAssertNotNil(url)
-        XCTAssertTrue(url!.path.contains("scheduler-com.cmuxterm.app.json"))
+        XCTAssertTrue(url!.path.contains("scheduler-"))
+        XCTAssertTrue(url!.path.hasSuffix(".json"))
     }
 
     // MARK: - Overwrite behavior

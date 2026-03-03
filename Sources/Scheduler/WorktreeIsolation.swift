@@ -151,7 +151,7 @@ struct ProcessGitCommandRunner: GitCommandRunner {
         if let branchName {
             let branchProcess = Process()
             branchProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            branchProcess.arguments = ["-C", repoPath, "branch", "-D", branchName]
+            branchProcess.arguments = ["-C", repoPath, "branch", "-d", branchName]
             branchProcess.standardOutput = FileHandle.nullDevice
             branchProcess.standardError = FileHandle.nullDevice
             try? branchProcess.run()
