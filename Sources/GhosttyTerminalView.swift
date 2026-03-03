@@ -1744,6 +1744,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
     }
+    @Published private(set) var keyboardCopyModeActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
 
     init(
@@ -2369,7 +2370,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
-        surfaceView.toggleKeyboardCopyMode()
+        let handled = surfaceView.toggleKeyboardCopyMode()
+        if handled {
+            setKeyboardCopyModeActive(surfaceView.isKeyboardCopyModeActive)
+        }
+        return handled
+    }
+
+    func setKeyboardCopyModeActive(_ active: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setKeyboardCopyModeActive(active)
+            }
+            return
+        }
+
+        if keyboardCopyModeActive != active {
+            keyboardCopyModeActive = active
+        }
+        hostedView.setKeyboardCopyModeIndicator(visible: active)
     }
 
     func hasSelection() -> Bool {
@@ -2457,7 +2476,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastLoggedWindowBackgroundSignature: String?
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
-    private var keyboardCopyModeActive = false
+    fileprivate private(set) var keyboardCopyModeActive = false
+    fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
         if ProcessInfo.processInfo.environment["CMUX_KEY_LATENCY_PROBE"] == "1" {
@@ -2620,6 +2640,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface = surface
         tabId = surface.tabId
         surface.attachToView(self)
+        surface.setKeyboardCopyModeActive(keyboardCopyModeActive)
         updateSurfaceSize()
         applySurfaceBackground()
         applySurfaceColorScheme(force: true)
@@ -2891,11 +2912,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func toggleKeyboardCopyMode() -> Bool {
         guard surface != nil else { return false }
-        keyboardCopyModeActive.toggle()
+        setKeyboardCopyModeActive(!keyboardCopyModeActive)
         if !keyboardCopyModeActive, let surface {
             _ = ghostty_surface_clear_selection(surface)
         }
         return true
+    }
+
+    private func setKeyboardCopyModeActive(_ active: Bool) {
+        keyboardCopyModeActive = active
+        terminalSurface?.setKeyboardCopyModeActive(active)
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -2918,7 +2944,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch action {
         case .exit:
             _ = ghostty_surface_clear_selection(surface)
-            keyboardCopyModeActive = false
+            setKeyboardCopyModeActive(false)
         case .startSelection:
             _ = ghostty_surface_select_cursor_cell(surface)
         case .clearSelection:
@@ -2926,7 +2952,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection(surface)
-            keyboardCopyModeActive = false
+            setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
             _ = performBindingAction("scroll_page_lines:\(delta)")
         case let .scrollPage(delta):
@@ -4140,6 +4166,14 @@ private final class GhosttyFlashOverlayView: NSView {
     }
 }
 
+private final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
+    override var acceptsFirstResponder: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 final class GhosttySurfaceScrollView: NSView {
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
@@ -4151,6 +4185,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
+    private let keyboardCopyModeBadgeLabel: NSTextField
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
     private var observers: [NSObjectProtocol] = []
 	    private var windowObservers: [NSObjectProtocol] = []
@@ -4286,6 +4322,8 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingLayer = CAShapeLayer()
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
+        keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
+        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: "VIM COPY")
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -4358,6 +4396,33 @@ final class GhosttySurfaceScrollView: NSView {
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
         addSubview(flashOverlayView)
+        keyboardCopyModeBadgeView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardCopyModeBadgeView.wantsLayer = true
+        keyboardCopyModeBadgeView.material = .hudWindow
+        keyboardCopyModeBadgeView.blendingMode = .withinWindow
+        keyboardCopyModeBadgeView.state = .active
+        keyboardCopyModeBadgeView.layer?.cornerRadius = 7
+        keyboardCopyModeBadgeView.layer?.masksToBounds = true
+        keyboardCopyModeBadgeView.layer?.borderWidth = 1
+        keyboardCopyModeBadgeView.layer?.borderColor = cmuxAccentNSColor().withAlphaComponent(0.45).cgColor
+        keyboardCopyModeBadgeView.alphaValue = 0.97
+        keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        keyboardCopyModeBadgeLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
+        keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
+        keyboardCopyModeBadgeLabel.lineBreakMode = .byClipping
+        keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeLabel)
+        NSLayoutConstraint.activate([
+            keyboardCopyModeBadgeLabel.leadingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.leadingAnchor, constant: 8),
+            keyboardCopyModeBadgeLabel.trailingAnchor.constraint(equalTo: keyboardCopyModeBadgeView.trailingAnchor, constant: -8),
+            keyboardCopyModeBadgeLabel.topAnchor.constraint(equalTo: keyboardCopyModeBadgeView.topAnchor, constant: 4),
+            keyboardCopyModeBadgeLabel.bottomAnchor.constraint(equalTo: keyboardCopyModeBadgeView.bottomAnchor, constant: -4),
+        ])
+        keyboardCopyModeBadgeView.isHidden = true
+        addSubview(keyboardCopyModeBadgeView)
+        NSLayoutConstraint.activate([
+            keyboardCopyModeBadgeView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            keyboardCopyModeBadgeView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+        ])
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         observers.append(NotificationCenter.default.addObserver(
@@ -4605,6 +4670,9 @@ final class GhosttySurfaceScrollView: NSView {
                     overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
                 ])
             }
+            if !keyboardCopyModeBadgeView.isHidden {
+                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+            }
             return
         }
 
@@ -4617,7 +4685,28 @@ final class GhosttySurfaceScrollView: NSView {
             overlay.leadingAnchor.constraint(equalTo: leadingAnchor),
             overlay.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        if !keyboardCopyModeBadgeView.isHidden {
+            addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+        }
         searchOverlayHostingView = overlay
+    }
+
+    func setKeyboardCopyModeIndicator(visible: Bool) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.setKeyboardCopyModeIndicator(visible: visible)
+            }
+            return
+        }
+
+        keyboardCopyModeBadgeView.isHidden = !visible
+        if visible {
+            if let overlay = searchOverlayHostingView {
+                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: overlay)
+            } else {
+                addSubview(keyboardCopyModeBadgeView, positioned: .above, relativeTo: nil)
+            }
+        }
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
@@ -4940,6 +5029,10 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasSearchOverlay() -> Bool {
         guard let overlay = searchOverlayHostingView else { return false }
         return overlay.superview === self && !overlay.isHidden
+    }
+
+    func debugHasKeyboardCopyModeIndicator() -> Bool {
+        keyboardCopyModeBadgeView.superview === self && !keyboardCopyModeBadgeView.isHidden
     }
 
 #endif
@@ -5823,6 +5916,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
         )
         hostedView.setNotificationRing(visible: showsUnreadNotificationRing)
         hostedView.setSearchOverlay(searchState: searchState)
+        hostedView.setKeyboardCopyModeIndicator(visible: terminalSurface.keyboardCopyModeActive)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil

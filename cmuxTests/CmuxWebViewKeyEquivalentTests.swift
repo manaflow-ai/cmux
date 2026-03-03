@@ -7477,6 +7477,23 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 
+    func testKeyboardCopyModeIndicatorMountsAndUnmounts() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: true)
+        XCTAssertTrue(hostedView.debugHasKeyboardCopyModeIndicator())
+
+        hostedView.setKeyboardCopyModeIndicator(visible: false)
+        XCTAssertFalse(hostedView.debugHasKeyboardCopyModeIndicator())
+    }
+
     func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
 #if DEBUG
         let window = NSWindow(
