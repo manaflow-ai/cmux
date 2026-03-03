@@ -2152,12 +2152,29 @@ final class Workspace: Identifiable, ObservableObject {
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+#if DEBUG
+        let mappedTabIdBeforeClose = surfaceIdFromPanelId(panelId)
+        dlog(
+            "surface.close.request panel=\(panelId.uuidString.prefix(5)) " +
+            "force=\(force ? 1 : 0) mappedTab=\(mappedTabIdBeforeClose.map { String(String(describing: $0).prefix(5)) } ?? "nil") " +
+            "focusedPanel=\(focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
+            "focusedPane=\(bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil") " +
+            "\(debugPanelLifecycleState(panelId: panelId, panel: panels[panelId]))"
+        )
+#endif
         if let tabId = surfaceIdFromPanelId(panelId) {
             if force {
                 forceCloseTabIds.insert(tabId)
             }
             // Close the tab in bonsplit (this triggers delegate callback)
-            return bonsplitController.closeTab(tabId)
+            let closed = bonsplitController.closeTab(tabId)
+#if DEBUG
+            dlog(
+                "surface.close.request.done panel=\(panelId.uuidString.prefix(5)) " +
+                "tab=\(String(describing: tabId).prefix(5)) closed=\(closed ? 1 : 0) force=\(force ? 1 : 0)"
+            )
+#endif
+            return closed
         }
 
         // Mapping can transiently drift during split-tree mutations. If the target panel is
@@ -2189,11 +2206,37 @@ final class Workspace: Identifiable, ObservableObject {
         dlog(
             "surface.close.fallback panel=\(panelId.uuidString.prefix(5)) " +
             "selectedTab=\(String(describing: selected.id).prefix(5)) " +
-            "closed=\(closed ? 1 : 0)"
+            "closed=\(closed ? 1 : 0) " +
+            "\(debugPanelLifecycleState(panelId: panelId, panel: panels[panelId]))"
         )
 #endif
         return closed
     }
+
+#if DEBUG
+    private func debugPanelLifecycleState(panelId: UUID, panel: (any Panel)?) -> String {
+        guard let panel else { return "panelState=missing" }
+        if let terminal = panel as? TerminalPanel {
+            let hosted = terminal.hostedView
+            let frame = String(format: "%.1fx%.1f", hosted.frame.width, hosted.frame.height)
+            let bounds = String(format: "%.1fx%.1f", hosted.bounds.width, hosted.bounds.height)
+            let hasRuntimeSurface = terminal.surface.surface != nil ? 1 : 0
+            return
+                "panelState=terminal panel=\(panelId.uuidString.prefix(5)) " +
+                "surface=\(terminal.id.uuidString.prefix(5)) runtimeSurface=\(hasRuntimeSurface) " +
+                "inWindow=\(hosted.window != nil ? 1 : 0) hasSuperview=\(hosted.superview != nil ? 1 : 0) " +
+                "hidden=\(hosted.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
+        }
+        if let browser = panel as? BrowserPanel {
+            let webView = browser.webView
+            let frame = String(format: "%.1fx%.1f", webView.frame.width, webView.frame.height)
+            return
+                "panelState=browser panel=\(panelId.uuidString.prefix(5)) " +
+                "webInWindow=\(webView.window != nil ? 1 : 0) webHasSuperview=\(webView.superview != nil ? 1 : 0) frame=\(frame)"
+        }
+        return "panelState=\(String(describing: type(of: panel))) panel=\(panelId.uuidString.prefix(5))"
+    }
+#endif
 
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -3731,7 +3774,11 @@ extension Workspace: BonsplitDelegate {
         // Clean up our panel
         guard let panelId = panelIdFromSurfaceId(tabId) else {
             #if DEBUG
-            NSLog("[Workspace] didCloseTab: no panelId for tabId")
+            dlog(
+                "surface.didCloseTab.skip tab=\(String(describing: tabId).prefix(5)) " +
+                "pane=\(pane.id.uuidString.prefix(5)) reason=missingPanelMapping " +
+                "panels=\(panels.count) panes=\(controller.allPaneIds.count)"
+            )
             #endif
             scheduleTerminalGeometryReconcile()
             if !isDetaching {
@@ -3740,11 +3787,15 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        #if DEBUG
-        NSLog("[Workspace] didCloseTab panelId=\(panelId) remainingPanels=\(panels.count - 1) remainingPanes=\(controller.allPaneIds.count)")
-        #endif
-
         let panel = panels[panelId]
+#if DEBUG
+        dlog(
+            "surface.didCloseTab.begin tab=\(String(describing: tabId).prefix(5)) " +
+            "pane=\(pane.id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
+            "isDetaching=\(isDetaching ? 1 : 0) selectAfter=\(selectTabId.map { String(String(describing: $0).prefix(5)) } ?? "nil") " +
+            "\(debugPanelLifecycleState(panelId: panelId, panel: panel))"
+        )
+#endif
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
@@ -3795,6 +3846,12 @@ extension Workspace: BonsplitDelegate {
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
             if isDetaching {
+#if DEBUG
+                dlog(
+                    "surface.didCloseTab.end tab=\(String(describing: tabId).prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) mode=detachingEmptyWorkspace"
+                )
+#endif
                 scheduleTerminalGeometryReconcile()
                 return
             }
@@ -3808,6 +3865,13 @@ extension Workspace: BonsplitDelegate {
             }
             scheduleTerminalGeometryReconcile()
             scheduleFocusReconcile()
+#if DEBUG
+            dlog(
+                "surface.didCloseTab.end tab=\(String(describing: tabId).prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) mode=replacementCreated " +
+                "replacement=\(replacement.id.uuidString.prefix(5)) panels=\(panels.count)"
+            )
+#endif
             return
         }
 
@@ -3829,6 +3893,15 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
+#if DEBUG
+        let focusedPaneAfter = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "surface.didCloseTab.end tab=\(String(describing: tabId).prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) panes=\(controller.allPaneIds.count) " +
+            "focusedPane=\(focusedPaneAfter) focusedPanel=\(focusedPanelAfter)"
+        )
+#endif
         scheduleTerminalGeometryReconcile()
         if !isDetaching {
             scheduleFocusReconcile()
@@ -3913,9 +3986,21 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+#if DEBUG
+        dlog(
+            "surface.didClosePane.begin pane=\(paneId.id.uuidString.prefix(5)) " +
+            "closedPanels=\(closedPanelIds.count) detaching=\(isDetachingCloseTransaction ? 1 : 0)"
+        )
+#endif
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
+#if DEBUG
+                dlog(
+                    "surface.didClosePane.panel pane=\(paneId.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) \(debugPanelLifecycleState(panelId: panelId, panel: panels[panelId]))"
+                )
+#endif
                 panels[panelId]?.close()
                 panels.removeValue(forKey: panelId)
                 panelDirectories.removeValue(forKey: panelId)
@@ -3948,6 +4033,12 @@ extension Workspace: BonsplitDelegate {
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
+#if DEBUG
+        dlog(
+            "surface.didClosePane.end pane=\(paneId.id.uuidString.prefix(5)) " +
+            "remainingPanels=\(panels.count) remainingPanes=\(bonsplitController.allPaneIds.count)"
+        )
+#endif
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
