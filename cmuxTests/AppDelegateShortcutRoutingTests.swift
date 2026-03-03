@@ -354,6 +354,193 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testCmdPhysicalPWithDvorakCharactersDoesNotTriggerCommandPaletteSwitcher() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let switcherExpectation = expectation(description: "Cmd+L should not request command palette switcher")
+        switcherExpectation.isInverted = true
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Dvorak: physical ANSI "P" key can produce "l".
+        // This should behave as Cmd+L, not as physical Cmd+P.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "l",
+            charactersIgnoringModifiers: "l",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+L event on physical ANSI P key")
+            return
+        }
+
+#if DEBUG
+        _ = appDelegate.debugHandleCustomShortcut(event: event)
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
+
+    func testCmdShiftPhysicalPWithDvorakCharactersDoesNotTriggerCommandPalette() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let paletteExpectation = expectation(description: "Cmd+Shift+L should not request command palette")
+        paletteExpectation.isInverted = true
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            paletteExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Dvorak: physical ANSI "P" key can produce "l".
+        // This should behave as Cmd+Shift+L, not as physical Cmd+Shift+P.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "l",
+            charactersIgnoringModifiers: "l",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+Shift+L event on physical ANSI P key")
+            return
+        }
+
+#if DEBUG
+        _ = appDelegate.debugHandleCustomShortcut(event: event)
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [paletteExpectation], timeout: 0.15)
+    }
+
+    func testCmdOptionPhysicalTWithDvorakCharactersDoesNotTriggerCloseOtherTabsShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Dvorak: physical ANSI "T" key can produce "y".
+        // This should not match the Cmd+Option+T app shortcut.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .option],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "y",
+            charactersIgnoringModifiers: "y",
+            isARepeat: false,
+            keyCode: 17 // kVK_ANSI_T
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+Option+Y event on physical ANSI T key")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window and workspace")
+            return
+        }
+
+        let panelCountBefore = workspace.panels.count
+
+        // Dvorak: physical ANSI "W" key can produce ",".
+        // This should not match the Cmd+W close-panel shortcut.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: ",",
+            charactersIgnoringModifiers: ",",
+            isARepeat: false,
+            keyCode: 13 // kVK_ANSI_W
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+, event on physical ANSI W key")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertEqual(workspace.panels.count, panelCountBefore)
+    }
+
     func testCmdIStillTriggersShowNotificationsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
