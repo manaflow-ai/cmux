@@ -1313,6 +1313,7 @@ private enum DebugWindowConfigSnapshot {
         shortcutHintPaneTabXOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintXKey, fallback: ShortcutHintDebugSettings.defaultPaneHintX)))
         shortcutHintPaneTabYOffset=\(String(format: "%.1f", doubleValue(defaults, key: ShortcutHintDebugSettings.paneHintYKey, fallback: ShortcutHintDebugSettings.defaultPaneHintY)))
         shortcutHintAlwaysShow=\(boolValue(defaults, key: ShortcutHintDebugSettings.alwaysShowHintsKey, fallback: ShortcutHintDebugSettings.defaultAlwaysShowHints))
+        shortcutHintShowOnCommandHold=\(boolValue(defaults, key: ShortcutHintDebugSettings.showHintsOnCommandHoldKey, fallback: ShortcutHintDebugSettings.defaultShowHintsOnCommandHold))
         """
 
         let backgroundPayload = """
@@ -2744,6 +2745,8 @@ struct SettingsView: View {
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+    @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+    private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
@@ -3433,6 +3436,19 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: "Keyboard Shortcuts")
                     SettingsCard {
+                        SettingsCardRow(
+                            "Show Cmd-Hold Shortcut Hints",
+                            subtitle: showShortcutHintsOnCommandHold
+                                ? "Holding Cmd shows shortcut hint pills in the sidebar and titlebar."
+                                : "Holding Cmd keeps shortcut hint pills hidden."
+                        ) {
+                            Toggle("", isOn: $showShortcutHintsOnCommandHold)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         let actions = KeyboardShortcutSettings.Action.allCases
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
@@ -3614,6 +3630,7 @@ struct SettingsView: View {
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+        showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
         sidebarShowPorts = true
         sidebarShowLog = true
         sidebarShowProgress = true
