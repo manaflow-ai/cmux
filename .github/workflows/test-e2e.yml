@@ -235,6 +235,16 @@ jobs:
           path: /tmp/test-recording.mp4
           if-no-files-found: warn
 
+      - name: Upload tmux proof artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tmux-proof-artifacts
+          path: |
+            /tmp/cmux-screenshots/*.png
+            /tmp/cmux-ui-test-tmux-proof-*.json
+          if-no-files-found: ignore
+
       - name: Post results to cmux-dev-artifacts
         if: always()
         env:
