@@ -54,10 +54,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     struct DetectionEnvironment {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
+        let isExecutableFileAtPath: (String) -> Bool
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
-            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
         )
     }
 
@@ -94,7 +96,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return "Open Current Directory in Tower"
         case .vscode:
-            return "Open Current Directory in VS Code"
+            return "Open Current Directory in VS Code (Inline)"
         case .warp:
             return "Open Current Directory in Warp"
         case .windsurf:
@@ -126,7 +128,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         case .tower:
             return common + ["tower", "git", "client"]
         case .vscode:
-            return common + ["vs", "code", "visual", "studio"]
+            return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
         case .warp:
             return common + ["warp", "terminal", "shell"]
         case .windsurf:
@@ -139,7 +141,12 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
-        applicationPath(in: environment) != nil
+        guard let applicationPath = applicationPath(in: environment) else { return false }
+        guard self == .vscode else { return true }
+        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
+            isExecutableAtPath: environment.isExecutableFileAtPath
+        ) != nil
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -222,6 +229,372 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+enum VSCodeServeWebURLBuilder {
+    static func extractWebUIURL(from output: String) -> URL? {
+        let prefix = "Web UI available at "
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            guard let range = line.range(of: prefix) else { continue }
+            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
+            return url
+        }
+        return nil
+    }
+
+    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
+        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "folder" }
+        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
+        components?.queryItems = queryItems
+        return components?.url
+    }
+}
+
+struct VSCodeCLILaunchConfiguration {
+    let executableURL: URL
+    let argumentsPrefix: [String]
+    let environment: [String: String]
+}
+
+enum VSCodeCLILaunchConfigurationBuilder {
+    static func launchConfiguration(
+        vscodeApplicationURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> VSCodeCLILaunchConfiguration? {
+        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
+        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
+
+        var environment = baseEnvironment
+        environment["ELECTRON_RUN_AS_NODE"] = "1"
+        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
+        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
+        if let nodeOptions = environment["NODE_OPTIONS"] {
+            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+        }
+        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
+            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
+        }
+        environment.removeValue(forKey: "NODE_OPTIONS")
+        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+
+        return VSCodeCLILaunchConfiguration(
+            executableURL: codeTunnelURL,
+            argumentsPrefix: [],
+            environment: environment
+        )
+    }
+}
+
+final class VSCodeServeWebController {
+    static let shared = VSCodeServeWebController()
+    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+
+    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
+    private var serveWebProcess: Process?
+    private var launchingProcess: Process?
+    private var serveWebURL: URL?
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
+    private var lifecycleGeneration: UInt64 = 0
+
+    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+        self.launchProcessOverride = launchProcessOverride
+    }
+
+#if DEBUG
+    static func makeForTesting(
+        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
+    ) -> VSCodeServeWebController {
+        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+#endif
+
+    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        queue.async {
+            if let process = self.serveWebProcess,
+               process.isRunning,
+               let url = self.serveWebURL {
+                DispatchQueue.main.async {
+                    completion(url)
+                }
+                return
+            }
+
+            let completionGeneration = self.lifecycleGeneration
+            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
+            guard !self.isLaunching else { return }
+
+            self.isLaunching = true
+            let launchGeneration = completionGeneration
+            self.activeLaunchGeneration = launchGeneration
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync {
+                    self.lifecycleGeneration == launchGeneration
+                }
+                guard shouldLaunch else {
+                    self.queue.async {
+                        guard self.activeLaunchGeneration == launchGeneration else { return }
+                        self.isLaunching = false
+                        self.activeLaunchGeneration = nil
+                    }
+                    return
+                }
+                let launchResult = self.launchServeWebProcess(
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    expectedGeneration: launchGeneration
+                )
+                self.queue.async {
+                    guard self.activeLaunchGeneration == launchGeneration else {
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+                    self.isLaunching = false
+                    self.activeLaunchGeneration = nil
+
+                    guard self.lifecycleGeneration == launchGeneration else {
+                        if let launchedProcess = launchResult?.process,
+                           self.launchingProcess === launchedProcess {
+                            self.launchingProcess = nil
+                        }
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+
+                    if let launchResult {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = launchResult.process
+                        self.serveWebURL = launchResult.url
+                    } else {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+
+                    var completions: [(URL?) -> Void] = []
+                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+                    for pending in self.pendingCompletions {
+                        if pending.generation == launchGeneration {
+                            completions.append(pending.completion)
+                        } else {
+                            remaining.append(pending)
+                        }
+                    }
+                    self.pendingCompletions = remaining
+                    let resolvedURL = self.serveWebURL
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(resolvedURL) }
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+            self.lifecycleGeneration &+= 1
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
+            var processes: [Process] = []
+            if let process = self.serveWebProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
+            self.serveWebProcess = nil
+            self.launchingProcess = nil
+            self.serveWebURL = nil
+            let completions = self.pendingCompletions.map(\.completion)
+            self.pendingCompletions.removeAll()
+            return (processes, completions)
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+
+        if !completions.isEmpty {
+            DispatchQueue.main.async {
+                completions.forEach { $0(nil) }
+            }
+        }
+    }
+
+    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+    }
+
+    private func launchServeWebProcess(
+        vscodeApplicationURL: URL,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
+        if let launchProcessOverride {
+            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+        }
+
+        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: vscodeApplicationURL
+        ) else { return nil }
+
+        let process = Process()
+        process.executableURL = launchConfiguration.executableURL
+        process.arguments = launchConfiguration.argumentsPrefix + [
+            "serve-web",
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "0",
+            "--connection-token", Self.randomConnectionToken(),
+        ]
+        process.environment = launchConfiguration.environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = ServeWebOutputCollector()
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            self?.queue.async {
+                guard let self else { return }
+                if self.launchingProcess === terminatedProcess {
+                    self.launchingProcess = nil
+                }
+                if self.serveWebProcess === terminatedProcess {
+                    self.serveWebProcess = nil
+                    self.serveWebURL = nil
+                }
+            }
+        }
+
+        let didStart: Bool = queue.sync {
+            guard self.lifecycleGeneration == expectedGeneration,
+                  self.activeLaunchGeneration == expectedGeneration else {
+                return false
+            }
+            self.launchingProcess = process
+            do {
+                try process.run()
+                return true
+            } catch {
+                if self.launchingProcess === process {
+                    self.launchingProcess = nil
+                }
+                return false
+            }
+        }
+        guard didStart else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
+              let serveWebURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            return nil
+        }
+
+        return (process, serveWebURL)
+    }
+
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+    }
+
+    private static func randomConnectionToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+}
+
+final class ServeWebOutputCollector {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var outputBuffer = ""
+    private var resolvedURL: URL?
+    private var didSignal = false
+
+    var webUIURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedURL
+    }
+
+    func append(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolvedURL == nil else { return }
+        outputBuffer.append(text)
+        while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
+            let line = String(outputBuffer[..<newlineIndex])
+            outputBuffer.removeSubrange(...newlineIndex)
+            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
+                continue
+            }
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+            if !didSignal {
+                didSignal = true
+                semaphore.signal()
+            }
+            return
+        }
+    }
+
+    func markProcessExited() {
+        lock.lock()
+        defer { lock.unlock() }
+        if resolvedURL == nil, !outputBuffer.isEmpty,
+           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+        }
+        guard !didSignal else { return }
+        didSignal = true
+        semaphore.signal()
+    }
+
+    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
+        if webUIURL != nil { return true }
+        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        return webUIURL != nil
     }
 }
 
@@ -1123,6 +1496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private weak var lastActiveMainWindow: NSWindow?
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1181,6 +1555,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -1346,6 +1724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        bringMainWindowToFrontOnActivationIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -1360,6 +1739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         stopSessionAutosaveTimer()
         stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
+        VSCodeServeWebController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
@@ -3304,6 +3684,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         guard let context else { return tabManager }
+        let alreadyActive =
+            tabManager === context.tabManager
+            && sidebarState === context.sidebarState
+            && sidebarSelectionState === context.sidebarSelectionState
+        if alreadyActive {
+#if DEBUG
+            dlog(
+                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return context.tabManager
+        }
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
             setActiveMainWindow(window)
         } else {
@@ -4103,6 +4495,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
+    private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
+    private var debugStressWorkspaceCreationInProgress = false
+    private var debugStressLagProbeEnabled = false
+    private let debugStressWorkspaceCount = 20
+    private let debugStressPaneCount = 4
+    private let debugStressTabsPerPane = 4
+    private let debugStressYieldInterval = 4
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
@@ -4151,6 +4550,280 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
         }
+    }
+
+    @objc func openDebugStressWorkspacesWithLoadedSurfaces(_ sender: Any?) {
+        guard !debugStressWorkspaceCreationInProgress else { return }
+        guard let tabManager else { return }
+
+        debugStressLagProbeEnabled = true
+        debugStressWorkspaceCreationInProgress = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.debugStressWorkspaceCreationInProgress = false }
+
+            let totalStart = ProcessInfo.processInfo.systemUptime
+            let originalSelectedWorkspaceId = tabManager.selectedTabId
+            var created: [Workspace] = []
+            created.reserveCapacity(self.debugStressWorkspaceCount)
+            var layoutFailures = 0
+            var cumulativeWorkspaceMs: Double = 0
+            var slowWorkspaceCount = 0
+            var worstWorkspaceMs: Double = 0
+
+            dlog(
+                "stress.setup.start workspaces=\(self.debugStressWorkspaceCount) panes=\(self.debugStressPaneCount) " +
+                "tabsPerPane=\(self.debugStressTabsPerPane) lagProbe=1"
+            )
+
+            for index in 0..<self.debugStressWorkspaceCount {
+                let workspaceStart = ProcessInfo.processInfo.systemUptime
+                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                created.append(workspace)
+                tabManager.setCustomTitle(
+                    tabId: workspace.id,
+                    title: "\(self.debugPerfWorkspaceTitlePrefix)\(index + 1)"
+                )
+
+                if !(await self.configureDebugStressWorkspaceLayout(
+                    workspace,
+                    paneCount: self.debugStressPaneCount,
+                    tabsPerPane: self.debugStressTabsPerPane
+                )) {
+                    layoutFailures += 1
+                }
+
+                let workspaceMs = (ProcessInfo.processInfo.systemUptime - workspaceStart) * 1000.0
+                cumulativeWorkspaceMs += workspaceMs
+                worstWorkspaceMs = max(worstWorkspaceMs, workspaceMs)
+                if workspaceMs >= 35 {
+                    slowWorkspaceCount += 1
+                }
+
+                if workspaceMs >= 35 || ((index + 1) % 5 == 0) {
+                    let pending = self.pendingDebugTerminalSurfaceCount(in: created)
+                    dlog(
+                        "stress.setup.workspace idx=\(index + 1)/\(self.debugStressWorkspaceCount) " +
+                        "ms=\(String(format: "%.2f", workspaceMs)) failures=\(layoutFailures) pending=\(pending)"
+                    )
+                }
+
+                if ((index + 1) % self.debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+
+            let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
+            // Avoid synchronous "load all surfaces" waiting in this command path.
+            // Waiting for every background surface to be ready creates sustained
+            // main-actor churn and can starve typing responsiveness.
+            let loadStats = DebugStressSurfaceLoadStats(
+                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
+                attempts: 0,
+                elapsedMs: 0
+            )
+            let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
+            let expectedSurfaceCount = self.debugStressWorkspaceCount
+                * self.debugStressPaneCount
+                * self.debugStressTabsPerPane
+            if let originalSelectedWorkspaceId,
+               tabManager.tabs.contains(where: { $0.id == originalSelectedWorkspaceId }) {
+                tabManager.selectedTabId = originalSelectedWorkspaceId
+            }
+
+            dlog(
+                "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
+                "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
+                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
+                "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
+                "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
+            )
+
+            NSLog(
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                self.debugStressWorkspaceCount,
+                self.debugStressPaneCount,
+                self.debugStressTabsPerPane,
+                expectedSurfaceCount,
+                layoutFailures,
+                loadStats.pendingSurfaces,
+                creationElapsedMs,
+                primeStats.elapsedMs,
+                primeStats.activatedTabs,
+                loadStats.elapsedMs,
+                totalElapsedMs,
+                avgWorkspaceMs,
+                worstWorkspaceMs,
+                loadStats.attempts
+            )
+        }
+    }
+
+    private struct DebugStressSurfacePrimeStats {
+        let activatedTabs: Int
+        let elapsedMs: Double
+    }
+
+    private func primeDebugStressWorkspacesForSurfaceLoad(
+        _ workspaces: [Workspace]
+    ) async -> DebugStressSurfacePrimeStats {
+        guard !workspaces.isEmpty else {
+            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
+        }
+
+        let primeStart = ProcessInfo.processInfo.systemUptime
+        var activatedTabs = 0
+
+        for (index, workspace) in workspaces.enumerated() {
+            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
+                if panel is TerminalPanel {
+                    count += 1
+                }
+            }
+
+            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
+                dlog(
+                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
+                )
+                await Task.yield()
+            }
+        }
+
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
+        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
+    }
+
+    private func configureDebugStressWorkspaceLayout(
+        _ workspace: Workspace,
+        paneCount: Int,
+        tabsPerPane: Int
+    ) async -> Bool {
+        guard let topLeftPanelId = workspace.focusedTerminalPanel?.id ?? workspace.focusedPanelId else {
+            return false
+        }
+        guard let topRight = workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topRight.id,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        guard paneIds.count == paneCount else { return false }
+
+        let additionalTabsPerPane = max(0, tabsPerPane - 1)
+        if additionalTabsPerPane > 0 {
+            for (paneIndex, paneId) in paneIds.enumerated() {
+                for tabOffset in 0..<additionalTabsPerPane {
+                    guard workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                        return false
+                    }
+                    if ((tabOffset + 1) % debugStressYieldInterval) == 0 {
+                        await Task.yield()
+                    }
+                }
+                if ((paneIndex + 1) % debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+        }
+
+        return true
+    }
+
+    private struct DebugStressSurfaceLoadStats {
+        let pendingSurfaces: Int
+        let attempts: Int
+        let elapsedMs: Double
+    }
+
+    private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
+        var pending = 0
+        for workspace in workspaces {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                if terminalPanel.surface.surface == nil {
+                    pending += 1
+                }
+            }
+        }
+        return pending
+    }
+
+    private func debugStressLagSnapshot() -> (
+        workspaceCount: Int,
+        terminalPanelCount: Int,
+        loadedSurfaceCount: Int,
+        selectedWorkspace: String
+    ) {
+        guard let tabManager else {
+            return (0, 0, 0, "nil")
+        }
+        var terminalPanelCount = 0
+        var loadedSurfaceCount = 0
+        for workspace in tabManager.tabs {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanelCount += 1
+                if terminalPanel.surface.surface != nil {
+                    loadedSurfaceCount += 1
+                }
+            }
+        }
+        let selectedWorkspace = tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        return (
+            tabManager.tabs.count,
+            terminalPanelCount,
+            loadedSurfaceCount,
+            selectedWorkspace
+        )
+    }
+
+    private func logSlowShortcutMonitorLatencyIfNeeded(
+        event: NSEvent,
+        handledByShortcut: Bool,
+        elapsedMs: Double
+    ) {
+        guard debugStressLagProbeEnabled else { return }
+        guard event.type == .keyDown else { return }
+
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+        let thresholdMs: Double = event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+        guard elapsedMs >= thresholdMs else { return }
+
+        let snapshot = debugStressLagSnapshot()
+        dlog(
+            "stress.inputLag path=appMonitor ms=\(String(format: "%.2f", elapsedMs)) " +
+            "threshold=\(String(format: "%.2f", thresholdMs)) handled=\(handledByShortcut ? 1 : 0) " +
+            "plain=\(isPlainTyping ? 1 : 0) repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) " +
+            "mods=\(event.modifierFlags.rawValue) workspaces=\(snapshot.workspaceCount) " +
+            "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
+            "selected=\(snapshot.selectedWorkspace)"
+        )
     }
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
@@ -4752,24 +5425,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let delayText = String(format: "%.2f", delayMs)
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
-                let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog(
-                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
-                )
+                let shortcutMonitorTraceEnabled =
+                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
+                if shortcutMonitorTraceEnabled {
+                    let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                    dlog(
+                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                    )
+                }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
 #endif
-                if self.handleCustomShortcut(event: event) {
+                let shortcutStart = ProcessInfo.processInfo.systemUptime
+                let handledByShortcut = self.handleCustomShortcut(event: event)
+#if DEBUG
+                let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
+                self.logSlowShortcutMonitorLatencyIfNeeded(
+                    event: event,
+                    handledByShortcut: handledByShortcut,
+                    elapsedMs: shortcutElapsedMs
+                )
+#endif
+                if handledByShortcut {
 #if DEBUG
                     dlog("  → consumed by handleCustomShortcut")
-                    DebugEventLog.shared.dump()
 #endif
                     return nil // Consume the event
                 }
-#if DEBUG
-                DebugEventLog.shared.dump()
-#endif
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
@@ -5191,6 +5875,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             dispatchBrowserOmnibarSelectionMove(delta: delta)
             return true
+        }
+
+        // Fast path for normal typing and terminal navigation keys (for example Up-arrow
+        // history): after command-palette/notification handling and browser omnibar
+        // arrow navigation above, plain key events have no app-level shortcut behavior.
+        if normalizedFlags.isEmpty {
+            return false
         }
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
@@ -6408,6 +7099,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
+            self.lastActiveMainWindow = window
             self.setActiveMainWindow(window)
         }
     }
@@ -6765,6 +7457,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             notificationStore.markRead(id: notificationId)
         }
+    }
+
+    private func bringMainWindowToFrontOnActivationIfNeeded() {
+        guard let window = frontmostKnownMainWindow() else { return }
+        bringToFront(window)
+    }
+
+    private func frontmostKnownMainWindow() -> NSWindow? {
+        let directCandidates: [NSWindow?] = [lastActiveMainWindow, NSApp.keyWindow, NSApp.mainWindow]
+        for candidate in directCandidates where candidate != nil {
+            if let window = candidate, isMainTerminalWindow(window) {
+                return window
+            }
+        }
+
+        if let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            return window
+        }
+
+        if let visible = mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first(where: { $0.isVisible }) {
+            return visible
+        }
+
+        return mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first
     }
 
 #if DEBUG
@@ -7376,6 +8098,7 @@ enum MenuBarIconRenderer {
             drawBadge(text: text, in: config.badgeRect, config: config)
         }
 
+        image.isTemplate = true
         return image
     }
 
@@ -7404,7 +8127,7 @@ enum MenuBarIconRenderer {
         path.line(to: map(384.0, 369.0))
         path.close()
 
-        NSColor.white.setFill()
+        NSColor.black.setFill()
         path.fill()
     }
 
