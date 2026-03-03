@@ -8979,14 +8979,6 @@ class TerminalController {
         DispatchQueue.main.sync {
             NSApp.activate(ignoringOtherApps: true)
             NSApp.unhide(nil)
-            let hasMainTerminalWindow = NSApp.windows.contains { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            }
-
-            if !hasMainTerminalWindow {
-                AppDelegate.shared?.openNewMainWindow(nil)
-            }
 
             if let window = NSApp.mainWindow
                 ?? NSApp.keyWindow
