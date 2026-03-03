@@ -7935,6 +7935,56 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
     }
+
+    func testExternalOpenPatternsDefaultToEmpty() {
+        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+    }
+
+    func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
+        defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternMatchesCaseInsensitively() {
+        defaults.set(
+            "re:^https?://[^/]*\\.example\\.com/(billing|usage)",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://FOO.example.com/BILLING",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternSupportsDigitCharacterClass() {
+        defaults.set(
+            "re:^https://example\\.com/usage/\\d+$",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/usage/42",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
+        defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/path",
+                defaults: defaults
+            )
+        )
+    }
 }
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
