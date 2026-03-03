@@ -311,6 +311,180 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
     }
 
+    func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .showNotifications)
+        defer { KeyboardShortcutSettings.setShortcut(originalShortcut, for: .showNotifications) }
+        KeyboardShortcutSettings.setShortcut(KeyboardShortcutSettings.Action.showNotifications.defaultShortcut, for: .showNotifications)
+
+        // Dvorak: physical ANSI "I" key can produce the character "c".
+        // This should behave like Cmd+C (copy), not match the Cmd+I app shortcut.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: 34 // kVK_ANSI_I
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+C event on physical ANSI I key")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCmdIStillTriggersShowNotificationsShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .showNotifications)
+        defer { KeyboardShortcutSettings.setShortcut(originalShortcut, for: .showNotifications) }
+        KeyboardShortcutSettings.setShortcut(KeyboardShortcutSettings.Action.showNotifications.defaultShortcut, for: .showNotifications)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "i",
+            charactersIgnoringModifiers: "i",
+            isARepeat: false,
+            keyCode: 34 // kVK_ANSI_I
+        ) else {
+            XCTFail("Failed to construct Cmd+I event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCmdShiftQuestionMarkMatchesSlashShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .triggerFlash)
+        defer { KeyboardShortcutSettings.setShortcut(originalShortcut, for: .triggerFlash) }
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "/", command: true, shift: true, option: false, control: false),
+            for: .triggerFlash
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "?",
+            charactersIgnoringModifiers: "?",
+            isARepeat: false,
+            keyCode: 44 // kVK_ANSI_Slash
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+/ event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
+    func testCmdShiftRightBracketCanFallbackByKeyCodeOnNonUSLayouts() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .nextSurface)
+        defer { KeyboardShortcutSettings.setShortcut(originalShortcut, for: .nextSurface) }
+        KeyboardShortcutSettings.setShortcut(
+            KeyboardShortcutSettings.Action.nextSurface.defaultShortcut,
+            for: .nextSurface
+        )
+
+        // Non-US layouts can report "*" (or other symbols) for kVK_ANSI_RightBracket with Shift.
+        // Shortcut matching should still allow Cmd+Shift+] via keyCode fallback.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "*",
+            charactersIgnoringModifiers: "*",
+            isARepeat: false,
+            keyCode: 30 // kVK_ANSI_RightBracket
+        ) else {
+            XCTFail("Failed to construct non-US Cmd+Shift+] event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testCmdShiftRRequestsRenameWorkspaceInCommandPalette() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

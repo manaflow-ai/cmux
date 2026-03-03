@@ -5366,7 +5366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
-        // Most shortcuts below use keyCode fallbacks, so treat nil as "" rather than bailing out.
+        // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
@@ -6460,7 +6460,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys
+    /// Match a shortcut against an event, handling normal keys.
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
@@ -6468,32 +6468,93 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function])
         guard flags == shortcut.modifierFlags else { return false }
 
-        // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
-        // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
-        if shortcutKey == "[" || shortcutKey == "]" {
-            switch event.keyCode {
-            case 33: // kVK_ANSI_LeftBracket
-                return shortcutKey == "["
-            case 30: // kVK_ANSI_RightBracket
-                return shortcutKey == "]"
-            default:
-                return false
-            }
-        }
 
-        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
-        // so fall back to keyCode matching for common printable keys.
-        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        if shortcutCharacterMatches(
+            eventCharacter: eventCharsIgnoringModifiers,
+            shortcutKey: shortcutKey
+        ) {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
+
+        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
+        // This keeps Cmd letter/digit shortcuts semantic (character-based) across layouts
+        // while still allowing keyCode fallback for punctuation shortcuts on non-US layouts.
+        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        if hasEventChars,
+           flags.contains(.command),
+           !flags.contains(.control),
+           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
+            return false
+        }
+
+        // Match using the current keyboard layout so Command shortcuts stay character-based
+        // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        if shortcutCharacterMatches(
+            eventCharacter: KeyboardLayout.character(forKeyCode: event.keyCode),
+            shortcutKey: shortcutKey
+        ) {
+            return true
+        }
+
+        // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
+        // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
+        // command punctuation shortcuts, since some non-US layouts report different characters
+        // for the same physical key even when menu-equivalent semantics should still apply.
+        let allowANSIKeyCodeFallback = flags.contains(.control)
+            || (flags.contains(.command)
+                && !flags.contains(.control)
+                && !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey))
+        if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
+    }
+
+    private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
+        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
+            return false
+        }
+        return CharacterSet.alphanumerics.contains(scalar)
+    }
+
+    private func shortcutCharacterMatches(eventCharacter: String?, shortcutKey: String) -> Bool {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return false }
+        if normalizedShortcutEventCharacter(eventCharacter) == shortcutKey {
+            return true
+        }
+        return false
+    }
+
+    private func normalizedShortcutEventCharacter(_ eventCharacter: String) -> String {
+        switch eventCharacter.lowercased() {
+        case "{": return "["
+        case "}": return "]"
+        case "<": return ","
+        case ">": return "."
+        case "?": return "/"
+        case ":": return ";"
+        case "\"": return "'"
+        case "|": return "\\"
+        case "~": return "`"
+        case "+": return "="
+        case "_": return "-"
+        case "!": return "1"
+        case "@": return "2"
+        case "#": return "3"
+        case "$": return "4"
+        case "%": return "5"
+        case "^": return "6"
+        case "&": return "7"
+        case "*": return "8"
+        case "(": return "9"
+        case ")": return "0"
+        default: return eventCharacter.lowercased()
+        }
     }
 
     private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
@@ -6529,8 +6590,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "-": return 27  // kVK_ANSI_Minus
         case "8": return 28  // kVK_ANSI_8
         case "0": return 29  // kVK_ANSI_0
+        case "]": return 30  // kVK_ANSI_RightBracket
         case "o": return 31  // kVK_ANSI_O
         case "u": return 32  // kVK_ANSI_U
+        case "[": return 33  // kVK_ANSI_LeftBracket
         case "i": return 34  // kVK_ANSI_I
         case "p": return 35  // kVK_ANSI_P
         case "l": return 37  // kVK_ANSI_L
