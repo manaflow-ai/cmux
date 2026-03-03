@@ -2708,20 +2708,96 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
+    // MARK: - Clipboard image paste
+
+    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+
+    /// Quick check: does the clipboard have image data and no text?
+    private static func clipboardHasImageOnly() -> Bool {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return false }
+        return types.contains(.tiff) || types.contains(.png)
+    }
+
+    /// When the clipboard contains only image data (no text/HTML), saves it as
+    /// a temporary PNG file and returns the file path. Returns nil if the
+    /// clipboard contains text or no image.
+    private static func saveClipboardImageIfNeeded() -> String? {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+
+        // If pasteboard has text/HTML, this is a normal copy — let Ghostty handle it.
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return nil }
+
+        // Check for image types (TIFF from screenshots, PNG from some tools).
+        guard types.contains(.tiff) || types.contains(.png) else { return nil }
+        guard let image = NSImage(pasteboard: pb),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        guard pngData.count <= maxClipboardImageSize else {
+#if DEBUG
+            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
+#endif
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
+        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
+
+        do {
+            try pngData.write(to: URL(fileURLWithPath: path))
+        } catch {
+#if DEBUG
+            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+            return nil
+        }
+
+        return path
+    }
+
+    /// Pastes clipboard content into the terminal. If the clipboard contains only
+    /// image data, saves it as a temporary PNG and pastes the shell-escaped file path.
     @IBAction func paste(_ sender: Any?) {
+        // When the clipboard contains only image data (e.g. from Cmd+Ctrl+Shift+4
+        // screenshot), save it as a temporary PNG and paste the file path so that
+        // CLI tools like Claude Code can accept the image.
+        if let path = Self.saveClipboardImageIfNeeded() {
+#if DEBUG
+            dlog("terminal.paste.image path=\(path)")
+#endif
+            terminalSurface?.sendText(Self.escapeDropForShell(path))
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         _ = performBindingAction("paste_from_clipboard")
     }
 
+    /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
             return ghostty_surface_has_selection(surface)
-        case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
+        case #selector(paste(_:)):
+            return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
+                || Self.clipboardHasImageOnly()
+        case #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
