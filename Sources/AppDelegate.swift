@@ -3684,6 +3684,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         guard let context else { return tabManager }
+        let alreadyActive =
+            tabManager === context.tabManager
+            && sidebarState === context.sidebarState
+            && sidebarSelectionState === context.sidebarSelectionState
+        if alreadyActive {
+#if DEBUG
+            dlog(
+                "shortcut.sync.post source=\(source) beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) chosen={\(debugContextToken(context))} nochange=1 \(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return context.tabManager
+        }
         if let window = context.window ?? windowForMainWindowId(context.windowId) {
             setActiveMainWindow(window)
         } else {
@@ -4483,6 +4495,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
     private let debugColorWorkspaceTitlePrefix = "Debug Color - "
+    private let debugPerfWorkspaceTitlePrefix = "Debug Perf - "
+    private var debugStressWorkspaceCreationInProgress = false
+    private var debugStressLagProbeEnabled = false
+    private let debugStressWorkspaceCount = 20
+    private let debugStressPaneCount = 4
+    private let debugStressTabsPerPane = 4
+    private let debugStressYieldInterval = 4
 
     @objc func openDebugScrollbackTab(_ sender: Any?) {
         guard let tabManager else { return }
@@ -4531,6 +4550,280 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager.setCustomTitle(tabId: targetTab.id, title: title)
             tabManager.setTabColor(tabId: targetTab.id, color: entry.hex)
         }
+    }
+
+    @objc func openDebugStressWorkspacesWithLoadedSurfaces(_ sender: Any?) {
+        guard !debugStressWorkspaceCreationInProgress else { return }
+        guard let tabManager else { return }
+
+        debugStressLagProbeEnabled = true
+        debugStressWorkspaceCreationInProgress = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.debugStressWorkspaceCreationInProgress = false }
+
+            let totalStart = ProcessInfo.processInfo.systemUptime
+            let originalSelectedWorkspaceId = tabManager.selectedTabId
+            var created: [Workspace] = []
+            created.reserveCapacity(self.debugStressWorkspaceCount)
+            var layoutFailures = 0
+            var cumulativeWorkspaceMs: Double = 0
+            var slowWorkspaceCount = 0
+            var worstWorkspaceMs: Double = 0
+
+            dlog(
+                "stress.setup.start workspaces=\(self.debugStressWorkspaceCount) panes=\(self.debugStressPaneCount) " +
+                "tabsPerPane=\(self.debugStressTabsPerPane) lagProbe=1"
+            )
+
+            for index in 0..<self.debugStressWorkspaceCount {
+                let workspaceStart = ProcessInfo.processInfo.systemUptime
+                let workspace = tabManager.addWorkspace(select: false, placementOverride: .end)
+                created.append(workspace)
+                tabManager.setCustomTitle(
+                    tabId: workspace.id,
+                    title: "\(self.debugPerfWorkspaceTitlePrefix)\(index + 1)"
+                )
+
+                if !(await self.configureDebugStressWorkspaceLayout(
+                    workspace,
+                    paneCount: self.debugStressPaneCount,
+                    tabsPerPane: self.debugStressTabsPerPane
+                )) {
+                    layoutFailures += 1
+                }
+
+                let workspaceMs = (ProcessInfo.processInfo.systemUptime - workspaceStart) * 1000.0
+                cumulativeWorkspaceMs += workspaceMs
+                worstWorkspaceMs = max(worstWorkspaceMs, workspaceMs)
+                if workspaceMs >= 35 {
+                    slowWorkspaceCount += 1
+                }
+
+                if workspaceMs >= 35 || ((index + 1) % 5 == 0) {
+                    let pending = self.pendingDebugTerminalSurfaceCount(in: created)
+                    dlog(
+                        "stress.setup.workspace idx=\(index + 1)/\(self.debugStressWorkspaceCount) " +
+                        "ms=\(String(format: "%.2f", workspaceMs)) failures=\(layoutFailures) pending=\(pending)"
+                    )
+                }
+
+                if ((index + 1) % self.debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+
+            let creationElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let primeStats = await self.primeDebugStressWorkspacesForSurfaceLoad(created)
+            // Avoid synchronous "load all surfaces" waiting in this command path.
+            // Waiting for every background surface to be ready creates sustained
+            // main-actor churn and can starve typing responsiveness.
+            let loadStats = DebugStressSurfaceLoadStats(
+                pendingSurfaces: self.pendingDebugTerminalSurfaceCount(in: created),
+                attempts: 0,
+                elapsedMs: 0
+            )
+            let totalElapsedMs = (ProcessInfo.processInfo.systemUptime - totalStart) * 1000.0
+            let avgWorkspaceMs = created.isEmpty ? 0 : (cumulativeWorkspaceMs / Double(created.count))
+            let expectedSurfaceCount = self.debugStressWorkspaceCount
+                * self.debugStressPaneCount
+                * self.debugStressTabsPerPane
+            if let originalSelectedWorkspaceId,
+               tabManager.tabs.contains(where: { $0.id == originalSelectedWorkspaceId }) {
+                tabManager.selectedTabId = originalSelectedWorkspaceId
+            }
+
+            dlog(
+                "stress.setup.done createMs=\(String(format: "%.2f", creationElapsedMs)) " +
+                "primeMs=\(String(format: "%.2f", primeStats.elapsedMs)) primedTabs=\(primeStats.activatedTabs) " +
+                "waitMs=\(String(format: "%.2f", loadStats.elapsedMs)) totalMs=\(String(format: "%.2f", totalElapsedMs)) " +
+                "workspaceAvgMs=\(String(format: "%.2f", avgWorkspaceMs)) workspaceWorstMs=\(String(format: "%.2f", worstWorkspaceMs)) " +
+                "workspaceSlowCount=\(slowWorkspaceCount) waitAttempts=\(loadStats.attempts) " +
+                "pendingSurfaces=\(loadStats.pendingSurfaces) expectedSurfaces=\(expectedSurfaceCount)"
+            )
+
+            NSLog(
+                "Debug stress workspaces: created=%d panesPerWorkspace=%d tabsPerPane=%d expectedSurfaces=%d layoutFailures=%d pendingSurfaces=%d createMs=%.2f primeMs=%.2f primedTabs=%d waitMs=%.2f totalMs=%.2f workspaceAvgMs=%.2f workspaceWorstMs=%.2f waitAttempts=%d",
+                self.debugStressWorkspaceCount,
+                self.debugStressPaneCount,
+                self.debugStressTabsPerPane,
+                expectedSurfaceCount,
+                layoutFailures,
+                loadStats.pendingSurfaces,
+                creationElapsedMs,
+                primeStats.elapsedMs,
+                primeStats.activatedTabs,
+                loadStats.elapsedMs,
+                totalElapsedMs,
+                avgWorkspaceMs,
+                worstWorkspaceMs,
+                loadStats.attempts
+            )
+        }
+    }
+
+    private struct DebugStressSurfacePrimeStats {
+        let activatedTabs: Int
+        let elapsedMs: Double
+    }
+
+    private func primeDebugStressWorkspacesForSurfaceLoad(
+        _ workspaces: [Workspace]
+    ) async -> DebugStressSurfacePrimeStats {
+        guard !workspaces.isEmpty else {
+            return DebugStressSurfacePrimeStats(activatedTabs: 0, elapsedMs: 0)
+        }
+
+        let primeStart = ProcessInfo.processInfo.systemUptime
+        var activatedTabs = 0
+
+        for (index, workspace) in workspaces.enumerated() {
+            activatedTabs += workspace.panels.values.reduce(into: 0) { count, panel in
+                if panel is TerminalPanel {
+                    count += 1
+                }
+            }
+
+            if (index + 1) % debugStressYieldInterval == 0 || index == workspaces.count - 1 {
+                dlog(
+                    "stress.setup.mount idx=\(index + 1)/\(workspaces.count) activatedTabs=\(activatedTabs)"
+                )
+                await Task.yield()
+            }
+        }
+
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - primeStart) * 1000.0
+        return DebugStressSurfacePrimeStats(activatedTabs: activatedTabs, elapsedMs: elapsedMs)
+    }
+
+    private func configureDebugStressWorkspaceLayout(
+        _ workspace: Workspace,
+        paneCount: Int,
+        tabsPerPane: Int
+    ) async -> Bool {
+        guard let topLeftPanelId = workspace.focusedTerminalPanel?.id ?? workspace.focusedPanelId else {
+            return false
+        }
+        guard let topRight = workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topLeftPanelId,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+        guard workspace.newTerminalSplit(
+            from: topRight.id,
+            orientation: .vertical,
+            focus: false
+        ) != nil else {
+            return false
+        }
+        await Task.yield()
+
+        let paneIds = workspace.bonsplitController.allPaneIds
+        guard paneIds.count == paneCount else { return false }
+
+        let additionalTabsPerPane = max(0, tabsPerPane - 1)
+        if additionalTabsPerPane > 0 {
+            for (paneIndex, paneId) in paneIds.enumerated() {
+                for tabOffset in 0..<additionalTabsPerPane {
+                    guard workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+                        return false
+                    }
+                    if ((tabOffset + 1) % debugStressYieldInterval) == 0 {
+                        await Task.yield()
+                    }
+                }
+                if ((paneIndex + 1) % debugStressYieldInterval) == 0 {
+                    await Task.yield()
+                }
+            }
+        }
+
+        return true
+    }
+
+    private struct DebugStressSurfaceLoadStats {
+        let pendingSurfaces: Int
+        let attempts: Int
+        let elapsedMs: Double
+    }
+
+    private func pendingDebugTerminalSurfaceCount(in workspaces: [Workspace]) -> Int {
+        var pending = 0
+        for workspace in workspaces {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                if terminalPanel.surface.surface == nil {
+                    pending += 1
+                }
+            }
+        }
+        return pending
+    }
+
+    private func debugStressLagSnapshot() -> (
+        workspaceCount: Int,
+        terminalPanelCount: Int,
+        loadedSurfaceCount: Int,
+        selectedWorkspace: String
+    ) {
+        guard let tabManager else {
+            return (0, 0, 0, "nil")
+        }
+        var terminalPanelCount = 0
+        var loadedSurfaceCount = 0
+        for workspace in tabManager.tabs {
+            for panel in workspace.panels.values {
+                guard let terminalPanel = panel as? TerminalPanel else { continue }
+                terminalPanelCount += 1
+                if terminalPanel.surface.surface != nil {
+                    loadedSurfaceCount += 1
+                }
+            }
+        }
+        let selectedWorkspace = tabManager.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        return (
+            tabManager.tabs.count,
+            terminalPanelCount,
+            loadedSurfaceCount,
+            selectedWorkspace
+        )
+    }
+
+    private func logSlowShortcutMonitorLatencyIfNeeded(
+        event: NSEvent,
+        handledByShortcut: Bool,
+        elapsedMs: Double
+    ) {
+        guard debugStressLagProbeEnabled else { return }
+        guard event.type == .keyDown else { return }
+
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let isPlainTyping = normalizedFlags.isDisjoint(with: [.command, .control, .option])
+        let thresholdMs: Double = event.isARepeat ? 1.5 : (isPlainTyping ? 2.5 : 6.0)
+        guard elapsedMs >= thresholdMs else { return }
+
+        let snapshot = debugStressLagSnapshot()
+        dlog(
+            "stress.inputLag path=appMonitor ms=\(String(format: "%.2f", elapsedMs)) " +
+            "threshold=\(String(format: "%.2f", thresholdMs)) handled=\(handledByShortcut ? 1 : 0) " +
+            "plain=\(isPlainTyping ? 1 : 0) repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) " +
+            "mods=\(event.modifierFlags.rawValue) workspaces=\(snapshot.workspaceCount) " +
+            "terminals=\(snapshot.terminalPanelCount) surfacesReady=\(snapshot.loadedSurfaceCount) " +
+            "selected=\(snapshot.selectedWorkspace)"
+        )
     }
 
     private func sendTextWhenReady(_ text: String, to tab: Tab, attempt: Int = 0) {
@@ -5132,24 +5425,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     let delayText = String(format: "%.2f", delayMs)
                     dlog("key.latency path=appMonitor ms=\(delayText) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue) repeat=\(event.isARepeat ? 1 : 0)")
                 }
-                let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-                dlog(
-                    "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
-                )
+                let shortcutMonitorTraceEnabled =
+                    ProcessInfo.processInfo.environment["CMUX_SHORTCUT_MONITOR_TRACE"] == "1"
+                    || UserDefaults.standard.bool(forKey: "cmuxShortcutMonitorTrace")
+                if shortcutMonitorTraceEnabled {
+                    let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+                    dlog(
+                        "monitor.keyDown: \(NSWindow.keyDescription(event)) fr=\(frType) addrBarId=\(self.browserAddressBarFocusedPanelId?.uuidString.prefix(8) ?? "nil") \(self.debugShortcutRouteSnapshot(event: event))"
+                    )
+                }
                 if let probeKind = self.developerToolsShortcutProbeKind(event: event) {
                     self.logDeveloperToolsShortcutSnapshot(phase: "monitor.pre.\(probeKind)", event: event)
                 }
 #endif
-                if self.handleCustomShortcut(event: event) {
+                let shortcutStart = ProcessInfo.processInfo.systemUptime
+                let handledByShortcut = self.handleCustomShortcut(event: event)
+#if DEBUG
+                let shortcutElapsedMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
+                self.logSlowShortcutMonitorLatencyIfNeeded(
+                    event: event,
+                    handledByShortcut: handledByShortcut,
+                    elapsedMs: shortcutElapsedMs
+                )
+#endif
+                if handledByShortcut {
 #if DEBUG
                     dlog("  → consumed by handleCustomShortcut")
-                    DebugEventLog.shared.dump()
 #endif
                     return nil // Consume the event
                 }
-#if DEBUG
-                DebugEventLog.shared.dump()
-#endif
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
@@ -5571,6 +5875,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             dispatchBrowserOmnibarSelectionMove(delta: delta)
             return true
+        }
+
+        // Fast path for normal typing and terminal navigation keys (for example Up-arrow
+        // history): after command-palette/notification handling and browser omnibar
+        // arrow navigation above, plain key events have no app-level shortcut behavior.
+        if normalizedFlags.isEmpty {
+            return false
         }
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
