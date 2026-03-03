@@ -3385,7 +3385,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if summary.windowId == referenceWindowId {
                 labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
-                labels[summary.windowId] = "Window \(index + 1)"
+                let number = index + 1
+                labels[summary.windowId] = String(localized: "menu.windowNumber \(number)", defaultValue: "Window \(number)")
             }
         }
         return labels
@@ -3393,7 +3394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
         let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Workspace" : trimmed
+        return trimmed.isEmpty ? String(localized: "workspace.defaultName", defaultValue: "Workspace") : trimmed
     }
 
     private func rollbackDetachedSurface(
@@ -5653,10 +5654,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Workspace"
+        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
         alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Workspace name"
+        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
         alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
@@ -7536,10 +7537,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
-    private let showNotificationsItem = NSMenuItem(title: "Show Notifications", action: nil, keyEquivalent: "")
-    private let jumpToUnreadItem = NSMenuItem(title: "Jump to Latest Unread", action: nil, keyEquivalent: "")
+    private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
+    private let jumpToUnreadItem = NSMenuItem(title: String(localized: "statusMenu.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"), action: nil, keyEquivalent: "")
     private let markAllReadItem = NSMenuItem(title: String(localized: "statusMenu.markAllRead", defaultValue: "Mark All Read"), action: nil, keyEquivalent: "")
-    private let clearAllItem = NSMenuItem(title: "Clear All", action: nil, keyEquivalent: "")
+    private let clearAllItem = NSMenuItem(title: String(localized: "statusMenu.clearAll", defaultValue: "Clear All"), action: nil, keyEquivalent: "")
     private let checkForUpdatesItem = NSMenuItem(title: String(localized: "menu.checkForUpdates", defaultValue: "Check for Updates…"), action: nil, keyEquivalent: "")
     private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
     private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
@@ -7796,7 +7797,7 @@ enum NotificationMenuSnapshotBuilder {
     static func stateHintTitle(unreadCount: Int) -> String {
         unreadCount == 0
             ? String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
-            : "\(unreadCount) unread notification\(unreadCount == 1 ? "" : "s")"
+            : String(localized: "statusMenu.unreadCount \(unreadCount)", defaultValue: "\(unreadCount) unread notifications")
     }
 }
 
