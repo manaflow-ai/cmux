@@ -7,10 +7,15 @@ final class FileTreeModel: ObservableObject {
     @Published var rootNodes: [FileTreeNode] = []
     @Published var showHiddenFiles: Bool = true
 
+    private var loadGeneration: Int = 0
+
     func loadDirectory(_ path: String) {
         rootPath = path
+        loadGeneration += 1
+        let generation = loadGeneration
         Task {
             let nodes = await scanDirectory(path)
+            guard generation == self.loadGeneration else { return }
             self.rootNodes = nodes
         }
     }
@@ -43,10 +48,13 @@ final class FileTreeModel: ObservableObject {
         guard !rootPath.isEmpty else { return }
         // Preserve expanded state across refresh
         let expandedIds = collectExpandedIds(rootNodes)
+        loadGeneration += 1
+        let generation = loadGeneration
         Task {
             let nodes = await scanDirectory(rootPath)
-            var result = nodes
-            restoreExpandedState(in: &result, expandedIds: expandedIds)
+            guard generation == self.loadGeneration else { return }
+            let result = await restoreExpandedTree(nodes, expandedIds: expandedIds)
+            guard generation == self.loadGeneration else { return }
             self.rootNodes = result
         }
     }
@@ -131,30 +139,22 @@ final class FileTreeModel: ObservableObject {
         return ids
     }
 
-    private func restoreExpandedState(in nodes: inout [FileTreeNode], expandedIds: Set<String>) {
-        for i in nodes.indices {
-            if expandedIds.contains(nodes[i].id) && nodes[i].isDirectory {
-                nodes[i].isExpanded = true
-                // Trigger lazy load for expanded directories
-                if nodes[i].children == nil {
-                    let path = nodes[i].path
-                    let nodeId = nodes[i].id
-                    nodes[i].children = []
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        let children = await self.scanDirectory(path)
-                        var current = self.rootNodes
-                        let _ = self.findAndUpdate(in: &current, id: nodeId) { n in
-                            n.children = children
-                        }
-                        self.rootNodes = current
-                    }
-                }
+    private func restoreExpandedTree(_ nodes: [FileTreeNode], expandedIds: Set<String>) async -> [FileTreeNode] {
+        var result = nodes
+        for i in result.indices {
+            let shouldExpand = expandedIds.contains(result[i].id) && result[i].isDirectory
+            if shouldExpand {
+                result[i].isExpanded = true
             }
-            if var children = nodes[i].children {
-                restoreExpandedState(in: &children, expandedIds: expandedIds)
-                nodes[i].children = children
+
+            if shouldExpand && result[i].children == nil {
+                // Lazy-load children for expanded dirs, then recurse
+                let children = await scanDirectory(result[i].path)
+                result[i].children = await restoreExpandedTree(children, expandedIds: expandedIds)
+            } else if let children = result[i].children {
+                result[i].children = await restoreExpandedTree(children, expandedIds: expandedIds)
             }
         }
+        return result
     }
 }

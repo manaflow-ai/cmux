@@ -411,16 +411,18 @@ struct cmuxApp: App {
             // Tab navigation
             CommandGroup(after: .toolbar) {
                 Button("Toggle Sidebar") {
-                    sidebarState.toggle()
+                    AppDelegate.shared?.sidebarState?.toggle()
                 }
 
                 Button("Toggle File Tree") {
-                    if sidebarContentModeState.mode == .fileTree {
-                        sidebarContentModeState.mode = .tabs
-                    } else {
-                        sidebarContentModeState.mode = .fileTree
-                        if !sidebarState.isVisible {
-                            sidebarState.toggle()
+                    if let modeState = AppDelegate.shared?.sidebarContentModeState {
+                        if modeState.mode == .fileTree {
+                            modeState.mode = .tabs
+                        } else {
+                            modeState.mode = .fileTree
+                            if AppDelegate.shared?.sidebarState?.isVisible == false {
+                                AppDelegate.shared?.sidebarState?.toggle()
+                            }
                         }
                     }
                 }
