@@ -5811,7 +5811,8 @@ enum SidebarCommandHintPolicy {
     static let intentionalHoldDelay: TimeInterval = 0.30
 
     static func shouldShowHints(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
-        modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
+        let cleanFlags = modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return KeyboardShortcutSettings.workspaceShortcutModifierFlagSets.contains(cleanFlags)
     }
 
     static func isCurrentWindow(
@@ -6571,8 +6572,13 @@ private struct TabItemView: View {
     }
 
     private var workspaceShortcutLabel: String? {
-        guard let workspaceShortcutDigit else { return nil }
-        return "⌘\(workspaceShortcutDigit)"
+        if let action = KeyboardShortcutSettings.workspaceAction(at: index, isLast: false) {
+            return KeyboardShortcutSettings.shortcut(for: action).displayString
+        }
+        if index == tabManager.tabs.count - 1 {
+            return KeyboardShortcutSettings.shortcut(for: .selectWorkspace9).displayString
+        }
+        return nil
     }
 
     private var showsWorkspaceShortcutHint: Bool {
