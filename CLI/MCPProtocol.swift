@@ -198,6 +198,7 @@ public enum MCPError: Error, LocalizedError {
     case toolNotFound(String)
     case invalidParameters(String)
     case executionFailed(String)
+    case transportError(String)
     case notInitialized
 
     public var errorDescription: String? {
@@ -208,6 +209,8 @@ public enum MCPError: Error, LocalizedError {
             return "Invalid parameters: \(message)"
         case .executionFailed(let message):
             return "Execution failed: \(message)"
+        case .transportError(let message):
+            return "Transport error: \(message)"
         case .notInitialized:
             return "Server not initialized"
         }

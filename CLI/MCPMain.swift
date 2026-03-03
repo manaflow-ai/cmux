@@ -6,9 +6,9 @@ import Foundation
 // MARK: - MCP Server Mode
 
 /// MCP Server mode entry point
-public func runMCPServer(socketPath: String = "/tmp/cmux.sock", password: String? = nil, idFormat: String = "refs") {
+public func runMCPServer(socketPath: String = "/tmp/cmux.sock", password: String? = nil) {
     // Initialize backend
-    let backend = MCPBackend(socketPath: socketPath, password: password, idFormat: idFormat)
+    let backend = MCPBackend(socketPath: socketPath, password: password)
 
     // Initialize tool registry
     let toolRegistry = MCPToolRegistry(backend: backend)
@@ -70,7 +70,6 @@ public struct MCMain {
         // Parse arguments
         var socketPath = "/tmp/cmux.sock"
         var password: String? = nil
-        var idFormat = "refs"
         var debug = false
 
         var i = 1
@@ -91,13 +90,6 @@ public struct MCMain {
                 } else {
                     i += 1
                 }
-            case "--id-format":
-                if i + 1 < args.count {
-                    idFormat = args[i + 1]
-                    i += 2
-                } else {
-                    i += 1
-                }
             case "--debug":
                 debug = true
                 i += 1
@@ -114,6 +106,6 @@ public struct MCMain {
         }
 
         // Run MCP server
-        runMCPServer(socketPath: socketPath, password: password, idFormat: idFormat)
+        runMCPServer(socketPath: socketPath, password: password)
     }
 }

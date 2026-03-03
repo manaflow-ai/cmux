@@ -42,7 +42,7 @@ public class MCPBackend {
 
     // MARK: - Initialization
 
-    public init(socketPath: String = "/tmp/cmux.sock", password: String? = nil, idFormat: String = "refs") {
+    public init(socketPath: String = "/tmp/cmux.sock", password: String? = nil) {
         self.socketPath = socketPath
         self.password = password
     }
@@ -57,9 +57,20 @@ public class MCPBackend {
     private func connect() throws {
         disconnect()
 
+        // Validate socket file ownership before connecting (security check).
+        // Refuse to connect if the socket is not owned by the current user,
+        // matching the same check in CLI/cmux.swift.
+        var st = stat()
+        guard stat(socketPath, &st) == 0 else {
+            throw MCPError.executionFailed("Socket not found at \(socketPath)")
+        }
+        guard st.st_uid == getuid() else {
+            throw MCPError.executionFailed("Socket at \(socketPath) is not owned by the current user — refusing to connect")
+        }
+
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
-            throw MCPError.executionFailed("Failed to create socket: \(String(cString: strerror(errno)))")
+            throw MCPError.transportError("Failed to create socket: \(String(cString: strerror(errno)))")
         }
 
         var addr = sockaddr_un()
@@ -68,7 +79,7 @@ public class MCPBackend {
         let pathBytes = socketPath.utf8CString
         guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
             Darwin.close(fd)
-            throw MCPError.executionFailed("Socket path too long: \(socketPath)")
+            throw MCPError.transportError("Socket path too long: \(socketPath)")
         }
 
         withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
@@ -88,7 +99,7 @@ public class MCPBackend {
 
         guard result == 0 else {
             Darwin.close(fd)
-            throw MCPError.executionFailed("Failed to connect to \(socketPath): \(String(cString: strerror(errno)))")
+            throw MCPError.transportError("Failed to connect to \(socketPath): \(String(cString: strerror(errno)))")
         }
 
         socketFd = fd
@@ -128,10 +139,12 @@ public class MCPBackend {
                 let written = Darwin.write(socketFd, base + offset, remaining)
                 if written < 0 {
                     if errno == EINTR { continue } // interrupted by signal, retry
-                    throw MCPError.executionFailed("Socket write failed: \(String(cString: strerror(errno)))")
+                    disconnect()
+                    throw MCPError.transportError("Socket write failed: \(String(cString: strerror(errno)))")
                 }
                 if written == 0 {
-                    throw MCPError.executionFailed("Socket write returned 0 (connection closed)")
+                    disconnect()
+                    throw MCPError.transportError("Socket write returned 0 (connection closed)")
                 }
                 offset += written
                 remaining -= written
@@ -149,17 +162,30 @@ public class MCPBackend {
         var chunk = [UInt8](repeating: 0, count: 4096)
 
         while true {
+            // Poll with 30s timeout to prevent indefinite blocking
+            var pollFd = pollfd(fd: socketFd, events: Int16(POLLIN), revents: 0)
+            let pollResult = poll(&pollFd, 1, 30_000) // 30 seconds
+            if pollResult == 0 {
+                disconnect()
+                throw MCPError.transportError("Socket read timed out after 30s")
+            }
+            if pollResult < 0 {
+                if errno == EINTR { continue }
+                disconnect()
+                throw MCPError.transportError("Socket poll failed: \(String(cString: strerror(errno)))")
+            }
+
             let bytesRead = Darwin.read(socketFd, &chunk, chunk.count)
             if bytesRead < 0 {
                 if errno == EINTR { continue } // interrupted by signal, retry
                 disconnect()
-                throw MCPError.executionFailed("Socket read failed: \(String(cString: strerror(errno)))")
+                throw MCPError.transportError("Socket read failed: \(String(cString: strerror(errno)))")
             }
             if bytesRead == 0 {
                 // EOF — connection closed by daemon
                 disconnect()
                 if buffer.isEmpty {
-                    throw MCPError.executionFailed("Socket connection closed")
+                    throw MCPError.transportError("Socket connection closed")
                 }
                 break
             }
@@ -184,11 +210,14 @@ public class MCPBackend {
         lock.lock()
         defer { lock.unlock() }
 
-        // Try once, reconnect on failure, try again
+        // Try once, reconnect on transport failure only, try again.
+        // Non-transport errors (application errors from the daemon) are
+        // re-thrown immediately to avoid double-executing non-idempotent
+        // operations like create, close, send_text, etc.
         do {
             try ensureConnected()
             return try sendRPC(method: method, params: params)
-        } catch {
+        } catch MCPError.transportError {
             // Connection may be stale — reconnect and retry once
             disconnect()
             try ensureConnected()
@@ -239,9 +268,11 @@ public class MCPBackend {
             throw MCPError.executionFailed("Unknown socket error")
         }
 
-        // Return the result dict, or empty dict for simple ok responses
+        // Return the result dict, or wrap non-dict results (arrays, strings, etc.)
         if let result = response["result"] as? [String: Any] {
             return result
+        } else if let result = response["result"] {
+            return ["value": result]
         }
         return [:]
     }

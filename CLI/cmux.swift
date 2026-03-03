@@ -670,7 +670,7 @@ struct CMUXCLI {
             }
             if arg == "--mcp" {
                 // Run MCP server mode
-                runMCPServer(socketPath: socketPath, password: socketPasswordArg, idFormat: idFormatArg ?? "refs")
+                runMCPServer(socketPath: socketPath, password: socketPasswordArg)
                 return
             }
             break

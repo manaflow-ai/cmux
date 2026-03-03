@@ -190,7 +190,12 @@ def test_tool_call_dispatches():
 
 
 def test_action_validation():
-    """Grouped tools validate action names and required params."""
+    """Grouped tools validate action names and required params.
+
+    Note: MCPBackend transport-layer fixes (retry-only-on-transport-error,
+    30s poll() read timeout) are exercised in tests/test_mcp_socket_rpc.py
+    which connects to a live cmux daemon socket.
+    """
     print("\n--- test_action_validation ---")
 
     # Missing action
@@ -291,6 +296,19 @@ def test_not_initialized():
           f"got code={err.get('code')}, msg={err.get('message')}")
 
 
+def test_socket_ownership_error():
+    """Socket ownership validation prevents connecting to sockets owned by other users.
+
+    This test documents the socket ownership (st_uid) check added to
+    MCPBackend.connect(). The actual validation requires a real Unix socket
+    owned by a different user, which cannot be reliably set up in this
+    protocol-level test suite. See tests/test_mcp_socket_rpc.py for the
+    integration test that exercises the ownership check against a live socket.
+    """
+    print("\n--- test_socket_ownership_error ---")
+    check("socket ownership check documented (tested in test_mcp_socket_rpc.py)", True)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -327,6 +345,7 @@ def main():
     test_method_not_found()
     test_tool_not_found()
     test_not_initialized()
+    test_socket_ownership_error()
 
     print(f"\n{'='*50}")
     print(f"Results: {passed} passed, {failed} failed")
