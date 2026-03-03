@@ -6179,11 +6179,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -6697,7 +6703,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
 
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        #if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let selectedTabBefore = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut pre dir=\(directionLabel) " +
+            "tab=\(selectedTabBefore) focusedPanel=\(focusedPanelBefore)"
+        )
+        #endif
+
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
+            #if DEBUG
+            dlog("split.browser.shortcut failed dir=\(directionLabel)")
+            #endif
+            return false
+        }
+
+        #if DEBUG
+        let selectedTabAfter = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut post dir=\(directionLabel) " +
+            "created=\(panelId.uuidString.prefix(5)) tab=\(selectedTabAfter) focusedPanel=\(focusedPanelAfter)"
+        )
+        #endif
+
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
