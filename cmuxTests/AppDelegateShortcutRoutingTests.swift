@@ -395,6 +395,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testCmdUnshiftedSymbolDoesNotMatchDigitShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .showNotifications)
+        defer { KeyboardShortcutSettings.setShortcut(originalShortcut, for: .showNotifications) }
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "8", command: true, shift: false, option: false, control: false),
+            for: .showNotifications
+        )
+
+        // Some non-US layouts can produce "*" without Shift.
+        // This must not be coerced into "8" for a Cmd+8 shortcut match.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "*",
+            charactersIgnoringModifiers: "*",
+            isARepeat: false,
+            keyCode: 30 // kVK_ANSI_RightBracket
+        ) else {
+            XCTFail("Failed to construct Cmd+* event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testCmdShiftQuestionMarkMatchesSlashShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

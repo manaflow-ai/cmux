@@ -6476,7 +6476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
         if shortcutCharacterMatches(
             eventCharacter: eventCharsIgnoringModifiers,
-            shortcutKey: shortcutKey
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: flags.contains(.shift)
         ) {
             return true
         }
@@ -6496,7 +6497,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
         if shortcutCharacterMatches(
             eventCharacter: KeyboardLayout.character(forKeyCode: event.keyCode),
-            shortcutKey: shortcutKey
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: false
         ) {
             return true
         }
@@ -6522,16 +6524,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CharacterSet.alphanumerics.contains(scalar)
     }
 
-    private func shortcutCharacterMatches(eventCharacter: String?, shortcutKey: String) -> Bool {
+    private func shortcutCharacterMatches(
+        eventCharacter: String?,
+        shortcutKey: String,
+        applyShiftSymbolNormalization: Bool
+    ) -> Bool {
         guard let eventCharacter, !eventCharacter.isEmpty else { return false }
-        if normalizedShortcutEventCharacter(eventCharacter) == shortcutKey {
+        if normalizedShortcutEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization
+        ) == shortcutKey {
             return true
         }
         return false
     }
 
-    private func normalizedShortcutEventCharacter(_ eventCharacter: String) -> String {
-        switch eventCharacter.lowercased() {
+    private func normalizedShortcutEventCharacter(
+        _ eventCharacter: String,
+        applyShiftSymbolNormalization: Bool
+    ) -> String {
+        let lowered = eventCharacter.lowercased()
+        guard applyShiftSymbolNormalization else { return lowered }
+
+        switch lowered {
         case "{": return "["
         case "}": return "]"
         case "<": return ","
@@ -6553,7 +6568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "*": return "8"
         case "(": return "9"
         case ")": return "0"
-        default: return eventCharacter.lowercased()
+        default: return lowered
         }
     }
 
