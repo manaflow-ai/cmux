@@ -5392,9 +5392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleSchedulerPage() {
         guard let selectionState = sidebarSelectionState else { return }
-        withAnimation(.easeOut(duration: 0.18)) {
-            selectionState.isSchedulerVisible.toggle()
-        }
+        selectionState.isSchedulerVisible.toggle()
     }
 
     @objc func toggleSchedulerPageAction() {
