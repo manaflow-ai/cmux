@@ -2554,11 +2554,31 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
-        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
+        }
+    }
+
+    func testCommandHintCanBeDisabledInSettings() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
+    }
+
+    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
+        withDefaultsSuite { defaults in
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
     }
 
     func testCommandHintUsesIntentionalHoldDelay() {
@@ -2595,25 +2615,43 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
     }
 
     func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
-        XCTAssertTrue(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 42
-            )
-        )
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-        XCTAssertFalse(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 7
+            XCTAssertTrue(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
             )
-        )
+
+            XCTAssertFalse(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 7,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
+        let suiteName = "SidebarCommandHintPolicyTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        body(defaults)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -2633,6 +2671,27 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
+    }
+
+    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 }
 
