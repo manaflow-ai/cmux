@@ -1866,9 +1866,24 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+#if DEBUG
+        let directionLabel = direction.debugLabel
+        dlog(
+            "split.create.request kind=terminal dir=\(directionLabel) " +
+            "tab=\(selectedTabId.uuidString.prefix(5)) panel=\(focusedPanelId.uuidString.prefix(5)) " +
+            "panels=\(tab.panels.count) panes=\(tab.bonsplitController.allPaneIds.count)"
+        )
+#endif
         tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+        let createdPanelId = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+#if DEBUG
+        dlog(
+            "split.create.result kind=terminal dir=\(directionLabel) " +
+            "created=\(createdPanelId?.uuidString.prefix(5) ?? "nil") " +
+            "panels=\(tab.panels.count) panes=\(tab.bonsplitController.allPaneIds.count)"
+        )
+#endif
     }
 
     /// Create a new browser split from the currently focused panel.
@@ -1877,14 +1892,30 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
+#if DEBUG
+        let directionLabel = direction.debugLabel
+        dlog(
+            "split.create.request kind=browser dir=\(directionLabel) " +
+            "tab=\(selectedTabId.uuidString.prefix(5)) panel=\(focusedPanelId.uuidString.prefix(5)) " +
+            "panels=\(tab.panels.count) panes=\(tab.bonsplitController.allPaneIds.count)"
+        )
+#endif
         tab.clearSplitZoom()
-        return newBrowserSplit(
+        let createdPanelId = newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             url: url
         )
+#if DEBUG
+        dlog(
+            "split.create.result kind=browser dir=\(directionLabel) " +
+            "created=\(createdPanelId?.uuidString.prefix(5) ?? "nil") " +
+            "panels=\(tab.panels.count) panes=\(tab.bonsplitController.allPaneIds.count)"
+        )
+#endif
+        return createdPanelId
     }
 
     /// Refresh Bonsplit right-side action button tooltips for all workspaces.
@@ -1985,12 +2016,21 @@ class TabManager: ObservableObject {
     /// Returns the new panel's ID (which is also the surface ID for terminals)
     func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        let createdPanel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             focus: focus
         )?.id
+#if DEBUG
+        let directionLabel = direction.debugLabel
+        dlog(
+            "split.newSurface result dir=\(directionLabel) " +
+            "tab=\(tabId.uuidString.prefix(5)) source=\(surfaceId.uuidString.prefix(5)) " +
+            "created=\(createdPanel?.uuidString.prefix(5) ?? "nil") focus=\(focus ? 1 : 0)"
+        )
+#endif
+        return createdPanel
     }
 
     /// Move focus in the specified direction
@@ -3568,6 +3608,15 @@ enum SplitDirection {
     /// If false, insert on the "second" side (right/bottom).
     var insertFirst: Bool {
         self == .left || self == .up
+    }
+
+    var debugLabel: String {
+        switch self {
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        }
     }
 }
 
