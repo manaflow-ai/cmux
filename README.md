@@ -189,10 +189,32 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | Shortcut | Action |
 |----------|--------|
 | ⌘ K | Clear scrollback |
-| ⌘ C | Copy (with selection) |
+| ⌘ C | Copy selection (falls through to app if none) |
 | ⌘ V | Paste |
 | ⌘ + / ⌘ - | Increase / decrease font size |
 | ⌘ 0 | Reset font size |
+
+### Vim and Neovim Clipboard (Visual Mode)
+
+Ghostty supports clipboard read/write (OSC 52), and cmux uses Ghostty's clipboard callbacks.
+In cmux, `⌘ C` is a performable Ghostty binding, so it copies terminal selection when one exists, and falls through to the terminal app when no terminal selection exists.
+
+For Vim/Neovim visual-mode yanks to reach the macOS clipboard:
+
+```vim
+set clipboard+=unnamedplus
+```
+
+For remote SSH sessions, use an OSC 52 clipboard provider in the editor so yanks are sent through the terminal.
+
+Optional Neovim mappings if you want `⌘ C`/`⌘ V` inside the editor:
+
+```vim
+vnoremap <D-c> "+y
+nnoremap <D-v> "+P
+inoremap <D-v> <C-r>+
+cnoremap <D-v> <C-r>+
+```
 
 ### Window
 
