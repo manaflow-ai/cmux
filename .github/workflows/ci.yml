@@ -96,21 +96,6 @@ jobs:
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
-      - name: Create virtual display
-        run: |
-          set -euo pipefail
-          echo "=== Display before ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
-          echo ""
-          clang -framework Foundation -framework CoreGraphics \
-            -o /tmp/create-virtual-display scripts/create-virtual-display.m
-          /tmp/create-virtual-display &
-          VDISPLAY_PID=$!
-          echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
-          sleep 3
-          echo "=== Display after ==="
-          system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
-
       - name: Clean DerivedData
         run: |
           # Remove stale build cache to avoid incremental build errors
@@ -168,41 +153,6 @@ jobs:
             EXIT_CODE=$?
             set -e
           fi
-
-          echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
-
-      - name: Run UI tests
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          # SidebarResizeUITests hangs on headless Depot runners (mouse drag
-          # simulation doesn't work without a physical display, even with virtual
-          # display). Skip it in CI; it runs fine on local machines.
-          run_ui_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              -maximum-test-execution-time-allowance 120 \
-              -only-testing:cmuxUITests \
-              -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1
-          }
-
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          # Capture output and fail only if there are unexpected failures.
-          set +e
-          OUTPUT=$(run_ui_tests)
-          EXIT_CODE=$?
-          set -e
 
           echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
@@ -273,15 +223,26 @@ jobs:
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
 
-      - name: Build app
+      - name: Resolve Swift packages
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$SOURCE_PACKAGES_DIR"
           mkdir -p "$SOURCE_PACKAGES_DIR"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -destination "platform=macOS" build
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
 
       - name: Create virtual display
         run: |
@@ -292,6 +253,41 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
+
+      - name: Run UI tests
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          # SidebarResizeUITests hangs on headless runners (mouse drag simulation
+          # doesn't work without a physical display, even with virtual display).
+          # Skip it in CI; it runs fine on local machines.
+          run_ui_tests() {
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -maximum-test-execution-time-allowance 120 \
+              -only-testing:cmuxUITests \
+              -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1
+          }
+
+          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
+          # Capture output and fail only if there are unexpected failures.
+          set +e
+          OUTPUT=$(run_ui_tests)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
+            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+              echo "All failures are expected, treating as pass"
+            else
+              echo "Unexpected test failures detected"
+              exit 1
+            fi
+          fi
 
       - name: Run workspace churn typing-lag regression
         run: |
