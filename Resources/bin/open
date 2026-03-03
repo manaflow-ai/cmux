@@ -29,6 +29,9 @@ fi
 settings_domain="${CMUX_BUNDLE_ID:-}"
 whitelist_raw=""
 whitelist_patterns=()
+external_open_patterns_raw=""
+external_open_literal_patterns=()
+external_open_regex_patterns=()
 
 system_open() {
     exec "$SYSTEM_OPEN_BIN" "$@"
@@ -364,6 +367,73 @@ load_whitelist_patterns() {
     done <<< "$raw"
 }
 
+load_external_open_patterns() {
+    local raw="$1"
+    local line trimmed lowered regex_pattern
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        trimmed="$(trim "$line")"
+        [[ -z "$trimmed" ]] && continue
+        [[ "$trimmed" == \#* ]] && continue
+        lowered="$(to_lower_ascii "$trimmed")"
+        if [[ "$lowered" == re:* ]]; then
+            regex_pattern="${trimmed:3}"
+            regex_pattern="$(trim "$regex_pattern")"
+            [[ -z "$regex_pattern" ]] && continue
+            external_open_regex_patterns+=("$regex_pattern")
+        else
+            external_open_literal_patterns+=("$(to_lower_ascii "$trimmed")")
+        fi
+    done <<< "$raw"
+}
+
+regex_matches_case_insensitive() {
+    local value="$1"
+    local pattern="$2"
+    local had_nocasematch=true
+    if ! shopt -q nocasematch; then
+        had_nocasematch=false
+        shopt -s nocasematch
+    fi
+
+    local status=1
+    if [[ "$value" =~ $pattern ]] 2>/dev/null; then
+        status=0
+    else
+        status=$?
+        # Invalid regex syntax returns status 2; treat it as a non-match.
+        if [[ $status -eq 2 ]]; then
+            status=1
+        fi
+    fi
+
+    if [[ "$had_nocasematch" == false ]]; then
+        shopt -u nocasematch
+    fi
+    return $status
+}
+
+url_matches_external_open_patterns() {
+    local url="$1"
+    local normalized_url
+    normalized_url="$(to_lower_ascii "$url")"
+
+    local literal_pattern
+    for literal_pattern in "${external_open_literal_patterns[@]}"; do
+        if [[ "$normalized_url" == *"$literal_pattern"* ]]; then
+            return 0
+        fi
+    done
+
+    local regex_pattern
+    for regex_pattern in "${external_open_regex_patterns[@]}"; do
+        if regex_matches_case_insensitive "$url" "$regex_pattern"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # Pass through immediately if not in a cmux terminal.
 if [[ -z "$CMUX_SOCKET_PATH" ]]; then
     system_open "$@"
@@ -437,6 +507,11 @@ if [[ -n "$settings_domain" ]]; then
     if [[ -n "$whitelist_raw" ]]; then
         load_whitelist_patterns "$whitelist_raw"
     fi
+
+    external_open_patterns_raw="$("$DEFAULTS_BIN" read "$settings_domain" browserExternalOpenPatterns 2>/dev/null || true)"
+    if [[ -n "$external_open_patterns_raw" ]]; then
+        load_external_open_patterns "$external_open_patterns_raw"
+    fi
 fi
 
 # Find cmux CLI (same directory as this script).
@@ -450,6 +525,10 @@ fi
 # Open each URL in cmux's in-app browser; track failures individually.
 failed_urls=()
 for url in "${cmux_targets[@]}"; do
+    if url_matches_external_open_patterns "$url"; then
+        failed_urls+=("$url")
+        continue
+    fi
     if is_http_url "$url" && ! host_matches_whitelist "$url"; then
         failed_urls+=("$url")
         continue

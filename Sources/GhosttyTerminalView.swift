@@ -1368,6 +1368,11 @@ class GhosttyApp {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
+                if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                    return performOnMain {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
                 guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
                     return performOnMain {
                         NSWorkspace.shared.open(url)
