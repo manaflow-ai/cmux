@@ -100,9 +100,11 @@ jobs:
       - name: Install ffmpeg
         if: ${{ inputs.record_video }}
         run: |
-          brew install --quiet ffmpeg
+          brew install --quiet ffmpeg tmux
           FFMPEG_PATH=$(which ffmpeg)
           echo "ffmpeg: $FFMPEG_PATH"
+          TMUX_PATH=$(which tmux)
+          echo "tmux: $TMUX_PATH"
           ffmpeg -version | head -1
           echo "FFMPEG_PATH=$FFMPEG_PATH" >> "$GITHUB_ENV"
 
