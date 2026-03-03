@@ -670,7 +670,8 @@ struct CMUXCLI {
             }
             if arg == "--mcp" {
                 // Run MCP server mode
-                runMCPServer(socketPath: socketPath, password: socketPasswordArg)
+                let resolvedPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg)
+                runMCPServer(socketPath: socketPath, password: resolvedPassword)
                 return
             }
             break
