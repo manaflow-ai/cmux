@@ -4,7 +4,7 @@ import Sparkle
 
 /// Popover view that displays detailed update information and actions.
 struct UpdatePopoverView: View {
-    @ObservedObject var model: UpdateViewModel
+    var model: UpdateViewModel
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -54,7 +54,7 @@ fileprivate struct PermissionRequestView: View {
 
                 Text("cmux can automatically check for updates in the background.")
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -126,7 +126,7 @@ fileprivate struct UpdateAvailableView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
                             Text("Version:")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .frame(width: labelWidth, alignment: .trailing)
                             Text(update.appcastItem.displayVersionString)
                         }
@@ -135,7 +135,7 @@ fileprivate struct UpdateAvailableView: View {
                         if update.appcastItem.contentLength > 0 {
                             HStack(spacing: 6) {
                                 Text("Size:")
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                                     .frame(width: labelWidth, alignment: .trailing)
                                 Text(ByteCountFormatter.string(fromByteCount: Int64(update.appcastItem.contentLength), countStyle: .file))
                             }
@@ -145,7 +145,7 @@ fileprivate struct UpdateAvailableView: View {
                         if let date = update.appcastItem.date {
                             HStack(spacing: 6) {
                                 Text("Released:")
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                                     .frame(width: labelWidth, alignment: .trailing)
                                 Text(date.formatted(date: .abbreviated, time: .omitted))
                             }
@@ -195,7 +195,7 @@ fileprivate struct UpdateAvailableView: View {
                         Image(systemName: "arrow.up.right")
                             .font(.system(size: 10))
                     }
-                    .foregroundColor(.primary)
+                    .foregroundStyle(.primary)
                     .padding(12)
                     .frame(maxWidth: .infinity)
                     .background(Color(nsColor: .controlBackgroundColor))
@@ -223,7 +223,7 @@ fileprivate struct DownloadingView: View {
                         ProgressView(value: progress)
                         Text(String(format: "%.0f%%", progress * 100))
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 } else {
                     ProgressView()
@@ -257,7 +257,7 @@ fileprivate struct ExtractingView: View {
                 ProgressView(value: min(1, max(0, extracting.progress)), total: 1.0)
                 Text(String(format: "%.0f%%", min(1, max(0, extracting.progress)) * 100))
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(16)
@@ -276,7 +276,7 @@ fileprivate struct InstallingView: View {
 
                 Text("The update is ready. Please restart the application to complete the installation.")
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -315,7 +315,7 @@ fileprivate struct NotFoundView: View {
 
                 Text("You're already running the latest version.")
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -350,7 +350,7 @@ fileprivate struct UpdateErrorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .font(.system(size: 13))
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
@@ -358,7 +358,7 @@ fileprivate struct UpdateErrorView: View {
 
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -367,7 +367,7 @@ fileprivate struct UpdateErrorView: View {
                     .font(.system(size: 11, weight: .semibold))
                 Text(details)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }

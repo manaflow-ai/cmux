@@ -100,7 +100,7 @@ class UpdateController {
         guard viewModel.state.isInstallable else { return }
         guard installCancellable == nil else { return }
 
-        installCancellable = viewModel.$state.sink { [weak self] state in
+        installCancellable = viewModel.statePublisher.sink { [weak self] state in
             guard let self else { return }
             guard state.isInstallable else {
                 self.installCancellable = nil
@@ -115,7 +115,7 @@ class UpdateController {
         stopAttemptUpdateMonitoring()
         didObserveAttemptUpdateProgress = false
 
-        attemptInstallCancellable = viewModel.$state
+        attemptInstallCancellable = viewModel.statePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
                 guard let self else { return }
@@ -214,7 +214,10 @@ class UpdateController {
     }
 
     private func installNoUpdateDismissObserver() {
-        noUpdateDismissCancellable = Publishers.CombineLatest(viewModel.$state, viewModel.$overrideState)
+        noUpdateDismissCancellable = Publishers.CombineLatest(
+            viewModel.statePublisher,
+            viewModel.overrideStatePublisher
+        )
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state, overrideState in
                 self?.scheduleNoUpdateDismiss(for: state, overrideState: overrideState)

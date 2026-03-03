@@ -4,7 +4,7 @@ import SwiftUI
 
 /// A pill-shaped button that displays update status and provides access to update actions.
 struct UpdatePill: View {
-    @ObservedObject var model: UpdateViewModel
+    var model: UpdateViewModel
     @State private var showPopover = false
 
     private let textFont = NSFont.systemFont(ofSize: 11, weight: .medium)
@@ -50,7 +50,7 @@ struct UpdatePill: View {
                 Capsule()
                     .fill(model.backgroundColor)
             )
-            .foregroundColor(model.foregroundColor)
+            .foregroundStyle(model.foregroundColor)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -68,7 +68,7 @@ struct UpdatePill: View {
 
 /// Menu item that shows "Install Update and Relaunch" when an update is ready.
 struct InstallUpdateMenuItem: View {
-    @ObservedObject var model: UpdateViewModel
+    var model: UpdateViewModel
 
     var body: some View {
         if model.state.isInstallable {

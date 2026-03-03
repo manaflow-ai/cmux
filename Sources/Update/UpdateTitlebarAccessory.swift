@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import Observation
 import SwiftUI
 
 final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
@@ -115,7 +116,8 @@ struct TitlebarControlsStyleConfig {
     let hoverBackground: Bool
 }
 
-final class TitlebarControlsViewModel: ObservableObject {
+@Observable
+final class TitlebarControlsViewModel {
     weak var notificationsAnchorView: NSView?
 }
 
@@ -227,8 +229,8 @@ struct TitlebarControlButton<Content: View>: View {
 }
 
 struct TitlebarControlsView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @ObservedObject var viewModel: TitlebarControlsViewModel
+    var notificationStore: TerminalNotificationStore
+    var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
@@ -237,7 +239,7 @@ struct TitlebarControlsView: View {
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
-    @StateObject private var commandKeyMonitor = TitlebarCommandKeyMonitor()
+    @State private var commandKeyMonitor = TitlebarCommandKeyMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
     private let titlebarHintBaseYShift: CGFloat = 1
@@ -335,7 +337,7 @@ struct TitlebarControlsView: View {
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
                             .font(.system(size: max(8, config.badgeSize - 5), weight: .semibold))
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
                             .background(
                                 Circle().fill(cmuxAccentColor())
@@ -477,7 +479,7 @@ struct TitlebarControlsView: View {
             .monospacedDigit()
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .foregroundColor(.primary)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .frame(minHeight: max(14, config.iconSize + 1))
@@ -503,8 +505,9 @@ struct TitlebarControlsView: View {
 }
 
 @MainActor
-private final class TitlebarCommandKeyMonitor: ObservableObject {
-    @Published private(set) var isCommandPressed = false
+@Observable
+private final class TitlebarCommandKeyMonitor {
+    private(set) var isCommandPressed = false
 
     private weak var hostWindow: NSWindow?
     private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
@@ -895,7 +898,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 }
 
 private struct NotificationsPopoverView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
+    var notificationStore: TerminalNotificationStore
     let onDismiss: () -> Void
 
     var body: some View {
@@ -920,12 +923,12 @@ private struct NotificationsPopoverView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 28))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("No notifications yet")
                         .font(.headline)
                     Text("Desktop notifications will appear here.")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
@@ -989,24 +992,24 @@ private struct NotificationPopoverRow: View {
                         HStack {
                             Text(notification.title)
                                 .font(.headline)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -1024,7 +1027,7 @@ private struct NotificationPopoverRow: View {
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }

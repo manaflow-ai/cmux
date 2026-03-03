@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A badge view that displays the current state of an update operation.
 struct UpdateBadge: View {
-    @ObservedObject var model: UpdateViewModel
+    var model: UpdateViewModel
 
     var body: some View {
         badgeContent

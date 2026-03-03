@@ -2,13 +2,31 @@ import Foundation
 import AppKit
 import SwiftUI
 import Sparkle
+import Combine
+import Observation
 
-class UpdateViewModel: ObservableObject {
-    @Published var state: UpdateState = .idle
-    @Published var overrideState: UpdateState?
-    #if DEBUG
-    @Published var debugOverrideText: String?
-    #endif
+@Observable
+class UpdateViewModel {
+    private let stateSubject = CurrentValueSubject<UpdateState, Never>(.idle)
+    private let overrideStateSubject = CurrentValueSubject<UpdateState?, Never>(nil)
+
+    var state: UpdateState = .idle {
+        didSet { stateSubject.send(state) }
+    }
+    var overrideState: UpdateState? {
+        didSet { overrideStateSubject.send(overrideState) }
+    }
+#if DEBUG
+    var debugOverrideText: String?
+#endif
+
+    var statePublisher: AnyPublisher<UpdateState, Never> {
+        stateSubject.eraseToAnyPublisher()
+    }
+
+    var overrideStatePublisher: AnyPublisher<UpdateState?, Never> {
+        overrideStateSubject.eraseToAnyPublisher()
+    }
 
     var effectiveState: UpdateState {
         overrideState ?? state

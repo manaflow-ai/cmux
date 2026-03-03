@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct NotificationsPage: View {
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore: TerminalNotificationStore
+    @Environment(TabManager.self) var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
@@ -47,7 +47,7 @@ struct NotificationsPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
+        .onChange(of: notificationStore.notifications.first?.id) { _, _ in
             setInitialFocus()
         }
     }
@@ -90,12 +90,12 @@ struct NotificationsPage: View {
         VStack(spacing: 8) {
             Image(systemName: "bell.slash")
                 .font(.system(size: 32))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             Text("No notifications yet")
                 .font(.headline)
             Text("Desktop notifications will appear here for quick review.")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -194,24 +194,24 @@ private struct NotificationRow: View {
                         HStack {
                             Text(notification.title)
                                 .font(.headline)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
@@ -229,7 +229,7 @@ private struct NotificationRow: View {
 
             Button(action: onClear) {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }
