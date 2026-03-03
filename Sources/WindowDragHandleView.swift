@@ -218,6 +218,12 @@ func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     return false
 }
 
+/// Re-entrancy guard for the sibling hit-test walk. When `sibling.hitTest()`
+/// triggers SwiftUI view-body evaluation, AppKit can call back into this
+/// function before the outer invocation finishes, causing a Swift
+/// exclusive-access violation (SIGABRT). Main-thread only, no lock needed.
+private var _windowDragHandleIsResolvingSiblingHits = false
+
 /// Returns whether the titlebar drag handle should capture a hit at `point`.
 /// We only claim the hit when no sibling view already handles it, so interactive
 /// controls layered in the titlebar (e.g. proxy folder icon) keep their gestures.
@@ -295,6 +301,20 @@ func windowDragHandleShouldCaptureHit(
         return true
     }
 
+    // Bail out if we're already inside a sibling hit-test walk. This happens
+    // when sibling.hitTest() re-enters SwiftUI layout, which calls hitTest on
+    // this drag handle again. Proceeding would trigger an exclusive-access
+    // violation in the Swift runtime.
+    guard !_windowDragHandleIsResolvingSiblingHits else {
+        #if DEBUG
+        dlog("titlebar.dragHandle.hitTest capture=false reason=reentrant point=\(windowDragHandleFormatPoint(point))")
+        #endif
+        return false
+    }
+
+    _windowDragHandleIsResolvingSiblingHits = true
+    defer { _windowDragHandleIsResolvingSiblingHits = false }
+
     let siblingSnapshot = Array(superview.subviews.reversed())
 
     #if DEBUG
@@ -359,6 +379,13 @@ struct WindowDragHandleView: NSViewRepresentable {
 
         override func hitTest(_ point: NSPoint) -> NSView? {
             let currentEvent = NSApp.currentEvent
+            // Fast bail-out: only claim hits for left-mouse-down events.
+            // For mouseMoved / mouseEntered / etc., return nil immediately
+            // to avoid re-entering SwiftUI view state during layout passes,
+            // which causes exclusive-access crashes.
+            guard currentEvent?.type == .leftMouseDown else {
+                return nil
+            }
             let shouldCapture = windowDragHandleShouldCaptureHit(
                 point,
                 in: self,

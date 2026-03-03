@@ -437,6 +437,7 @@ if [[ -n "$settings_domain" ]]; then
     if [[ -n "$whitelist_raw" ]]; then
         load_whitelist_patterns "$whitelist_raw"
     fi
+
 fi
 
 # Find cmux CLI (same directory as this script).
@@ -448,13 +449,15 @@ if [[ ! -x "$CMUX_CLI" ]]; then
 fi
 
 # Open each URL in cmux's in-app browser; track failures individually.
+# External-open pattern rules are evaluated in-app (NSRegularExpression) so
+# terminal link clicks and intercepted `open` commands share one regex dialect.
 failed_urls=()
 for url in "${cmux_targets[@]}"; do
     if is_http_url "$url" && ! host_matches_whitelist "$url"; then
         failed_urls+=("$url")
         continue
     fi
-    "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
+    CMUX_RESPECT_EXTERNAL_OPEN_RULES=1 "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
 done
 
 # Fall back to system open for unmatched args and URLs that failed.

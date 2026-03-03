@@ -2554,11 +2554,31 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
-        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
+        }
+    }
+
+    func testCommandHintCanBeDisabledInSettings() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
+    }
+
+    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
+        withDefaultsSuite { defaults in
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
     }
 
     func testCommandHintUsesIntentionalHoldDelay() {
@@ -2595,25 +2615,43 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
     }
 
     func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
-        XCTAssertTrue(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 42
-            )
-        )
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-        XCTAssertFalse(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 7
+            XCTAssertTrue(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
             )
-        )
+
+            XCTAssertFalse(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 7,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
+        let suiteName = "SidebarCommandHintPolicyTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        body(defaults)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -2633,6 +2671,27 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
+    }
+
+    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 }
 
@@ -4755,7 +4814,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
-            fileExistsAtPath: { existingPaths.contains($0) }
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) }
         )
     }
 
@@ -4763,6 +4823,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let env = environment(
             existingPaths: [
                 "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
                 "/System/Library/CoreServices/Finder.app",
                 "/System/Applications/Utilities/Terminal.app",
                 "/Applications/Zed Preview.app",
@@ -4793,6 +4854,11 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(availableTargets.contains(.vscode))
     }
 
+    func testVSCodeRequiresCodeTunnelExecutable() {
+        let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+    }
+
     func testITerm2DetectsLegacyBundleName() {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
@@ -4807,6 +4873,212 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
+    }
+}
+
+final class VSCodeServeWebURLBuilderTests: XCTestCase {
+    func testExtractWebUIURLParsesServeWebOutput() {
+        let output = """
+        *
+        * Visual Studio Code Server
+        *
+        Web UI available at http://127.0.0.1:5555?tkn=test-token
+        """
+
+        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
+    }
+
+    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/Projects/cmux"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "tkn" })?.value, "test-token")
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "folder" })?.value, "/Users/tester/Projects/cmux")
+    }
+
+    func testOpenFolderURLReplacesExistingFolderQuery() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/New Folder"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(
+            components?.queryItems?.filter { $0.name == "folder" }.count,
+            1
+        )
+        XCTAssertEqual(
+            components?.queryItems?.first(where: { $0.name == "folder" })?.value,
+            "/Users/tester/New Folder"
+        )
+    }
+}
+
+final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
+    func testLaunchConfigurationUsesCodeTunnelBinary() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == expectedExecutablePath }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+    }
+
+    func testLaunchConfigurationMapsNodeEnvironmentVariables() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "NODE_OPTIONS": "--max-old-space-size=4096",
+                "NODE_REPL_EXTERNAL_MODULE": "module-name"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_OPTIONS"], "--max-old-space-size=4096")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"], "module-name")
+        XCTAssertNil(configuration?.environment["NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["NODE_REPL_EXTERNAL_MODULE"])
+    }
+
+    func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "VSCODE_NODE_OPTIONS": "--stale",
+                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
+    }
+}
+
+final class ServeWebOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = ServeWebOutputCollector()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+    }
+
+    func testWaitForURLReturnsTrueWhenURLIsCollected() {
+        let collector = ServeWebOutputCollector()
+        let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data(urlLine.utf8))
+        }
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
+    }
+
+    func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
+        let collector = ServeWebOutputCollector()
+        let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
+
+        collector.append(Data(finalChunk.utf8))
+        collector.markProcessExited()
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
+    }
+}
+
+final class VSCodeServeWebControllerTests: XCTestCase {
+    func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
+        let firstLaunchStarted = expectation(description: "first launch started")
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let secondCompletionCalled = expectation(description: "second generation completion called")
+
+        let launchGate = DispatchSemaphore(value: 0)
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+
+        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                firstLaunchStarted.fulfill()
+                _ = launchGate.wait(timeout: .now() + 1)
+            }
+            return nil
+        }
+
+        let callbackLock = NSLock()
+        var firstGenerationCallbacks: [URL?] = []
+        var secondGenerationCallbacks: [URL?] = []
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            firstGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            firstCompletionCalled.fulfill()
+        }
+
+        wait(for: [firstLaunchStarted], timeout: 1)
+        controller.stop()
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            secondGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            secondCompletionCalled.fulfill()
+        }
+
+        launchGate.signal()
+        wait(for: [firstCompletionCalled, secondCompletionCalled], timeout: 2)
+
+        callbackLock.lock()
+        let firstSnapshot = firstGenerationCallbacks
+        let secondSnapshot = secondGenerationCallbacks
+        callbackLock.unlock()
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        launchCallLock.unlock()
+
+        XCTAssertEqual(firstSnapshot.count, 1)
+        if firstSnapshot.count == 1 {
+            XCTAssertNil(firstSnapshot[0])
+        }
+        XCTAssertEqual(secondSnapshot.count, 1)
+        if secondSnapshot.count == 1 {
+            XCTAssertNil(secondSnapshot[0])
+        }
+        XCTAssertEqual(launchCalls, 2)
     }
 }
 
@@ -6308,6 +6580,24 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    /// A sibling view whose hitTest re-enters windowDragHandleShouldCaptureHit,
+    /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
+    /// pass that calls back into the drag handle's hit resolution.
+    private final class ReentrantSiblingView: NSView {
+        weak var dragHandle: NSView?
+        var reenteredResult: Bool?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point), let dragHandle else { return nil }
+            // Simulate the re-entry: during sibling hit test, SwiftUI layout
+            // calls windowDragHandleShouldCaptureHit on the drag handle again.
+            reenteredResult = windowDragHandleShouldCaptureHit(
+                point, in: dragHandle, eventType: .leftMouseDown, eventWindow: dragHandle.window
+            )
+            return nil
+        }
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -6535,6 +6825,29 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(
             windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
+        )
+    }
+
+    func testDragHandleSiblingHitTestReentrancyDoesNotCrash() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let reentrantSibling = ReentrantSiblingView(frame: container.bounds)
+        reentrantSibling.dragHandle = dragHandle
+        container.addSubview(reentrantSibling)
+
+        // The outer call enters the sibling walk, which calls
+        // reentrantSibling.hitTest(), which re-enters
+        // windowDragHandleShouldCaptureHit. Without the re-entrancy guard
+        // this would trigger a Swift exclusive-access violation (SIGABRT).
+        let outerResult = windowDragHandleShouldCaptureHit(
+            NSPoint(x: 110, y: 18), in: dragHandle, eventType: .leftMouseDown
+        )
+        XCTAssertTrue(outerResult, "Outer call should still capture when sibling returns nil")
+        XCTAssertEqual(
+            reentrantSibling.reenteredResult, false,
+            "Re-entrant call should bail out (return false) instead of crashing"
         )
     }
 
@@ -7721,6 +8034,56 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
+    }
+
+    func testExternalOpenPatternsDefaultToEmpty() {
+        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+    }
+
+    func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
+        defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternMatchesCaseInsensitively() {
+        defaults.set(
+            "re:^https?://[^/]*\\.example\\.com/(billing|usage)",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://FOO.example.com/BILLING",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternSupportsDigitCharacterClass() {
+        defaults.set(
+            "re:^https://example\\.com/usage/\\d+$",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/usage/42",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
+        defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/path",
+                defaults: defaults
+            )
+        )
     }
 }
 
