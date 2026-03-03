@@ -1,6 +1,8 @@
 name: Nightly macOS build
 
 on:
+  push:
+    branches: [main]
   schedule:
     # Every hour at :30. The 'decide' job skips if main has no new commits.
     - cron: "30 * * * *"
@@ -11,6 +13,10 @@ on:
         required: false
         default: false
         type: boolean
+
+concurrency:
+  group: nightly-build
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -81,7 +87,7 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: depot-macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout main
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
