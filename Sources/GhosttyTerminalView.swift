@@ -3481,10 +3481,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let chars = event.characters, !chars.isEmpty else { return nil }
 
         if chars.count == 1, let scalar = chars.unicodeScalars.first {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
             if scalar.value < 0x20 {
-                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+                if flags.contains(.control) {
+                    return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+                }
+
+                // Some AppKit key paths can report Shift+` as a bare ESC control
+                // character even though the physical key should produce "~".
+                if scalar.value == 0x1B,
+                   flags == [.shift],
+                   event.charactersIgnoringModifiers == "`" {
+                    return "~"
+                }
             }
             // Private Use Area characters (function keys) should not be sent
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
@@ -3497,7 +3509,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        guard let chars = event.characters(byApplyingModifiers: []),
+        if let layoutChars = KeyboardLayout.character(forKeyCode: event.keyCode),
+           layoutChars.count == 1,
+           let layoutScalar = layoutChars.unicodeScalars.first,
+           layoutScalar.value >= 0x20,
+           !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
+            return layoutScalar.value
+        }
+
+        guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
               let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
     }
