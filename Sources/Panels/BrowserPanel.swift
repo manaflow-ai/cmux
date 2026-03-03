@@ -3085,6 +3085,24 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         loadErrorPage(in: webView, failedURL: failedURL, error: nsError)
     }
 
+    func webView(
+        _ webView: WKWebView,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        // WKWebView rejects all authentication challenges by default when this
+        // delegate method is not implemented (.rejectProtectionSpace). This
+        // breaks TLS client-certificate flows such as Microsoft Entra ID
+        // Conditional Access, which verifies device compliance via a client
+        // certificate stored in the system keychain by MDM enrollment.
+        //
+        // By returning .performDefaultHandling the system's standard URL-loading
+        // behaviour takes over: the keychain is searched for matching client
+        // identities, MDM-installed root CAs are trusted, and any configured SSO
+        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        completionHandler(.performDefaultHandling, nil)
+    }
+
     func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView) {
         NSLog("BrowserPanel web content process terminated, reloading")
         webView.reload()
