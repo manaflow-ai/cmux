@@ -119,28 +119,44 @@ jobs:
       - name: Start screen recording
         if: ${{ inputs.record_video }}
         run: |
-          # List available AVFoundation devices for debugging
-          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+          # Detect screen capture device index. ffmpeg -list_devices always
+          # exits non-zero; redirect noise to a temp file and parse it.
+          DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
+          echo "Available devices:"
+          echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
 
-          # Find the screen capture device index (usually "Capture screen 0")
-          SCREEN_INDEX=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 \
-            | grep -n "Capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/' || echo "1")
-          echo "Using AVFoundation screen device index: $SCREEN_INDEX"
+          SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
+            | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+          SCREEN_INDEX="${SCREEN_INDEX:-0}"
+          echo "Using screen device index: $SCREEN_INDEX"
 
-          ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-            -i "${SCREEN_INDEX}:none" \
-            -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-            /tmp/test-recording.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
-          RECORD_PID=$!
-          echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
+          # Start recording. Try detected index, fall back to 1 if it dies immediately.
+          start_recording() {
+            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+              -i "$1:none" \
+              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+              /tmp/test-recording.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+            echo $!
+          }
+
+          RECORD_PID=$(start_recording "$SCREEN_INDEX")
           sleep 2
+
+          if ! kill -0 "$RECORD_PID" 2>/dev/null; then
+            echo "Index $SCREEN_INDEX failed, trying index 1"
+            cat /tmp/ffmpeg.log
+            rm -f /tmp/test-recording.mp4
+            RECORD_PID=$(start_recording 1)
+            sleep 2
+          fi
 
           if kill -0 "$RECORD_PID" 2>/dev/null; then
             echo "Recording started (PID $RECORD_PID)"
           else
-            echo "::warning::ffmpeg failed to start recording"
+            echo "::error::ffmpeg screen recording failed to start"
             cat /tmp/ffmpeg.log
           fi
+          echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
 
       - name: Clean DerivedData
         run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
