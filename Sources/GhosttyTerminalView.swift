@@ -209,9 +209,20 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
 
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
+    #if DEBUG
+    dlog("link.resolve input=\(trimmed)")
+    #endif
+    guard !trimmed.isEmpty else {
+        #if DEBUG
+        dlog("link.resolve result=nil (empty)")
+        #endif
+        return nil
+    }
 
     if NSString(string: trimmed).isAbsolutePath {
+        #if DEBUG
+        dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        #endif
         return .external(URL(fileURLWithPath: trimmed))
     }
 
@@ -219,21 +230,44 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
+                #if DEBUG
+                dlog("link.resolve result=external(invalidHost) url=\(parsed)")
+                #endif
                 return .external(parsed)
             }
+            #if DEBUG
+            dlog("link.resolve result=embeddedBrowser url=\(parsed)")
+            #endif
             return .embeddedBrowser(parsed)
         }
+        #if DEBUG
+        dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
+        #endif
         return .external(parsed)
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
         guard BrowserInsecureHTTPSettings.normalizeHost(webURL.host ?? "") != nil else {
+            #if DEBUG
+            dlog("link.resolve result=external(bareHost-invalidHost) url=\(webURL)")
+            #endif
             return .external(webURL)
         }
+        #if DEBUG
+        dlog("link.resolve result=embeddedBrowser(bareHost) url=\(webURL)")
+        #endif
         return .embeddedBrowser(webURL)
     }
 
-    guard let fallback = URL(string: trimmed) else { return nil }
+    guard let fallback = URL(string: trimmed) else {
+        #if DEBUG
+        dlog("link.resolve result=nil (unparseable)")
+        #endif
+        return nil
+    }
+    #if DEBUG
+    dlog("link.resolve result=external(fallback) url=\(fallback)")
+    #endif
     return .external(fallback)
 }
 
@@ -1355,25 +1389,48 @@ class GhosttyApp {
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
-            let urlString = String(cString: cstr)
-            guard let target = resolveTerminalOpenURLTarget(urlString) else { return false }
+            let urlString = String(
+                data: Data(bytes: cstr, count: Int(openUrl.len)),
+                encoding: .utf8
+            ) ?? ""
+            #if DEBUG
+            dlog("link.openURL raw=\(urlString)")
+            #endif
+            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+                #if DEBUG
+                dlog("link.openURL resolve failed, returning false")
+                #endif
+                return false
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+                #if DEBUG
+                dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
+                #endif
                 return performOnMain {
                     NSWorkspace.shared.open(target.url)
                 }
             }
             switch target {
             case let .external(url):
+                #if DEBUG
+                dlog("link.openURL target=external, opening externally url=\(url)")
+                #endif
                 return performOnMain {
                     NSWorkspace.shared.open(url)
                 }
             case let .embeddedBrowser(url):
                 if BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
+                    #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
                 }
                 guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but normalizeHost=nil host=\(url.host ?? "nil") url=\(url)")
+                    #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
@@ -1381,21 +1438,41 @@ class GhosttyApp {
 
                 // If a host whitelist is configured and this host isn't in it, open externally.
                 if !BrowserLinkOpenSettings.hostMatchesWhitelist(host) {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but hostWhitelist miss host=\(host) url=\(url)")
+                    #endif
                     return performOnMain {
                         NSWorkspace.shared.open(url)
                     }
                 }
                 guard let tabId = surfaceView.tabId,
-                      let surfaceId = surfaceView.terminalSurface?.id else { return false }
+                      let surfaceId = surfaceView.terminalSurface?.id else {
+                    #if DEBUG
+                    dlog("link.openURL target=embedded but tabId/surfaceId=nil")
+                    #endif
+                    return false
+                }
+                #if DEBUG
+                dlog("link.openURL target=embedded, opening in browser pane host=\(host) url=\(url) tabId=\(tabId) surfaceId=\(surfaceId)")
+                #endif
                 return performOnMain {
                     guard let app = AppDelegate.shared,
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
                           let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                        #if DEBUG
+                        dlog("link.openURL embedded but workspace lookup failed tabId=\(tabId)")
+                        #endif
                         return false
                     }
                     if let targetPane = workspace.preferredBrowserTargetPane(fromPanelId: surfaceId) {
+                        #if DEBUG
+                        dlog("link.openURL opening in existing browser pane=\(targetPane)")
+                        #endif
                         return workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
                     } else {
+                        #if DEBUG
+                        dlog("link.openURL opening as new browser split from surface=\(surfaceId)")
+                        #endif
                         return workspace.newBrowserSplit(from: surfaceId, orientation: .horizontal, url: url) != nil
                     }
                 }
@@ -3431,9 +3508,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Mouse Handling
 
+    #if DEBUG
+    private func debugModifierString(_ flags: NSEvent.ModifierFlags) -> String {
+        [
+            flags.contains(.command) ? "cmd" : nil,
+            flags.contains(.shift) ? "shift" : nil,
+            flags.contains(.control) ? "ctrl" : nil,
+            flags.contains(.option) ? "opt" : nil,
+        ].compactMap { $0 }.joined(separator: "+")
+    }
+    #endif
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
-        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        let debugPoint = convert(event.locationInWindow, from: nil)
+        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -3443,6 +3532,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseUp(with event: NSEvent) {
+        #if DEBUG
+        dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
+        #endif
         guard let surface = surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
