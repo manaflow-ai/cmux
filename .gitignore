@@ -63,3 +63,7 @@ vibeshield
 
 # ralphex progress logs
 .ralphex/progress/
+
+# Local dev artifacts
+CLAUDE.md
+docs/plans/
