@@ -3508,17 +3508,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     // MARK: - Mouse Handling
 
+    #if DEBUG
+    private func debugModifierString(_ flags: NSEvent.ModifierFlags) -> String {
+        [
+            flags.contains(.command) ? "cmd" : nil,
+            flags.contains(.shift) ? "shift" : nil,
+            flags.contains(.control) ? "ctrl" : nil,
+            flags.contains(.option) ? "opt" : nil,
+        ].compactMap { $0 }.joined(separator: "+")
+    }
+    #endif
+
     override func mouseDown(with event: NSEvent) {
         #if DEBUG
-        let mods = event.modifierFlags
-        let modStr = [
-            mods.contains(.command) ? "cmd" : nil,
-            mods.contains(.shift) ? "shift" : nil,
-            mods.contains(.control) ? "ctrl" : nil,
-            mods.contains(.option) ? "opt" : nil,
-        ].compactMap { $0 }.joined(separator: "+")
         let debugPoint = convert(event.locationInWindow, from: nil)
-        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(modStr)] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
+        dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -3529,14 +3533,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseUp(with event: NSEvent) {
         #if DEBUG
-        let mods = event.modifierFlags
-        let modStr = [
-            mods.contains(.command) ? "cmd" : nil,
-            mods.contains(.shift) ? "shift" : nil,
-            mods.contains(.control) ? "ctrl" : nil,
-            mods.contains(.option) ? "opt" : nil,
-        ].compactMap { $0 }.joined(separator: "+")
-        dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(modStr)]")
+        dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
