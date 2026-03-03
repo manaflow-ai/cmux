@@ -239,7 +239,7 @@ def test_whitelist_match_routes_to_cmux(failures: list[str]) -> None:
     expect(cmux_log == [f"browser open {url}"], f"whitelist match: unexpected cmux log {cmux_log}", failures)
 
 
-def test_external_literal_pattern_passthrough(failures: list[str]) -> None:
+def test_external_literal_pattern_is_deferred_to_app(failures: list[str]) -> None:
     url = "https://platform.openai.com/account/usage"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
@@ -247,20 +247,20 @@ def test_external_literal_pattern_passthrough(failures: list[str]) -> None:
         whitelist="",
         external_patterns="platform.openai.com/account/usage",
     )
-    expect(code == 0, f"external literal pattern: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"external literal deferred: wrapper exited {code}: {stderr}", failures)
     expect(
-        cmux_log == [],
-        f"external literal pattern: cmux should not be called, got {cmux_log}",
+        cmux_log == [f"browser open {url}"],
+        f"external literal deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
         failures,
     )
     expect(
-        open_log == [url],
-        f"external literal pattern: expected system open [{url}], got {open_log}",
+        open_log == [],
+        f"external literal deferred: system open should not be called by wrapper, got {open_log}",
         failures,
     )
 
 
-def test_external_regex_pattern_passthrough(failures: list[str]) -> None:
+def test_external_regex_pattern_is_deferred_to_app(failures: list[str]) -> None:
     url = "https://foo.example.com/billing"
     open_log, cmux_log, code, stderr = run_wrapper(
         args=[url],
@@ -268,15 +268,36 @@ def test_external_regex_pattern_passthrough(failures: list[str]) -> None:
         whitelist="*.example.com",
         external_patterns=r"re:^https?://[^/]*\.example\.com/(billing|usage)",
     )
-    expect(code == 0, f"external regex pattern: wrapper exited {code}: {stderr}", failures)
+    expect(code == 0, f"external regex deferred: wrapper exited {code}: {stderr}", failures)
     expect(
-        cmux_log == [],
-        f"external regex pattern: cmux should not be called, got {cmux_log}",
+        cmux_log == [f"browser open {url}"],
+        f"external regex deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
         failures,
     )
     expect(
-        open_log == [url],
-        f"external regex pattern: expected system open [{url}], got {open_log}",
+        open_log == [],
+        f"external regex deferred: system open should not be called by wrapper, got {open_log}",
+        failures,
+    )
+
+
+def test_external_regex_with_icu_features_is_deferred_to_app(failures: list[str]) -> None:
+    url = "https://example.com/usage/42"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="example.com",
+        external_patterns=r"re:^https://example\.com/usage/\d+$",
+    )
+    expect(code == 0, f"external regex icu deferred: wrapper exited {code}: {stderr}", failures)
+    expect(
+        cmux_log == [f"browser open {url}"],
+        f"external regex icu deferred: expected wrapper to pass URL to cmux, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [],
+        f"external regex icu deferred: system open should not be called by wrapper, got {open_log}",
         failures,
     )
 
@@ -549,8 +570,9 @@ def main() -> int:
     test_toggle_disabled_case_insensitive_passthrough(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
-    test_external_literal_pattern_passthrough(failures)
-    test_external_regex_pattern_passthrough(failures)
+    test_external_literal_pattern_is_deferred_to_app(failures)
+    test_external_regex_pattern_is_deferred_to_app(failures)
+    test_external_regex_with_icu_features_is_deferred_to_app(failures)
     test_external_invalid_regex_is_ignored_silently(failures)
     test_partial_failures_only_fallback_failed_urls(failures)
     test_legacy_toggle_fallback_passthrough(failures)

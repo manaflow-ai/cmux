@@ -7963,6 +7963,19 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         )
     }
 
+    func testExternalOpenRegexPatternSupportsDigitCharacterClass() {
+        defaults.set(
+            "re:^https://example\\.com/usage/\\d+$",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/usage/42",
+                defaults: defaults
+            )
+        )
+    }
+
     func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
         defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
