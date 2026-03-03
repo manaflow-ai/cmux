@@ -4,6 +4,7 @@ import SwiftUI
 import WebKit
 import SwiftUI
 import ObjectiveC.runtime
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1301,6 +1302,92 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         panel.setBrowserThemeMode(.system)
         XCTAssertNil(panel.webView.appearance)
     }
+
+    func testBrowserPanelRefreshesUnderPageBackgroundColorWithGhosttyOpacity() {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let updatedColor = NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: updatedColor,
+                GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
+            ]
+        )
+
+        guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
+              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible under-page background colors")
+            return
+        }
+
+        XCTAssertEqual(actual.redComponent, expected.redComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
+    }
+}
+
+final class GhosttyBackgroundThemeTests: XCTestCase {
+    func testColorClampsOpacity() {
+        let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
+
+        let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
+        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+
+        let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
+        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+    }
+
+    func testColorFromNotificationUsesBackgroundAndOpacity() {
+        let fallbackColor = NSColor.black
+        let fallbackOpacity = 1.0
+        let notification = Notification(
+            name: .ghosttyDefaultBackgroundDidChange,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+                GhosttyNotificationKey.backgroundOpacity: NSNumber(value: 0.57),
+            ]
+        )
+
+        let actual = GhosttyBackgroundTheme.color(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+    }
+
+    func testColorFromNotificationFallsBackWhenPayloadMissing() {
+        let fallbackColor = NSColor(srgbRed: 0.12, green: 0.34, blue: 0.56, alpha: 1.0)
+        let fallbackOpacity = 0.42
+        let notification = Notification(name: .ghosttyDefaultBackgroundDidChange)
+
+        let actual = GhosttyBackgroundTheme.color(
+            from: notification,
+            fallbackColor: fallbackColor,
+            fallbackOpacity: fallbackOpacity
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+    }
 }
 
 @MainActor
@@ -2044,6 +2131,26 @@ final class BrowserZoomShortcutActionTests: XCTestCase {
         )
     }
 
+    func testZoomInSupportsShiftedLiteralFromDifferentPhysicalKey() {
+        XCTAssertEqual(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
+            ),
+            .zoomIn
+        )
+
+        XCTAssertNil(
+            browserZoomShortcutAction(
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41
+            )
+        )
+    }
+
     func testZoomRequiresCommandWithoutOptionOrControl() {
         XCTAssertNil(browserZoomShortcutAction(flags: [], chars: "=", keyCode: 24))
         XCTAssertNil(browserZoomShortcutAction(flags: [.command, .option], chars: "=", keyCode: 24))
@@ -2104,6 +2211,18 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 flags: [.command],
                 chars: "n",
                 keyCode: 45
+            )
+        )
+    }
+
+    func testRoutesForShiftedLiteralZoomShortcut() {
+        XCTAssertTrue(
+            shouldRouteTerminalFontZoomShortcutToGhostty(
+                firstResponderIsGhostty: true,
+                flags: [.command, .shift],
+                chars: ";",
+                keyCode: 41,
+                literalChars: "+"
             )
         )
     }
@@ -3318,6 +3437,52 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerEqualizeSplitsTests: XCTestCase {
+    func testEqualizeSplitsSetsEverySplitDividerToHalf() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: rightPanel.id, orientation: .vertical) != nil else {
+            XCTFail("Expected nested split setup to succeed")
+            return
+        }
+
+        let initialSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertGreaterThanOrEqual(initialSplits.count, 2, "Expected at least two split nodes in nested layout")
+
+        for (index, split) in initialSplits.enumerated() {
+            guard let splitId = UUID(uuidString: split.id) else {
+                XCTFail("Expected split ID to be a UUID")
+                return
+            }
+            let targetPosition: CGFloat = index.isMultiple(of: 2) ? 0.2 : 0.8
+            XCTAssertTrue(
+                workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId),
+                "Expected to seed divider position for split \(splitId)"
+            )
+        }
+
+        XCTAssertTrue(manager.equalizeSplits(tabId: workspace.id), "Expected equalize splits command to succeed")
+
+        let equalizedSplits = splitNodes(in: workspace.bonsplitController.treeSnapshot())
+        XCTAssertEqual(equalizedSplits.count, initialSplits.count)
+        for split in equalizedSplits {
+            XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
+        }
+    }
+
+    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+        switch node {
+        case .pane:
+            return []
+        case .split(let split):
+            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+        }
+    }
+}
+
+@MainActor
 final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     func testPrefersSelectedTerminalInTargetPaneOverFocusedTerminalElsewhere() {
         let manager = TabManager()
@@ -3961,6 +4126,58 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
+    func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
+        let workspace = Workspace()
+        guard let leftFirstPanelId = workspace.focusedPanelId,
+              let leftPaneId = workspace.paneId(forPanelId: leftFirstPanelId),
+              let rightFirstPanel = workspace.newTerminalSplit(from: leftFirstPanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightFirstPanel.id),
+              let leftSecondPanel = workspace.newTerminalSurface(inPane: leftPaneId, focus: false),
+              let rightSecondPanel = workspace.newTerminalSurface(inPane: rightPaneId, focus: false) else {
+            XCTFail("Expected panes and panels for precomputed ordering test")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: leftFirstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: leftSecondPanel.id, branch: "feature/left", isDirty: true)
+        workspace.updatePanelGitBranch(panelId: rightFirstPanel.id, branch: "release/right", isDirty: false)
+
+        workspace.updatePanelDirectory(panelId: leftFirstPanelId, directory: "/repo/left/root")
+        workspace.updatePanelDirectory(panelId: leftSecondPanel.id, directory: "/repo/left/feature")
+        workspace.updatePanelDirectory(panelId: rightFirstPanel.id, directory: "/repo/right/root")
+        workspace.updatePanelDirectory(panelId: rightSecondPanel.id, directory: "/repo/right/extra")
+
+        workspace.updatePanelPullRequest(
+            panelId: leftFirstPanelId,
+            number: 101,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/101")!,
+            status: .open
+        )
+        workspace.updatePanelPullRequest(
+            panelId: rightFirstPanel.id,
+            number: 18,
+            label: "MR",
+            url: URL(string: "https://gitlab.com/manaflow/cmux/-/merge_requests/18")!,
+            status: .merged
+        )
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+
+        XCTAssertEqual(
+            workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { "\($0.branch)|\($0.isDirty)" },
+            workspace.sidebarGitBranchesInDisplayOrder().map { "\($0.branch)|\($0.isDirty)" }
+        )
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder()
+        )
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            workspace.sidebarPullRequestsInDisplayOrder()
+        )
+    }
+
     func testClosingPaneDropsBranchesFromClosedSide() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,
@@ -4538,7 +4755,8 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
-            fileExistsAtPath: { existingPaths.contains($0) }
+            fileExistsAtPath: { existingPaths.contains($0) },
+            isExecutableFileAtPath: { existingPaths.contains($0) }
         )
     }
 
@@ -4546,6 +4764,7 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         let env = environment(
             existingPaths: [
                 "/Applications/Visual Studio Code.app",
+                "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel",
                 "/System/Library/CoreServices/Finder.app",
                 "/System/Applications/Utilities/Terminal.app",
                 "/Applications/Zed Preview.app",
@@ -4576,15 +4795,231 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(availableTargets.contains(.vscode))
     }
 
+    func testVSCodeRequiresCodeTunnelExecutable() {
+        let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+    }
+
     func testITerm2DetectsLegacyBundleName() {
         let env = environment(existingPaths: ["/Applications/iTerm.app"])
         XCTAssertTrue(TerminalDirectoryOpenTarget.iterm2.isAvailable(in: env))
+    }
+
+    func testTowerDetected() {
+        let env = environment(existingPaths: ["/Applications/Tower.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
     func testCommandPaletteShortcutsExcludeGenericIDEEntry() {
         let targets = TerminalDirectoryOpenTarget.commandPaletteShortcutTargets
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteTitle == "Open Current Directory in IDE" }))
         XCTAssertFalse(targets.contains(where: { $0.commandPaletteCommandId == "palette.terminalOpenDirectory" }))
+    }
+}
+
+final class VSCodeServeWebURLBuilderTests: XCTestCase {
+    func testExtractWebUIURLParsesServeWebOutput() {
+        let output = """
+        *
+        * Visual Studio Code Server
+        *
+        Web UI available at http://127.0.0.1:5555?tkn=test-token
+        """
+
+        let url = VSCodeServeWebURLBuilder.extractWebUIURL(from: output)
+        XCTAssertEqual(url?.absoluteString, "http://127.0.0.1:5555?tkn=test-token")
+    }
+
+    func testOpenFolderURLAppendsFolderQueryWhilePreservingToken() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/Projects/cmux"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "tkn" })?.value, "test-token")
+        XCTAssertEqual(components?.queryItems?.first(where: { $0.name == "folder" })?.value, "/Users/tester/Projects/cmux")
+    }
+
+    func testOpenFolderURLReplacesExistingFolderQuery() {
+        let baseURL = URL(string: "http://127.0.0.1:5555?tkn=test-token&folder=/tmp/old")!
+
+        let url = VSCodeServeWebURLBuilder.openFolderURL(
+            baseWebUIURL: baseURL,
+            directoryPath: "/Users/tester/New Folder"
+        )
+
+        let components = URLComponents(url: url!, resolvingAgainstBaseURL: false)
+        XCTAssertEqual(
+            components?.queryItems?.filter { $0.name == "folder" }.count,
+            1
+        )
+        XCTAssertEqual(
+            components?.queryItems?.first(where: { $0.name == "folder" })?.value,
+            "/Users/tester/New Folder"
+        )
+    }
+}
+
+final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
+    func testLaunchConfigurationUsesCodeTunnelBinary() {
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let expectedExecutablePath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: appURL,
+            baseEnvironment: [:],
+            isExecutableAtPath: { $0 == expectedExecutablePath }
+        )
+
+        XCTAssertEqual(configuration?.executableURL.path, expectedExecutablePath)
+        XCTAssertEqual(configuration?.argumentsPrefix, [])
+        XCTAssertEqual(configuration?.environment["ELECTRON_RUN_AS_NODE"], "1")
+    }
+
+    func testLaunchConfigurationMapsNodeEnvironmentVariables() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "NODE_OPTIONS": "--max-old-space-size=4096",
+                "NODE_REPL_EXTERNAL_MODULE": "module-name"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_OPTIONS"], "--max-old-space-size=4096")
+        XCTAssertEqual(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"], "module-name")
+        XCTAssertNil(configuration?.environment["NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["NODE_REPL_EXTERNAL_MODULE"])
+    }
+
+    func testLaunchConfigurationClearsStaleVSCodeNodeVariablesWhenNodeVariablesAreAbsent() {
+        let configuration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true),
+            baseEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "VSCODE_NODE_OPTIONS": "--stale",
+                "VSCODE_NODE_REPL_EXTERNAL_MODULE": "stale-module"
+            ],
+            isExecutableAtPath: { _ in true }
+        )
+
+        XCTAssertEqual(configuration?.environment["PATH"], "/usr/bin:/bin")
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_OPTIONS"])
+        XCTAssertNil(configuration?.environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"])
+    }
+}
+
+final class ServeWebOutputCollectorTests: XCTestCase {
+    func testWaitForURLReturnsFalseAfterProcessExitSignal() {
+        let collector = ServeWebOutputCollector()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.markProcessExited()
+        }
+
+        let start = Date()
+        let resolved = collector.waitForURL(timeoutSeconds: 1)
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertFalse(resolved)
+        XCTAssertLessThan(elapsed, 0.5)
+    }
+
+    func testWaitForURLReturnsTrueWhenURLIsCollected() {
+        let collector = ServeWebOutputCollector()
+        let urlLine = "Web UI available at http://127.0.0.1:7777?tkn=test-token\n"
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+            collector.append(Data(urlLine.utf8))
+        }
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:7777?tkn=test-token")
+    }
+
+    func testMarkProcessExitedParsesFinalURLWithoutTrailingNewline() {
+        let collector = ServeWebOutputCollector()
+        let finalChunk = "Web UI available at http://127.0.0.1:9001?tkn=final-token"
+
+        collector.append(Data(finalChunk.utf8))
+        collector.markProcessExited()
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
+    }
+}
+
+final class VSCodeServeWebControllerTests: XCTestCase {
+    func testStopDuringInFlightLaunchDoesNotDropNextGenerationCompletion() {
+        let firstLaunchStarted = expectation(description: "first launch started")
+        let firstCompletionCalled = expectation(description: "first generation completion called")
+        let secondCompletionCalled = expectation(description: "second generation completion called")
+
+        let launchGate = DispatchSemaphore(value: 0)
+        let launchCallLock = NSLock()
+        var launchCallCount = 0
+
+        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+            launchCallLock.lock()
+            launchCallCount += 1
+            let callNumber = launchCallCount
+            launchCallLock.unlock()
+
+            if callNumber == 1 {
+                firstLaunchStarted.fulfill()
+                _ = launchGate.wait(timeout: .now() + 1)
+            }
+            return nil
+        }
+
+        let callbackLock = NSLock()
+        var firstGenerationCallbacks: [URL?] = []
+        var secondGenerationCallbacks: [URL?] = []
+        let vscodeAppURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            firstGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            firstCompletionCalled.fulfill()
+        }
+
+        wait(for: [firstLaunchStarted], timeout: 1)
+        controller.stop()
+
+        controller.ensureServeWebURL(vscodeApplicationURL: vscodeAppURL) { url in
+            callbackLock.lock()
+            secondGenerationCallbacks.append(url)
+            callbackLock.unlock()
+            secondCompletionCalled.fulfill()
+        }
+
+        launchGate.signal()
+        wait(for: [firstCompletionCalled, secondCompletionCalled], timeout: 2)
+
+        callbackLock.lock()
+        let firstSnapshot = firstGenerationCallbacks
+        let secondSnapshot = secondGenerationCallbacks
+        callbackLock.unlock()
+
+        launchCallLock.lock()
+        let launchCalls = launchCallCount
+        launchCallLock.unlock()
+
+        XCTAssertEqual(firstSnapshot.count, 1)
+        if firstSnapshot.count == 1 {
+            XCTAssertNil(firstSnapshot[0])
+        }
+        XCTAssertEqual(secondSnapshot.count, 1)
+        if secondSnapshot.count == 1 {
+            XCTAssertNil(secondSnapshot[0])
+        }
+        XCTAssertEqual(launchCalls, 2)
     }
 }
 
@@ -6081,7 +6516,7 @@ final class WindowDragHandleHitTests: XCTestCase {
 
     private final class ReentrantDragHandleView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
-            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown)
+            let shouldCapture = windowDragHandleShouldCaptureHit(point, in: self, eventType: .leftMouseDown, eventWindow: self.window)
             return shouldCapture ? self : nil
         }
     }
@@ -6092,7 +6527,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Empty titlebar space should drag the window"
         )
     }
@@ -6106,10 +6541,10 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(folderIconHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive titlebar controls should receive the mouse event"
         )
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleIgnoresHiddenSiblingWhenResolvingHit() {
@@ -6121,7 +6556,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         hidden.isHidden = true
         container.addSubview(hidden)
 
-        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle))
+        XCTAssertTrue(windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleDoesNotCaptureOutsideBounds() {
@@ -6129,7 +6564,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         let dragHandle = NSView(frame: container.bounds)
         container.addSubview(dragHandle)
 
-        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle))
+        XCTAssertFalse(windowDragHandleShouldCaptureHit(NSPoint(x: 240, y: 18), in: dragHandle, eventType: .leftMouseDown))
     }
 
     func testDragHandleSkipsCaptureForPassivePointerEvents() {
@@ -6142,6 +6577,67 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .cursorUpdate))
         XCTAssertFalse(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: nil))
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
+    }
+
+    func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
+        let point = NSPoint(x: 180, y: 18)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        dragHandle.autoresizingMask = [.width, .height]
+        container.addSubview(dragHandle)
+
+        let foreignWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { foreignWindow.orderOut(nil) }
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: nil
+            ),
+            "Launch activation events without a matching window should not trigger drag-handle hierarchy walk"
+        )
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: foreignWindow
+            ),
+            "Left mouse-down events for a different window should be treated as passive"
+        )
+
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                point,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Left mouse-down events for this window should still capture empty titlebar space"
+        )
     }
 
     func testPassiveHostingTopHitClassification() {
@@ -6158,7 +6654,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Passive host wrappers should not block titlebar drag capture"
         )
     }
@@ -6174,7 +6670,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(passiveHost)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 14, y: 14), in: dragHandle, eventType: .leftMouseDown),
             "Interactive controls inside passive host wrappers should still receive hits"
         )
     }
@@ -6219,7 +6715,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         nestedContainer.addSubview(nestedDragHandle)
 
         XCTAssertFalse(
-            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle),
+            windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow),
             "Nested window drag handle should be blocked by top-hit titlebar container"
         )
 
@@ -6227,11 +6723,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let probe = PassThroughProbeView(frame: outerContainer.bounds)
         probe.autoresizingMask = [.width, .height]
         probe.onHitTest = {
-            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle)
+            nestedCaptureResult = windowDragHandleShouldCaptureHit(point, in: nestedDragHandle, eventType: .leftMouseDown, eventWindow: nestedWindow)
         }
         outerContainer.addSubview(probe)
 
-        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle)
+        _ = windowDragHandleShouldCaptureHit(point, in: outerDragHandle, eventType: .leftMouseDown, eventWindow: outerWindow)
 
         XCTAssertEqual(
             nestedCaptureResult,
@@ -6250,7 +6746,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(mutatingSibling)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle),
+            windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
         )
     }
@@ -6278,7 +6774,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         container.addSubview(dragHandle)
 
         XCTAssertTrue(
-            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown),
+            windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown, eventWindow: window),
             "Reentrant same-window top-hit resolution should not trigger exclusivity crashes"
         )
     }
@@ -6571,6 +7067,75 @@ final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private final class ScrollProbeSurfaceView: GhosttyNSView {
+        private(set) var scrollWheelCallCount = 0
+
+        override func scrollWheel(with event: NSEvent) {
+            scrollWheelCallCount += 1
+        }
+    }
+
+    func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = ScrollProbeSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+        XCTAssertFalse(
+            scrollView.acceptsFirstResponder,
+            "Host scroll view should not become first responder and steal terminal shortcuts"
+        )
+
+        _ = window.makeFirstResponder(nil)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+
+        XCTAssertEqual(
+            surfaceView.scrollWheelCallCount,
+            1,
+            "Trackpad wheel events should be forwarded directly to Ghostty surface scrolling"
+        )
+        XCTAssertTrue(
+            window.firstResponder === surfaceView,
+            "Scroll wheel handling should keep keyboard focus on terminal surface"
+        )
+    }
+
     func testInactiveOverlayVisibilityTracksRequestedState() {
         let hostedView = GhosttySurfaceScrollView(
             surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 80, height: 50))
@@ -6646,6 +7211,49 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         hostedView.setSearchOverlay(searchState: nil)
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testForceRefreshNoopsAfterSurfaceReleaseDuringGeometryReconcile() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.reconcileGeometryNow()
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface, "Surface should be nil after test release helper")
+
+        hostedView.reconcileGeometryNow()
+        surface.forceRefresh()
+        XCTAssertNil(surface.surface, "Force refresh should no-op when runtime surface is nil")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testSearchOverlayMountDoesNotRetainTerminalSurface() {
@@ -7327,6 +7935,56 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: defaults))
     }
+
+    func testExternalOpenPatternsDefaultToEmpty() {
+        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+    }
+
+    func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
+        defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternMatchesCaseInsensitively() {
+        defaults.set(
+            "re:^https?://[^/]*\\.example\\.com/(billing|usage)",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://FOO.example.com/BILLING",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenRegexPatternSupportsDigitCharacterClass() {
+        defaults.set(
+            "re:^https://example\\.com/usage/\\d+$",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/usage/42",
+                defaults: defaults
+            )
+        )
+    }
+
+    func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
+        defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(
+            BrowserLinkOpenSettings.shouldOpenExternally(
+                "https://example.com/path",
+                defaults: defaults
+            )
+        )
+    }
 }
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
@@ -7399,6 +8057,58 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 }
 
+final class BrowserNavigableURLResolutionTests: XCTestCase {
+    func testResolvesFileSchemeAsNavigableURL() throws {
+        let resolved = try XCTUnwrap(resolveBrowserNavigableURL("file:///tmp/cmux-local-test.html"))
+        XCTAssertTrue(resolved.isFileURL)
+        XCTAssertEqual(resolved.path, "/tmp/cmux-local-test.html")
+    }
+
+    func testRejectsNonWebNonFileScheme() {
+        XCTAssertNil(resolveBrowserNavigableURL("mailto:test@example.com"))
+        XCTAssertNil(resolveBrowserNavigableURL("ftp://example.com/file.html"))
+    }
+
+    func testRejectsHostOnlyFileURL() {
+        XCTAssertNil(resolveBrowserNavigableURL("file://example.html"))
+    }
+}
+
+final class BrowserReadAccessURLTests: XCTestCase {
+    func testUsesParentDirectoryForFileURL() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        let file = dir.appendingPathComponent("sample.html")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try "<html></html>".write(to: file, atomically: true, encoding: .utf8)
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: file))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesDirectoryURLWhenTargetIsDirectory() throws {
+        let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let dir = tempRoot.appendingPathComponent("BrowserReadAccessURLTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: dir))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, dir.standardizedFileURL)
+    }
+
+    func testUsesParentDirectoryWhenFileDoesNotExist() throws {
+        let missing = URL(fileURLWithPath: "/tmp/\(UUID().uuidString).html")
+        let readAccessURL = try XCTUnwrap(browserReadAccessURL(forLocalFileURL: missing))
+        XCTAssertEqual(readAccessURL.standardizedFileURL, missing.deletingLastPathComponent().standardizedFileURL)
+    }
+
+    func testReturnsNilForHostOnlyFileURL() throws {
+        let hostOnly = try XCTUnwrap(URL(string: "file://example.html"))
+        XCTAssertNil(browserReadAccessURL(forLocalFileURL: hostOnly))
+    }
+}
+
 final class BrowserExternalNavigationSchemeTests: XCTestCase {
     func testCustomAppSchemesOpenExternally() throws {
         let discord = try XCTUnwrap(URL(string: "discord://login/one-time?token=abc"))
@@ -7417,6 +8127,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         let http = try XCTUnwrap(URL(string: "http://example.com"))
         let about = try XCTUnwrap(URL(string: "about:blank"))
         let data = try XCTUnwrap(URL(string: "data:text/plain,hello"))
+        let file = try XCTUnwrap(URL(string: "file:///tmp/cmux-local-test.html"))
         let blob = try XCTUnwrap(URL(string: "blob:https://example.com/550e8400-e29b-41d4-a716-446655440000"))
         let javascript = try XCTUnwrap(URL(string: "javascript:void(0)"))
         let webkitInternal = try XCTUnwrap(URL(string: "applewebdata://local/page"))
@@ -7425,6 +8136,7 @@ final class BrowserExternalNavigationSchemeTests: XCTestCase {
         XCTAssertFalse(browserShouldOpenURLExternally(http))
         XCTAssertFalse(browserShouldOpenURLExternally(about))
         XCTAssertFalse(browserShouldOpenURLExternally(data))
+        XCTAssertFalse(browserShouldOpenURLExternally(file))
         XCTAssertFalse(browserShouldOpenURLExternally(blob))
         XCTAssertFalse(browserShouldOpenURLExternally(javascript))
         XCTAssertFalse(browserShouldOpenURLExternally(webkitInternal))
@@ -7723,7 +8435,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: false,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7733,7 +8444,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: true
             )
@@ -7743,7 +8453,6 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
         XCTAssertFalse(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: true,
                 isBoundToCurrentHost: false
             )
@@ -7753,10 +8462,113 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
     func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostWindowAttached: true,
                 hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
             )
+        )
+    }
+}
+
+final class TerminalControllerSocketListenerHealthTests: XCTestCase {
+    private func makeTempSocketPath() -> String {
+        "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create Unix socket"]
+            )
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { ptr in
+            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+                let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+                strcpy(pathBuf, ptr)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to bind Unix socket"]
+            )
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let code = Int(errno)
+            Darwin.close(fd)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: code,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to listen on Unix socket"]
+            )
+        }
+
+        return fd
+    }
+
+    func testSocketListenerHealthRecognizesSocketPath() throws {
+        let path = makeTempSocketPath()
+        let fd = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(fd)
+            unlink(path)
+        }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertTrue(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthRejectsRegularFile() throws {
+        let path = makeTempSocketPath()
+        let url = URL(fileURLWithPath: path)
+        try "not-a-socket".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertFalse(health.socketPathExists)
+        XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true
+        )
+        XCTAssertTrue(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, [])
+    }
+
+    func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: false,
+            acceptLoopAlive: false,
+            socketPathMatches: false,
+            socketPathExists: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(
+            health.failureSignals,
+            ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
     }
 }

@@ -37,26 +37,29 @@ enum FinderServicePathResolver {
 }
 
 enum TerminalDirectoryOpenTarget: String, CaseIterable {
-    case vscode
-    case cursor
-    case windsurf
-    case antigravity
-    case finder
-    case terminal
-    case iterm2
-    case ghostty
-    case warp
-    case xcode
     case androidStudio
+    case antigravity
+    case cursor
+    case finder
+    case ghostty
+    case iterm2
+    case terminal
+    case tower
+    case vscode
+    case warp
+    case windsurf
+    case xcode
     case zed
 
     struct DetectionEnvironment {
         let homeDirectoryPath: String
         let fileExistsAtPath: (String) -> Bool
+        let isExecutableFileAtPath: (String) -> Bool
 
         static let live = DetectionEnvironment(
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
-            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) }
+            fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
+            isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) }
         )
     }
 
@@ -76,28 +79,30 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     var commandPaletteTitle: String {
         switch self {
-        case .vscode:
-            return "Open Current Directory in VS Code"
-        case .cursor:
-            return "Open Current Directory in Cursor"
-        case .windsurf:
-            return "Open Current Directory in Windsurf"
-        case .antigravity:
-            return "Open Current Directory in Antigravity"
-        case .finder:
-            return "Open Current Directory in Finder"
-        case .terminal:
-            return "Open Current Directory in Terminal"
-        case .iterm2:
-            return "Open Current Directory in iTerm2"
-        case .ghostty:
-            return "Open Current Directory in Ghostty"
-        case .warp:
-            return "Open Current Directory in Warp"
-        case .xcode:
-            return "Open Current Directory in Xcode"
         case .androidStudio:
             return "Open Current Directory in Android Studio"
+        case .antigravity:
+            return "Open Current Directory in Antigravity"
+        case .cursor:
+            return "Open Current Directory in Cursor"
+        case .finder:
+            return "Open Current Directory in Finder"
+        case .ghostty:
+            return "Open Current Directory in Ghostty"
+        case .iterm2:
+            return "Open Current Directory in iTerm2"
+        case .terminal:
+            return "Open Current Directory in Terminal"
+        case .tower:
+            return "Open Current Directory in Tower"
+        case .vscode:
+            return "Open Current Directory in VS Code (Inline)"
+        case .warp:
+            return "Open Current Directory in Warp"
+        case .windsurf:
+            return "Open Current Directory in Windsurf"
+        case .xcode:
+            return "Open Current Directory in Xcode"
         case .zed:
             return "Open Current Directory in Zed"
         }
@@ -106,35 +111,42 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var commandPaletteKeywords: [String] {
         let common = ["terminal", "directory", "open", "ide"]
         switch self {
-        case .vscode:
-            return common + ["vs", "code", "visual", "studio"]
-        case .cursor:
-            return common + ["cursor"]
-        case .windsurf:
-            return common + ["windsurf"]
-        case .antigravity:
-            return common + ["antigravity"]
-        case .finder:
-            return common + ["finder", "file", "manager", "reveal"]
-        case .terminal:
-            return common + ["terminal", "shell"]
-        case .iterm2:
-            return common + ["iterm", "iterm2", "terminal", "shell"]
-        case .ghostty:
-            return common + ["ghostty", "terminal", "shell"]
-        case .warp:
-            return common + ["warp", "terminal", "shell"]
-        case .xcode:
-            return common + ["xcode", "apple"]
         case .androidStudio:
             return common + ["android", "studio"]
+        case .antigravity:
+            return common + ["antigravity"]
+        case .cursor:
+            return common + ["cursor"]
+        case .finder:
+            return common + ["finder", "file", "manager", "reveal"]
+        case .ghostty:
+            return common + ["ghostty", "terminal", "shell"]
+        case .iterm2:
+            return common + ["iterm", "iterm2", "terminal", "shell"]
+        case .terminal:
+            return common + ["terminal", "shell"]
+        case .tower:
+            return common + ["tower", "git", "client"]
+        case .vscode:
+            return common + ["vs", "code", "visual", "studio", "inline", "browser", "serve-web"]
+        case .warp:
+            return common + ["warp", "terminal", "shell"]
+        case .windsurf:
+            return common + ["windsurf"]
+        case .xcode:
+            return common + ["xcode", "apple"]
         case .zed:
             return common + ["zed"]
         }
     }
 
     func isAvailable(in environment: DetectionEnvironment = .live) -> Bool {
-        applicationPath(in: environment) != nil
+        guard let applicationPath = applicationPath(in: environment) else { return false }
+        guard self == .vscode else { return true }
+        return VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: URL(fileURLWithPath: applicationPath, isDirectory: true),
+            isExecutableAtPath: environment.isExecutableFileAtPath
+        ) != nil
     }
 
     func applicationURL(in environment: DetectionEnvironment = .live) -> URL? {
@@ -167,38 +179,40 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
 
     private var applicationBundlePathCandidates: [String] {
         switch self {
-        case .vscode:
-            return [
-                "/Applications/Visual Studio Code.app",
-                "/Applications/Code.app",
-            ]
+        case .androidStudio:
+            return ["/Applications/Android Studio.app"]
+        case .antigravity:
+            return ["/Applications/Antigravity.app"]
         case .cursor:
             return [
                 "/Applications/Cursor.app",
                 "/Applications/Cursor Preview.app",
                 "/Applications/Cursor Nightly.app",
             ]
-        case .windsurf:
-            return ["/Applications/Windsurf.app"]
-        case .antigravity:
-            return ["/Applications/Antigravity.app"]
         case .finder:
             return ["/System/Library/CoreServices/Finder.app"]
-        case .terminal:
-            return ["/System/Applications/Utilities/Terminal.app"]
+        case .ghostty:
+            return ["/Applications/Ghostty.app"]
         case .iterm2:
             return [
                 "/Applications/iTerm.app",
                 "/Applications/iTerm2.app",
             ]
-        case .ghostty:
-            return ["/Applications/Ghostty.app"]
+        case .terminal:
+            return ["/System/Applications/Utilities/Terminal.app"]
+        case .tower:
+            return ["/Applications/Tower.app"]
+        case .vscode:
+            return [
+                "/Applications/Visual Studio Code.app",
+                "/Applications/Code.app",
+            ]
         case .warp:
             return ["/Applications/Warp.app"]
+        case .windsurf:
+            return ["/Applications/Windsurf.app"]
         case .xcode:
             return ["/Applications/Xcode.app"]
-        case .androidStudio:
-            return ["/Applications/Android Studio.app"]
         case .zed:
             return [
                 "/Applications/Zed.app",
@@ -215,6 +229,372 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             deduped.append(path)
         }
         return deduped
+    }
+}
+
+enum VSCodeServeWebURLBuilder {
+    static func extractWebUIURL(from output: String) -> URL? {
+        let prefix = "Web UI available at "
+        for line in output.split(whereSeparator: \.isNewline).reversed() {
+            guard let range = line.range(of: prefix) else { continue }
+            let rawURL = line[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawURL.isEmpty, let url = URL(string: rawURL) else { continue }
+            return url
+        }
+        return nil
+    }
+
+    static func openFolderURL(baseWebUIURL: URL, directoryPath: String) -> URL? {
+        var components = URLComponents(url: baseWebUIURL, resolvingAgainstBaseURL: false)
+        var queryItems = components?.queryItems ?? []
+        queryItems.removeAll { $0.name == "folder" }
+        queryItems.append(URLQueryItem(name: "folder", value: directoryPath))
+        components?.queryItems = queryItems
+        return components?.url
+    }
+}
+
+struct VSCodeCLILaunchConfiguration {
+    let executableURL: URL
+    let argumentsPrefix: [String]
+    let environment: [String: String]
+}
+
+enum VSCodeCLILaunchConfigurationBuilder {
+    static func launchConfiguration(
+        vscodeApplicationURL: URL,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> VSCodeCLILaunchConfiguration? {
+        let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
+        let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        guard isExecutableAtPath(codeTunnelURL.path) else { return nil }
+
+        var environment = baseEnvironment
+        environment["ELECTRON_RUN_AS_NODE"] = "1"
+        environment.removeValue(forKey: "VSCODE_NODE_OPTIONS")
+        environment.removeValue(forKey: "VSCODE_NODE_REPL_EXTERNAL_MODULE")
+        if let nodeOptions = environment["NODE_OPTIONS"] {
+            environment["VSCODE_NODE_OPTIONS"] = nodeOptions
+        }
+        if let nodeReplExternalModule = environment["NODE_REPL_EXTERNAL_MODULE"] {
+            environment["VSCODE_NODE_REPL_EXTERNAL_MODULE"] = nodeReplExternalModule
+        }
+        environment.removeValue(forKey: "NODE_OPTIONS")
+        environment.removeValue(forKey: "NODE_REPL_EXTERNAL_MODULE")
+
+        return VSCodeCLILaunchConfiguration(
+            executableURL: codeTunnelURL,
+            argumentsPrefix: [],
+            environment: environment
+        )
+    }
+}
+
+final class VSCodeServeWebController {
+    static let shared = VSCodeServeWebController()
+    private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+
+    private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
+    private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
+    private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
+    private var serveWebProcess: Process?
+    private var launchingProcess: Process?
+    private var serveWebURL: URL?
+    private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
+    private var isLaunching = false
+    private var activeLaunchGeneration: UInt64?
+    private var lifecycleGeneration: UInt64 = 0
+
+    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+        self.launchProcessOverride = launchProcessOverride
+    }
+
+#if DEBUG
+    static func makeForTesting(
+        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
+    ) -> VSCodeServeWebController {
+        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
+    }
+#endif
+
+    func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        queue.async {
+            if let process = self.serveWebProcess,
+               process.isRunning,
+               let url = self.serveWebURL {
+                DispatchQueue.main.async {
+                    completion(url)
+                }
+                return
+            }
+
+            let completionGeneration = self.lifecycleGeneration
+            self.pendingCompletions.append((generation: completionGeneration, completion: completion))
+            guard !self.isLaunching else { return }
+
+            self.isLaunching = true
+            let launchGeneration = completionGeneration
+            self.activeLaunchGeneration = launchGeneration
+
+            self.launchQueue.async {
+                let shouldLaunch = self.queue.sync {
+                    self.lifecycleGeneration == launchGeneration
+                }
+                guard shouldLaunch else {
+                    self.queue.async {
+                        guard self.activeLaunchGeneration == launchGeneration else { return }
+                        self.isLaunching = false
+                        self.activeLaunchGeneration = nil
+                    }
+                    return
+                }
+                let launchResult = self.launchServeWebProcess(
+                    vscodeApplicationURL: vscodeApplicationURL,
+                    expectedGeneration: launchGeneration
+                )
+                self.queue.async {
+                    guard self.activeLaunchGeneration == launchGeneration else {
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+                    self.isLaunching = false
+                    self.activeLaunchGeneration = nil
+
+                    guard self.lifecycleGeneration == launchGeneration else {
+                        if let launchedProcess = launchResult?.process,
+                           self.launchingProcess === launchedProcess {
+                            self.launchingProcess = nil
+                        }
+                        if let process = launchResult?.process, process.isRunning {
+                            process.terminate()
+                        }
+                        return
+                    }
+
+                    if let launchResult {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = launchResult.process
+                        self.serveWebURL = launchResult.url
+                    } else {
+                        self.launchingProcess = nil
+                        self.serveWebProcess = nil
+                        self.serveWebURL = nil
+                    }
+
+                    var completions: [(URL?) -> Void] = []
+                    var remaining: [(generation: UInt64, completion: (URL?) -> Void)] = []
+                    for pending in self.pendingCompletions {
+                        if pending.generation == launchGeneration {
+                            completions.append(pending.completion)
+                        } else {
+                            remaining.append(pending)
+                        }
+                    }
+                    self.pendingCompletions = remaining
+                    let resolvedURL = self.serveWebURL
+                    DispatchQueue.main.async {
+                        completions.forEach { $0(resolvedURL) }
+                    }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+            self.lifecycleGeneration &+= 1
+            self.isLaunching = false
+            self.activeLaunchGeneration = nil
+            var processes: [Process] = []
+            if let process = self.serveWebProcess {
+                processes.append(process)
+            }
+            if let process = self.launchingProcess,
+               !processes.contains(where: { $0 === process }) {
+                processes.append(process)
+            }
+            self.serveWebProcess = nil
+            self.launchingProcess = nil
+            self.serveWebURL = nil
+            let completions = self.pendingCompletions.map(\.completion)
+            self.pendingCompletions.removeAll()
+            return (processes, completions)
+        }
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+
+        if !completions.isEmpty {
+            DispatchQueue.main.async {
+                completions.forEach { $0(nil) }
+            }
+        }
+    }
+
+    func restart(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
+        stop()
+        ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL, completion: completion)
+    }
+
+    private func launchServeWebProcess(
+        vscodeApplicationURL: URL,
+        expectedGeneration: UInt64
+    ) -> (process: Process, url: URL)? {
+        if let launchProcessOverride {
+            return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
+        }
+
+        guard let launchConfiguration = VSCodeCLILaunchConfigurationBuilder.launchConfiguration(
+            vscodeApplicationURL: vscodeApplicationURL
+        ) else { return nil }
+
+        let process = Process()
+        process.executableURL = launchConfiguration.executableURL
+        process.arguments = launchConfiguration.argumentsPrefix + [
+            "serve-web",
+            "--accept-server-license-terms",
+            "--host", "127.0.0.1",
+            "--port", "0",
+            "--connection-token", Self.randomConnectionToken(),
+        ]
+        process.environment = launchConfiguration.environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let collector = ServeWebOutputCollector()
+        let outputReader: (FileHandle) -> Void = { fileHandle in
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+        stdoutPipe.fileHandleForReading.readabilityHandler = outputReader
+        stderrPipe.fileHandleForReading.readabilityHandler = outputReader
+
+        process.terminationHandler = { [weak self] terminatedProcess in
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
+            Self.drainAvailableOutput(from: stderrPipe.fileHandleForReading, collector: collector)
+            collector.markProcessExited()
+            self?.queue.async {
+                guard let self else { return }
+                if self.launchingProcess === terminatedProcess {
+                    self.launchingProcess = nil
+                }
+                if self.serveWebProcess === terminatedProcess {
+                    self.serveWebProcess = nil
+                    self.serveWebURL = nil
+                }
+            }
+        }
+
+        let didStart: Bool = queue.sync {
+            guard self.lifecycleGeneration == expectedGeneration,
+                  self.activeLaunchGeneration == expectedGeneration else {
+                return false
+            }
+            self.launchingProcess = process
+            do {
+                try process.run()
+                return true
+            } catch {
+                if self.launchingProcess === process {
+                    self.launchingProcess = nil
+                }
+                return false
+            }
+        }
+        guard didStart else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            return nil
+        }
+
+        guard collector.waitForURL(timeoutSeconds: Self.serveWebStartupTimeoutSeconds),
+              let serveWebURL = collector.webUIURL else {
+            stdoutPipe.fileHandleForReading.readabilityHandler = nil
+            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            if process.isRunning {
+                process.terminate()
+            }
+            return nil
+        }
+
+        return (process, serveWebURL)
+    }
+
+    private static func drainAvailableOutput(from fileHandle: FileHandle, collector: ServeWebOutputCollector) {
+        while true {
+            let data = fileHandle.availableData
+            guard !data.isEmpty else { return }
+            collector.append(data)
+        }
+    }
+
+    private static func randomConnectionToken() -> String {
+        UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+}
+
+final class ServeWebOutputCollector {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var outputBuffer = ""
+    private var resolvedURL: URL?
+    private var didSignal = false
+
+    var webUIURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return resolvedURL
+    }
+
+    func append(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8), !text.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard resolvedURL == nil else { return }
+        outputBuffer.append(text)
+        while let newlineIndex = outputBuffer.firstIndex(where: \.isNewline) {
+            let line = String(outputBuffer[..<newlineIndex])
+            outputBuffer.removeSubrange(...newlineIndex)
+            guard let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: line) else {
+                continue
+            }
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+            if !didSignal {
+                didSignal = true
+                semaphore.signal()
+            }
+            return
+        }
+    }
+
+    func markProcessExited() {
+        lock.lock()
+        defer { lock.unlock() }
+        if resolvedURL == nil, !outputBuffer.isEmpty,
+           let parsedURL = VSCodeServeWebURLBuilder.extractWebUIURL(from: outputBuffer) {
+            resolvedURL = parsedURL
+            outputBuffer.removeAll(keepingCapacity: false)
+        }
+        guard !didSignal else { return }
+        didSignal = true
+        semaphore.signal()
+    }
+
+    func waitForURL(timeoutSeconds: TimeInterval) -> Bool {
+        if webUIURL != nil { return true }
+        _ = semaphore.wait(timeout: .now() + timeoutSeconds)
+        return webUIURL != nil
     }
 }
 
@@ -243,6 +623,321 @@ enum WorkspaceShortcutMapper {
             }
         }
         return nil
+    }
+}
+
+struct CmuxCLIPathInstaller {
+    struct InstallOutcome {
+        let usedAdministratorPrivileges: Bool
+        let destinationURL: URL
+        let sourceURL: URL
+    }
+
+    struct UninstallOutcome {
+        let usedAdministratorPrivileges: Bool
+        let destinationURL: URL
+        let removedExistingEntry: Bool
+    }
+
+    enum InstallerError: LocalizedError {
+        case bundledCLIMissing(expectedPath: String)
+        case destinationParentNotDirectory(path: String)
+        case destinationIsDirectory(path: String)
+        case installVerificationFailed(path: String)
+        case uninstallVerificationFailed(path: String)
+        case privilegedCommandFailed(message: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .bundledCLIMissing(let expectedPath):
+                return "Bundled cmux CLI was not found at \(expectedPath)."
+            case .destinationParentNotDirectory(let path):
+                return "Expected \(path) to be a directory."
+            case .destinationIsDirectory(let path):
+                return "\(path) is a directory. Remove or rename it and try again."
+            case .installVerificationFailed(let path):
+                return "Installed symlink at \(path) did not point to the bundled cmux CLI."
+            case .uninstallVerificationFailed(let path):
+                return "Failed to remove \(path)."
+            case .privilegedCommandFailed(let message):
+                return "Administrator action failed: \(message)"
+            }
+        }
+    }
+
+    typealias PrivilegedInstallHandler = (_ sourceURL: URL, _ destinationURL: URL) throws -> Void
+    typealias PrivilegedUninstallHandler = (_ destinationURL: URL) throws -> Void
+
+    let fileManager: FileManager
+    let destinationURL: URL
+    private let bundledCLIURLProvider: () -> URL?
+    private let expectedBundledCLIPath: String
+    private let privilegedInstaller: PrivilegedInstallHandler
+    private let privilegedUninstaller: PrivilegedUninstallHandler
+
+    init(
+        fileManager: FileManager = .default,
+        destinationURL: URL = URL(fileURLWithPath: "/usr/local/bin/cmux"),
+        bundledCLIURLProvider: @escaping () -> URL? = {
+            CmuxCLIPathInstaller.defaultBundledCLIURL()
+        },
+        expectedBundledCLIPath: String = CmuxCLIPathInstaller.defaultBundledCLIExpectedPath(),
+        privilegedInstaller: PrivilegedInstallHandler? = nil,
+        privilegedUninstaller: PrivilegedUninstallHandler? = nil
+    ) {
+        self.fileManager = fileManager
+        self.destinationURL = destinationURL
+        self.bundledCLIURLProvider = bundledCLIURLProvider
+        self.expectedBundledCLIPath = expectedBundledCLIPath
+        self.privilegedInstaller = privilegedInstaller ?? Self.installWithAdministratorPrivileges(sourceURL:destinationURL:)
+        self.privilegedUninstaller = privilegedUninstaller ?? Self.uninstallWithAdministratorPrivileges(destinationURL:)
+    }
+
+    var destinationPath: String {
+        destinationURL.path
+    }
+
+    func install() throws -> InstallOutcome {
+        let sourceURL = try resolveBundledCLIURL()
+        do {
+            try installWithoutAdministratorPrivileges(sourceURL: sourceURL)
+            return InstallOutcome(
+                usedAdministratorPrivileges: false,
+                destinationURL: destinationURL,
+                sourceURL: sourceURL
+            )
+        } catch {
+            guard Self.isPermissionDenied(error) else { throw error }
+            try ensureDestinationIsNotDirectory()
+            try privilegedInstaller(sourceURL, destinationURL)
+            try verifyInstalledSymlinkTarget(sourceURL: sourceURL)
+            return InstallOutcome(
+                usedAdministratorPrivileges: true,
+                destinationURL: destinationURL,
+                sourceURL: sourceURL
+            )
+        }
+    }
+
+    func uninstall() throws -> UninstallOutcome {
+        do {
+            let removedExistingEntry = try uninstallWithoutAdministratorPrivileges()
+            return UninstallOutcome(
+                usedAdministratorPrivileges: false,
+                destinationURL: destinationURL,
+                removedExistingEntry: removedExistingEntry
+            )
+        } catch {
+            guard Self.isPermissionDenied(error) else { throw error }
+            try ensureDestinationIsNotDirectory()
+            let removedExistingEntry = destinationEntryExists()
+            try privilegedUninstaller(destinationURL)
+            if destinationEntryExists() {
+                throw InstallerError.uninstallVerificationFailed(path: destinationURL.path)
+            }
+            return UninstallOutcome(
+                usedAdministratorPrivileges: true,
+                destinationURL: destinationURL,
+                removedExistingEntry: removedExistingEntry
+            )
+        }
+    }
+
+    func isInstalled() -> Bool {
+        guard let sourceURL = bundledCLIURLProvider()?.standardizedFileURL else { return false }
+        guard let installedTargetURL = symlinkDestinationURL() else { return false }
+        return installedTargetURL == sourceURL
+    }
+
+    private func resolveBundledCLIURL() throws -> URL {
+        guard let sourceURL = bundledCLIURLProvider()?.standardizedFileURL else {
+            throw InstallerError.bundledCLIMissing(expectedPath: expectedBundledCLIPath)
+        }
+
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: sourceURL.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            throw InstallerError.bundledCLIMissing(expectedPath: sourceURL.path)
+        }
+        return sourceURL
+    }
+
+    private func installWithoutAdministratorPrivileges(sourceURL: URL) throws {
+        try ensureDestinationParentDirectoryExists()
+        try ensureDestinationIsNotDirectory()
+        if destinationEntryExists() {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.createSymbolicLink(at: destinationURL, withDestinationURL: sourceURL)
+        try verifyInstalledSymlinkTarget(sourceURL: sourceURL)
+    }
+
+    @discardableResult
+    private func uninstallWithoutAdministratorPrivileges() throws -> Bool {
+        try ensureDestinationIsNotDirectory()
+        let existed = destinationEntryExists()
+        if existed {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        if destinationEntryExists() {
+            throw InstallerError.uninstallVerificationFailed(path: destinationURL.path)
+        }
+        return existed
+    }
+
+    /// Check if the destination path has any filesystem entry (including dangling symlinks).
+    /// `FileManager.fileExists` follows symlinks, so a dangling symlink returns false.
+    private func destinationEntryExists() -> Bool {
+        (try? fileManager.attributesOfItem(atPath: destinationURL.path)) != nil
+    }
+
+    private func verifyInstalledSymlinkTarget(sourceURL: URL) throws {
+        guard let installedTargetURL = symlinkDestinationURL(),
+              installedTargetURL == sourceURL.standardizedFileURL else {
+            throw InstallerError.installVerificationFailed(path: destinationURL.path)
+        }
+    }
+
+    private func symlinkDestinationURL() -> URL? {
+        guard fileManager.fileExists(atPath: destinationURL.path) else { return nil }
+        guard let destinationPath = try? fileManager.destinationOfSymbolicLink(atPath: destinationURL.path) else {
+            return nil
+        }
+        return URL(
+            fileURLWithPath: destinationPath,
+            relativeTo: destinationURL.deletingLastPathComponent()
+        ).standardizedFileURL
+    }
+
+    private func ensureDestinationParentDirectoryExists() throws {
+        let parentURL = destinationURL.deletingLastPathComponent()
+        var isDirectory: ObjCBool = false
+        if fileManager.fileExists(atPath: parentURL.path, isDirectory: &isDirectory) {
+            guard isDirectory.boolValue else {
+                throw InstallerError.destinationParentNotDirectory(path: parentURL.path)
+            }
+            return
+        }
+        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
+    }
+
+    private func ensureDestinationIsNotDirectory() throws {
+        guard let values = try resourceValuesIfFileExists(
+            at: destinationURL,
+            keys: [.isDirectoryKey, .isSymbolicLinkKey]
+        ) else {
+            return
+        }
+
+        if values.isDirectory == true, values.isSymbolicLink != true {
+            throw InstallerError.destinationIsDirectory(path: destinationURL.path)
+        }
+    }
+
+    private func resourceValuesIfFileExists(
+        at url: URL,
+        keys: Set<URLResourceKey>
+    ) throws -> URLResourceValues? {
+        do {
+            return try url.resourceValues(forKeys: keys)
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
+                return nil
+            }
+            if nsError.domain == NSPOSIXErrorDomain,
+               POSIXErrorCode(rawValue: Int32(nsError.code)) == .ENOENT {
+                return nil
+            }
+            throw error
+        }
+    }
+
+    private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
+        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+    }
+
+    private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
+        bundle.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+            .path
+    }
+
+    private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
+        let destinationPath = destinationURL.path
+        let parentPath = destinationURL.deletingLastPathComponent().path
+        let command = "/bin/mkdir -p \(shellQuoted(parentPath)) && " +
+            "/bin/rm -f \(shellQuoted(destinationPath)) && " +
+            "/bin/ln -s \(shellQuoted(sourceURL.path)) \(shellQuoted(destinationPath))"
+        try runPrivilegedShellCommand(command)
+    }
+
+    private static func uninstallWithAdministratorPrivileges(destinationURL: URL) throws {
+        let command = "/bin/rm -f \(shellQuoted(destinationURL.path))"
+        try runPrivilegedShellCommand(command)
+    }
+
+    private static func runPrivilegedShellCommand(_ command: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = [
+            "-e", "on run argv",
+            "-e", "do shell script (item 1 of argv) with administrator privileges",
+            "-e", "end run",
+            command
+        ]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let stderrText = String(
+                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stdoutText = String(
+                data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let details = stderrText.isEmpty ? stdoutText : stderrText
+            let message = details.isEmpty
+                ? "osascript exited with status \(process.terminationStatus)."
+                : details
+            throw InstallerError.privilegedCommandFailed(message: message)
+        }
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func isPermissionDenied(_ error: Error) -> Bool {
+        isPermissionDenied(error as NSError)
+    }
+
+    private static func isPermissionDenied(_ error: NSError) -> Bool {
+        if error.domain == NSPOSIXErrorDomain,
+           let code = POSIXErrorCode(rawValue: Int32(error.code)),
+           code == .EACCES || code == .EPERM || code == .EROFS {
+            return true
+        }
+
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileWriteNoPermissionError, NSFileReadNoPermissionError, NSFileWriteVolumeReadOnlyError:
+                return true
+            default:
+                break
+            }
+        }
+
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return isPermissionDenied(underlying)
+        }
+
+        return false
     }
 }
 
@@ -405,30 +1100,53 @@ struct CommandPaletteDebugSnapshot {
 func browserZoomShortcutAction(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> BrowserZoomShortcutAction? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
-    let key = chars.lowercased()
     let hasCommand = normalizedFlags.contains(.command)
     let hasOnlyCommandAndOptionalShift = hasCommand && normalizedFlags.isDisjoint(with: [.control, .option])
 
     guard hasOnlyCommandAndOptionalShift else { return nil }
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
 
-    if key == "=" || key == "+" || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
+    if keys.contains("=") || keys.contains("+") || keyCode == 24 || keyCode == 69 { // kVK_ANSI_Equal / kVK_ANSI_KeypadPlus
         return .zoomIn
     }
 
-    if key == "-" || key == "_" || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
+    if keys.contains("-") || keys.contains("_") || keyCode == 27 || keyCode == 78 { // kVK_ANSI_Minus / kVK_ANSI_KeypadMinus
         return .zoomOut
     }
 
-    if key == "0" || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
+    if keys.contains("0") || keyCode == 29 || keyCode == 82 { // kVK_ANSI_0 / kVK_ANSI_Keypad0
         return .reset
     }
 
     return nil
+}
+
+func browserZoomShortcutKeyCandidates(
+    chars: String,
+    literalChars: String?,
+    keyCode: UInt16
+) -> Set<String> {
+    var keys: Set<String> = [chars.lowercased()]
+
+    if let literalChars, !literalChars.isEmpty {
+        keys.insert(literalChars.lowercased())
+    }
+
+    if let layoutChar = KeyboardLayout.character(forKeyCode: keyCode), !layoutChar.isEmpty {
+        keys.insert(layoutChar)
+    }
+
+    return keys
 }
 
 func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -446,10 +1164,16 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> Bool {
     guard firstResponderIsGhostty else { return false }
-    return browserZoomShortcutAction(flags: flags, chars: chars, keyCode: keyCode) != nil
+    return browserZoomShortcutAction(
+        flags: flags,
+        chars: chars,
+        keyCode: keyCode,
+        literalChars: literalChars
+    ) != nil
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
@@ -504,15 +1228,20 @@ private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
 func browserZoomShortcutTraceCandidate(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    literalChars: String? = nil
 ) -> Bool {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
     guard normalizedFlags.contains(.command) else { return false }
 
-    let key = chars.lowercased()
-    if key == "=" || key == "+" || key == "-" || key == "_" || key == "0" {
+    let keys = browserZoomShortcutKeyCandidates(
+        chars: chars,
+        literalChars: literalChars,
+        keyCode: keyCode
+    )
+    if keys.contains("=") || keys.contains("+") || keys.contains("-") || keys.contains("_") || keys.contains("0") {
         return true
     }
     switch keyCode {
@@ -743,15 +1472,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didAttemptStartupSessionRestore = false
     private var isApplyingStartupSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
+    private var socketListenerHealthTimer: DispatchSourceTimer?
+    private static let socketListenerHealthCheckInterval: DispatchTimeInterval = .seconds(5)
+    private var lastSocketListenerUnhealthyCaptureAt: Date = .distantPast
+    private static let socketListenerUnhealthyCaptureCooldown: TimeInterval = 60
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
-    private static let launchServicesRegistrationQueue = DispatchQueue(
+    private nonisolated static let launchServicesRegistrationQueue = DispatchQueue(
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
     )
-    private static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
+    private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
     }
     private var lastSessionAutosaveFingerprint: Int?
@@ -763,6 +1496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private weak var lastActiveMainWindow: NSWindow?
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -821,8 +1555,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -839,29 +1578,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        SentrySDK.start { options in
-            options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
-            #if DEBUG
-            options.environment = "development"
-            options.debug = true
-            #else
-            options.environment = "production"
-            options.debug = false
-            #endif
-            options.sendDefaultPii = true
+        if telemetryEnabled {
+            SentrySDK.start { options in
+                options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+                #if DEBUG
+                options.environment = "development"
+                options.debug = true
+                #else
+                options.environment = "production"
+                options.debug = false
+                #endif
+                options.sendDefaultPii = false
 
-            // Performance tracing (10% of transactions)
-            options.tracesSampleRate = 0.1
-            // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
-            // as hangs in normal user interaction flows.
-            options.appHangTimeoutInterval = 8.0
-            // Attach stack traces to all events
-            options.attachStacktrace = true
-            // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
-            options.enableCaptureFailedRequests = false
+                // Performance tracing (10% of transactions)
+                options.tracesSampleRate = 0.1
+                // Keep app-hang tracking enabled, but avoid reporting short main-thread stalls
+                // as hangs in normal user interaction flows.
+                options.appHangTimeoutInterval = 8.0
+                // Attach stack traces to all events
+                options.attachStacktrace = true
+                // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
+                options.enableCaptureFailedRequests = false
+            }
         }
 
-        if !isRunningUnderXCTest {
+        if telemetryEnabled && !isRunningUnderXCTest {
             PostHogAnalytics.shared.startIfNeeded()
         }
 
@@ -968,7 +1709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "tabCount": tabManager?.tabs.count ?? 0
         ])
         let env = ProcessInfo.processInfo.environment
-        if !isRunningUnderXCTest(env) {
+        if TelemetrySettings.enabledForCurrentLaunch && !isRunningUnderXCTest(env) {
             PostHogAnalytics.shared.trackDailyActive(reason: "didBecomeActive")
             PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
@@ -983,6 +1724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        bringMainWindowToFrontOnActivationIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -995,9 +1737,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+        stopSocketListenerHealthMonitor()
         TerminalController.shared.stop()
+        VSCodeServeWebController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
-        PostHogAnalytics.shared.flush()
+        if TelemetrySettings.enabledForCurrentLaunch {
+            PostHogAnalytics.shared.flush()
+        }
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
     }
@@ -1020,6 +1766,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
+        startSocketListenerHealthMonitorIfNeeded()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -1628,6 +2375,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ])
         TerminalController.shared.stop()
         TerminalController.shared.start(tabManager: tabManager, socketPath: config.path, accessMode: config.mode)
+    }
+
+    private func startSocketListenerHealthMonitorIfNeeded() {
+        guard socketListenerHealthTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.socketListenerHealthCheckInterval,
+            repeating: Self.socketListenerHealthCheckInterval
+        )
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.restartSocketListenerIfNeededForHealthCheck(source: "health.timer")
+            }
+        }
+        timer.resume()
+        socketListenerHealthTimer = timer
+    }
+
+    private func stopSocketListenerHealthMonitor() {
+        socketListenerHealthTimer?.cancel()
+        socketListenerHealthTimer = nil
+    }
+
+    private func restartSocketListenerIfNeededForHealthCheck(source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else { return }
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: config.path)
+        guard !health.isHealthy else {
+            lastSocketListenerUnhealthyCaptureAt = .distantPast
+            return
+        }
+        let failureSignals = health.failureSignals
+        let data: [String: Any] = [
+            "source": source,
+            "path": config.path,
+            "isRunning": health.isRunning ? 1 : 0,
+            "acceptLoopAlive": health.acceptLoopAlive ? 1 : 0,
+            "socketPathMatches": health.socketPathMatches ? 1 : 0,
+            "socketPathExists": health.socketPathExists ? 1 : 0,
+            "failureSignals": failureSignals
+        ]
+        sentryBreadcrumb("socket.listener.unhealthy", category: "socket", data: data)
+        let now = Date()
+        if now.timeIntervalSince(lastSocketListenerUnhealthyCaptureAt) >= Self.socketListenerUnhealthyCaptureCooldown {
+            lastSocketListenerUnhealthyCaptureAt = now
+            sentryCaptureWarning(
+                "socket.listener.unhealthy",
+                category: "socket",
+                data: data,
+                contextKey: "socket_listener_health"
+            )
+        }
+        restartSocketListenerIfEnabled(source: source)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -3455,6 +4254,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.attemptUpdate()
     }
 
+    func isCmuxCLIInstalledInPATH() -> Bool {
+        CmuxCLIPathInstaller().isInstalled()
+    }
+
+    @objc func installCmuxCLIInPath(_ sender: Any?) {
+        let installer = CmuxCLIPathInstaller()
+        do {
+            let outcome = try installer.install()
+            var informativeText = """
+            Created symlink:
+
+            \(outcome.destinationURL.path) -> \(outcome.sourceURL.path)
+            """
+            if outcome.usedAdministratorPrivileges {
+                informativeText += "\n\nAdministrator privileges were required to write to /usr/local/bin."
+            }
+            presentCLIPathAlert(
+                title: "cmux CLI Installed",
+                informativeText: informativeText,
+                style: .informational
+            )
+        } catch {
+            presentCLIPathAlert(
+                title: "Couldn't Install cmux CLI",
+                informativeText: error.localizedDescription,
+                style: .warning
+            )
+        }
+    }
+
+    @objc func uninstallCmuxCLIInPath(_ sender: Any?) {
+        let installer = CmuxCLIPathInstaller()
+        do {
+            let outcome = try installer.uninstall()
+            let prefix = outcome.removedExistingEntry
+                ? "Removed \(outcome.destinationURL.path)."
+                : "No cmux CLI symlink was found at \(outcome.destinationURL.path)."
+            var informativeText = prefix
+            if outcome.usedAdministratorPrivileges {
+                informativeText += "\n\nAdministrator privileges were required to modify /usr/local/bin."
+            }
+            presentCLIPathAlert(
+                title: "cmux CLI Uninstalled",
+                informativeText: informativeText,
+                style: .informational
+            )
+        } catch {
+            presentCLIPathAlert(
+                title: "Couldn't Uninstall cmux CLI",
+                informativeText: error.localizedDescription,
+                style: .warning
+            )
+        }
+    }
+
+    private func presentCLIPathAlert(
+        title: String,
+        informativeText: String,
+        style: NSAlert.Style
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = style
+        alert.messageText = title
+        alert.informativeText = informativeText
+        alert.addButton(withTitle: "OK")
+
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            _ = alert.runModal()
+        }
+    }
+
     @objc func restartSocketListener(_ sender: Any?) {
         guard tabManager != nil else {
             NSSound.beep()
@@ -3818,13 +4690,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Keep the test hermetic: ensure the app does not accidentally pass using a persisted
             // KeyboardShortcutSettings override instead of the Ghostty config-trigger path.
             UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusLeftKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusRightKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusUpKey)
+            UserDefaults.standard.removeObject(forKey: KeyboardShortcutSettings.focusDownKey)
         } else {
             // For this UI test we want a letter-based shortcut (Cmd+Ctrl+H) to drive pane navigation,
             // since arrow keys can't be recorded by the shortcut recorder.
-            let shortcut = StoredShortcut(key: "h", command: true, shift: false, option: false, control: true)
-            if let data = try? JSONEncoder().encode(shortcut) {
-                UserDefaults.standard.set(data, forKey: KeyboardShortcutSettings.focusLeftKey)
-            }
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "h", command: true, shift: false, option: false, control: true),
+                for: .focusLeft
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "l", command: true, shift: false, option: false, control: true),
+                for: .focusRight
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "k", command: true, shift: false, option: false, control: true),
+                for: .focusUp
+            )
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "j", command: true, shift: false, option: false, control: true),
+                for: .focusDown
+            )
         }
 
         installGotoSplitUITestFocusObserversIfNeeded()
@@ -4556,7 +5443,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        let isCommandP = normalizedFlags == [.command] && (chars == "p" || event.keyCode == 35)
+        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
+        // (e.g., split that doesn't properly blur the address bar). If the first responder
+        // is a terminal surface, the address bar can't be focused.
+        if browserAddressBarFocusedPanelId != nil,
+           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
+#if DEBUG
+            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
+#endif
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+        }
+
+        // Keep Cmd+P/Cmd+N inside the focused browser omnibar for Chrome-like
+        // suggestion navigation, and avoid opening command palette switcher.
+        // Scope the omnibar check to the shortcut's routed window context so a
+        // focused omnibar in another window does not suppress Cmd+P here.
+        let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let isCommandP = !hasFocusedAddressBarInShortcutContext
+            && normalizedFlags == [.command]
+            && (chars == "p" || event.keyCode == 35)
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
@@ -4649,18 +5555,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
-        }
-
-        // Guard against stale browserAddressBarFocusedPanelId after focus transitions
-        // (e.g., split that doesn't properly blur the address bar). If the first responder
-        // is a terminal surface, the address bar can't be focused.
-        if browserAddressBarFocusedPanelId != nil,
-           cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder) != nil {
-#if DEBUG
-            dlog("handleCustomShortcut: clearing stale browserAddressBarFocusedPanelId")
-#endif
-            browserAddressBarFocusedPanelId = nil
-            stopBrowserOmnibarSelectionRepeat()
         }
 
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
@@ -4945,6 +5839,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
+            _ = tabManager?.toggleFocusedSplitZoom()
+            return true
+        }
+
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
 #if DEBUG
@@ -5053,7 +5952,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if DEBUG
         logBrowserZoomShortcutTrace(stage: "probe", event: event, flags: flags, chars: chars)
         #endif
-        let zoomAction = browserZoomShortcutAction(flags: flags, chars: chars, keyCode: event.keyCode)
+        let zoomAction = browserZoomShortcutAction(
+            flags: flags,
+            chars: chars,
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        )
         #if DEBUG
         logBrowserZoomShortcutTrace(stage: "match", event: event, flags: flags, chars: chars, action: zoomAction)
         #endif
@@ -5147,7 +6051,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: BrowserZoomShortcutAction? = nil,
         handled: Bool? = nil
     ) {
-        guard browserZoomShortcutTraceCandidate(flags: flags, chars: chars, keyCode: event.keyCode) else {
+        guard browserZoomShortcutTraceCandidate(
+            flags: flags,
+            chars: chars,
+            keyCode: event.keyCode,
+            literalChars: event.characters
+        ) else {
             return
         }
 
@@ -5198,6 +6107,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusedBrowserAddressBarPanelId() -> UUID? {
         browserAddressBarFocusedPanelId
+    }
+
+    private func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
+        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        guard let context = preferredMainWindowContextForShortcutRouting(event: event),
+              let workspace = context.tabManager.selectedWorkspace,
+              workspace.browserPanel(for: panelId) != nil else {
+            return nil
+        }
+        return panelId
     }
 
     @discardableResult
@@ -5558,6 +6477,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // NSEvent.charactersIgnoringModifiers preserves Shift for some symbol keys
         // (e.g. Shift+] can yield "}" instead of "]"), so match brackets by keyCode.
         let shortcutKey = shortcut.key.lowercased()
+        if shortcutKey == "\r" {
+            return event.keyCode == 36 || event.keyCode == 76
+        }
         if shortcutKey == "[" || shortcutKey == "]" {
             switch event.keyCode {
             case 33: // kVK_ANSI_LeftBracket
@@ -5629,6 +6551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "m": return 46  // kVK_ANSI_M
         case ".": return 47  // kVK_ANSI_Period
         case "`": return 50  // kVK_ANSI_Grave
+        case "\r": return 36 // kVK_Return
         default:
             return nil
         }
@@ -5706,8 +6629,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        if let icon = NSImage(named: NSImage.applicationIconName) {
-            NSApplication.shared.applicationIconImage = icon
+        let mode = AppIconSettings.resolvedMode()
+        if mode == .automatic {
+            // Let the asset catalog handle appearance-based icon selection.
+            if let icon = NSImage(named: NSImage.applicationIconName) {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        } else {
+            AppIconSettings.applyIcon(mode)
         }
     }
 
@@ -5859,6 +6788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
+            self.lastActiveMainWindow = window
             self.setActiveMainWindow(window)
         }
     }
@@ -6216,6 +7146,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             notificationStore.markRead(id: notificationId)
         }
+    }
+
+    private func bringMainWindowToFrontOnActivationIfNeeded() {
+        guard let window = frontmostKnownMainWindow() else { return }
+        bringToFront(window)
+    }
+
+    private func frontmostKnownMainWindow() -> NSWindow? {
+        let directCandidates: [NSWindow?] = [lastActiveMainWindow, NSApp.keyWindow, NSApp.mainWindow]
+        for candidate in directCandidates where candidate != nil {
+            if let window = candidate, isMainTerminalWindow(window) {
+                return window
+            }
+        }
+
+        if let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            return window
+        }
+
+        if let visible = mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first(where: { $0.isVisible }) {
+            return visible
+        }
+
+        return mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first
     }
 
 #if DEBUG
@@ -6827,6 +7787,7 @@ enum MenuBarIconRenderer {
             drawBadge(text: text, in: config.badgeRect, config: config)
         }
 
+        image.isTemplate = true
         return image
     }
 
@@ -6855,7 +7816,7 @@ enum MenuBarIconRenderer {
         path.line(to: map(384.0, 369.0))
         path.close()
 
-        NSColor.white.setFill()
+        NSColor.black.setFill()
         path.fill()
     }
 
@@ -7076,7 +8037,8 @@ private extension NSWindow {
                 firstResponderIsGhostty: true,
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
-                keyCode: event.keyCode
+                keyCode: event.keyCode,
+                literalChars: event.characters
             ) {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
@@ -7129,7 +8091,8 @@ private extension NSWindow {
             if browserZoomShortcutTraceCandidate(
                 flags: event.modifierFlags,
                 chars: event.charactersIgnoringModifiers ?? "",
-                keyCode: event.keyCode
+                keyCode: event.keyCode,
+                literalChars: event.characters
             ) {
                 dlog(
                     "zoom.shortcut stage=window.mainMenuBypass event=\(Self.keyDescription(event)) " +

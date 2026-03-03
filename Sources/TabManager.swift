@@ -1855,6 +1855,7 @@ class TabManager: ObservableObject {
     /// Create a new terminal surface in the focused pane of the selected workspace
     func newSurface() {
         // Cmd+T should always focus the newly created surface.
+        selectedWorkspace?.clearSplitZoom()
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
@@ -1865,6 +1866,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
+        tab.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
         _ = newSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
     }
@@ -1875,6 +1877,7 @@ class TabManager: ObservableObject {
         guard let selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
+        tab.clearSplitZoom()
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
@@ -2006,15 +2009,66 @@ class TabManager: ObservableObject {
 
     /// Equalize splits - not directly supported by bonsplit
     func equalizeSplits(tabId: UUID) -> Bool {
-        // Bonsplit doesn't have a built-in equalize feature
-        // This would require manually setting all divider positions to 0.5
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        var foundSplit = false
+        var allSucceeded = true
+        equalizeSplits(
+            in: tab.bonsplitController.treeSnapshot(),
+            controller: tab.bonsplitController,
+            foundSplit: &foundSplit,
+            allSucceeded: &allSucceeded
+        )
+        return foundSplit && allSucceeded
     }
 
-    /// Toggle zoom on a panel - bonsplit doesn't have zoom support
+    /// Toggle zoom on a panel.
     func toggleSplitZoom(tabId: UUID, surfaceId: UUID) -> Bool {
-        // Bonsplit doesn't have zoom support
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return tab.toggleSplitZoom(panelId: surfaceId)
+    }
+
+    /// Toggle zoom for the currently focused panel in the selected workspace.
+    @discardableResult
+    func toggleFocusedSplitZoom() -> Bool {
+        guard let tab = selectedWorkspace,
+              let focusedPanelId = tab.focusedPanelId else { return false }
+        return tab.toggleSplitZoom(panelId: focusedPanelId)
+    }
+
+    private func equalizeSplits(
+        in node: ExternalTreeNode,
+        controller: BonsplitController,
+        foundSplit: inout Bool,
+        allSucceeded: inout Bool
+    ) {
+        switch node {
+        case .pane:
+            return
+        case .split(let splitNode):
+            foundSplit = true
+            guard let splitId = UUID(uuidString: splitNode.id) else {
+                allSucceeded = false
+                return
+            }
+
+            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+                allSucceeded = false
+            }
+
+            equalizeSplits(
+                in: splitNode.first,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+            equalizeSplits(
+                in: splitNode.second,
+                controller: controller,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+        }
     }
 
     /// Close a surface/panel
@@ -2296,6 +2350,36 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    @MainActor
+    private func waitForTerminalPanelReadyForUITest(
+        tab: Workspace,
+        panelId: UUID,
+        timeoutSeconds: TimeInterval = 6.0
+    ) async -> (attached: Bool, hasSurface: Bool, firstResponder: Bool) {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var attached = false
+        var hasSurface = false
+        var firstResponder = false
+
+        while Date() < deadline {
+            guard let panel = tab.terminalPanel(for: panelId) else {
+                return (false, false, false)
+            }
+
+            panel.surface.requestBackgroundSurfaceStartIfNeeded()
+            attached = panel.hostedView.window != nil
+            hasSurface = panel.surface.surface != nil
+            firstResponder = panel.hostedView.isSurfaceViewFirstResponder()
+
+            if attached, hasSurface {
+                return (attached, hasSurface, firstResponder)
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        return (attached, hasSurface, firstResponder)
+    }
+
     private func setupUITestFocusShortcutsIfNeeded() {
         guard !didSetupUITestFocusShortcuts else { return }
         didSetupUITestFocusShortcuts = true
@@ -2347,22 +2431,21 @@ class TabManager: ObservableObject {
                     return
                 }
 
-                var readyTerminal: TerminalPanel?
-                for _ in 0..<20 {
-                    if let terminal = tab.focusedTerminalPanel,
-                       terminal.hostedView.window != nil,
-                       terminal.surface.surface != nil {
-                        readyTerminal = terminal
-                        break
-                    }
-                    try? await Task.sleep(nanoseconds: 50_000_000)
+                guard let topLeftPanelId = tab.focusedPanelId else {
+                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
+                    return
                 }
+                let initialTerminalReadiness = await self.waitForTerminalPanelReadyForUITest(
+                    tab: tab,
+                    panelId: topLeftPanelId
+                )
 
-                guard let terminal = readyTerminal else {
-                    let maybeTerminal = tab.focusedTerminalPanel
+                guard initialTerminalReadiness.attached,
+                      initialTerminalReadiness.hasSurface,
+                      let terminal = tab.terminalPanel(for: topLeftPanelId) else {
                     self.writeSplitCloseRightTestData([
-                        "preTerminalAttached": (maybeTerminal?.hostedView.window != nil) ? "1" : "0",
-                        "preTerminalSurfaceNil": (maybeTerminal?.surface.surface == nil) ? "1" : "0",
+                        "preTerminalAttached": initialTerminalReadiness.attached ? "1" : "0",
+                        "preTerminalSurfaceNil": initialTerminalReadiness.hasSurface ? "0" : "1",
                         "setupError": "Initial terminal not ready (not attached or surface nil)"
                     ], at: path)
                     return
@@ -2372,11 +2455,6 @@ class TabManager: ObservableObject {
                     "preTerminalAttached": "1",
                     "preTerminalSurfaceNil": terminal.surface.surface == nil ? "1" : "0"
                 ], at: path)
-
-                guard let topLeftPanelId = tab.focusedPanelId else {
-                    self.writeSplitCloseRightTestData(["setupError": "Missing initial focused panel"], at: path)
-                    return
-                }
 
                 if visualMode {
                     // Visual repro mode: repeat the split/close sequence many times and write
@@ -3137,8 +3215,35 @@ class TabManager: ObservableObject {
             }
 
             tab.focusPanel(exitPanelId)
+            // Keep child-exit keyboard tests deterministic across user shell configs.
+            // `exec cat` exits on a single Ctrl+D and avoids ignore-eof shell settings.
+            if let exitPanel = tab.terminalPanel(for: exitPanelId) {
+                exitPanel.sendText("exec cat\r")
+            }
+
+            var exitPanelAttachedBeforeCtrlD = false
+            var exitPanelHasSurfaceBeforeCtrlD = false
             if !useEarlyTrigger {
-                try? await Task.sleep(nanoseconds: 100_000_000)
+                let readiness = await self.waitForTerminalPanelReadyForUITest(
+                    tab: tab,
+                    panelId: exitPanelId
+                )
+                exitPanelAttachedBeforeCtrlD = readiness.attached
+                exitPanelHasSurfaceBeforeCtrlD = readiness.hasSurface
+                if !(readiness.attached && readiness.hasSurface) {
+                    write([
+                        "exitPanelAttachedBeforeCtrlD": readiness.attached ? "1" : "0",
+                        "exitPanelHasSurfaceBeforeCtrlD": readiness.hasSurface ? "1" : "0",
+                        "setupError": "Exit panel not ready for Ctrl+D (not attached or surface nil)",
+                        "done": "1",
+                    ])
+                    return
+                }
+                self.ensureFocusedTerminalFirstResponder()
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            } else if let exitPanel = tab.terminalPanel(for: exitPanelId) {
+                exitPanelAttachedBeforeCtrlD = exitPanel.hostedView.window != nil
+                exitPanelHasSurfaceBeforeCtrlD = exitPanel.surface.surface != nil
             }
 
             let focusedPanelBefore = tab.focusedPanelId?.uuidString ?? ""
@@ -3160,6 +3265,8 @@ class TabManager: ObservableObject {
                 "expectedPanelsAfter": String(expectedPanelsAfter),
                 "focusedPanelBefore": focusedPanelBefore,
                 "firstResponderPanelBefore": firstResponderPanelBefore,
+                "exitPanelAttachedBeforeCtrlD": exitPanelAttachedBeforeCtrlD ? "1" : "0",
+                "exitPanelHasSurfaceBeforeCtrlD": exitPanelHasSurfaceBeforeCtrlD ? "1" : "0",
                 "ready": "1",
                 "done": "0",
             ])
@@ -3252,12 +3359,13 @@ class TabManager: ObservableObject {
                     var hasSurfaceBeforeTrigger = false
                     if shouldWaitForSurface {
                         // Wait for the target panel to be fully attached after split churn.
-                        let readyDeadline = Date().addingTimeInterval(2.0)
+                        let readyDeadline = Date().addingTimeInterval(5.0)
                         while Date() < readyDeadline {
                             guard let panel = tab.terminalPanel(for: exitPanelId) else {
                                 write(["autoTriggerError": "missingExitPanelBeforeTrigger"])
                                 return
                             }
+                            panel.surface.requestBackgroundSurfaceStartIfNeeded()
                             attachedBeforeTrigger = panel.hostedView.window != nil
                             hasSurfaceBeforeTrigger = panel.surface.surface != nil
                             if attachedBeforeTrigger, hasSurfaceBeforeTrigger {
@@ -3273,6 +3381,10 @@ class TabManager: ObservableObject {
                         "exitPanelAttachedBeforeTrigger": attachedBeforeTrigger ? "1" : "0",
                         "exitPanelHasSurfaceBeforeTrigger": hasSurfaceBeforeTrigger ? "1" : "0",
                     ])
+                    if shouldWaitForSurface && !(attachedBeforeTrigger && hasSurfaceBeforeTrigger) {
+                        write(["autoTriggerError": "exitPanelNotReadyBeforeTrigger"])
+                        return
+                    }
 
                     guard let panel = tab.terminalPanel(for: exitPanelId) else {
                         write(["autoTriggerError": "missingExitPanelAtTrigger"])
@@ -3374,7 +3486,7 @@ extension TabManager {
             unwireClosedBrowserTracking(for: tab)
         }
 
-        tabs.removeAll(keepingCapacity: false)
+        // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
         pendingPanelTitleUpdates.removeAll()
         tabHistory.removeAll()
@@ -3387,6 +3499,10 @@ extension TabManager {
         selectionSideEffectsGeneration &+= 1
         recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
 
+        // Build the new workspace list locally to avoid intermediate @Published
+        // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
+        // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
+        var newTabs: [Workspace] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
@@ -3399,20 +3515,30 @@ extension TabManager {
             )
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
-            tabs.append(workspace)
+            newTabs.append(workspace)
         }
 
-        if tabs.isEmpty {
-            _ = addWorkspace(select: false)
+        if newTabs.isEmpty {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let fallback = Workspace(title: "Terminal 1", portOrdinal: ordinal)
+            wireClosedBrowserTracking(for: fallback)
+            newTabs.append(fallback)
         }
 
-        selectedTabId = nil
+        // Determine selection before mutating @Published properties.
+        let newSelectedId: UUID?
         if let selectedWorkspaceIndex = snapshot.selectedWorkspaceIndex,
-           tabs.indices.contains(selectedWorkspaceIndex) {
-            selectedTabId = tabs[selectedWorkspaceIndex].id
+           newTabs.indices.contains(selectedWorkspaceIndex) {
+            newSelectedId = newTabs[selectedWorkspaceIndex].id
         } else {
-            selectedTabId = tabs.first?.id
+            newSelectedId = newTabs.first?.id
         }
+
+        // Single atomic assignment of @Published properties so SwiftUI observers
+        // never see an intermediate state with empty tabs or nil selection.
+        tabs = newTabs
+        selectedTabId = newSelectedId
 
         if let selectedTabId {
             NotificationCenter.default.post(

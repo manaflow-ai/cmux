@@ -227,6 +227,26 @@ enum WindowGlassEffect {
     }
 }
 
+/// CALayer-backed titlebar background. Uses layer-level opacity (not per-pixel alpha)
+/// to match how the terminal's Metal surface composites its background.
+struct TitlebarLayerBackground: NSViewRepresentable {
+    var backgroundColor: NSColor
+    var opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
@@ -633,9 +653,8 @@ final class FileDropOverlayView: NSView {
               let themeFrame = contentView.superview else { return "-" }
 
         let pointInTheme = themeFrame.convert(currentEvent.locationInWindow, from: nil)
-        isHidden = true
-        defer { isHidden = false }
-
+        // Don't toggle isHidden here — it triggers setNeedsDisplay which can
+        // exceed AppKit's display-pass limit during cursor-update display cycles.
         guard let hit = themeFrame.hitTest(pointInTheme) else { return "nil" }
         var chain: [String] = []
         var current: NSView? = hit
@@ -1385,6 +1404,7 @@ struct ContentView: View {
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
+        static let workspaceHasSplits = "workspace.hasSplits"
 
         static let hasFocusedPanel = "panel.hasFocus"
         static let panelName = "panel.name"
@@ -1830,19 +1850,11 @@ struct ContentView: View {
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
     @AppStorage("debugTitlebarLeadingExtra") private var debugTitlebarLeadingExtra: Double = 0
 
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
-    private var fakeTitlebarBackground: Color {
-        _ = titlebarThemeGeneration
-        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
-        let configuredOpacity = CGFloat(max(0, min(1, GhosttyApp.shared.defaultBackgroundOpacity)))
-        let minimumChromeOpacity: CGFloat = ghosttyBackground.isLightColor ? 0.90 : 0.84
-        let chromeOpacity = max(minimumChromeOpacity, configuredOpacity)
-        return Color(nsColor: ghosttyBackground.withAlphaComponent(chromeOpacity))
-    }
     private var fakeTitlebarTextColor: Color {
         _ = titlebarThemeGeneration
         let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
@@ -1901,7 +1913,17 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
-        .background(fakeTitlebarBackground)
+        .background({
+            // The terminal area has two stacked semi-transparent layers: the Bonsplit
+            // container chrome background plus Ghostty's own Metal-rendered background.
+            // Compute the effective composited opacity so the titlebar matches visually.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+            return TitlebarLayerBackground(
+                backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                opacity: effective
+            )
+        }())
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(Color(nsColor: .separatorColor))
@@ -2035,7 +2057,7 @@ struct ContentView: View {
                             .padding(.top, 4)
                     }
                 }
-                .frame(minWidth: 800, minHeight: 600)
+                .frame(minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth), minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight))
                 .background(Color.clear)
         )
 
@@ -2056,6 +2078,50 @@ struct ContentView: View {
                 lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
             }
             updateTitlebarText()
+
+            // Startup recovery (#399): if session restore or a race condition leaves the
+            // view in a broken state (empty tabs, no selection, unmounted workspaces),
+            // detect and recover after a short delay.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak tabManager] in
+                guard let tabManager else { return }
+                var didRecover = false
+
+                // Ensure there is at least one workspace.
+                if tabManager.tabs.isEmpty {
+                    tabManager.addWorkspace()
+                    didRecover = true
+                }
+
+                // Ensure selectedTabId points to an existing workspace.
+                if tabManager.selectedTabId == nil || !tabManager.tabs.contains(where: { $0.id == tabManager.selectedTabId }) {
+                    tabManager.selectedTabId = tabManager.tabs.first?.id
+                    didRecover = true
+                }
+
+                // Ensure mountedWorkspaceIds is populated.
+                if mountedWorkspaceIds.isEmpty || !mountedWorkspaceIds.contains(where: { id in tabManager.tabs.contains { $0.id == id } }) {
+                    reconcileMountedWorkspaceIds()
+                    didRecover = true
+                }
+
+                // Ensure sidebar selection is valid.
+                if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+                    selectedTabIds = [selectedId]
+                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    didRecover = true
+                }
+
+                if didRecover {
+#if DEBUG
+                    dlog("startup.recovery tabCount=\(tabManager.tabs.count) selected=\(tabManager.selectedTabId?.uuidString.prefix(8) ?? "nil") mounted=\(mountedWorkspaceIds.count)")
+#endif
+                    sentryBreadcrumb("startup.recovery", data: [
+                        "tabCount": tabManager.tabs.count,
+                        "selectedTabId": tabManager.selectedTabId?.uuidString ?? "nil",
+                        "mountedCount": mountedWorkspaceIds.count
+                    ])
+                }
+            }
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
@@ -2390,23 +2456,31 @@ struct ContentView: View {
             // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
             // or incorrectly tinted SwiftUI content. Keep native window rendering there so
             // Ghostty theme colors remain authoritative.
-            if sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
+            let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
+            let shouldApplyWindowGlassFallback =
+                sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
                 && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable {
+                && !WindowGlassEffect.isAvailable
+            let shouldForceTransparentHosting =
+                shouldApplyWindowGlassFallback || currentThemeBackground.alphaComponent < 0.999
+
+            if shouldForceTransparentHosting {
                 window.isOpaque = false
-                window.backgroundColor = .clear
-                // Configure contentView and all subviews for transparency
+                // Keep the window clear whenever translucency is active. Relying only on
+                // terminal focus-driven updates can leave stale opaque window fills.
+                window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+                // Configure contentView hierarchy for transparency.
                 if let contentView = window.contentView {
-                    contentView.wantsLayer = true
-                    contentView.layer?.backgroundColor = NSColor.clear.cgColor
-                    contentView.layer?.isOpaque = false
-                    // Make SwiftUI hosting view transparent
-                    for subview in contentView.subviews {
-                        subview.wantsLayer = true
-                        subview.layer?.backgroundColor = NSColor.clear.cgColor
-                        subview.layer?.isOpaque = false
-                    }
+                    makeViewHierarchyTransparent(contentView)
                 }
+            } else {
+                // Browser-focused workspaces may not have an active terminal panel to refresh
+                // the NSWindow background. Keep opaque theme changes applied here as well.
+                window.backgroundColor = currentThemeBackground
+                window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
+            }
+
+            if shouldApplyWindowGlassFallback {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
@@ -2472,6 +2546,16 @@ struct ContentView: View {
     private func addTab() {
         tabManager.addTab()
         sidebarSelectionState.selection = .tabs
+    }
+
+    private func makeViewHierarchyTransparent(_ root: NSView) {
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+            view.layer?.isOpaque = false
+            stack.append(contentsOf: view.subviews)
+        }
     }
 
     private func updateWindowGlassTint() {
@@ -3279,6 +3363,8 @@ struct ContentView: View {
             return .newTab
         case "palette.newWindow":
             return .newWindow
+        case "palette.openFolder":
+            return .openFolder
         case "palette.newTerminalTab":
             return .newSurface
         case "palette.newBrowserTab":
@@ -3315,6 +3401,10 @@ struct ContentView: View {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.toggleSplitZoom":
+            return .toggleSplitZoom
+        case "palette.triggerFlash":
+            return .triggerFlash
         default:
             return nil
         }
@@ -3372,6 +3462,10 @@ struct ContentView: View {
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasSplits,
+                workspace.bonsplitController.allPaneIds.count > 1
             )
         }
 
@@ -3455,6 +3549,32 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.installCLI",
+                title: constant("Shell Command: Install 'cmux' in PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["install", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.uninstallCLI",
+                title: constant("Shell Command: Uninstall 'cmux' from PATH"),
+                subtitle: constant("CLI"),
+                keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
+                when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openFolder",
+                title: constant("Open Folder…"),
+                subtitle: constant("Workspace"),
+                keywords: ["open", "folder", "repository", "project", "directory"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant("New Tab (Terminal)"),
                 subtitle: constant("Tab"),
@@ -3520,6 +3640,14 @@ struct ContentView: View {
                 title: constant("Toggle Sidebar"),
                 subtitle: constant("Layout"),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.triggerFlash",
+                title: constant("Flash Focused Panel"),
+                subtitle: constant("View"),
+                keywords: ["flash", "highlight", "focus", "panel"]
             )
         )
         contributions.append(
@@ -3855,6 +3983,30 @@ struct ContentView: View {
         }
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebStop",
+                title: constant("Stop VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "stop", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.vscodeServeWebRestart",
+                title: constant("Restart VS Code Inline Server"),
+                subtitle: terminalPanelSubtitle,
+                keywords: ["vscode", "inline", "serve-web", "restart", "server"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.terminalOpenTargetAvailable(.vscode))
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.terminalFind",
                 title: constant("Find…"),
                 subtitle: terminalPanelSubtitle,
@@ -3938,6 +4090,27 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleSplitZoom",
+                title: constant("Toggle Pane Zoom"),
+                subtitle: constant("Terminal Layout"),
+                keywords: ["terminal", "pane", "split", "zoom", "maximize"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal) &&
+                    context.bool(CommandPaletteContextKeys.workspaceHasSplits)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.equalizeSplits",
+                title: constant("Equalize Splits"),
+                subtitle: workspaceSubtitle,
+                keywords: ["split", "equalize", "balance", "divider", "layout"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
 
         return contributions
     }
@@ -3946,8 +4119,28 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
         }
+        registry.register(commandId: "palette.openFolder") {
+            // Defer so the command palette dismisses before the modal sheet appears.
+            DispatchQueue.main.async {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.title = "Open Folder"
+                panel.prompt = "Open"
+                if panel.runModal() == .OK, let url = panel.url {
+                    tabManager.addWorkspace(workingDirectory: url.path)
+                }
+            }
+        }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)
+        }
+        registry.register(commandId: "palette.installCLI") {
+            AppDelegate.shared?.installCmuxCLIInPath(nil)
+        }
+        registry.register(commandId: "palette.uninstallCLI") {
+            AppDelegate.shared?.uninstallCmuxCLIInPath(nil)
         }
         registry.register(commandId: "palette.newTerminalTab") {
             tabManager.newSurface()
@@ -3984,6 +4177,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.triggerFlash") {
+            tabManager.triggerFocusFlash()
         }
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
@@ -4153,6 +4349,14 @@ struct ContentView: View {
                 }
             }
         }
+        registry.register(commandId: "palette.vscodeServeWebStop") {
+            stopInlineVSCodeServeWeb()
+        }
+        registry.register(commandId: "palette.vscodeServeWebRestart") {
+            if !restartInlineVSCodeServeWeb() {
+                NSSound.beep()
+            }
+        }
         registry.register(commandId: "palette.terminalFind") {
             tabManager.startSearch()
         }
@@ -4179,6 +4383,18 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
             _ = tabManager.createBrowserSplit(direction: .down)
+        }
+        registry.register(commandId: "palette.toggleSplitZoom") {
+            if !tabManager.toggleFocusedSplitZoom() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.equalizeSplits") {
+            guard let workspace = tabManager.selectedWorkspace,
+                  tabManager.equalizeSplits(tabId: workspace.id) else {
+                NSSound.beep()
+                return
+            }
         }
     }
 
@@ -4774,12 +4990,62 @@ struct ContentView: View {
         case .finder:
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: directoryURL.path)
             return true
+        case .vscode:
+            return openFocusedDirectoryInInlineVSCode(directoryURL)
         default:
             guard let applicationURL = target.applicationURL() else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
             NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
             return true
         }
+    }
+
+    private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL(),
+              let workspace = tabManager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            return false
+        }
+        let sourceTabId = workspace.id
+        let tabManager = tabManager
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: directoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+            guard tabManager.newBrowserSplit(
+                tabId: sourceTabId,
+                fromPanelId: sourcePanelId,
+                orientation: SplitDirection.right.orientation,
+                insertFirst: SplitDirection.right.insertFirst,
+                url: openFolderURL,
+                focus: true
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+        return true
+    }
+
+    private func stopInlineVSCodeServeWeb() {
+        VSCodeServeWebController.shared.stop()
+    }
+
+    private func restartInlineVSCodeServeWeb() -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscode.applicationURL() else {
+            return false
+        }
+        VSCodeServeWebController.shared.restart(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            if serveWebURL == nil {
+                NSSound.beep()
+            }
+        }
+        return true
     }
 
     private func focusedTerminalDirectoryURL() -> URL? {
@@ -6322,9 +6588,43 @@ private struct TabItemView: View {
 
     var body: some View {
         let latestNotificationSubtitle = latestNotificationText
-        let compactBranchDirectoryRow = branchDirectoryRow
-        let branchDirectoryLines = verticalBranchDirectoryLines
+        let orderedPanelIds: [UUID]? = (sidebarShowBranchDirectory || sidebarShowPullRequest)
+            ? tab.sidebarOrderedPanelIds()
+            : nil
+        let compactGitBranchSummaryText: String? = {
+            guard sidebarShowBranchDirectory,
+                  !sidebarBranchVerticalLayout,
+                  sidebarShowGitBranch,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
+        }()
+        let compactDirectorySummaryText: String? = {
+            guard sidebarShowBranchDirectory,
+                  !sidebarBranchVerticalLayout,
+                  let orderedPanelIds else {
+                return nil
+            }
+            return directorySummaryText(orderedPanelIds: orderedPanelIds)
+        }()
+        let compactBranchDirectoryRow = branchDirectoryRow(
+            gitSummary: compactGitBranchSummaryText,
+            directorySummary: compactDirectorySummaryText
+        )
+        let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
+            guard sidebarShowBranchDirectory,
+                  sidebarBranchVerticalLayout,
+                  let orderedPanelIds else {
+                return []
+            }
+            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
+        }()
         let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
+        let pullRequestRows: [PullRequestDisplay] = {
+            guard sidebarShowPullRequest, let orderedPanelIds else { return [] }
+            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
+        }()
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -6501,7 +6801,7 @@ private struct TabItemView: View {
                     }
                 } else if let dirRow = compactBranchDirectoryRow {
                     HStack(spacing: 3) {
-                        if sidebarShowGitBranch && gitBranchSummaryText != nil && sidebarShowGitBranchIcon {
+                        if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
                                 .font(.system(size: 9))
                                 .foregroundColor(activeSecondaryColor(0.6))
@@ -6516,9 +6816,9 @@ private struct TabItemView: View {
             }
 
             // Pull request rows
-            if sidebarShowPullRequest, !pullRequestDisplays.isEmpty {
+            if sidebarShowPullRequest, !pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
-                    ForEach(pullRequestDisplays) { pullRequest in
+                    ForEach(pullRequestRows) { pullRequest in
                         Button(action: {
                             openPullRequestLink(pullRequest.url)
                         }) {
@@ -6684,7 +6984,7 @@ private struct TabItemView: View {
                 }
             }
 
-            Menu("Tab Color") {
+            Menu("Workspace Color") {
                 if tab.customColor != nil {
                     Button {
                         applyTabColor(nil, targetIds: targetIds)
@@ -7027,37 +7327,34 @@ private struct TabItemView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private var branchDirectoryRow: String? {
+    private func branchDirectoryRow(
+        gitSummary: String?,
+        directorySummary: String?
+    ) -> String? {
         var parts: [String] = []
 
-        // Git branch (if enabled and available)
-        if sidebarShowGitBranch, let gitSummary = gitBranchSummaryText {
+        if let gitSummary {
             parts.append(gitSummary)
         }
 
-        // Directory summary
-        if let dirs = directorySummaryText {
-            parts.append(dirs)
+        if let directorySummary {
+            parts.append(directorySummary)
         }
 
         let result = parts.joined(separator: " · ")
         return result.isEmpty ? nil : result
     }
 
-    private var gitBranchSummaryText: String? {
-        let lines = gitBranchSummaryLines
+    private func gitBranchSummaryText(orderedPanelIds: [UUID]) -> String? {
+        let lines = gitBranchSummaryLines(orderedPanelIds: orderedPanelIds)
         guard !lines.isEmpty else { return nil }
         return lines.joined(separator: " | ")
     }
 
-    private var gitBranchSummaryLines: [String] {
-        tab.sidebarGitBranchesInDisplayOrder().map { branch in
+    private func gitBranchSummaryLines(orderedPanelIds: [UUID]) -> [String] {
+        tab.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map { branch in
             "\(branch.branch)\(branch.isDirty ? "*" : "")"
         }
-    }
-
-    private var verticalBranchDirectoryEntries: [SidebarBranchOrdering.BranchDirectoryEntry] {
-        tab.sidebarBranchDirectoryEntriesInDisplayOrder()
     }
 
     private struct VerticalBranchDirectoryLine {
@@ -7065,9 +7362,10 @@ private struct TabItemView: View {
         let directory: String?
     }
 
-    private var verticalBranchDirectoryLines: [VerticalBranchDirectoryLine] {
+    private func verticalBranchDirectoryLines(orderedPanelIds: [UUID]) -> [VerticalBranchDirectoryLine] {
+        let entries = tab.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds)
         let home = SidebarPathFormatter.homeDirectoryPath
-        return verticalBranchDirectoryEntries.compactMap { entry in
+        return entries.compactMap { entry in
             let branchText: String? = {
                 guard sidebarShowGitBranch, let branch = entry.branch else { return nil }
                 return "\(branch)\(entry.isDirty ? "*" : "")"
@@ -7092,12 +7390,12 @@ private struct TabItemView: View {
         }
     }
 
-    private var directorySummaryText: String? {
+    private func directorySummaryText(orderedPanelIds: [UUID]) -> String? {
         guard !tab.panels.isEmpty else { return nil }
         let home = SidebarPathFormatter.homeDirectoryPath
         var seen: Set<String> = []
         var entries: [String] = []
-        for panelId in tab.sidebarOrderedPanelIds() {
+        for panelId in orderedPanelIds {
             let directory = tab.panelDirectories[panelId] ?? tab.currentDirectory
             let shortened = SidebarPathFormatter.shortenedPath(directory, homeDirectoryPath: home)
             guard !shortened.isEmpty else { continue }
@@ -7116,8 +7414,8 @@ private struct TabItemView: View {
         let status: SidebarPullRequestStatus
     }
 
-    private var pullRequestDisplays: [PullRequestDisplay] {
-        tab.sidebarPullRequestsInDisplayOrder().map { pullRequest in
+    private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [PullRequestDisplay] {
+        tab.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds).map { pullRequest in
             PullRequestDisplay(
                 id: "\(pullRequest.label.lowercased())#\(pullRequest.number)|\(pullRequest.url.absoluteString)",
                 number: pullRequest.number,
@@ -7293,7 +7591,7 @@ private struct TabItemView: View {
 
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
-        alert.messageText = "Custom Tab Color"
+        alert.messageText = "Custom Workspace Color"
         alert.informativeText = "Enter a hex color in the format #RRGGBB."
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
@@ -7449,6 +7747,11 @@ private struct SidebarMetadataEntryRow: View {
     }
 
     private var foregroundColor: Color {
+        if isActive,
+           let raw = entry.color,
+           Color(hex: raw) != nil {
+            return Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+        }
         if let raw = entry.color, let explicit = Color(hex: raw) {
             return explicit
         }
@@ -8826,18 +9129,20 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
 }
 
 extension NSColor {
-    func hexString() -> String {
+    func hexString(includeAlpha: Bool = false) -> String {
         let color = usingColorSpace(.sRGB) ?? self
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
         color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        return String(
-            format: "#%02X%02X%02X",
-            min(255, max(0, Int(red * 255))),
-            min(255, max(0, Int(green * 255))),
-            min(255, max(0, Int(blue * 255)))
-        )
+        let redByte = min(255, max(0, Int(red * 255)))
+        let greenByte = min(255, max(0, Int(green * 255)))
+        let blueByte = min(255, max(0, Int(blue * 255)))
+        if includeAlpha {
+            let alphaByte = min(255, max(0, Int(alpha * 255)))
+            return String(format: "#%02X%02X%02X%02X", redByte, greenByte, blueByte, alphaByte)
+        }
+        return String(format: "#%02X%02X%02X", redByte, greenByte, blueByte)
     }
 }

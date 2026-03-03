@@ -4,10 +4,58 @@ import WebKit
 import AppKit
 import Bonsplit
 
+enum GhosttyBackgroundTheme {
+    static func clampedOpacity(_ opacity: Double) -> CGFloat {
+        CGFloat(max(0.0, min(1.0, opacity)))
+    }
+
+    static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    }
+
+    static func color(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let userInfo = notification?.userInfo
+        let backgroundColor =
+            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? fallbackColor
+
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = fallbackOpacity
+        }
+
+        return color(backgroundColor: backgroundColor, opacity: opacity)
+    }
+
+    static func color(from notification: Notification?) -> NSColor {
+        color(
+            from: notification,
+            fallbackColor: GhosttyApp.shared.defaultBackgroundColor,
+            fallbackOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func currentColor() -> NSColor {
+        color(
+            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+}
+
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
     case bing
+    case kagi
 
     var id: String { rawValue }
 
@@ -16,6 +64,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         case .google: return "Google"
         case .duckduckgo: return "DuckDuckGo"
         case .bing: return "Bing"
+        case .kagi: return "Kagi"
         }
     }
 
@@ -31,6 +80,8 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
             components = URLComponents(string: "https://duckduckgo.com/")
         case .bing:
             components = URLComponents(string: "https://www.bing.com/search")
+        case .kagi:
+            components = URLComponents(string: "https://kagi.com/search")
         }
 
         components?.queryItems = [
@@ -135,6 +186,8 @@ enum BrowserLinkOpenSettings {
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
+    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
+    static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
@@ -175,6 +228,38 @@ enum BrowserLinkOpenSettings {
             .filter { !$0.isEmpty }
     }
 
+    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+
+    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        shouldOpenExternally(url.absoluteString, defaults: defaults)
+    }
+
+    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
+        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return false }
+
+        for rawPattern in externalOpenPatterns(defaults: defaults) {
+            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
+            if isRegex {
+                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
+                let range = NSRange(target.startIndex..<target.endIndex, in: target)
+                if regex.firstMatch(in: target, options: [], range: range) != nil {
+                    return true
+                }
+            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
+                return true
+            }
+        }
+
+        return false
+    }
+
     /// Check whether a hostname matches the configured whitelist.
     /// Empty whitelist means "allow all" (no filtering).
     /// Supports exact match and wildcard prefix (`*.example.com`).
@@ -212,6 +297,19 @@ enum BrowserLinkOpenSettings {
             return host == suffix || host.hasSuffix(".\(suffix)")
         }
         return host == pattern
+    }
+
+    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
+        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.lowercased().hasPrefix("re:") {
+            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !regexPattern.isEmpty else { return nil }
+            return (isRegex: true, value: regexPattern)
+        }
+
+        return (isRegex: false, value: trimmed)
     }
 }
 
@@ -390,11 +488,35 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     return preparedRequest
 }
 
+func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
+    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
+    let path = fileURL.path
+    var isDirectory: ObjCBool = false
+    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return fileURL
+    }
+
+    let parent = fileURL.deletingLastPathComponent()
+    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
+    return parent
+}
+
+@discardableResult
+func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+    guard let url = request.url else { return nil }
+    if url.isFileURL {
+        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+    }
+    return webView.load(browserPreparedNavigationRequest(request))
+}
+
 private let browserEmbeddedNavigationSchemes: Set<String> = [
     "about",
     "applewebdata",
     "blob",
     "data",
+    "file",
     "http",
     "https",
     "javascript",
@@ -1030,6 +1152,12 @@ actor BrowserSearchSuggestionService {
                 URLQueryItem(name: "query", value: query),
             ]
             url = c?.url
+        case .kagi:
+            var c = URLComponents(string: "https://kagi.com/api/autosuggest")
+            c?.queryItems = [
+                URLQueryItem(name: "q", value: query),
+            ]
+            url = c?.url
         }
 
         guard let url else { return [] }
@@ -1054,7 +1182,7 @@ actor BrowserSearchSuggestionService {
         }
 
         switch engine {
-        case .google, .bing:
+        case .google, .bing, .kagi:
             return parseOSJSON(data: data)
         case .duckduckgo:
             return parseDuckDuckGo(data: data)
@@ -1108,6 +1236,101 @@ private enum BrowserInsecureHTTPNavigationIntent {
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+
+    static let telemetryHookBootstrapScriptSource = """
+    (() => {
+      if (window.__cmuxHooksInstalled) return true;
+      window.__cmuxHooksInstalled = true;
+
+      window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
+      const __pushConsole = (level, args) => {
+        try {
+          const text = Array.from(args || []).map((x) => {
+            if (typeof x === 'string') return x;
+            try { return JSON.stringify(x); } catch (_) { return String(x); }
+          }).join(' ');
+          window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
+          if (window.__cmuxConsoleLog.length > 512) {
+            window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
+          }
+        } catch (_) {}
+      };
+
+      const methods = ['log', 'info', 'warn', 'error', 'debug'];
+      for (const m of methods) {
+        const orig = (window.console && window.console[m]) ? window.console[m].bind(window.console) : null;
+        window.console[m] = function(...args) {
+          __pushConsole(m, args);
+          if (orig) return orig(...args);
+        };
+      }
+
+      window.__cmuxErrorLog = window.__cmuxErrorLog || [];
+      window.addEventListener('error', (ev) => {
+        try {
+          const message = String((ev && ev.message) || '');
+          const source = String((ev && ev.filename) || '');
+          const line = Number((ev && ev.lineno) || 0);
+          const col = Number((ev && ev.colno) || 0);
+          window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
+          if (window.__cmuxErrorLog.length > 512) {
+            window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
+          }
+        } catch (_) {}
+      });
+      window.addEventListener('unhandledrejection', (ev) => {
+        try {
+          const reason = ev && ev.reason;
+          const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
+          window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
+          if (window.__cmuxErrorLog.length > 512) {
+            window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
+          }
+        } catch (_) {}
+      });
+
+      return true;
+    })()
+    """
+
+    static let dialogTelemetryHookBootstrapScriptSource = """
+    (() => {
+      if (window.__cmuxDialogHooksInstalled) return true;
+      window.__cmuxDialogHooksInstalled = true;
+
+      window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
+      window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
+      const __pushDialog = (type, message, defaultText) => {
+        window.__cmuxDialogQueue.push({
+          type,
+          message: String(message || ''),
+          default_text: defaultText == null ? null : String(defaultText),
+          timestamp_ms: Date.now()
+        });
+        if (window.__cmuxDialogQueue.length > 128) {
+          window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
+        }
+      };
+
+      window.alert = function(message) {
+        __pushDialog('alert', message, null);
+      };
+      window.confirm = function(message) {
+        __pushDialog('confirm', message, null);
+        return !!window.__cmuxDialogDefaults.confirm;
+      };
+      window.prompt = function(message, defaultValue) {
+        __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
+        const v = window.__cmuxDialogDefaults.prompt;
+        if (v === null || v === undefined) {
+          return defaultValue == null ? '' : String(defaultValue);
+        }
+        return String(v);
+      };
+
+      return true;
+    })()
+    """
 
     private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
         CGFloat(max(0.0, min(1.0, opacity)))
@@ -1280,6 +1503,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
 
         // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -1292,7 +1523,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -1509,7 +1740,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
             }
             .store(in: &cancellables)
     }
@@ -1788,7 +2019,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        webView.load(browserPreparedNavigationRequest(request))
+        browserLoadRequest(request, in: webView)
     }
 
     /// Navigate with smart URL/search detection
@@ -1932,6 +2163,9 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
 
     if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
+            return url
+        }
+        if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
             return url
         }
         return nil
@@ -2278,7 +2512,7 @@ extension BrowserPanel {
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
@@ -2962,7 +3196,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if shouldOpenInNewTab {
+            if shouldOpenInNewTab || navigationAction.targetFrame == nil {
                 intent = .newTab
             } else {
                 intent = .currentTab
@@ -3005,14 +3239,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() without explicit new-tab intent — navigate in-place.
+        // target=_blank or window.open() — open in a new tab.
         if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
+           let url = navigationAction.request.url {
 #if DEBUG
-            let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
-            dlog("browser.nav.decidePolicy.action kind=loadInPlaceFromNilTarget url=\(targetURL)")
+            dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")
 #endif
-            webView.load(navigationAction.request)
+            openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
@@ -3119,20 +3352,16 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click and middle-click open in a new tab; regular target=_blank navigates in-place.
+    /// createWebViewWith is only called when the page requests a new window
+    /// (window.open(), target=_blank, etc.). Always open in a new tab.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
-            navigationType: navigationAction.navigationType,
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber,
-            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
-        )
+        // createWebViewWith is only called when the page requests a new window,
+        // so always treat as new-tab intent regardless of modifiers/button.
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -3141,8 +3370,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
-            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
-            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+            "openInNewTab=1"
         )
 #endif
         if let url = navigationAction.request.url {
@@ -3157,25 +3385,19 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
                 return nil
             }
             if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent =
-                    shouldOpenInNewTab ? .newTab : .currentTab
+                let intent: BrowserInsecureHTTPNavigationIntent = .newTab
 #if DEBUG
                 dlog(
-                    "browser.nav.createWebView.action kind=requestNavigation intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                    "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
                     "url=\(url.absoluteString)"
                 )
 #endif
                 requestNavigation(navigationAction.request, intent)
-            } else if shouldOpenInNewTab {
+            } else {
 #if DEBUG
                 dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
 #endif
                 openInNewTab?(url)
-            } else {
-#if DEBUG
-                dlog("browser.nav.createWebView.action kind=loadInPlace url=\(url.absoluteString)")
-#endif
-                webView.load(navigationAction.request)
             }
         }
         return nil

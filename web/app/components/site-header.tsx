@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import posthog from "posthog-js";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
+import { GitHubStarsBadge } from "./github-stars";
 import {
   useMobileDrawer,
   MobileDrawerOverlay,
@@ -55,8 +55,9 @@ export function SiteHeader({
             <NavLinks />
           </nav>
 
-          {/* Right: Download + theme + mobile */}
-          <div className="flex flex-1 items-center justify-end gap-1 min-w-0">
+          {/* Right: GitHub stars + Download + theme + mobile */}
+          <div className="flex flex-1 items-center justify-end gap-3 min-w-0">
+            <GitHubStarsBadge />
             <div className="hidden md:block">
               <DownloadButton size="sm" location="navbar" />
             </div>
@@ -133,15 +134,7 @@ export function SiteHeader({
           >
             Community
           </Link>
-          <a
-            href="https://github.com/manaflow-ai/cmux"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={() => posthog.capture("cmuxterm_github_clicked", { location: "mobile_drawer" })}
-            className="hover:text-foreground transition-colors py-1"
-          >
-            GitHub
-          </a>
+          <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />
           </div>

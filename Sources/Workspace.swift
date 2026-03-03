@@ -998,7 +998,19 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
-        bonsplitAppearance(from: config.backgroundColor)
+        bonsplitAppearance(
+            from: config.backgroundColor,
+            backgroundOpacity: config.backgroundOpacity
+        )
+    }
+
+    static func bonsplitChromeHex(backgroundColor: NSColor, backgroundOpacity: Double) -> String {
+        let themedColor = GhosttyBackgroundTheme.color(
+            backgroundColor: backgroundColor,
+            opacity: backgroundOpacity
+        )
+        let includeAlpha = themedColor.alphaComponent < 0.999
+        return themedColor.hexString(includeAlpha: includeAlpha)
     }
 
     nonisolated static func resolvedChromeColors(
@@ -1007,42 +1019,62 @@ final class Workspace: Identifiable, ObservableObject {
         .init(backgroundHex: backgroundColor.hexString())
     }
 
-    private static func bonsplitAppearance(from backgroundColor: NSColor) -> BonsplitConfiguration.Appearance {
-        let chromeColors = resolvedChromeColors(from: backgroundColor)
-        return BonsplitConfiguration.Appearance(
+    private static func bonsplitAppearance(
+        from backgroundColor: NSColor,
+        backgroundOpacity: Double
+    ) -> BonsplitConfiguration.Appearance {
+        BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: chromeColors
+            chromeColors: .init(
+                backgroundHex: Self.bonsplitChromeHex(
+                    backgroundColor: backgroundColor,
+                    backgroundOpacity: backgroundOpacity
+                )
+            )
         )
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
-        applyGhosttyChrome(backgroundColor: config.backgroundColor, reason: reason)
+        applyGhosttyChrome(
+            backgroundColor: config.backgroundColor,
+            backgroundOpacity: config.backgroundOpacity,
+            reason: reason
+        )
     }
 
-    func applyGhosttyChrome(backgroundColor: NSColor, reason: String = "unspecified") {
+    func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
+        let nextHex = Self.bonsplitChromeHex(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity
+        )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
-        let nextChromeColors = Self.resolvedChromeColors(from: backgroundColor)
-        let isNoOp = currentChromeColors.backgroundHex == nextChromeColors.backgroundHex &&
-            currentChromeColors.borderHex == nextChromeColors.borderHex
+        let isNoOp = currentChromeColors.backgroundHex == nextHex
 
         if GhosttyApp.shared.backgroundLogEnabled {
             let currentBackgroundHex = currentChromeColors.backgroundHex ?? "nil"
-            let nextBackgroundHex = nextChromeColors.backgroundHex ?? "nil"
             GhosttyApp.shared.logBackground(
-                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) nextBg=\(nextBackgroundHex) currentBorder=\(currentChromeColors.borderHex ?? "nil") nextBorder=\(nextChromeColors.borderHex ?? "nil") noop=\(isNoOp)"
+                "theme apply workspace=\(id.uuidString) reason=\(reason) currentBg=\(currentBackgroundHex) nextBg=\(nextHex) noop=\(isNoOp)"
             )
         }
 
         if isNoOp {
             return
         }
-        bonsplitController.configuration.appearance.chromeColors = nextChromeColors
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") resultingBorder=\(bonsplitController.configuration.appearance.chromeColors.borderHex ?? "nil")"
             )
         }
+    }
+
+    func applyGhosttyChrome(backgroundColor: NSColor, reason: String = "unspecified") {
+        applyGhosttyChrome(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundColor.alphaComponent,
+            reason: reason
+        )
     }
 
     init(
@@ -1067,7 +1099,10 @@ final class Workspace: Identifiable, ObservableObject {
         // and keep split entry instantaneous.
         // Avoid re-reading/parsing Ghostty config on every new workspace; this hot path
         // runs for socket/CLI workspace creation and can cause visible typing lag.
-        let appearance = Self.bonsplitAppearance(from: GhosttyApp.shared.defaultBackgroundColor)
+        let appearance = Self.bonsplitAppearance(
+            from: GhosttyApp.shared.defaultBackgroundColor,
+            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
         let config = BonsplitConfiguration(
             allowSplits: true,
             allowCloseTabs: true,
@@ -1080,6 +1115,7 @@ final class Workspace: Identifiable, ObservableObject {
             appearance: appearance
         )
         self.bonsplitController = BonsplitController(configuration: config)
+        bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
@@ -1621,19 +1657,25 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+    func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
         SidebarBranchOrdering
             .orderedUniqueBranches(
-                orderedPanelIds: sidebarOrderedPanelIds(),
+                orderedPanelIds: orderedPanelIds,
                 panelBranches: panelGitBranches,
                 fallbackBranch: gitBranch
             )
             .map { SidebarGitBranchState(branch: $0.name, isDirty: $0.isDirty) }
     }
 
-    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+    func sidebarGitBranchesInDisplayOrder() -> [SidebarGitBranchState] {
+        sidebarGitBranchesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    func sidebarBranchDirectoryEntriesInDisplayOrder(
+        orderedPanelIds: [UUID]
+    ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
         SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
-            orderedPanelIds: sidebarOrderedPanelIds(),
+            orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
             panelDirectories: panelDirectories,
             defaultDirectory: currentDirectory,
@@ -1641,12 +1683,20 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+    func sidebarBranchDirectoryEntriesInDisplayOrder() -> [SidebarBranchOrdering.BranchDirectoryEntry] {
+        sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
+    func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
         SidebarBranchOrdering.orderedUniquePullRequests(
-            orderedPanelIds: sidebarOrderedPanelIds(),
+            orderedPanelIds: orderedPanelIds,
             panelPullRequests: panelPullRequests,
             fallbackPullRequest: pullRequest
         )
+    }
+
+    func sidebarPullRequestsInDisplayOrder() -> [SidebarPullRequestState] {
+        sidebarPullRequestsInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
@@ -2900,6 +2950,37 @@ final class Workspace: Identifiable, ObservableObject {
         return newTerminalSurface(inPane: focusedPaneId, focus: focus)
     }
 
+    @discardableResult
+    func clearSplitZoom() -> Bool {
+        bonsplitController.clearPaneZoom()
+    }
+
+    @discardableResult
+    func toggleSplitZoom(panelId: UUID) -> Bool {
+        guard let paneId = paneId(forPanelId: panelId) else { return false }
+        guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
+        focusPanel(panelId)
+        return true
+    }
+
+    // MARK: - Context Menu Shortcuts
+
+    static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {
+        var shortcuts: [TabContextAction: KeyboardShortcut] = [:]
+        let mappings: [(TabContextAction, KeyboardShortcutSettings.Action)] = [
+            (.rename, .renameTab),
+            (.toggleZoom, .toggleSplitZoom),
+            (.newTerminalToRight, .newSurface),
+        ]
+        for (contextAction, settingsAction) in mappings {
+            let stored = KeyboardShortcutSettings.shortcut(for: settingsAction)
+            if let key = stored.keyEquivalent {
+                shortcuts[contextAction] = KeyboardShortcut(key, modifiers: stored.eventModifiers)
+            }
+        }
+        return shortcuts
+    }
+
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
@@ -3079,10 +3160,14 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             hostedView.reconcileGeometryNow()
-            if hasSurface {
+            // Re-check surface after reconcileGeometryNow() which can trigger AppKit
+            // layout and view lifecycle changes that free surfaces (#432).
+            if terminalPanel.surface.surface != nil {
                 terminalPanel.surface.forceRefresh()
-            } else if isAttached && hasUsableBounds {
+            }
+            if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+                needsFollowUpPass = true
             }
         }
 
@@ -3137,7 +3222,8 @@ final class Workspace: Identifiable, ObservableObject {
                 panel.hostedView.reconcileGeometryNow()
                 if panel.surface.surface != nil {
                     panel.surface.forceRefresh()
-                } else {
+                }
+                if panel.surface.surface == nil {
                     panel.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
             }
@@ -3996,15 +4082,16 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // Get the focused terminal in the original pane to inherit config from
-        guard let sourceTabId = controller.selectedTab(inPane: originalPane)?.id,
-              let sourcePanelId = panelIdFromSurfaceId(sourceTabId),
-              terminalPanel(for: sourcePanelId) != nil else { return }
+        // Mirror Cmd+D behavior: split buttons should always seed a terminal in the new pane.
+        // When the focused source is a browser, inherit terminal config from nearby terminals
+        // (or fall back to defaults) instead of leaving an empty selector pane.
+        let sourceTabId = controller.selectedTab(inPane: originalPane)?.id
+        let sourcePanelId = sourceTabId.flatMap { panelIdFromSurfaceId($0) }
 
 #if DEBUG
         dlog(
             "split.didSplit.autoCreate pane=\(newPane.id.uuidString.prefix(5)) " +
-            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.uuidString.prefix(5))"
+            "fromPane=\(originalPane.id.uuidString.prefix(5)) sourcePanel=\(sourcePanelId.map { String($0.uuidString.prefix(5)) } ?? "none")"
         )
 #endif
 
@@ -4104,6 +4191,9 @@ extension Workspace: BonsplitDelegate {
         case .markAsUnread:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             markPanelUnread(panelId)
+        case .toggleZoom:
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            toggleSplitZoom(panelId: panelId)
         @unknown default:
             break
         }

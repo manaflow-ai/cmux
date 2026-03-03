@@ -32,6 +32,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -56,6 +57,7 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
@@ -311,7 +313,7 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
-                Button("Open Workspaces for All Tab Colors") {
+                Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }
 
@@ -381,6 +383,27 @@ struct cmuxApp: App {
                         }
                     } else {
                         activeTabManager.addTab()
+                    }
+                }
+
+                splitCommandButton(title: "Open Folder…", shortcut: openFolderMenuShortcut) {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.allowsMultipleSelection = false
+                    panel.title = "Open Folder"
+                    panel.prompt = "Open"
+                    if panel.runModal() == .OK, let url = panel.url {
+                        if let appDelegate = AppDelegate.shared {
+                            if appDelegate.addWorkspaceInPreferredMainWindow(
+                                workingDirectory: url.path,
+                                debugSource: "menu.openFolder"
+                            ) == nil {
+                                appDelegate.openNewMainWindow(nil)
+                            }
+                        } else {
+                            activeTabManager.addWorkspace(workingDirectory: url.path)
+                        }
                     }
                 }
             }
@@ -642,6 +665,10 @@ struct cmuxApp: App {
 
     private var newWindowMenuShortcut: StoredShortcut {
         decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var openFolderMenuShortcut: StoredShortcut {
+        decodeShortcut(from: openFolderShortcutData, fallback: KeyboardShortcutSettings.Action.openFolder.defaultShortcut)
     }
 
     private var showNotificationsMenuShortcut: StoredShortcut {
@@ -1289,7 +1316,7 @@ private enum DebugWindowConfigSnapshot {
         """
 
         let backgroundPayload = """
-        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: true))
+        bgGlassEnabled=\(boolValue(defaults, key: "bgGlassEnabled", fallback: false))
         bgGlassMaterial=\(stringValue(defaults, key: "bgGlassMaterial", fallback: "hudWindow"))
         bgGlassTintHex=\(stringValue(defaults, key: "bgGlassTintHex", fallback: "#000000"))
         bgGlassTintOpacity=\(String(format: "%.2f", doubleValue(defaults, key: "bgGlassTintOpacity", fallback: 0.03)))
@@ -2346,7 +2373,7 @@ private struct BackgroundDebugView: View {
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassMaterial") private var bgGlassMaterial = "hudWindow"
-    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = true
+    @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
 
     var body: some View {
         ScrollView {
@@ -2392,7 +2419,7 @@ private struct BackgroundDebugView: View {
                         bgGlassTintHex = "#000000"
                         bgGlassTintOpacity = 0.03
                         bgGlassMaterial = "hudWindow"
-                        bgGlassEnabled = true
+                        bgGlassEnabled = false
                         updateWindowGlassTint()
                     }
 
@@ -2574,6 +2601,60 @@ enum AppearanceSettings {
     }
 }
 
+enum AppIconMode: String, CaseIterable, Identifiable {
+    case automatic
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .automatic: return "Automatic"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var imageName: String? {
+        switch self {
+        case .automatic: return nil
+        case .light: return "AppIconLight"
+        case .dark: return "AppIconDark"
+        }
+    }
+}
+
+enum AppIconSettings {
+    static let modeKey = "appIconMode"
+    static let defaultMode: AppIconMode = .automatic
+
+    static func resolvedMode(defaults: UserDefaults = .standard) -> AppIconMode {
+        guard let raw = defaults.string(forKey: modeKey),
+              let mode = AppIconMode(rawValue: raw) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func applyIcon(_ mode: AppIconMode) {
+        switch mode {
+        case .automatic:
+            // Let the asset catalog handle appearance-based icon selection (macOS 15+).
+            // Reset to the default bundle icon.
+            NSApplication.shared.applicationIconImage = nil
+        case .light:
+            if let icon = NSImage(named: "AppIconLight") {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        case .dark:
+            if let icon = NSImage(named: "AppIconDark") {
+                NSApplication.shared.applicationIconImage = icon
+            }
+        }
+    }
+}
+
 enum QuitWarningSettings {
     static let warnBeforeQuitKey = "warnBeforeQuitShortcut"
     static let defaultWarnBeforeQuit = true
@@ -2614,14 +2695,32 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum TelemetrySettings {
+    static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
+    static let defaultSendAnonymousTelemetry = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: sendAnonymousTelemetryKey) == nil {
+            return defaultSendAnonymousTelemetry
+        }
+        return defaults.bool(forKey: sendAnonymousTelemetryKey)
+    }
+
+    // Freeze telemetry enablement once per launch. Settings changes apply on next restart.
+    static let enabledForCurrentLaunch = isEnabled()
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
 
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
+    @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
+    private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2631,6 +2730,8 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+    @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+    private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
@@ -2661,6 +2762,7 @@ struct SettingsView: View {
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
+    @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
@@ -2751,7 +2853,7 @@ struct SettingsView: View {
         do {
             try SocketControlPasswordStore.savePassword(trimmed)
             socketPasswordDraft = ""
-            socketPasswordStatusMessage = "Password saved to keychain."
+            socketPasswordStatusMessage = "Password saved."
             socketPasswordStatusIsError = false
         } catch {
             socketPasswordStatusMessage = "Failed to save password (\(error.localizedDescription))."
@@ -2789,6 +2891,16 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        AppIconPickerRow(
+                            selectedMode: appIconMode,
+                            onSelect: { mode in
+                                appIconMode = mode.rawValue
+                                AppIconSettings.applyIcon(mode)
+                            }
+                        )
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             "New Workspace Placement",
                             subtitle: selectedWorkspacePlacement.description,
@@ -2821,6 +2933,19 @@ struct SettingsView: View {
                             subtitle: "Show unread count on app icon (Dock and Cmd+Tab)."
                         ) {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Send anonymous telemetry",
+                            subtitle: sendAnonymousTelemetry != telemetryValueAtLaunch
+                                ? "Change takes effect on next launch."
+                                : "Share anonymized crash and usage data to help improve cmux."
+                        ) {
+                            Toggle("", isOn: $sendAnonymousTelemetry)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -2964,7 +3089,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Tab Color. \"Choose Custom Color...\" entries are persisted below.")
+                        SettingsCardNote("Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below.")
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
                             if index > 0 {
@@ -3063,7 +3188,7 @@ struct SettingsView: View {
                             SettingsCardRow(
                                 "Socket Password",
                                 subtitle: hasSocketPasswordConfigured
-                                    ? "Stored in login keychain."
+                                    ? "Stored in Application Support."
                                     : "No password set. External clients will be blocked until one is configured."
                             ) {
                                 HStack(spacing: 8) {
@@ -3218,6 +3343,31 @@ struct SettingsView: View {
                                 }
 
                                 TextEditor(text: $browserHostWhitelist)
+                                    .font(.system(.body, design: .monospaced))
+                                    .frame(minHeight: 60, maxHeight: 120)
+                                    .scrollContentBackground(.hidden)
+                                    .padding(6)
+                                    .background(Color(nsColor: .controlBackgroundColor))
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                    )
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 12)
+                            }
+
+                            SettingsCardDivider()
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                SettingsCardRow(
+                                    "URLs to Always Open Externally",
+                                    subtitle: "Applies to terminal link clicks and intercepted `open https://...` calls. One rule per line. Plain text matches any URL substring, or prefix with `re:` for regex (for example: openai.com/usage, re:^https?://[^/]*\\.example\\.com/(billing|usage))."
+                                ) {
+                                    EmptyView()
+                                }
+
+                                TextEditor(text: $browserExternalOpenPatterns)
                                     .font(.system(.body, design: .monospaced))
                                     .frame(minHeight: 60, maxHeight: 120)
                                     .scrollContentBackground(.hidden)
@@ -3468,14 +3618,18 @@ struct SettingsView: View {
 
     private func resetAllSettings() {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
+        appIconMode = AppIconSettings.defaultMode.rawValue
+        AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
+        browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
@@ -3678,6 +3832,79 @@ private struct SettingsCardNote: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AppIconPickerRow: View {
+    let selectedMode: String
+    let onSelect: (AppIconMode) -> Void
+
+    private let iconSize: CGFloat = 48
+    private let autoIconSize: CGFloat = 36
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("App Icon")
+                .font(.system(size: 13, weight: .medium))
+
+            HStack(spacing: 12) {
+                ForEach(AppIconMode.allCases) { mode in
+                    let isSelected = selectedMode == mode.rawValue
+                    Button {
+                        onSelect(mode)
+                    } label: {
+                        VStack(spacing: 6) {
+                            Group {
+                                if mode == .automatic {
+                                    // Show both icons overlapping
+                                    ZStack {
+                                        Image("AppIconLight")
+                                            .resizable()
+                                            .interpolation(.high)
+                                            .frame(width: autoIconSize, height: autoIconSize)
+                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
+                                            .offset(x: -10)
+                                        Image("AppIconDark")
+                                            .resizable()
+                                            .interpolation(.high)
+                                            .frame(width: autoIconSize, height: autoIconSize)
+                                            .clipShape(RoundedRectangle(cornerRadius: autoIconSize * 0.22, style: .continuous))
+                                            .offset(x: 10)
+                                    }
+                                    .frame(width: iconSize, height: iconSize)
+                                } else {
+                                    Image(mode.imageName ?? "AppIconLight")
+                                        .resizable()
+                                        .interpolation(.high)
+                                        .frame(width: iconSize, height: iconSize)
+                                        .clipShape(RoundedRectangle(cornerRadius: iconSize * 0.22, style: .continuous))
+                                }
+                            }
+
+                            Text(mode.displayName)
+                                .font(.system(size: 11))
+                                .foregroundColor(isSelected ? .primary : .secondary)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(isSelected
+                                    ? Color.accentColor.opacity(0.12)
+                                    : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
