@@ -1744,6 +1744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if TelemetrySettings.enabledForCurrentLaunch {
             PostHogAnalytics.shared.flush()
         }
+        SchedulerEngine.shared.handleAppWillTerminate()
         notificationStore?.clearAll()
         enableSuddenTerminationIfNeeded()
     }
@@ -1767,6 +1768,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
         startSocketListenerHealthMonitorIfNeeded()
+
+        // Start the scheduler engine's evaluation timer and wire the execution callback.
+        // Must happen after tabManager is set so executeTask can create terminal surfaces.
+        let schedulerEngine = SchedulerEngine.shared
+        schedulerEngine.onTaskDue = { [weak self] task, run in
+            guard let tabManager = self?.tabManager else { return }
+            SchedulerEngine.shared.executeTask(task, run: run, tabManager: tabManager)
+        }
+        schedulerEngine.start()
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -1946,6 +1956,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        // Restore scheduler panel visibility (independent of sidebar selection).
+        // Old sessions with .scheduler selection are mapped to .tabs + isSchedulerVisible=true.
+        context.sidebarSelectionState.isSchedulerVisible =
+            snapshot.sidebar.isSchedulerVisible ?? (snapshot.sidebar.selection == .scheduler)
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -2463,6 +2477,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
+            case .scheduler:
+                hasher.combine(2)
             }
 
             if let window = context.window ?? windowForMainWindowId(context.windowId) {
@@ -2644,6 +2660,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                        isSchedulerVisible: context.sidebarSelectionState.isSchedulerVisible,
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
                     )
                 )
@@ -4178,8 +4195,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isVisible: sessionWindowSnapshot?.sidebar.isVisible ?? true,
             persistedWidth: CGFloat(sidebarWidth)
         )
+        let schedulerVisible = sessionWindowSnapshot?.sidebar.isSchedulerVisible
+            ?? (sessionWindowSnapshot?.sidebar.selection == .scheduler)
         let sidebarSelectionState = SidebarSelectionState(
-            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
+            selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs,
+            isSchedulerVisible: schedulerVisible
         )
         let notificationStore = TerminalNotificationStore.shared
 
@@ -4188,6 +4208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(SchedulerEngine.shared)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
@@ -5343,6 +5364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             switch sidebarSelection {
             case .tabs: return "tabs"
             case .notifications: return "notifications"
+            case .scheduler: return "scheduler"
             }
         }()
         writeMultiWindowNotificationTestData([
@@ -5366,6 +5388,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func toggleNotificationsPopover(animated: Bool = true, anchorView: NSView? = nil) {
         titlebarAccessoryController.toggleNotificationsPopover(animated: animated, anchorView: anchorView)
+    }
+
+    func toggleSchedulerPage() {
+        guard let selectionState = sidebarSelectionState else { return }
+        selectionState.isSchedulerVisible.toggle()
+    }
+
+    @objc func toggleSchedulerPageAction() {
+        toggleSchedulerPage()
     }
 
     func jumpToLatestUnread() {
@@ -5944,6 +5975,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Check Show Scheduler shortcut
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showScheduler)) {
+            toggleSchedulerPage()
+            return true
+        }
+
         // Check Jump to Unread shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)) {
 #if DEBUG
@@ -6178,12 +6215,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -6205,7 +6242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Open browser: Cmd+Shift+L
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
+        if BrowserSettings.isEnabled, matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }

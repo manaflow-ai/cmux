@@ -1044,6 +1044,7 @@ final class UpdateTitlebarAccessoryController {
     private var pendingAttachRetries: [ObjectIdentifier: Int] = [:]
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
+    private let schedulerIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarScheduler")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
 
     init(viewModel: UpdateViewModel) {
@@ -1152,6 +1153,27 @@ final class UpdateTitlebarAccessoryController {
             controls.view.identifier = controlsIdentifier
             window.addTitlebarAccessoryViewController(controls)
             controlsControllers.add(controls)
+        }
+
+        // Right-aligned scheduler toggle button
+        if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == schedulerIdentifier }) {
+            let icon = NSImage(systemSymbolName: "list.bullet.clock", accessibilityDescription: "Scheduler")
+                ?? NSImage(systemSymbolName: "clock", accessibilityDescription: "Scheduler")
+                ?? NSImage(named: NSImage.actionTemplateName)!
+            let schedulerButton = NSButton(
+                image: icon,
+                target: nil,
+                action: #selector(AppDelegate.toggleSchedulerPageAction)
+            )
+            schedulerButton.bezelStyle = .accessoryBarAction
+            schedulerButton.isBordered = false
+            schedulerButton.toolTip = KeyboardShortcutSettings.Action.showScheduler.tooltip("Show or hide the scheduler")
+
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.layoutAttribute = .trailing
+            accessory.view = schedulerButton
+            accessory.view.identifier = schedulerIdentifier
+            window.addTitlebarAccessoryViewController(accessory)
         }
 
         attachedWindows.add(window)

@@ -81,11 +81,13 @@ swift --version  # → Swift version 6.1
 | Git commit, push, create PRs | Yes | `git`, `gh` |
 | Cron parser unit tests | Yes* | *Requires Swift toolchain above |
 | Data model serialization tests | Yes* | *Requires Swift toolchain above |
+| Scheduler engine unit tests | Yes* | *Requires Swift toolchain above |
 | Code review / planning | Yes | Full agent capability |
 | `xcodebuild` (any build) | **No** | Requires macOS + Xcode |
 | `./scripts/reload.sh` | **No** | Launches macOS GUI app |
 | GUI testing | **No** | macOS window system |
 | Socket testing (`cmux ping`) | **No** | Requires running app |
+| Scheduler CLI (`cmux scheduler`) | **No** | Requires running app |
 
 ---
 
@@ -176,6 +178,7 @@ Vibeshield Container              macOS Host
 | Build | `xcodebuild ... build` | BUILD SUCCEEDED |
 | Launch | `./scripts/reload.sh --tag crux-dev` | Window opens |
 | Socket | `cmux ping` | PONG |
+| Scheduler | `cmux scheduler list` | Empty list or tasks |
 | Vibeshield | `./vibeshield --status` | Container running |
 
 ---

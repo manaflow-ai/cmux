@@ -50,6 +50,10 @@ final class WindowTerminalHostView: NSView {
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+
+    /// Width of a trailing panel (e.g. scheduler) that the portal should not intercept.
+    /// Events in this region pass through to the SwiftUI layer beneath.
+    var trailingExclusionWidth: CGFloat = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -110,11 +114,13 @@ final class WindowTerminalHostView: NSView {
 
     override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard !shouldPassThroughToTrailingPanel(at: point) else { return }
         updateDividerCursor(at: point)
     }
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        guard !shouldPassThroughToTrailingPanel(at: point) else { return }
         updateDividerCursor(at: point)
     }
 
@@ -123,6 +129,10 @@ final class WindowTerminalHostView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        if shouldPassThroughToTrailingPanel(at: point) {
+            return nil
+        }
+
         updateDividerCursor(at: point)
 
         if shouldPassThroughToSidebarResizer(at: point) {
@@ -214,6 +224,11 @@ final class WindowTerminalHostView: NSView {
         let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
         let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
         return point.x >= regionMinX && point.x <= regionMaxX
+    }
+
+    private func shouldPassThroughToTrailingPanel(at point: NSPoint) -> Bool {
+        guard trailingExclusionWidth > 0 else { return false }
+        return point.x >= bounds.maxX - trailingExclusionWidth
     }
 
     private func updateDividerCursor(at point: NSPoint) {
@@ -551,12 +566,20 @@ final class WindowTerminalPortal: NSObject {
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
+    private var trailingConstraint: NSLayoutConstraint?
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
 #endif
+
+    /// Set the width of a trailing panel that the portal should not cover.
+    /// Shrinks the portal's trailing constraint so the panel region is outside the portal's frame entirely.
+    func setTrailingExclusionWidth(_ width: CGFloat) {
+        hostView.trailingExclusionWidth = width
+        trailingConstraint?.constant = -width
+    }
 
     private struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
@@ -736,9 +759,12 @@ final class WindowTerminalPortal: NSObject {
             hostView.removeFromSuperview()
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
 
+            let trailing = hostView.trailingAnchor.constraint(equalTo: reference.trailingAnchor)
+            trailing.constant = -hostView.trailingExclusionWidth
+            trailingConstraint = trailing
             installConstraints = [
                 hostView.leadingAnchor.constraint(equalTo: reference.leadingAnchor),
-                hostView.trailingAnchor.constraint(equalTo: reference.trailingAnchor),
+                trailing,
                 hostView.topAnchor.constraint(equalTo: reference.topAnchor),
                 hostView.bottomAnchor.constraint(equalTo: reference.bottomAnchor),
             ]
@@ -1540,6 +1566,14 @@ final class WindowTerminalPortal: NSObject {
 enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    /// Update the trailing exclusion width for the portal on the given window.
+    /// The portal will pass through all events in this trailing region.
+    static func setTrailingExclusionWidth(_ width: CGFloat, window: NSWindow) {
+        if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
+            existing.setTrailingExclusionWidth(width)
+        }
+    }
 
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }

@@ -1466,6 +1466,10 @@ struct CMUXCLI {
         case "help":
             print(usage())
 
+        // Scheduler commands
+        case "scheduler":
+            try runSchedulerCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         // Browser commands
         case "browser":
             try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -2260,6 +2264,179 @@ struct CMUXCLI {
             idFormat: idFormat,
             windowOverride: windowOverride
         )
+    }
+
+    // MARK: - Scheduler subcommands
+
+    private func runSchedulerCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        guard let subcommand = commandArgs.first else {
+            throw CLIError(message: "scheduler requires a subcommand. Run 'cmux scheduler --help' for details.")
+        }
+        let subArgs = Array(commandArgs.dropFirst())
+
+        switch subcommand {
+        case "list":
+            let response = try client.sendV2(method: "scheduler.list")
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                let tasks = (response["result"] as? [String: Any])?["tasks"] as? [[String: Any]]
+                    ?? (response["tasks"] as? [[String: Any]])
+                    ?? []
+                if tasks.isEmpty {
+                    print("No scheduled tasks.")
+                } else {
+                    for task in tasks {
+                        let name = task["name"] as? String ?? "?"
+                        let cron = task["cron"] as? String ?? "?"
+                        let enabled = (task["is_enabled"] as? Bool) == true ? "enabled" : "disabled"
+                        let id = task["id"] as? String ?? "?"
+                        let nextFire = task["next_fire"] as? String ?? "-"
+                        print("\(name)  \(cron)  [\(enabled)]  next: \(nextFire)  id: \(id)")
+                    }
+                }
+            }
+
+        case "create":
+            var params: [String: Any] = [:]
+            guard let name = optionValue(subArgs, name: "--name") else {
+                throw CLIError(message: "scheduler create requires --name <name>")
+            }
+            guard let cron = optionValue(subArgs, name: "--cron") else {
+                throw CLIError(message: "scheduler create requires --cron <expression>")
+            }
+            guard let command = optionValue(subArgs, name: "--command") else {
+                throw CLIError(message: "scheduler create requires --command <command>")
+            }
+            params["name"] = name
+            params["cron"] = cron
+            params["command"] = command
+            if let workDir = optionValue(subArgs, name: "--working-directory") {
+                params["working_directory"] = resolvePath(workDir)
+            }
+            if hasFlag(subArgs, name: "--disabled") {
+                params["is_enabled"] = false
+            }
+            if hasFlag(subArgs, name: "--allow-overlap") {
+                params["allow_overlap"] = true
+            }
+            if hasFlag(subArgs, name: "--use-worktree") {
+                params["use_worktree"] = true
+            }
+            if let onSuccess = optionValue(subArgs, name: "--on-success") {
+                params["on_success"] = onSuccess
+            }
+            if let onFailure = optionValue(subArgs, name: "--on-failure") {
+                params["on_failure"] = onFailure
+            }
+
+            let response = try client.sendV2(method: "scheduler.create", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                let result = response["result"] as? [String: Any] ?? response
+                let taskId = result["task_id"] as? String ?? "?"
+                print("Created task: \(taskId)")
+            }
+
+        case "delete":
+            guard let taskId = optionValue(subArgs, name: "--task-id") ?? subArgs.first else {
+                throw CLIError(message: "scheduler delete requires --task-id <id> or positional task ID")
+            }
+            let response = try client.sendV2(method: "scheduler.delete", params: ["task_id": taskId])
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                print("Deleted task: \(taskId)")
+            }
+
+        case "enable":
+            guard let taskId = optionValue(subArgs, name: "--task-id") ?? subArgs.first else {
+                throw CLIError(message: "scheduler enable requires --task-id <id> or positional task ID")
+            }
+            let response = try client.sendV2(method: "scheduler.enable", params: ["task_id": taskId])
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                print("Enabled task: \(taskId)")
+            }
+
+        case "disable":
+            guard let taskId = optionValue(subArgs, name: "--task-id") ?? subArgs.first else {
+                throw CLIError(message: "scheduler disable requires --task-id <id> or positional task ID")
+            }
+            let response = try client.sendV2(method: "scheduler.disable", params: ["task_id": taskId])
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                print("Disabled task: \(taskId)")
+            }
+
+        case "run":
+            guard let taskId = optionValue(subArgs, name: "--task-id") ?? subArgs.first else {
+                throw CLIError(message: "scheduler run requires --task-id <id> or positional task ID")
+            }
+            let response = try client.sendV2(method: "scheduler.run", params: ["task_id": taskId])
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                let result = response["result"] as? [String: Any] ?? response
+                let runId = result["run_id"] as? String ?? "?"
+                print("Started run: \(runId)")
+            }
+
+        case "cancel":
+            guard let runId = optionValue(subArgs, name: "--run-id") ?? subArgs.first else {
+                throw CLIError(message: "scheduler cancel requires --run-id <id> or positional run ID")
+            }
+            let response = try client.sendV2(method: "scheduler.cancel", params: ["run_id": runId])
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                print("Cancelled run: \(runId)")
+            }
+
+        case "logs":
+            var params: [String: Any] = [:]
+            if let taskId = optionValue(subArgs, name: "--task-id") {
+                params["task_id"] = taskId
+            } else if let first = subArgs.first, !first.hasPrefix("-") {
+                params["task_id"] = first
+            }
+            if let status = optionValue(subArgs, name: "--status") {
+                params["status"] = status
+            }
+            if let limitStr = optionValue(subArgs, name: "--limit"), let limit = Int(limitStr) {
+                params["limit"] = limit
+            }
+            let response = try client.sendV2(method: "scheduler.logs", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(response, mode: idFormat)))
+            } else {
+                let result = response["result"] as? [String: Any] ?? response
+                let runs = result["runs"] as? [[String: Any]] ?? []
+                if runs.isEmpty {
+                    print("No runs found.")
+                } else {
+                    for run in runs {
+                        let runId = run["id"] as? String ?? "?"
+                        let status = run["status"] as? String ?? "?"
+                        let startedAt = run["started_at"] as? String ?? "?"
+                        let exitCode = run["exit_code"] as? Int
+                        let exitStr = exitCode.map { "exit: \($0)" } ?? ""
+                        print("\(runId)  \(status)  started: \(startedAt)  \(exitStr)")
+                    }
+                }
+            }
+
+        default:
+            throw CLIError(message: "Unknown scheduler subcommand: \(subcommand). Run 'cmux scheduler --help' for details.")
+        }
     }
 
     private func runBrowserCommand(
@@ -4461,6 +4638,41 @@ struct CMUXCLI {
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
             """
+        case "scheduler":
+            return """
+            Usage: cmux scheduler <subcommand> [options]
+
+            Manage scheduled tasks (cron-based task runner).
+
+            Subcommands:
+              list                              List all scheduled tasks
+              create --name <n> --cron <expr> --command <cmd> [options]
+                                                Create a new scheduled task
+              delete <task_id>                  Delete a scheduled task
+              enable <task_id>                  Enable a scheduled task
+              disable <task_id>                 Disable a scheduled task
+              run <task_id>                     Manually trigger a task run
+              cancel <run_id>                   Cancel a running task
+              logs [--task-id <id>] [--status <status>] [--limit <n>]
+                                                View task run history
+
+            Create options:
+              --name <name>                     Task name (required)
+              --cron <expression>               Cron expression, 5-field (required)
+              --command <command>                Shell command to execute (required)
+              --working-directory <path>         Working directory for the command
+              --disabled                        Create task in disabled state
+              --allow-overlap                   Allow concurrent runs of same task
+              --use-worktree                    Use git worktree isolation
+              --on-success <task_id>            Task to chain on success (exit 0)
+              --on-failure <task_id>            Task to chain on failure (non-zero exit)
+
+            Examples:
+              cmux scheduler list --json
+              cmux scheduler create --name "hourly-build" --cron "0 * * * *" --command "make build"
+              cmux scheduler run <task_id>
+              cmux scheduler logs --task-id <id> --limit 10
+            """
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -6409,6 +6621,15 @@ struct CMUXCLI {
 
           set-app-focus <active|inactive|clear>
           simulate-app-active
+
+          # scheduler commands (run 'cmux scheduler --help' for details)
+          scheduler list
+          scheduler create --name <name> --cron <expr> --command <cmd> [options]
+          scheduler delete <task_id>
+          scheduler enable|disable <task_id>
+          scheduler run <task_id>
+          scheduler cancel <run_id>
+          scheduler logs [--task-id <id>] [--status <status>] [--limit <n>]
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]

@@ -1,266 +1,175 @@
-<h1 align="center">cmux</h1>
-<p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
+# crux
 
-<p align="center">
-  <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-    <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
-  </a>
-</p>
+A cron task scheduler for terminal workflows, built on [cmux](https://github.com/manaflow-ai/cmux).
 
-<p align="center">
-  English | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a>
-</p>
+## Credits
 
-<p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
-  <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
-</p>
+crux is a focused fork. The heavy lifting comes from two projects:
 
-<p align="center">
-  <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
-</p>
+- **[cmux](https://github.com/manaflow-ai/cmux)** by [manaflow-ai](https://github.com/manaflow-ai) -- the native macOS terminal with vertical tabs, split panes, notifications, and a scriptable API. crux inherits all of this.
+- **[Ghostty](https://github.com/ghostty-org/ghostty)** by [Mitchell Hashimoto](https://github.com/mitchellh) -- the GPU-accelerated terminal engine that powers both cmux and crux via libghostty.
 
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
-</p>
+crux adds a task scheduler on top. Everything else is cmux.
 
-## Features
+## What crux adds
 
-<table>
-<tr>
-<td width="40%" valign="middle">
-<h3>Notification rings</h3>
-Panes get a blue ring and tabs light up when coding agents need your attention
-</td>
-<td width="60%">
-<img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>Notification panel</h3>
-See all pending notifications in one place, jump to the most recent unread
-</td>
-<td width="60%">
-<img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>In-app browser</h3>
-Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
-</td>
-<td width="60%">
-<img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>Vertical + horizontal tabs</h3>
-Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
-</td>
-<td width="60%">
-<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
-</td>
-</tr>
-</table>
+### Task Scheduler
 
-- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
-- **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
-- **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
-- **GPU-accelerated** — Powered by libghostty for smooth rendering
+A cron-based task runner that executes commands in Ghostty terminal surfaces. Tasks get full PTY support, ANSI rendering, scrollback, and interactivity.
 
-## Install
+- **Cron scheduling** -- 5-field expressions with wildcards, ranges, lists, and steps
+- **Live terminal output** -- Each task runs in a dedicated Ghostty surface
+- **Sidebar panel** -- View tasks, run status, and history (Cmd+J)
+- **Titlebar toggle** -- Show/hide the scheduler from the titlebar
+- **Notifications** -- Task completions trigger blue rings and badges
+- **Task chaining** -- Chain tasks with `--on-success` and `--on-failure` hooks (max depth 3)
+- **Git worktree isolation** -- Run tasks in isolated git worktrees (opt-in)
+- **Session memory** -- Each task gets a context file via `CMUX_TASK_CONTEXT_FILE`
+- **CLI** -- `cmux scheduler` subcommands for all operations
+- **Socket API** -- 10 `scheduler.*` v2 commands
 
-### DMG (recommended)
+### Browser kill-switch
 
-<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
-</a>
-
-Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
-
-### Homebrew
+Disable the WKWebView browser via UserDefaults. All browser paths return errors when disabled.
 
 ```bash
-brew tap manaflow-ai/cmux
-brew install --cask cmux
+defaults write com.cmuxterm.app browserEnabled -bool false
+defaults write com.cmuxterm.app browserEnabled -bool true
 ```
 
-To update later:
+## Scheduler
+
+### Cron syntax
+
+Standard 5-field format: `minute hour day-of-month month day-of-week`
+
+| Field | Range | Special Characters |
+|-------|-------|--------------------|
+| Minute | 0-59 | `*` `,` `-` `/` |
+| Hour | 0-23 | `*` `,` `-` `/` |
+| Day of month | 1-31 | `*` `,` `-` `/` |
+| Month | 1-12 | `*` `,` `-` `/` |
+| Day of week | 0-7 (0 and 7 = Sunday) | `*` `,` `-` `/` |
+
+When both day-of-month and day-of-week are restricted, the task fires when **either** matches (POSIX behavior).
+
+Examples: `*/5 * * * *` (every 5 min), `0 9 * * 1-5` (9 AM weekdays), `0 0 1,15 * *` (midnight on 1st and 15th).
+
+### CLI
 
 ```bash
-brew upgrade --cask cmux
+cmux scheduler list --json
+
+cmux scheduler create --name "hourly-build" --cron "0 * * * *" --command "make build"
+
+cmux scheduler create --name "test-suite" --cron "0 */2 * * *" \
+  --command "npm test" --working-directory ~/project \
+  --on-failure <notify-task-id>
+
+cmux scheduler enable <task_id>
+cmux scheduler disable <task_id>
+cmux scheduler run <task_id>
+cmux scheduler cancel <run_id>
+cmux scheduler logs --task-id <id> --limit 10
+cmux scheduler delete <task_id>
 ```
 
-On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
+### Socket API
 
-## Why cmux?
+Ten v2 socket commands:
 
-I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore.
+| Command | Description |
+|---------|-------------|
+| `scheduler.list` | List all tasks |
+| `scheduler.create` | Create a task |
+| `scheduler.delete` | Delete a task |
+| `scheduler.update` | Update a task (socket-only) |
+| `scheduler.enable` | Enable a task |
+| `scheduler.disable` | Disable a task |
+| `scheduler.run` | Trigger a manual run |
+| `scheduler.cancel` | Cancel a running task |
+| `scheduler.logs` | Fetch run history |
+| `scheduler.snapshot` | Read terminal output (socket-only) |
 
-I tried a few coding orchestrators but most of them were Electron/Tauri apps and the performance bugged me. I also just prefer the terminal since GUI orchestrators lock you into their workflow. So I built cmux as a native macOS app in Swift/AppKit. It uses libghostty for terminal rendering and reads your existing Ghostty config for themes, fonts, and colors.
+### Environment variables
 
-The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, linked PR status/number, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (`cmux notify`) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
+Commands run by the scheduler receive these variables:
 
-The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
+| Variable | Description |
+|----------|-------------|
+| `CMUX_SCHEDULED_TASK_ID` | UUID of the task definition |
+| `CMUX_SCHEDULED_TASK_NAME` | Human-readable task name |
+| `CMUX_TASK_RUN_ID` | UUID of this specific run |
+| `CMUX_TASK_CONTEXT_FILE` | Path to a JSON context file |
+| `CMUX_WORKTREE_PATH` | Git worktree path (when isolation is active) |
 
-Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+### Configuration
 
-## The Zen of cmux
+| UserDefaults Key | Default | Description |
+|------------------|---------|-------------|
+| `schedulerWorktreeIsolation` | `false` | Run tasks in temporary git worktrees |
 
-cmux is not prescriptive about how developers hold their tools. It's a terminal and browser with a CLI, and the rest is up to you.
+Engine limits: 10 concurrent tasks, 500 completed runs retained, 30-second evaluation interval, chain depth capped at 3.
 
-cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours.
-
-The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first.
-
-Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
-
-## Keyboard Shortcuts
-
-### Workspaces
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ N | New workspace |
-| ⌘ 1–8 | Jump to workspace 1–8 |
-| ⌘ 9 | Jump to last workspace |
-| ⌃ ⌘ ] | Next workspace |
-| ⌃ ⌘ [ | Previous workspace |
-| ⌘ ⇧ W | Close workspace |
-| ⌘ ⇧ R | Rename workspace |
-| ⌘ B | Toggle sidebar |
-
-### Surfaces
+### Keyboard shortcut
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ T | New surface |
-| ⌘ ⇧ ] | Next surface |
-| ⌘ ⇧ [ | Previous surface |
-| ⌃ Tab | Next surface |
-| ⌃ ⇧ Tab | Previous surface |
-| ⌃ 1–8 | Jump to surface 1–8 |
-| ⌃ 9 | Jump to last surface |
-| ⌘ W | Close surface |
+| Cmd+J | Toggle scheduler panel |
 
-### Split Panes
+## Inherited from cmux
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ D | Split right |
-| ⌘ ⇧ D | Split down |
-| ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
-| ⌘ ⇧ H | Flash focused panel |
+crux inherits all cmux features. The highlights:
 
-### Browser
+- **Vertical + horizontal tabs** with git branch, PR status, ports, and notification text
+- **Split panes** -- horizontal and vertical
+- **Notification rings** -- blue rings and badges when agents need attention
+- **In-app browser** -- scriptable WKWebView with accessibility tree API
+- **Scriptable CLI and socket API** -- workspaces, panes, keystrokes, browser automation
+- **Session restore** -- layout, working directories, scrollback, browser state
+- **Ghostty compatible** -- reads `~/.config/ghostty/config` for themes and fonts
+- **Native macOS** -- Swift and AppKit, not Electron
 
-Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+See the [cmux README](https://github.com/manaflow-ai/cmux) for full documentation, keyboard shortcuts, and installation details.
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ L | Open browser in split |
-| ⌘ L | Focus address bar |
-| ⌘ [ | Back |
-| ⌘ ] | Forward |
-| ⌘ R | Reload page |
-| ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
-| ⌥ ⌘ C | Show JavaScript Console (Safari default) |
+crux tracks upstream cmux and may diverge over time.
 
-### Notifications
+## Development
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ I | Show notifications panel |
-| ⌘ ⇧ U | Jump to latest unread |
+### Setup
 
-### Find
+```bash
+./scripts/setup.sh
+```
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ F | Find |
-| ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
-| ⌘ E | Use selection for find |
+This initializes submodules and builds GhosttyKit.
 
-### Terminal
+### Build
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ K | Clear scrollback |
-| ⌘ C | Copy (with selection) |
-| ⌘ V | Paste |
-| ⌘ + / ⌘ - | Increase / decrease font size |
-| ⌘ 0 | Reset font size |
+```bash
+xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+```
 
-### Window
+### Run
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ N | New window |
-| ⌘ , | Settings |
-| ⌘ ⇧ , | Reload configuration |
-| ⌘ Q | Quit |
+```bash
+./scripts/reload.sh --tag <tag>
+```
 
-## Nightly Builds
+Use `--tag` with a descriptive name for isolated builds that run alongside the main app.
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+### Test
 
-cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
+Run unit tests on the macOS VM:
 
-## Session restore (current behavior)
+```bash
+ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" test'
+```
 
-On relaunch, cmux currently restores app layout and metadata only:
-- Window/workspace/pane layout
-- Working directories
-- Terminal scrollback (best effort)
-- Browser URL and navigation history
-
-cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
-
-## Star History
-
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
- </picture>
-</a>
-
-## Contributing
-
-Ways to get involved:
-
-- Follow us on X for updates [@manaflowai](https://x.com/manaflowai) or [@lawrencecchen](https://x.com/lawrencecchen)
-- Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
-- Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
-- Let me know what you're building with cmux
-
-## Community
-
-- [Discord](https://discord.gg/xsgFEVrWCZ)
-- [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
-- [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
-- [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
-
-## Founder's Edition
-
-cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
-
-**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritized feature requests/bug fixes**
-- **Early access: cmux AI that gives you context on every workspace, tab and panel**
-- **Early access: iOS app with terminals synced between desktop and phone**
-- **Early access: Cloud VMs**
-- **Early access: Voice mode**
-- **My personal iMessage/WhatsApp**
+See `CLAUDE.md` for architecture details, scheduler internals, and socket threading policy.
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
+Same license as upstream cmux: GNU Affero General Public License v3.0 or later (`AGPL-3.0-or-later`).
 
 See `LICENSE` for the full text.

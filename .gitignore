@@ -60,3 +60,10 @@ vibeshield
 .env.vibeshield.example
 .vibeshield-launch.log
 .vibeshield-state/
+
+# ralphex progress logs
+.ralphex/progress/
+
+# Local dev artifacts
+CLAUDE.md
+docs/plans/

@@ -503,6 +503,7 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
+            guard BrowserSettings.isEnabled else { return nil }
             let initialURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
@@ -1878,6 +1879,23 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         return nil
+    }
+
+    /// Add a pre-configured terminal panel as a new tab in this workspace's bonsplit controller.
+    /// Used by the scheduler engine to inject task terminals into the dedicated scheduler workspace.
+    func addTerminalPanel(_ panel: TerminalPanel, title: String) {
+        panels[panel.id] = panel
+        panelTitles[panel.id] = title
+
+        if let tabId = bonsplitController.createTab(
+            title: title,
+            icon: "terminal.fill",
+            kind: SurfaceKind.terminal,
+            isDirty: false,
+            isPinned: false
+        ) {
+            surfaceIdToPanelId[tabId] = panel.id
+        }
     }
 
     /// Create a new split with a terminal panel
