@@ -1011,7 +1011,9 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     if normalizedChars == "f" {
         return true
     }
-    if !normalizedChars.isEmpty {
+    let charsAreControlSequence = !normalizedChars.isEmpty
+        && normalizedChars.unicodeScalars.allSatisfy { CharacterSet.controlCharacters.contains($0) }
+    if !normalizedChars.isEmpty && !charsAreControlSequence {
         return false
     }
 

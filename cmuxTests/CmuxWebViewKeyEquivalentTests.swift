@@ -2054,6 +2054,17 @@ final class FullScreenShortcutTests: XCTestCase {
         )
     }
 
+    func testMatchesCommandControlFWhenCharsAreControlSequence() {
+        XCTAssertTrue(
+            shouldToggleMainWindowFullScreenForCommandControlFShortcut(
+                flags: [.command, .control],
+                chars: "\u{06}",
+                keyCode: 3,
+                layoutCharacterProvider: { _ in nil }
+            )
+        )
+    }
+
     func testRejectsPhysicalFWhenCharacterRepresentsDifferentLayoutKey() {
         XCTAssertFalse(
             shouldToggleMainWindowFullScreenForCommandControlFShortcut(
