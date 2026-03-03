@@ -2562,22 +2562,25 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     }
 }
 
-final class SidebarCommandHintPolicyTests: XCTestCase {
-    func testCommandHintRequiresCommandOnlyModifier() {
-        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testShortcutHintRequiresSingleCommandOrControlModifier() {
+        XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command]))
+        XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control]))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: []))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift]))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift]))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .option]))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .option]))
+        XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .control]))
     }
 
-    func testCommandHintUsesIntentionalHoldDelay() {
-        XCTAssertGreaterThanOrEqual(SidebarCommandHintPolicy.intentionalHoldDelay, 0.25)
+    func testShortcutHintUsesIntentionalHoldDelay() {
+        XCTAssertGreaterThanOrEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.25)
     }
 
     func testCurrentWindowRequiresHostWindowToBeKeyAndMatchEventWindow() {
         XCTAssertTrue(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 42,
@@ -2586,7 +2589,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: 7,
@@ -2595,7 +2598,7 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.isCurrentWindow(
+            ShortcutHintModifierPolicy.isCurrentWindow(
                 hostWindowNumber: 42,
                 hostWindowIsKey: false,
                 eventWindowNumber: 42,
@@ -2604,9 +2607,9 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
     }
 
-    func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
+    func testWindowScopedShortcutHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
         XCTAssertTrue(
-            SidebarCommandHintPolicy.shouldShowHints(
+            ShortcutHintModifierPolicy.shouldShowHints(
                 for: [.command],
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
@@ -2616,12 +2619,22 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            SidebarCommandHintPolicy.shouldShowHints(
+            ShortcutHintModifierPolicy.shouldShowHints(
                 for: [.command],
                 hostWindowNumber: 42,
                 hostWindowIsKey: true,
                 eventWindowNumber: nil,
                 keyWindowNumber: 7
+            )
+        )
+
+        XCTAssertTrue(
+            ShortcutHintModifierPolicy.shouldShowHints(
+                for: [.control],
+                hostWindowNumber: 42,
+                hostWindowIsKey: true,
+                eventWindowNumber: nil,
+                keyWindowNumber: 42
             )
         )
     }
