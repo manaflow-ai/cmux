@@ -26,8 +26,12 @@
 	<string></string>
 	<key>NSMainStoryboardFile</key>
 	<string></string>
+	<key>NSCameraUsageDescription</key>
+	<string>A website in the cmux browser is requesting access to your camera.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>A website in the cmux browser is requesting access to your location.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>A program running within cmux would like to use your microphone.</string>
+	<string>A website or program in cmux is requesting access to your microphone.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSServices</key>
