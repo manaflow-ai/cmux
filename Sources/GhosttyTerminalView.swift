@@ -627,8 +627,16 @@ class GhosttyApp {
             self.config = fallbackConfig
         }
 
-        // Notify observers that a usable config is available (initial load).
+        // Tell Ghostty the current system color scheme so it resolves themes correctly
+        // (e.g. light vs dark variants). Without this, the app defaults to dark.
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        if let app {
+            ghostty_app_set_color_scheme(app, lastAppearanceColorScheme == .dark
+                ? GHOSTTY_COLOR_SCHEME_DARK
+                : GHOSTTY_COLOR_SCHEME_LIGHT)
+        }
+
+        // Notify observers that a usable config is available (initial load).
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
         #if os(macOS)
@@ -766,6 +774,9 @@ class GhosttyApp {
         if soft, let config {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+            ghostty_app_set_color_scheme(app, lastAppearanceColorScheme == .dark
+                ? GHOSTTY_COLOR_SCHEME_DARK
+                : GHOSTTY_COLOR_SCHEME_LIGHT)
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
@@ -790,6 +801,9 @@ class GhosttyApp {
         }
         config = newConfig
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
+        ghostty_app_set_color_scheme(app, lastAppearanceColorScheme == .dark
+            ? GHOSTTY_COLOR_SCHEME_DARK
+            : GHOSTTY_COLOR_SCHEME_LIGHT)
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
