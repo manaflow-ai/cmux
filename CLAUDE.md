@@ -16,6 +16,14 @@ After making code changes, always run the reload script with a tag to launch the
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
+When reporting a tagged reload result in chat, use this exact clickable format:
+
+```markdown
+=======================================================
+[<tag-name>: file:///tmp/cmux-<tag-name>.app](file:///tmp/cmux-<tag-name>.app)
+=======================================================
+```
+
 After making code changes, always run the build:
 
 ```bash

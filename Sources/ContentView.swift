@@ -5810,8 +5810,12 @@ struct VerticalTabsSidebar: View {
 enum SidebarCommandHintPolicy {
     static let intentionalHoldDelay: TimeInterval = 0.30
 
-    static func shouldShowHints(for modifierFlags: NSEvent.ModifierFlags) -> Bool {
-        modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
+    static func shouldShowHints(
+        for modifierFlags: NSEvent.ModifierFlags,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults) &&
+            modifierFlags.intersection(.deviceIndependentFlagsMask) == [.command]
     }
 
     static func isCurrentWindow(
@@ -5832,9 +5836,10 @@ enum SidebarCommandHintPolicy {
         hostWindowNumber: Int?,
         hostWindowIsKey: Bool,
         eventWindowNumber: Int?,
-        keyWindowNumber: Int?
+        keyWindowNumber: Int?,
+        defaults: UserDefaults = .standard
     ) -> Bool {
-        shouldShowHints(for: modifierFlags) &&
+        shouldShowHints(for: modifierFlags, defaults: defaults) &&
             isCurrentWindow(
                 hostWindowNumber: hostWindowNumber,
                 hostWindowIsKey: hostWindowIsKey,
@@ -5852,6 +5857,7 @@ enum ShortcutHintDebugSettings {
     static let paneHintXKey = "shortcutHintPaneTabXOffset"
     static let paneHintYKey = "shortcutHintPaneTabYOffset"
     static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
+    static let showHintsOnCommandHoldKey = "shortcutHintShowOnCommandHold"
 
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
@@ -5860,11 +5866,19 @@ enum ShortcutHintDebugSettings {
     static let defaultPaneHintX = 0.0
     static let defaultPaneHintY = 0.0
     static let defaultAlwaysShowHints = false
+    static let defaultShowHintsOnCommandHold = true
 
     static let offsetRange: ClosedRange<Double> = -20...20
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, offsetRange.lowerBound), offsetRange.upperBound)
+    }
+
+    static func showHintsOnCommandHoldEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: showHintsOnCommandHoldKey) != nil else {
+            return defaultShowHintsOnCommandHold
+        }
+        return defaults.bool(forKey: showHintsOnCommandHoldKey)
     }
 }
 
