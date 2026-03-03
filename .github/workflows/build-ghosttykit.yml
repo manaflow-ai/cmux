@@ -4,7 +4,19 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/**'
+      - 'docs/**'
+      - 'web/**'
+      - '*.md'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '.github/workflows/**'
+      - 'docs/**'
+      - 'web/**'
+      - '*.md'
+      - 'LICENSE'
 
 permissions:
   contents: read
