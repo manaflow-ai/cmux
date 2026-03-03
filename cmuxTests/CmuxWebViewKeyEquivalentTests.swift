@@ -3787,6 +3787,44 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
 }
 
 @MainActor
+final class TabManagerWorkspaceCloseTeardownTests: XCTestCase {
+    func testCloseWorkspaceTearsDownAllPanelsBeforeRemoval() {
+        let manager = TabManager()
+        guard let workspaceToClose = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        // Add extra surfaces so teardown must close more than one panel.
+        _ = workspaceToClose.newTerminalSurfaceInFocusedPane(focus: false)
+        _ = manager.openBrowser(url: URL(string: "https://example.com/workspace-close-teardown"))
+        drainMainQueue()
+        XCTAssertGreaterThanOrEqual(workspaceToClose.panels.count, 2)
+
+        let survivingWorkspace = manager.addWorkspace()
+        XCTAssertEqual(manager.selectedTabId, survivingWorkspace.id)
+
+        manager.closeWorkspace(workspaceToClose)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == workspaceToClose.id }))
+        XCTAssertTrue(
+            workspaceToClose.panels.isEmpty,
+            "Expected removed workspace panels to be torn down deterministically"
+        )
+    }
+
+    private func drainMainQueue() {
+        let expectation = expectation(description: "drain main queue")
+        DispatchQueue.main.async {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1.0)
+    }
+}
+
+@MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
     private func drainMainQueue() {
         let expectation = expectation(description: "drain main queue")
