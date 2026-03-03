@@ -6,11 +6,12 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build-ghosttykit:
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   compat-tests:
     # Only run for the repo itself, not forks (GhosttyKit download needs repo access).

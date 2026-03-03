@@ -25,16 +25,24 @@ jobs:
     steps:
       - name: Get version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
             # workflow_run: extract tag from the triggering workflow's head branch
-            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="$HEAD_BRANCH"
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
             echo "Could not determine version" >&2
+            exit 1
+          fi
+          # Validate version format (semver-like)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Invalid version format: $VERSION" >&2
             exit 1
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
