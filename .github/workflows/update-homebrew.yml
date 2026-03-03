@@ -50,8 +50,9 @@ jobs:
 
       - name: Download DMG and get SHA256
         id: sha
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           URL="https://github.com/manaflow-ai/cmux/releases/download/v${VERSION}/cmux-macos.dmg"
           MAX_RETRIES=5
           for i in $(seq 1 $MAX_RETRIES); do
