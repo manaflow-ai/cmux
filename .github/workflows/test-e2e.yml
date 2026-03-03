@@ -230,7 +230,7 @@ jobs:
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
           ARTIFACT_URL="$RUN_URL#artifacts"
 
-          # Build issue body
+          # Build issue body (no leading whitespace)
           BODY="**Status:** $STATUS_EMOJI
           **Ref:** \`$REF_DISPLAY\`
           **SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
@@ -262,8 +262,11 @@ jobs:
           \`\`\`"
           fi
 
-          gh issue create \
+          ISSUE_URL=$(gh issue create \
             --repo manaflow-ai/cmux-dev-artifacts \
             --title "[$STATUS_EMOJI] $TEST_FILTER @ ${COMMIT_SHA:0:7} ($REF_DISPLAY)" \
             --body "$BODY" \
-            --label "$LABEL"
+            --label "$LABEL")
+
+          echo "Issue posted: $ISSUE_URL"
+          echo "::notice title=Test Result Issue::$ISSUE_URL"

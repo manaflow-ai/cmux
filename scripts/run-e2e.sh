@@ -93,8 +93,8 @@ if [ "$WAIT" = true ]; then
   echo "Result: $STATUS"
   echo "Run: $RUN_URL"
 
-  # Try to find the issue created on cmux-dev-artifacts
-  ISSUE_URL=$(gh issue list --repo manaflow-ai/cmux-dev-artifacts --limit 5 --json url,title --jq ".[].url" 2>/dev/null | head -1)
+  # Find the issue created for this run (search by run ID in body)
+  ISSUE_URL=$(gh search issues "$RUN_ID" --repo manaflow-ai/cmux-dev-artifacts --limit 1 --json url --jq '.[0].url' 2>/dev/null || true)
   if [ -n "$ISSUE_URL" ]; then
     echo "Issue: $ISSUE_URL"
   fi
