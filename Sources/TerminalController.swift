@@ -5252,11 +5252,40 @@ class TerminalController {
         }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let url,
+               respectExternalOpenRules,
+               BrowserLinkOpenSettings.shouldOpenExternally(url) {
+                guard NSWorkspace.shared.open(url) else {
+                    result = .err(
+                        code: "external_open_failed",
+                        message: "Failed to open URL externally",
+                        data: ["url": url.absoluteString]
+                    )
+                    return
+                }
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(nil),
+                    "pane_ref": v2Ref(kind: .pane, uuid: nil),
+                    "surface_id": v2OrNull(nil),
+                    "surface_ref": v2Ref(kind: .surface, uuid: nil),
+                    "created_split": false,
+                    "placement_strategy": "external",
+                    "opened_externally": true,
+                    "url": url.absoluteString
+                ])
                 return
             }
             v2MaybeFocusWindow(for: tabManager)
