@@ -836,6 +836,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = NO;
 				PRODUCT_NAME = cmux;
 				PRODUCT_MODULE_NAME = cmux_cli;
 				SWIFT_COMPILATION_MODE = wholemodule;
