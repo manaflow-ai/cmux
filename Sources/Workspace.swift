@@ -4,6 +4,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CoreText
+import WebKit
 
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
     switch context {
@@ -2138,6 +2139,49 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Match terminal behavior: enforce deterministic selection + focus.
         if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            browserPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        }
+
+        installBrowserPanelSubscription(browserPanel)
+
+        return browserPanel
+    }
+
+    /// Create a popup browser surface backed by a WebKit-provided configuration.
+    /// The configuration must be used directly so window.opener/message channels stay intact.
+    @discardableResult
+    func newBrowserSurfaceForPopup(
+        inPane paneId: PaneID,
+        webViewConfiguration: WKWebViewConfiguration,
+        focus: Bool = true
+    ) -> BrowserPanel? {
+        let browserPanel = BrowserPanel(
+            workspaceId: id,
+            webViewConfiguration: webViewConfiguration
+        )
+        panels[browserPanel.id] = browserPanel
+        panelTitles[browserPanel.id] = browserPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: browserPanel.displayTitle,
+            icon: browserPanel.displayIcon,
+            kind: SurfaceKind.browser,
+            isDirty: browserPanel.isDirty,
+            isLoading: browserPanel.isLoading,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: browserPanel.id)
+            panelTitles.removeValue(forKey: browserPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = browserPanel.id
+
+        if focus {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
             browserPanel.focus()

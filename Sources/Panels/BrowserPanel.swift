@@ -1485,6 +1485,22 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
+    private static func installTelemetryHookBootstrapScriptIfNeeded(on configuration: WKWebViewConfiguration) {
+        let hasTelemetryHook = configuration.userContentController.userScripts.contains {
+            $0.source == Self.telemetryHookBootstrapScriptSource
+                && $0.injectionTime == .atDocumentStart
+        }
+        if !hasTelemetryHook {
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: Self.telemetryHookBootstrapScriptSource,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
+    }
+
     init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -1534,6 +1550,51 @@ final class BrowserPanel: Panel, ObservableObject {
             webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
 
+        configureWebViewDelegatesAndObservers(initialURL: initialURL, renderWebViewImmediately: false)
+    }
+
+    init(
+        workspaceId: UUID,
+        initialURL: URL? = nil,
+        bypassInsecureHTTPHostOnce: String? = nil,
+        webViewConfiguration: WKWebViewConfiguration
+    ) {
+        self.id = UUID()
+        self.workspaceId = workspaceId
+        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.browserThemeMode = BrowserThemeSettings.mode()
+
+        // Keep script/pop-up opener bridging by using WebKit's provided configuration directly.
+        let config = webViewConfiguration
+
+        // Match standard browser behavior for inspectability + JavaScript support.
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        Self.installTelemetryHookBootstrapScriptIfNeeded(on: config)
+
+        let webView = CmuxWebView(frame: .zero, configuration: config)
+        webView.allowsBackForwardNavigationGestures = true
+
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+
+        self.webView = webView
+        self.insecureHTTPAlertFactory = { NSAlert() }
+        self.insecureHTTPAlertWindowProvider = { [weak webView] in
+            webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+
+        // Popup windows should render a live WKWebView immediately, even before first explicit navigate().
+        configureWebViewDelegatesAndObservers(initialURL: initialURL, renderWebViewImmediately: true)
+    }
+
+    private func configureWebViewDelegatesAndObservers(initialURL: URL?, renderWebViewImmediately: Bool) {
+        let webView = self.webView
+
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
         navDelegate.didFinish = { webView in
@@ -1562,6 +1623,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
+
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
@@ -1577,17 +1639,19 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
-        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
-            if downloading {
-                self?.beginDownloadActivity()
-            } else {
-                self?.endDownloadActivity()
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.onContextMenuDownloadStateChanged = { [weak self] downloading in
+                if downloading {
+                    self?.beginDownloadActivity()
+                } else {
+                    self?.endDownloadActivity()
+                }
             }
         }
         webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
-        // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
+        // Set up UI delegate (handles cmd+click, target=_blank, context menu, and popup windows)
         let browserUIDelegate = BrowserUIDelegate()
         browserUIDelegate.openInNewTab = { [weak self] url in
             guard let self else { return }
@@ -1596,14 +1660,25 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
         }
+        browserUIDelegate.createPopupWebView = { [weak self] configuration, navigationAction in
+            self?.createPopupWebView(
+                configuration: configuration,
+                navigationAction: navigationAction
+            )
+        }
+        browserUIDelegate.closePopupWebView = { [weak self] popupWebView in
+            self?.closePopupWebView(popupWebView)
+        }
         webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
 
-        // Observe web view properties
         setupObservers()
         applyBrowserThemeModeIfNeeded()
 
-        // Navigate to initial URL if provided
+        if renderWebViewImmediately {
+            shouldRenderWebView = true
+        }
+
         if let url = initialURL {
             shouldRenderWebView = true
             navigate(to: url)
@@ -2230,6 +2305,94 @@ extension BrowserPanel {
         }
 
         webView.goForward()
+    }
+
+    private func createPopupWebView(
+        configuration: WKWebViewConfiguration,
+        navigationAction: WKNavigationAction
+    ) -> WKWebView? {
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+              let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog(
+                "browser.popup.create.abort panel=\(id.uuidString.prefix(5)) " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) reason=missingWorkspaceOrPane"
+            )
+#endif
+            return nil
+        }
+
+        let urlString = navigationAction.request.url?.absoluteString ?? "nil"
+#if DEBUG
+        dlog(
+            "browser.popup.create.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "url=\(urlString)"
+        )
+#endif
+
+        guard let popupPanel = workspace.newBrowserSurfaceForPopup(
+            inPane: paneId,
+            webViewConfiguration: configuration,
+            focus: true
+        ) else {
+#if DEBUG
+            dlog(
+                "browser.popup.create.abort panel=\(id.uuidString.prefix(5)) " +
+                "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "url=\(urlString) reason=createFailed"
+            )
+#endif
+            return nil
+        }
+
+#if DEBUG
+        dlog(
+            "browser.popup.create.done panel=\(id.uuidString.prefix(5)) " +
+            "popup=\(popupPanel.id.uuidString.prefix(5)) workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "pane=\(paneId.id.uuidString.prefix(5)) url=\(urlString)"
+        )
+#endif
+        return popupPanel.webView
+    }
+
+    private func closePopupWebView(_ closingWebView: WKWebView) {
+        guard let tabManager = AppDelegate.shared?.tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            dlog(
+                "browser.popup.close.abort panel=\(id.uuidString.prefix(5)) " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) reason=missingWorkspace"
+            )
+#endif
+            return
+        }
+
+        let matchedPanelId = workspace.panels.first { _, panel in
+            guard let browserPanel = panel as? BrowserPanel else { return false }
+            return browserPanel.webView === closingWebView
+        }?.key
+
+        let targetPanelId = matchedPanelId ?? (closingWebView === webView ? id : nil)
+        guard let targetPanelId else {
+#if DEBUG
+            dlog(
+                "browser.popup.close.abort panel=\(id.uuidString.prefix(5)) " +
+                "workspace=\(workspace.id.uuidString.prefix(5)) reason=panelNotFound"
+            )
+#endif
+            return
+        }
+
+        let closed = workspace.closePanel(targetPanelId)
+#if DEBUG
+        dlog(
+            "browser.popup.close panel=\(id.uuidString.prefix(5)) " +
+            "target=\(targetPanelId.uuidString.prefix(5)) workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "closed=\(closed ? 1 : 0)"
+        )
+#endif
     }
 
     /// Open a link in a new browser surface in the same pane
@@ -3239,8 +3402,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — open in a new tab.
+        // target=_blank link navigations should open in a new tab.
+        // Scripted popups (navigationType == .other) are handled in WKUIDelegate.createWebViewWith.
         if navigationAction.targetFrame == nil,
+           navigationAction.navigationType != .other,
            let url = navigationAction.request.url {
 #if DEBUG
             dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")
@@ -3331,6 +3496,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var createPopupWebView: ((WKWebViewConfiguration, WKNavigationAction) -> WKWebView?)?
+    var closePopupWebView: ((WKWebView) -> Void)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
@@ -3353,15 +3520,16 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
     /// Returning nil tells WebKit not to open a new window.
     /// createWebViewWith is only called when the page requests a new window
-    /// (window.open(), target=_blank, etc.). Always open in a new tab.
+    /// (window.open(), target=_blank, etc.).
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        // createWebViewWith is only called when the page requests a new window,
-        // so always treat as new-tab intent regardless of modifiers/button.
+        _ = windowFeatures
+        let isScriptedPopup = navigationAction.navigationType == .other
+        let targetURLString = navigationAction.request.url?.absoluteString ?? "nil"
 #if DEBUG
         let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
@@ -3370,37 +3538,64 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
             "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
             "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
             "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
-            "openInNewTab=1"
+            "scriptPopup=\(isScriptedPopup ? 1 : 0) url=\(targetURLString)"
         )
 #endif
-        if let url = navigationAction.request.url {
-            if browserShouldOpenURLExternally(url) {
-                let opened = NSWorkspace.shared.open(url)
-                if !opened {
-                    NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
-                }
-                #if DEBUG
-                dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
-                #endif
-                return nil
+
+        if let url = navigationAction.request.url, browserShouldOpenURLExternally(url) {
+            let opened = NSWorkspace.shared.open(url)
+            if !opened {
+                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
             }
-            if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent = .newTab
+            #if DEBUG
+            dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
+            return nil
+        }
+
+        if isScriptedPopup {
+            if let popupWebView = createPopupWebView?(configuration, navigationAction) {
 #if DEBUG
-                dlog(
-                    "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
-                    "url=\(url.absoluteString)"
-                )
+                dlog("browser.nav.createWebView.action kind=openPopup returned=1 url=\(targetURLString)")
 #endif
-                requestNavigation(navigationAction.request, intent)
-            } else {
-#if DEBUG
-                dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
-#endif
-                openInNewTab?(url)
+                return popupWebView
             }
+#if DEBUG
+            dlog("browser.nav.createWebView.action kind=openPopup returned=0 url=\(targetURLString)")
+#endif
+        }
+
+        guard let url = navigationAction.request.url else {
+#if DEBUG
+            dlog("browser.nav.createWebView.action kind=ignore reason=nilURL")
+#endif
+            return nil
+        }
+
+        if let requestNavigation {
+            let intent: BrowserInsecureHTTPNavigationIntent = .newTab
+#if DEBUG
+            dlog(
+                "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
+                "url=\(url.absoluteString)"
+            )
+#endif
+            requestNavigation(navigationAction.request, intent)
+        } else {
+#if DEBUG
+            dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
+            openInNewTab?(url)
         }
         return nil
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+#if DEBUG
+        let url = webView.url?.absoluteString ?? "nil"
+        dlog("browser.nav.webViewDidClose url=\(url)")
+#endif
+        closePopupWebView?(webView)
     }
 
     /// Handle <input type="file"> elements by presenting the native file picker.

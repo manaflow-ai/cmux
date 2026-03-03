@@ -1327,6 +1327,24 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.005)
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.005)
     }
+
+    func testPopupBrowserPanelInitializerRendersWebViewImmediately() {
+        let popupConfiguration = WKWebViewConfiguration()
+        let panel = BrowserPanel(workspaceId: UUID(), webViewConfiguration: popupConfiguration)
+
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertFalse(panel.isShowingNewTabPage)
+        XCTAssertEqual(
+            panel.webView.configuration.preferences.value(forKey: "developerExtrasEnabled") as? Bool,
+            true
+        )
+        XCTAssertTrue(
+            panel.webView.configuration.userContentController.userScripts.contains {
+                $0.source == BrowserPanel.telemetryHookBootstrapScriptSource
+            },
+            "Popup panels must install telemetry hooks so dialog/console debugging remains available"
+        )
+    }
 }
 
 final class GhosttyBackgroundThemeTests: XCTestCase {
@@ -1595,6 +1613,10 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
                 )
             ),
             "Browser UI delegate must implement JavaScript prompt handling"
+        )
+        XCTAssertTrue(
+            uiDelegate.responds(to: #selector(WKUIDelegate.webViewDidClose(_:))),
+            "Browser UI delegate must implement popup close handling for window.close()"
         )
     }
 }
