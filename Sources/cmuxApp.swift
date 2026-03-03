@@ -3437,10 +3437,10 @@ struct SettingsView: View {
                     SettingsSectionHeader(title: "Keyboard Shortcuts")
                     SettingsCard {
                         SettingsCardRow(
-                            "Show Cmd-Hold Shortcut Hints",
+                            "Show Cmd/Ctrl-Hold Shortcut Hints",
                             subtitle: showShortcutHintsOnCommandHold
-                                ? "Holding Cmd shows shortcut hint pills in the sidebar and titlebar."
-                                : "Holding Cmd keeps shortcut hint pills hidden."
+                                ? "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills."
+                                : "Holding Cmd or Ctrl keeps shortcut hint pills hidden."
                         ) {
                             Toggle("", isOn: $showShortcutHintsOnCommandHold)
                                 .labelsHidden()
