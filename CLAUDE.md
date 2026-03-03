@@ -20,7 +20,9 @@ When reporting a tagged reload result in chat, use the format for your agent typ
 
 **Claude Code** (markdown link with correct derived-data path, cmd+clickable):
 ```markdown
+=======================================================
 [cmux DEV <tag-name>.app](file:///tmp/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+=======================================================
 ```
 
 **Codex** (plain text format):
