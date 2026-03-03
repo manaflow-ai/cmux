@@ -130,9 +130,30 @@ def _portal_stats(c: cmux) -> dict:
 
 def _portal_integrity_error(stats: dict) -> str | None:
     totals = stats.get("totals") or {}
-    orphan = int(totals.get("orphan_terminal_subview_count") or 0)
-    visible_orphan = int(totals.get("visible_orphan_terminal_subview_count") or 0)
-    stale = int(totals.get("stale_entry_count") or 0)
+    if not isinstance(totals, dict):
+        return f"portal totals payload is not a dict: {totals!r}"
+
+    required_keys = (
+        "orphan_terminal_subview_count",
+        "visible_orphan_terminal_subview_count",
+        "stale_entry_count",
+    )
+    missing = [key for key in required_keys if key not in totals]
+    if missing:
+        return f"portal totals missing required counters: {', '.join(missing)}"
+
+    try:
+        orphan = int(totals["orphan_terminal_subview_count"])
+        visible_orphan = int(totals["visible_orphan_terminal_subview_count"])
+        stale = int(totals["stale_entry_count"])
+    except (TypeError, ValueError):
+        return (
+            "portal totals contains non-integer counters "
+            f"(orphan={totals.get('orphan_terminal_subview_count')!r}, "
+            f"visible_orphan={totals.get('visible_orphan_terminal_subview_count')!r}, "
+            f"stale={totals.get('stale_entry_count')!r})"
+        )
+
     if orphan != 0 or visible_orphan != 0 or stale != 0:
         return (
             "portal totals show orphan/stale entries "
@@ -208,7 +229,7 @@ def _find_close_rebind_violations(lines: list[str]) -> tuple[int, list[str]]:
         m = RE_VISIBLE_ON.search(line)
         if m:
             sid = m.group(1)
-            if sid in close_pending and sid not in deinit_started:
+            if sid in close_pending:
                 violations.append(line)
 
     return close_count, violations

@@ -1867,13 +1867,7 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return }
 #if DEBUG
-        let directionLabel: String
-        switch direction {
-        case .left: directionLabel = "left"
-        case .right: directionLabel = "right"
-        case .up: directionLabel = "up"
-        case .down: directionLabel = "down"
-        }
+        let directionLabel = direction.debugLabel
         dlog(
             "split.create.request kind=terminal dir=\(directionLabel) " +
             "tab=\(selectedTabId.uuidString.prefix(5)) panel=\(focusedPanelId.uuidString.prefix(5)) " +
@@ -1899,13 +1893,7 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
 #if DEBUG
-        let directionLabel: String
-        switch direction {
-        case .left: directionLabel = "left"
-        case .right: directionLabel = "right"
-        case .up: directionLabel = "up"
-        case .down: directionLabel = "down"
-        }
+        let directionLabel = direction.debugLabel
         dlog(
             "split.create.request kind=browser dir=\(directionLabel) " +
             "tab=\(selectedTabId.uuidString.prefix(5)) panel=\(focusedPanelId.uuidString.prefix(5)) " +
@@ -2035,13 +2023,7 @@ class TabManager: ObservableObject {
             focus: focus
         )?.id
 #if DEBUG
-        let directionLabel: String
-        switch direction {
-        case .left: directionLabel = "left"
-        case .right: directionLabel = "right"
-        case .up: directionLabel = "up"
-        case .down: directionLabel = "down"
-        }
+        let directionLabel = direction.debugLabel
         dlog(
             "split.newSurface result dir=\(directionLabel) " +
             "tab=\(tabId.uuidString.prefix(5)) source=\(surfaceId.uuidString.prefix(5)) " +
@@ -3626,6 +3608,15 @@ enum SplitDirection {
     /// If false, insert on the "second" side (right/bottom).
     var insertFirst: Bool {
         self == .left || self == .up
+    }
+
+    var debugLabel: String {
+        switch self {
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        }
     }
 }
 
