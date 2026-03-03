@@ -45,6 +45,10 @@ KEY_COMBO = os.environ.get("CMUX_LAG_KEY_COMBO", "up")
 MAX_P95_RATIO = float(os.environ.get("CMUX_LAG_MAX_P95_RATIO", "1.70"))
 MAX_AVG_RATIO = float(os.environ.get("CMUX_LAG_MAX_AVG_RATIO", "1.70"))
 MAX_CHURN_P95_MS = float(os.environ.get("CMUX_LAG_MAX_CHURN_P95_MS", "35.0"))
+MAX_P95_DELTA_MS = float(os.environ.get("CMUX_LAG_MAX_P95_DELTA_MS", "20.0"))
+MAX_AVG_DELTA_MS = float(os.environ.get("CMUX_LAG_MAX_AVG_DELTA_MS", "12.0"))
+MIN_BASELINE_P95_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_P95_MS_FOR_RATIO", "6.0"))
+MIN_BASELINE_AVG_MS_FOR_RATIO = float(os.environ.get("CMUX_LAG_MIN_BASELINE_AVG_MS_FOR_RATIO", "4.0"))
 MAX_CPU_PERCENT = float(os.environ.get("CMUX_LAG_MAX_CPU_PERCENT", "180.0"))
 ENFORCE_CPU = os.environ.get("CMUX_LAG_ENFORCE_CPU", "0") == "1"
 ALLOW_MAIN_SOCKET = os.environ.get("CMUX_LAG_ALLOW_MAIN_SOCKET", "0") == "1"
@@ -394,19 +398,35 @@ def main() -> int:
 
         p95_ratio = churn.p95_ms / max(baseline.p95_ms, 0.001)
         avg_ratio = churn.avg_ms / max(baseline.avg_ms, 0.001)
+        p95_delta_ms = churn.p95_ms - baseline.p95_ms
+        avg_delta_ms = churn.avg_ms - baseline.avg_ms
+        enforce_p95_ratio = baseline.p95_ms >= MIN_BASELINE_P95_MS_FOR_RATIO
+        enforce_avg_ratio = baseline.avg_ms >= MIN_BASELINE_AVG_MS_FOR_RATIO
 
         print("\nComparison")
-        print(f"  p95_ratio: {p95_ratio:.2f}x (max {MAX_P95_RATIO:.2f}x)")
-        print(f"  avg_ratio: {avg_ratio:.2f}x (max {MAX_AVG_RATIO:.2f}x)")
+        print(
+            f"  p95_ratio: {p95_ratio:.2f}x (max {MAX_P95_RATIO:.2f}x, "
+            f"enabled when baseline p95 >= {MIN_BASELINE_P95_MS_FOR_RATIO:.2f}ms)"
+        )
+        print(
+            f"  avg_ratio: {avg_ratio:.2f}x (max {MAX_AVG_RATIO:.2f}x, "
+            f"enabled when baseline avg >= {MIN_BASELINE_AVG_MS_FOR_RATIO:.2f}ms)"
+        )
         print(f"  churn_p95_ms: {churn.p95_ms:.2f} (max {MAX_CHURN_P95_MS:.2f})")
+        print(f"  p95_delta_ms: {p95_delta_ms:.2f} (max {MAX_P95_DELTA_MS:.2f})")
+        print(f"  avg_delta_ms: {avg_delta_ms:.2f} (max {MAX_AVG_DELTA_MS:.2f})")
         print(f"  cpu_avg_pct: {cpu_avg:.2f}")
         print(f"  cpu_max_pct: {cpu_max:.2f}")
 
         failures: list[str] = []
-        if p95_ratio > MAX_P95_RATIO:
+        if enforce_p95_ratio and p95_ratio > MAX_P95_RATIO:
             failures.append(f"p95 ratio {p95_ratio:.2f}x > {MAX_P95_RATIO:.2f}x")
-        if avg_ratio > MAX_AVG_RATIO:
+        if enforce_avg_ratio and avg_ratio > MAX_AVG_RATIO:
             failures.append(f"avg ratio {avg_ratio:.2f}x > {MAX_AVG_RATIO:.2f}x")
+        if p95_delta_ms > MAX_P95_DELTA_MS:
+            failures.append(f"p95 delta {p95_delta_ms:.2f}ms > {MAX_P95_DELTA_MS:.2f}ms")
+        if avg_delta_ms > MAX_AVG_DELTA_MS:
+            failures.append(f"avg delta {avg_delta_ms:.2f}ms > {MAX_AVG_DELTA_MS:.2f}ms")
         if churn.p95_ms > MAX_CHURN_P95_MS:
             failures.append(f"churn p95 {churn.p95_ms:.2f}ms > {MAX_CHURN_P95_MS:.2f}ms")
         if ENFORCE_CPU and cpu_max > MAX_CPU_PERCENT:
