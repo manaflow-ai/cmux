@@ -1483,8 +1483,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
     )
+    private nonisolated static let launchServicesRegisterExecutablePath =
+        "/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
     private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
+    }
+    private nonisolated static func registerBundleWithLaunchServices(_ bundleURL: CFURL) -> OSStatus {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launchServicesRegisterExecutablePath)
+        process.arguments = ["-f", "-R", "-trusted", (bundleURL as URL).path]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? noErr : OSStatus(process.terminationStatus)
+        } catch {
+            NSLog("LaunchServices registration failed to start: \(error.localizedDescription)")
+            return OSStatus(-1)
+        }
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
@@ -6661,10 +6676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func scheduleLaunchServicesBundleRegistration(
         bundleURL: URL = Bundle.main.bundleURL.standardizedFileURL,
         scheduler: @escaping (@escaping @Sendable () -> Void) -> Void = AppDelegate.enqueueLaunchServicesRegistrationWork,
-        register: @escaping (CFURL) -> OSStatus = { _ in
-            // `LSRegisterURL` is deprecated. Keep this hook for tests/injected behavior only.
-            noErr
-        },
+        register: @escaping (CFURL) -> OSStatus = AppDelegate.registerBundleWithLaunchServices,
         breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { message, data in
             sentryBreadcrumb(message, category: "startup", data: data)
         }
