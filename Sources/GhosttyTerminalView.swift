@@ -1389,7 +1389,10 @@ class GhosttyApp {
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
-            let urlString = String(cString: cstr)
+            let urlString = String(
+                data: Data(bytes: cstr, count: Int(openUrl.len)),
+                encoding: .utf8
+            ) ?? ""
             #if DEBUG
             dlog("link.openURL raw=\(urlString)")
             #endif
