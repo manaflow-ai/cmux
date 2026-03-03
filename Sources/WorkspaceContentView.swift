@@ -301,6 +301,7 @@ struct EmptyPanelView: View {
     let paneId: PaneID
     @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.openMarkdownDefaultsKey) private var openMarkdownShortcutData = Data()
 
     private struct ShortcutHint: View {
         let text: String
@@ -335,12 +336,24 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private func createMarkdown() {
+#if DEBUG
+        dlog("emptyPane.newMarkdown pane=\(paneId.id.uuidString.prefix(5))")
+#endif
+        focusPane()
+        _ = AppDelegate.shared?.openMarkdownFileInFocusedWorkspace(preferredPaneId: paneId)
+    }
+
     private var newSurfaceShortcut: StoredShortcut {
         decodeShortcut(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
     }
 
     private var openBrowserShortcut: StoredShortcut {
         decodeShortcut(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
+    }
+
+    private var openMarkdownShortcut: StoredShortcut {
+        decodeShortcut(from: openMarkdownShortcutData, fallback: KeyboardShortcutSettings.openMarkdownDefault)
     }
 
     private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
@@ -401,6 +414,13 @@ struct EmptyPanelView: View {
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser
+                )
+
+                emptyPaneActionButton(
+                    title: "Markdown",
+                    systemImage: "doc.text",
+                    shortcut: openMarkdownShortcut,
+                    action: createMarkdown
                 )
             }
         }

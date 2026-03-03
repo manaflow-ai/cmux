@@ -2193,6 +2193,42 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Open a markdown file in the selected workspace (as a new surface).
+    @discardableResult
+    func openMarkdownFile(
+        url: URL,
+        inWorkspace workspaceId: UUID? = nil,
+        inPane preferredPaneId: PaneID? = nil,
+        insertAtEnd: Bool = true
+    ) -> UUID? {
+        guard let tabId = workspaceId ?? selectedTabId,
+              let workspace = tabs.first(where: { $0.id == tabId }) else {
+            return nil
+        }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+
+        let paneId: PaneID?
+        if let preferredPaneId, workspace.bonsplitController.allPaneIds.contains(preferredPaneId) {
+            paneId = preferredPaneId
+        } else {
+            paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        }
+
+        guard let paneId,
+              let markdownPanel = workspace.newMarkdownSurface(
+                  inPane: paneId,
+                  fileURL: url,
+                  focus: true,
+                  insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: markdownPanel.id)
+        return markdownPanel.id
+    }
+
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
     /// No-op when no browser panel restore snapshot is available.
     @discardableResult

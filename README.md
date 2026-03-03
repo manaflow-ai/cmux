@@ -66,6 +66,7 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 </table>
 
 - **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+- **Markdown panel** — Open `.md`/`.markdown` files in a workspace tab, edit with Markdown+HTML syntax coloring, and switch to GitHub-style preview with table rendering
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
@@ -168,6 +169,13 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
 | ⌥ ⌘ C | Show JavaScript Console (Safari default) |
 
+### Markdown
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ O | Open Markdown file |
+| ⌘ S | Save Markdown file |
+
 ### Notifications
 
 | Shortcut | Action |
@@ -216,6 +224,7 @@ On relaunch, cmux currently restores app layout and metadata only:
 - Working directories
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
+- Markdown panel file path, text buffer, and edit/preview mode
 
 cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
 

@@ -694,6 +694,126 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testMarkdownPanelRoundTripSaveAndDirtyState() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-panel-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("note.md", isDirectory: false)
+        try "# Title\n\ninitial".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let panel = try MarkdownPanel.loadFromDisk(
+            workspaceId: UUID(),
+            fileURL: fileURL
+        )
+        XCTAssertEqual(panel.panelType, .markdown)
+        XCTAssertFalse(panel.isDirty)
+
+        panel.text = "# Title\n\nupdated"
+        XCTAssertTrue(panel.isDirty)
+
+        try panel.save()
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "# Title\n\nupdated")
+    }
+
+    @MainActor
+    func testMarkdownPanelSaveWithoutFileURLThrows() {
+        let panel = MarkdownPanel(workspaceId: UUID(), fileURL: nil, text: "draft")
+        XCTAssertThrowsError(try panel.save()) { error in
+            guard let markdownError = error as? MarkdownPanelError else {
+                XCTFail("Expected MarkdownPanelError")
+                return
+            }
+            XCTAssertEqual(markdownError.localizedDescription, "No file path is associated with this Markdown panel.")
+        }
+    }
+
+    func testSessionMarkdownPanelSnapshotRoundTrip() throws {
+        let source = SessionMarkdownPanelSnapshot(
+            filePath: "/tmp/test.md",
+            text: "# Hello\n\nWorld",
+            isPreviewMode: true,
+            lastSavedText: "# Hello"
+        )
+
+        let data = try JSONEncoder().encode(source)
+        let decoded = try JSONDecoder().decode(SessionMarkdownPanelSnapshot.self, from: data)
+        XCTAssertEqual(decoded.filePath, "/tmp/test.md")
+        XCTAssertEqual(decoded.text, "# Hello\n\nWorld")
+        XCTAssertTrue(decoded.isPreviewMode)
+        XCTAssertEqual(decoded.lastSavedText, "# Hello")
+    }
+
+    func testSessionPanelSnapshotMarkdownRoundTrip() throws {
+        let source = SessionPanelSnapshot(
+            id: UUID(),
+            type: .markdown,
+            title: "note.md",
+            customTitle: nil,
+            directory: nil,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: nil,
+            browser: nil,
+            markdown: SessionMarkdownPanelSnapshot(
+                filePath: "/tmp/note.md",
+                text: "| a | b |\n|---|---|\n| 1 | 2 |",
+                isPreviewMode: false,
+                lastSavedText: "| a | b |\n|---|---|"
+            )
+        )
+
+        let data = try JSONEncoder().encode(source)
+        let decoded = try JSONDecoder().decode(SessionPanelSnapshot.self, from: data)
+        XCTAssertEqual(decoded.type, .markdown)
+        XCTAssertEqual(decoded.markdown?.filePath, "/tmp/note.md")
+        XCTAssertEqual(decoded.markdown?.isPreviewMode, false)
+        XCTAssertEqual(decoded.markdown?.lastSavedText, "| a | b |\n|---|---|")
+    }
+
+    func testMarkdownPreviewRendererUsesLocalAssetsAndNoCDNDependencies() {
+        let lightHTML = MarkdownPreviewRenderer.renderedHTML(markdown: "# Hello", isDarkMode: false)
+        XCTAssertFalse(lightHTML.contains("cdn.jsdelivr.net"))
+        XCTAssertTrue(lightHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
+        XCTAssertTrue(lightHTML.contains("<article id=\"content\" class=\"markdown-body\"></article>"))
+        XCTAssertTrue(lightHTML.contains("cmuxRenderMarkdown(raw)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxExtractAllowedTableTags(input)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxRestoreAllowedTableTags(input, tags)"))
+        XCTAssertTrue(lightHTML.contains("function cmuxSanitizeHref(rawHref)"))
+        XCTAssertTrue(lightHTML.contains("const isRawHtmlLine = (line) =>"))
+        XCTAssertTrue(lightHTML.contains("if (/^\\s*<table(\\s|>)/i.test(line))"))
+        XCTAssertTrue(lightHTML.contains(".markdown-body table th *, .markdown-body table td *"))
+
+        let darkHTML = MarkdownPreviewRenderer.renderedHTML(markdown: "# Hello", isDarkMode: true)
+        XCTAssertTrue(darkHTML.contains("background: #0d1117"))
+        XCTAssertFalse(darkHTML.contains("cdn.jsdelivr.net"))
+        XCTAssertTrue(darkHTML.contains("window.\(MarkdownPreviewRenderer.parserMarker) = true;"))
+    }
+
+    func testMarkdownEditorThemePaletteDarkModeUsesVSCodeDarkPlusTokens() {
+        let dark = MarkdownEditorThemePalette.tokenHexes(isDarkMode: true)
+        XCTAssertEqual(dark.heading, "#569CD6")
+        XCTAssertEqual(dark.emphasis, "#C586C0")
+        XCTAssertEqual(dark.code, "#CE9178")
+        XCTAssertEqual(dark.htmlComment, "#6A9955")
+        XCTAssertEqual(dark.codeBackground, "#2D2D2D")
+    }
+
+    func testMarkdownEditorThemePaletteLightModeUsesVSCodeLightPlusTokens() {
+        let light = MarkdownEditorThemePalette.tokenHexes(isDarkMode: false)
+        XCTAssertEqual(light.heading, "#0000FF")
+        XCTAssertEqual(light.emphasis, "#AF00DB")
+        XCTAssertEqual(light.code, "#A31515")
+        XCTAssertEqual(light.htmlComment, "#008000")
+        XCTAssertEqual(light.codeBackground, "#F3F3F3")
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",

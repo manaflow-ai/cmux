@@ -406,6 +406,12 @@ struct cmuxApp: App {
                         }
                     }
                 }
+
+                Divider()
+
+                splitCommandButton(title: "Open Markdown File…", shortcut: KeyboardShortcutSettings.openMarkdownShortcut()) {
+                    _ = appDelegate.openMarkdownFileInFocusedWorkspace()
+                }
             }
 
             // Close tab/workspace

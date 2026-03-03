@@ -307,6 +307,7 @@ extension Workspace {
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let markdownSnapshot: SessionMarkdownPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -327,6 +328,7 @@ extension Workspace {
                 scrollback: resolvedScrollback
             )
             browserSnapshot = nil
+            markdownSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -338,6 +340,17 @@ extension Workspace {
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
+            )
+            markdownSnapshot = nil
+        case .markdown:
+            guard let markdownPanel = panel as? MarkdownPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.fileURL?.path,
+                text: markdownPanel.text,
+                isPreviewMode: markdownPanel.isPreviewMode,
+                lastSavedText: markdownPanel.savedTextBaseline
             )
         }
 
@@ -353,7 +366,8 @@ extension Workspace {
             listeningPorts: listeningPorts,
             ttyName: ttyName,
             terminal: terminalSnapshot,
-            browser: browserSnapshot
+            browser: browserSnapshot,
+            markdown: markdownSnapshot
         )
     }
 
@@ -513,6 +527,22 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .markdown:
+            let fileURL = snapshot.markdown?.filePath.map { URL(fileURLWithPath: $0, isDirectory: false) }
+            let restoredText = snapshot.markdown?.text ?? ""
+            let restoredPreviewMode = snapshot.markdown?.isPreviewMode ?? false
+            guard let markdownPanel = newMarkdownSurface(
+                inPane: paneId,
+                fileURL: fileURL,
+                initialText: restoredText,
+                lastSavedText: snapshot.markdown?.lastSavedText,
+                isPreviewMode: restoredPreviewMode,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
+            return markdownPanel.id
         }
     }
 
@@ -984,6 +1014,7 @@ final class Workspace: Identifiable, ObservableObject {
     private enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let markdown = "markdown"
     }
 
     // MARK: - Initialization
@@ -1317,6 +1348,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .markdown:
+            return SurfaceKind.markdown
         }
     }
 
@@ -2149,6 +2182,179 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    private func loadOrCreateMarkdownPanel(
+        fileURL: URL?,
+        initialText: String?,
+        lastSavedText: String?,
+        isPreviewMode: Bool,
+        scope: String
+    ) -> MarkdownPanel? {
+        if let initialText {
+            return MarkdownPanel(
+                workspaceId: id,
+                fileURL: fileURL,
+                text: initialText,
+                isPreviewMode: isPreviewMode,
+                lastSavedText: lastSavedText ?? initialText
+            )
+        }
+
+        if let fileURL {
+            do {
+                return try MarkdownPanel.loadFromDisk(
+                    workspaceId: id,
+                    fileURL: fileURL,
+                    isPreviewMode: isPreviewMode
+                )
+            } catch {
+#if DEBUG
+                dlog("markdown.load.fail scope=\(scope) workspace=\(id.uuidString.prefix(5)) path=\(fileURL.path) error=\(error.localizedDescription)")
+#endif
+                return nil
+            }
+        }
+
+        return MarkdownPanel(
+            workspaceId: id,
+            fileURL: nil,
+            text: "",
+            isPreviewMode: isPreviewMode,
+            lastSavedText: ""
+        )
+    }
+
+    /// Create a new markdown panel split.
+    @discardableResult
+    func newMarkdownSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        fileURL: URL? = nil,
+        focus: Bool = true
+    ) -> MarkdownPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        guard let markdownPanel = loadOrCreateMarkdownPanel(
+            fileURL: fileURL,
+            initialText: nil,
+            lastSavedText: nil,
+            isPreviewMode: false,
+            scope: "split"
+        ) else { return nil }
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+        if let directory = markdownPanel.fileURL?.deletingLastPathComponent().path,
+           !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            updatePanelDirectory(panelId: markdownPanel.id, directory: directory)
+        }
+
+        let newTab = Bonsplit.Tab(
+            title: markdownPanel.displayTitle,
+            icon: markdownPanel.displayIcon,
+            kind: SurfaceKind.markdown,
+            isDirty: markdownPanel.isDirty,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: markdownPanel.id)
+            panelTitles.removeValue(forKey: markdownPanel.id)
+            panelDirectories.removeValue(forKey: markdownPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(markdownPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: markdownPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return markdownPanel
+    }
+
+    /// Create a new markdown surface in the specified pane.
+    @discardableResult
+    func newMarkdownSurface(
+        inPane paneId: PaneID,
+        fileURL: URL?,
+        initialText: String? = nil,
+        lastSavedText: String? = nil,
+        isPreviewMode: Bool = false,
+        focus: Bool? = nil,
+        insertAtEnd: Bool = false
+    ) -> MarkdownPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+
+        guard let markdownPanel = loadOrCreateMarkdownPanel(
+            fileURL: fileURL,
+            initialText: initialText,
+            lastSavedText: lastSavedText,
+            isPreviewMode: isPreviewMode,
+            scope: "surface"
+        ) else { return nil }
+
+        panels[markdownPanel.id] = markdownPanel
+        panelTitles[markdownPanel.id] = markdownPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: markdownPanel.displayTitle,
+            icon: markdownPanel.displayIcon,
+            kind: SurfaceKind.markdown,
+            isDirty: markdownPanel.isDirty,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: markdownPanel.id)
+            panelTitles.removeValue(forKey: markdownPanel.id)
+            return nil
+        }
+
+        if let directory = fileURL?.deletingLastPathComponent().path,
+           !directory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            updatePanelDirectory(panelId: markdownPanel.id, directory: directory)
+        }
+
+        surfaceIdToPanelId[newTabId] = markdownPanel.id
+
+        if insertAtEnd {
+            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            markdownPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        }
+
+        return markdownPanel
+    }
+
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
@@ -2602,6 +2808,8 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.updateWorkspaceId(id)
             installBrowserPanelSubscription(browserPanel)
+        } else if let markdownPanel = detached.panel as? MarkdownPanel {
+            markdownPanel.updateWorkspaceId(id)
         }
 
         if let directory = detached.directory {
@@ -3056,10 +3264,19 @@ final class Workspace: Identifiable, ObservableObject {
     /// Check if any panel needs close confirmation
     func needsConfirmClose() -> Bool {
         for panel in panels.values {
-            if let terminalPanel = panel as? TerminalPanel,
-               terminalPanel.needsConfirmClose() {
+            if panelNeedsCloseConfirmation(panel) {
                 return true
             }
+        }
+        return false
+    }
+
+    private func panelNeedsCloseConfirmation(_ panel: any Panel) -> Bool {
+        if let terminalPanel = panel as? TerminalPanel {
+            return terminalPanel.needsConfirmClose()
+        }
+        if let markdownPanel = panel as? MarkdownPanel {
+            return markdownPanel.isDirty
         }
         return false
     }
@@ -3681,7 +3898,7 @@ extension Workspace: BonsplitDelegate {
 
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+              let panel = panels[panelId] else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
@@ -3690,7 +3907,7 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        if terminalPanel.needsConfirmClose() {
+        if panelNeedsCloseConfirmation(panel) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -3956,8 +4173,8 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               let terminalPanel = terminalPanel(for: panelId),
-               terminalPanel.needsConfirmClose() {
+               let panel = panels[panelId],
+               panelNeedsCloseConfirmation(panel) {
                 pendingPaneClosePanelIds.removeValue(forKey: pane.id)
                 return false
             }
@@ -4151,6 +4368,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "markdown":
+            _ = AppDelegate.shared?.openMarkdownFileInFocusedWorkspace(preferredPaneId: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

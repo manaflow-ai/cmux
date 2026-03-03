@@ -1232,6 +1232,31 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
     }
+
+    func testOpenMarkdownShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.openMarkdownDefaultsKey, "shortcut.openMarkdown")
+        XCTAssertEqual(KeyboardShortcutSettings.openMarkdownDefault.key, "o")
+        XCTAssertTrue(KeyboardShortcutSettings.openMarkdownDefault.command)
+        XCTAssertTrue(KeyboardShortcutSettings.openMarkdownDefault.shift)
+        XCTAssertFalse(KeyboardShortcutSettings.openMarkdownDefault.option)
+        XCTAssertFalse(KeyboardShortcutSettings.openMarkdownDefault.control)
+    }
+
+    func testOpenMarkdownShortcutUsesDefaultWhenNoCustomValueStored() {
+        let defaults = UserDefaults.standard
+        let key = KeyboardShortcutSettings.openMarkdownDefaultsKey
+        let previous = defaults.object(forKey: key)
+        addTeardownBlock {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.removeObject(forKey: key)
+        let resolved = KeyboardShortcutSettings.openMarkdownShortcut()
+        XCTAssertEqual(resolved, KeyboardShortcutSettings.openMarkdownDefault)
+    }
 }
 
 @MainActor

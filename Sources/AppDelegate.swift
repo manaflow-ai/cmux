@@ -7,6 +7,7 @@ import Sentry
 import WebKit
 import Combine
 import ObjectiveC.runtime
+import UniformTypeIdentifiers
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -6408,6 +6409,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         _ = focusBrowserAddressBar(panelId: panelId)
         return panelId
+    }
+
+    @discardableResult
+    func openMarkdownFileInFocusedWorkspace(preferredPaneId: PaneID? = nil) -> UUID? {
+        let panel = NSOpenPanel()
+        panel.title = "Open Markdown File"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType.plainText] + [UTType(filenameExtension: "md"), UTType(filenameExtension: "markdown")].compactMap { $0 }
+
+        guard panel.runModal() == .OK, let fileURL = panel.url else {
+            return nil
+        }
+
+        return tabManager?.openMarkdownFile(
+            url: fileURL,
+            inPane: preferredPaneId,
+            insertAtEnd: true
+        )
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {

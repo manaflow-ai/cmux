@@ -3144,7 +3144,15 @@ struct ContentView: View {
                 for panelId in orderedPanelIds {
                     guard let panel = workspace.panels[panelId] else { continue }
                     let panelTitle = panelDisplayName(workspace: workspace, panelId: panelId, fallback: panel.displayTitle)
-                    let typeLabel: String = (panel.panelType == .browser) ? "Browser" : "Terminal"
+                    let typeLabel: String
+                    switch panel.panelType {
+                    case .terminal:
+                        typeLabel = "Terminal"
+                    case .browser:
+                        typeLabel = "Browser"
+                    case .markdown:
+                        typeLabel = "Markdown"
+                    }
                     let panelKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
                         baseKeywords: [
                             "tab",

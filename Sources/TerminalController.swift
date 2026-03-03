@@ -3307,10 +3307,14 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
-            if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
-            } else {
+            switch panelType {
+            case .terminal:
                 newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
+            case .browser:
+                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
+            case .markdown:
+                let markdownFileURL = (url?.isFileURL == true) ? url : nil
+                newPanelId = ws.newMarkdownSurface(inPane: paneId, fileURL: markdownFileURL, focus: v2FocusAllowed())?.id
             }
 
             guard let newPanelId else {
@@ -3328,7 +3332,7 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
-                "type": panelType.rawValue
+                "type": v2OrNull(ws.panels[newPanelId]?.panelType.rawValue)
             ])
         }
         return result
@@ -4272,7 +4276,15 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
-            if panelType == .browser {
+            switch panelType {
+            case .terminal:
+                newPanelId = ws.newTerminalSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    focus: v2FocusAllowed()
+                )?.id
+            case .browser:
                 newPanelId = ws.newBrowserSplit(
                     from: focusedPanelId,
                     orientation: orientation,
@@ -4280,11 +4292,13 @@ class TerminalController {
                     url: url,
                     focus: v2FocusAllowed()
                 )?.id
-            } else {
-                newPanelId = ws.newTerminalSplit(
+            case .markdown:
+                let markdownFileURL = (url?.isFileURL == true) ? url : nil
+                newPanelId = ws.newMarkdownSplit(
                     from: focusedPanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
+                    fileURL: markdownFileURL,
                     focus: v2FocusAllowed()
                 )?.id
             }
@@ -4304,7 +4318,7 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
-                "type": panelType.rawValue
+                "type": v2OrNull(ws.panels[newPanelId]?.panelType.rawValue)
             ])
         }
         return result
