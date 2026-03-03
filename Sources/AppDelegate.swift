@@ -6513,7 +6513,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shortcutCharacterMatches(
             eventCharacter: eventCharsIgnoringModifiers,
             shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: flags.contains(.shift)
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
         ) {
             return true
         }
@@ -6534,7 +6535,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if shortcutCharacterMatches(
             eventCharacter: KeyboardLayout.character(forKeyCode: event.keyCode),
             shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: false
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
         ) {
             return true
         }
@@ -6563,12 +6565,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func shortcutCharacterMatches(
         eventCharacter: String?,
         shortcutKey: String,
-        applyShiftSymbolNormalization: Bool
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
     ) -> Bool {
         guard let eventCharacter, !eventCharacter.isEmpty else { return false }
         if normalizedShortcutEventCharacter(
             eventCharacter,
-            applyShiftSymbolNormalization: applyShiftSymbolNormalization
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
         ) == shortcutKey {
             return true
         }
@@ -6577,7 +6581,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func normalizedShortcutEventCharacter(
         _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
     ) -> String {
         let lowered = eventCharacter.lowercased()
         guard applyShiftSymbolNormalization else { return lowered }
@@ -6594,16 +6599,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "~": return "`"
         case "+": return "="
         case "_": return "-"
-        case "!": return "1"
-        case "@": return "2"
-        case "#": return "3"
-        case "$": return "4"
-        case "%": return "5"
-        case "^": return "6"
-        case "&": return "7"
-        case "*": return "8"
-        case "(": return "9"
-        case ")": return "0"
+        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
+        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
+        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
+        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
+        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
+        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
+        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
+        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
+        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
+        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
         default: return lowered
         }
     }
