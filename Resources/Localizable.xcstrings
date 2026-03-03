@@ -3317,74 +3317,6 @@
         }
       }
     },
-    "update.available.withVersion %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update Available: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アップデートあり: %@"
-          }
-        }
-      }
-    },
-    "update.downloading.progress %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Downloading: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダウンロード中: %@"
-          }
-        }
-      }
-    },
-    "update.extracting.progress %@": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preparing: %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "準備中: %@"
-          }
-        }
-      }
-    },
-    "menu.windowNumber %lld": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Window %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウインドウ %lld"
-          }
-        }
-      }
-    },
     "workspace.defaultName": {
       "extractionState": "manual",
       "localizations": {
@@ -3470,7 +3402,75 @@
         }
       }
     },
-    "statusMenu.unreadCount %lld": {
+    "update.available.withVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Available: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートあり: %@"
+          }
+        }
+      }
+    },
+    "update.downloading.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloading: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード中: %@"
+          }
+        }
+      }
+    },
+    "update.extracting.progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備中: %@"
+          }
+        }
+      }
+    },
+    "menu.windowNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Window %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ %lld"
+          }
+        }
+      }
+    },
+    "statusMenu.unreadCount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -3487,7 +3487,7 @@
         }
       }
     },
-    "browser.error.insecure.message %@": {
+    "browser.error.insecure.message": {
       "extractionState": "manual",
       "localizations": {
         "en": {

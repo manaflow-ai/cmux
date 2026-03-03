@@ -3386,7 +3386,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
                 let number = index + 1
-                labels[summary.windowId] = String(localized: "menu.windowNumber \(number)", defaultValue: "Window \(number)")
+                labels[summary.windowId] = String(localized: "menu.windowNumber", defaultValue: "Window \(number)")
             }
         }
         return labels
@@ -7797,7 +7797,7 @@ enum NotificationMenuSnapshotBuilder {
     static func stateHintTitle(unreadCount: Int) -> String {
         unreadCount == 0
             ? String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
-            : String(localized: "statusMenu.unreadCount \(unreadCount)", defaultValue: "\(unreadCount) unread notifications")
+            : String(localized: "statusMenu.unreadCount", defaultValue: "\(unreadCount) unread notifications")
     }
 }
 

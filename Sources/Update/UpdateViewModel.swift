@@ -28,19 +28,19 @@ class UpdateViewModel: ObservableObject {
         case .updateAvailable(let update):
             let version = update.appcastItem.displayVersionString
             if !version.isEmpty {
-                return String(localized: "update.available.withVersion \(version)", defaultValue: "Update Available: \(version)")
+                return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
             }
             return String(localized: "update.available.short", defaultValue: "Update Available")
         case .downloading(let download):
             if let expectedLength = download.expectedLength, expectedLength > 0 {
                 let progress = Double(download.progress) / Double(expectedLength)
                 let percent = String(format: "%.0f%%", progress * 100)
-                return String(localized: "update.downloading.progress \(percent)", defaultValue: "Downloading: \(percent)")
+                return String(localized: "update.downloading.progress", defaultValue: "Downloading: \(percent)")
             }
             return String(localized: "update.downloading.status", defaultValue: "Downloading…")
         case .extracting(let extracting):
             let percent = String(format: "%.0f%%", extracting.progress * 100)
-            return String(localized: "update.extracting.progress \(percent)", defaultValue: "Preparing: \(percent)")
+            return String(localized: "update.extracting.progress", defaultValue: "Preparing: \(percent)")
         case .installing(let install):
             return install.isAutoUpdate ? String(localized: "update.restartToComplete", defaultValue: "Restart to Complete Update") : String(localized: "update.installing.status", defaultValue: "Installing…")
         case .notFound:
@@ -53,9 +53,9 @@ class UpdateViewModel: ObservableObject {
     var maxWidthText: String {
         switch effectiveState {
         case .downloading:
-            return String(localized: "update.downloading.progress \("100%")", defaultValue: "Downloading: 100%")
+            return "Downloading: 100%"
         case .extracting:
-            return String(localized: "update.extracting.progress \("100%")", defaultValue: "Preparing: 100%")
+            return "Preparing: 100%"
         default:
             return text
         }
