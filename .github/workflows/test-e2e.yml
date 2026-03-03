@@ -28,6 +28,9 @@ on:
           - macos-15
           - macos-26
 
+permissions:
+  contents: read
+
 jobs:
   e2e:
     runs-on: ${{ inputs.runner || 'macos-15' }}
