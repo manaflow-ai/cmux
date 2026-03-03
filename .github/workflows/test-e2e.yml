@@ -97,12 +97,21 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
+      - name: Install ffmpeg
+        if: ${{ inputs.record_video }}
+        run: |
+          brew install --quiet ffmpeg
+          FFMPEG_PATH=$(which ffmpeg)
+          echo "ffmpeg: $FFMPEG_PATH"
+          ffmpeg -version | head -1
+          echo "FFMPEG_PATH=$FFMPEG_PATH" >> "$GITHUB_ENV"
+
       - name: Grant TCC screen recording permission
         continue-on-error: true
         run: |
           TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
           if [ -f "$TCC_DB" ]; then
-            for client in /usr/sbin/screencapture /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg; do
+            for client in /usr/sbin/screencapture "${FFMPEG_PATH:-/opt/homebrew/bin/ffmpeg}" /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg; do
               sqlite3 "$TCC_DB" "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version) VALUES ('kTCCServiceScreenCapture', '$client', 1, 2, 4, 1);" 2>/dev/null || true
             done
           fi
