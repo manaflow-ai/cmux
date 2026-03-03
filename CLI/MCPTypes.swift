@@ -21,15 +21,32 @@ public struct JSONRPCRequest: Codable {
 }
 
 /// JSON-RPC 2.0 Response (success)
-public struct JSONRPCResponse: Codable {
+/// Uses pre-encoded JSON Data for the result field to avoid AnyCodable serialization issues.
+public struct JSONRPCResponse: Encodable {
     public let jsonrpc: String
     public let id: JSONRPCId
-    public let result: AnyCodable?
+    /// Pre-encoded JSON bytes for the result value.
+    public let resultData: Data
 
-    public init(id: JSONRPCId, result: Any?) {
+    public init<T: Encodable>(id: JSONRPCId, result: T) throws {
         self.jsonrpc = "2.0"
         self.id = id
-        self.result = result.map { AnyCodable($0) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        self.resultData = try encoder.encode(result)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(jsonrpc, forKey: .jsonrpc)
+        try container.encode(id, forKey: .id)
+        // Embed pre-encoded JSON as raw value
+        let rawResult = try JSONDecoder().decode(AnyCodable.self, from: resultData)
+        try container.encode(rawResult, forKey: .result)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case jsonrpc, id, result
     }
 }
 
