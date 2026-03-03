@@ -24,74 +24,40 @@ public func runMCPServer(socketPath: String = "/tmp/cmux.sock", password: String
 
 /// Run the stdio message loop
 private func runStdIOLoop(protocolHandler: MCPProtocol) {
-    let inputStream = FileHandle.standardInput
     let outputStream = FileHandle.standardOutput
     let errorStream = FileHandle.standardError
 
-    // Read input line by line
-    let buffer = UnsafeMutablePointer<CChar>.allocate(capacity: 65536)
-    defer { buffer.deallocate() }
-
-    // Use FileHandle to read lines
-    while true {
-        // Read a line from stdin
-        guard let line = readLine() else {
-            // EOF or error
-            break
-        }
-
-        // Skip empty lines
+    // Use Swift stdlib readLine() for line-buffered stdin reading
+    while let line = Swift.readLine(strippingNewline: true) {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { continue }
 
-        // Convert to Data
         guard let data = trimmed.data(using: .utf8) else {
             continue
         }
 
-        // Process message
-        if let responseData = try? protocolHandler.processMessage(data) {
-            // Write response with newline
-            var output = responseData
-            output.append(contentsOf: "\n".utf8)
-            outputStream.write(output)
-            outputStream.synchronizeFile()
-        }
-    }
-}
-
-/// Read a line from stdin (simple implementation)
-private func readLine() -> String? {
-    var buffer = [UInt8]()
-    let stdin = FileHandle.standardInput
-
-    while true {
-        let data = stdin.availableData
-        if data.isEmpty {
-            // EOF
-            return buffer.isEmpty ? nil : String(bytes: buffer, encoding: .utf8)
-        }
-
-        buffer.append(contentsOf: data)
-
-        // Check for newline
-        if let newlineIndex = buffer.firstIndex(of: 10) { // \n
-            let line = Data(buffer[0..<newlineIndex])
-            buffer.removeSubrange(0...newlineIndex)
-
-            // Remove \r if present
-            if let crIndex = line.lastIndex(of: 13), line[crIndex] == 13 { // \r
-                return String(bytes: line[0..<crIndex], encoding: .utf8)
+        do {
+            if let responseData = try protocolHandler.processMessage(data) {
+                var output = responseData
+                output.append(contentsOf: "\n".utf8)
+                outputStream.write(output)
             }
-
-            return String(bytes: line, encoding: .utf8)
-        }
-
-        // If buffer is too large, return what we have
-        if buffer.count > 65536 {
-            let line = Data(buffer)
-            buffer.removeAll()
-            return String(bytes: line, encoding: .utf8)
+        } catch {
+            // Return a JSON-RPC error response so the client doesn't hang.
+            // Also log to stderr for debugging.
+            errorStream.write("MCP error: \(error)\n".data(using: .utf8) ?? Data())
+            let errResp = JSONRPCErrorResponse(
+                id: .number(0),
+                error: JSONRPCError(
+                    code: JSONRPCErrorCode.internalError.rawValue,
+                    message: "Internal error: \(error.localizedDescription)"
+                )
+            )
+            if let errData = try? JSONEncoder().encode(errResp) {
+                var output = errData
+                output.append(contentsOf: "\n".utf8)
+                outputStream.write(output)
+            }
         }
     }
 }

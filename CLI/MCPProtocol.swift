@@ -25,10 +25,10 @@ public final class MCPProtocol {
     // MARK: - Message Handling
 
     /// Process an incoming JSON-RPC message and return the response
-    public func processMessage(_ messageData: Data) -> Data? {
+    public func processMessage(_ messageData: Data) throws -> Data? {
         // Try to decode as request first
         if let request = try? JSONDecoder().decode(JSONRPCRequest.self, from: messageData) {
-            return handleRequest(request)
+            return try handleRequest(request)
         }
 
         // Try to decode as notification (no response needed)
@@ -42,15 +42,15 @@ public final class MCPProtocol {
             id: .number(0),
             error: JSONRPCError(code: JSONRPCErrorCode.parseError.rawValue, message: "Parse error")
         )
-        return encodeResponse(error)
+        return try encodeResponse(error)
     }
 
     // MARK: - Request Handling
 
-    private func handleRequest(_ request: JSONRPCRequest) -> Data {
+    private func handleRequest(_ request: JSONRPCRequest) throws -> Data {
         // Handle initialize specially (must be first)
         if request.method == "initialize" {
-            return handleInitialize(request)
+            return try handleInitialize(request)
         }
 
         // Other methods require initialization
@@ -59,27 +59,27 @@ public final class MCPProtocol {
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.serverError.rawValue, message: "Server not initialized. Call initialize first.")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         }
 
         // Route to appropriate handler
         switch request.method {
         case "tools/list":
-            return handleToolsList(request)
+            return try handleToolsList(request)
         case "tools/call", "tools/invoke":
-            return handleToolsCall(request)
+            return try handleToolsCall(request)
         default:
             let error = JSONRPCErrorResponse(
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.methodNotFound.rawValue, message: "Method not found: \(request.method)")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         }
     }
 
     // MARK: - Initialize
 
-    private func handleInitialize(_ request: JSONRPCRequest) -> Data {
+    private func handleInitialize(_ request: JSONRPCRequest) throws -> Data {
         // Parse parameters
         guard let params = request.params,
               let protocolVersion = params["protocolVersion"]?.value as? String else {
@@ -87,7 +87,7 @@ public final class MCPProtocol {
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.invalidParams.rawValue, message: "Missing protocolVersion")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         }
 
         // Mark as initialized
@@ -106,28 +106,28 @@ public final class MCPProtocol {
             serverInfo: serverInfo
         )
 
-        let response = JSONRPCResponse(id: request.id, result: AnyCodable(result))
-        return encodeResponse(response)
+        let response = try JSONRPCResponse(id: request.id, result: result)
+        return try encodeResponse(response)
     }
 
     // MARK: - Tools List
 
-    private func handleToolsList(_ request: JSONRPCRequest) -> Data {
+    private func handleToolsList(_ request: JSONRPCRequest) throws -> Data {
         let tools = toolRegistry.listToolDefinitions()
         let result = MCPToolsListResult(tools: tools)
-        let response = JSONRPCResponse(id: request.id, result: AnyCodable(result))
-        return encodeResponse(response)
+        let response = try JSONRPCResponse(id: request.id, result: result)
+        return try encodeResponse(response)
     }
 
     // MARK: - Tools Call
 
-    private func handleToolsCall(_ request: JSONRPCRequest) -> Data {
+    private func handleToolsCall(_ request: JSONRPCRequest) throws -> Data {
         guard let params = request.params else {
             let error = JSONRPCErrorResponse(
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.invalidParams.rawValue, message: "Missing params")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         }
 
         // Extract tool name
@@ -136,7 +136,7 @@ public final class MCPProtocol {
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.invalidParams.rawValue, message: "Missing tool name")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         }
 
         // Extract arguments
@@ -148,26 +148,26 @@ public final class MCPProtocol {
         // Execute tool
         do {
             let result = try toolRegistry.executeTool(name: toolName, arguments: arguments)
-            let response = JSONRPCResponse(id: request.id, result: AnyCodable(result))
-            return encodeResponse(response)
+            let response = try JSONRPCResponse(id: request.id, result: result)
+            return try encodeResponse(response)
         } catch MCPError.toolNotFound(let name) {
             let error = JSONRPCErrorResponse(
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.methodNotFound.rawValue, message: "Tool not found: \(name)")
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         } catch MCPError.invalidParameters(let message) {
             let error = JSONRPCErrorResponse(
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.invalidParams.rawValue, message: message)
             )
-            return encodeResponse(error)
+            return try encodeResponse(error)
         } catch {
-            let error = JSONRPCErrorResponse(
+            let errResp = JSONRPCErrorResponse(
                 id: request.id,
                 error: JSONRPCError(code: JSONRPCErrorCode.internalError.rawValue, message: error.localizedDescription)
             )
-            return encodeResponse(error)
+            return try encodeResponse(errResp)
         }
     }
 
@@ -185,11 +185,10 @@ public final class MCPProtocol {
 
     // MARK: - Encoding
 
-    private func encodeResponse<T: Encodable>(_ response: T) -> Data {
+    private func encodeResponse<T: Encodable>(_ response: T) throws -> Data {
         let encoder = JSONEncoder()
-        // Ensure consistent key ordering
         encoder.outputFormatting = [.sortedKeys]
-        return (try? encoder.encode(response)) ?? Data()
+        return try encoder.encode(response)
     }
 }
 
