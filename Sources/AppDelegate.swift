@@ -1496,6 +1496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private weak var lastActiveMainWindow: NSWindow?
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1554,6 +1555,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -1719,6 +1724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        bringMainWindowToFrontOnActivationIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -6782,6 +6788,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
+            self.lastActiveMainWindow = window
             self.setActiveMainWindow(window)
         }
     }
@@ -7139,6 +7146,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             notificationStore.markRead(id: notificationId)
         }
+    }
+
+    private func bringMainWindowToFrontOnActivationIfNeeded() {
+        guard let window = frontmostKnownMainWindow() else { return }
+        bringToFront(window)
+    }
+
+    private func frontmostKnownMainWindow() -> NSWindow? {
+        let directCandidates: [NSWindow?] = [lastActiveMainWindow, NSApp.keyWindow, NSApp.mainWindow]
+        for candidate in directCandidates where candidate != nil {
+            if let window = candidate, isMainTerminalWindow(window) {
+                return window
+            }
+        }
+
+        if let activeManager = tabManager,
+           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            return window
+        }
+
+        if let visible = mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first(where: { $0.isVisible }) {
+            return visible
+        }
+
+        return mainWindowContexts.values
+            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+            .first
     }
 
 #if DEBUG
