@@ -1,5 +1,5 @@
 // MCPToolRegistry.swift
-// Tool registry and execution
+// Tool registry and grouped tool implementations using direct socket RPC
 
 import Foundation
 
@@ -7,504 +7,617 @@ import Foundation
 
 /// Protocol that all MCP tools must implement
 public protocol MCPExecutionTool {
-    /// Tool name (e.g., "cmux_identify")
     var name: String { get }
-
-    /// Tool description for the schema
     var description: String { get }
-
-    /// Execute the tool with given arguments
     func execute(arguments: [String: Any]) throws -> MCPToolCallResult
-
-    /// Get the input schema for this tool
     var inputSchema: MCPToolInputSchema { get }
 }
 
 // MARK: - Tool Registry
 
-/// Registry for all available MCP tools
 public final class MCPToolRegistry {
-
-    // MARK: - Properties
 
     private var tools: [String: MCPExecutionTool] = [:]
     private let backend: MCPBackend
-
-    // MARK: - Initialization
 
     public init(backend: MCPBackend) {
         self.backend = backend
         registerDefaultTools()
     }
 
-    // MARK: - Registration
-
-    /// Register a tool
     public func register(_ tool: MCPExecutionTool) {
         tools[tool.name] = tool
     }
 
-    /// List all registered tools
     public func listTools() -> [MCPExecutionTool] {
-        return Array(tools.values).sorted { $0.name < $1.name }
+        Array(tools.values).sorted { $0.name < $1.name }
     }
 
-    /// List all registered tools as definitions
     public func listToolDefinitions() -> [MCPToolDefinition] {
-        return Array(tools.values).sorted { $0.name < $1.name }.map { tool in
-            MCPToolDefinition(
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema
-            )
-        }
+        listTools().map { MCPToolDefinition(name: $0.name, description: $0.description, inputSchema: $0.inputSchema) }
     }
 
-    /// Get a tool by name
     public func getTool(name: String) -> MCPExecutionTool? {
-        return tools[name]
+        tools[name]
     }
 
-    // MARK: - Execution
-
-    /// Execute a tool by name with arguments
     public func executeTool(name: String, arguments: [String: Any]) throws -> MCPToolCallResult {
-        guard let tool = tools[name] else {
-            throw MCPError.toolNotFound(name)
-        }
-
+        guard let tool = tools[name] else { throw MCPError.toolNotFound(name) }
         return try tool.execute(arguments: arguments)
     }
 
-    // MARK: - Default Tools Registration
-
     private func registerDefaultTools() {
-        // P0 Tools
-        register(IdentifyTool(backend: backend))
-        register(ListWorkspacesTool(backend: backend))
-        register(ListPanesTool(backend: backend))
-        register(ListPaneSurfacesTool(backend: backend))
-        register(ReadScreenTool(backend: backend))
-        register(SendInputTool(backend: backend))
-        register(SendKeyTool(backend: backend))
-
-        // P1 Tools
-        register(CreateSplitTool(backend: backend))
-        register(FocusPaneTool(backend: backend))
-        register(NewWorkspaceTool(backend: backend))
-        register(TriggerFlashTool(backend: backend))
-        register(ListWindowsTool(backend: backend))
+        register(SystemTool(backend: backend))
+        register(WorkspaceTool(backend: backend))
+        register(WindowTool(backend: backend))
+        register(PaneTool(backend: backend))
+        register(SurfaceTool(backend: backend))
+        register(NotificationTool(backend: backend))
+        register(TabTool(backend: backend))
+        register(BrowserTool(backend: backend))
     }
 }
 
-// MARK: - Base Tool Implementation Helper
+// MARK: - Action Definition & Grouped Tool Base
 
-/// Base class for simple tools that just call backend commands
-public class SimpleMCPTool: MCPExecutionTool {
+/// Defines validation rules for a single action within a grouped tool.
+struct ActionDef {
+    let required: [String]
+    let optional: [String]
+
+    init(required: [String] = [], optional: [String] = []) {
+        self.required = required
+        self.optional = optional
+    }
+}
+
+/// Base class for grouped MCP tools that map actions to socket RPC methods.
+public class GroupedTool: MCPExecutionTool {
     public let name: String
     public let description: String
     public let inputSchema: MCPToolInputSchema
-    fileprivate let backend: MCPBackend
+    let backend: MCPBackend
+    let namespace: String
+    let actions: [String: ActionDef]
 
-    public init(name: String, description: String, inputSchema: MCPToolInputSchema, backend: MCPBackend) {
+    init(name: String, namespace: String, description: String, actions: [String: ActionDef], backend: MCPBackend) {
         self.name = name
+        self.namespace = namespace
         self.description = description
-        self.inputSchema = inputSchema
+        self.actions = actions
         self.backend = backend
+        self.inputSchema = MCPToolInputSchema(
+            properties: [
+                "action": MCPToolProperty(type: "string", description: "The action to perform. See tool description for available actions.")
+            ],
+            required: ["action"]
+        )
     }
 
     public func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        fatalError("Subclasses must implement execute")
-    }
+        guard let action = arguments["action"] as? String else {
+            throw MCPError.invalidParameters("Missing required parameter: action")
+        }
 
-    /// Override this to provide the cmux command
-    fileprivate func buildCommand(arguments: [String: Any]) throws -> String {
-        fatalError("Subclasses must implement buildCommand")
-    }
+        guard let def = actions[action] else {
+            let available = actions.keys.sorted().joined(separator: ", ")
+            throw MCPError.invalidParameters("Unknown action '\(action)'. Available: \(available)")
+        }
 
-    public func executeCommand(_ command: String) throws -> MCPToolCallResult {
-        let result = try backend.executeCommand(command)
-        return MCPToolCallResult(content: [.text(result)])
+        // Validate required params
+        for param in def.required {
+            guard arguments[param] != nil else {
+                throw MCPError.invalidParameters("Action '\(action)' requires parameter: \(param)")
+            }
+        }
+
+        // Build params dict (everything except "action")
+        var params: [String: Any] = [:]
+        let allowed = Set(def.required + def.optional)
+        for (key, value) in arguments where key != "action" {
+            if allowed.contains(key) {
+                params[key] = value
+            }
+        }
+
+        let method = "\(namespace).\(action)"
+        return try backend.rpcForTool(method: method, params: params)
     }
 }
 
-// MARK: - P0 Tools
+// MARK: - System Tool
 
-/// cmux_identify - Get current context
-public final class IdentifyTool: SimpleMCPTool {
+public final class SystemTool: GroupedTool {
     public init(backend: MCPBackend) {
         super.init(
-            name: "cmux_identify",
-            description: "Get current cmux context (workspace and surface IDs)",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref"),
-                    "no_caller": MCPToolProperty(type: "boolean", description: "Skip caller context")
-                ]
-            ),
+            name: "cmux_system",
+            namespace: "system",
+            description: """
+                System utility commands for cmux.
+
+                Actions:
+                - ping: Check if cmux is running. Params: (none)
+                - identify: Get focused window/workspace/pane/surface context. Params: workspace (optional), surface (optional), no_caller (optional bool)
+                - capabilities: List available socket methods and access mode. Params: (none)
+                """,
+            actions: [
+                "ping": ActionDef(),
+                "identify": ActionDef(optional: ["workspace", "surface", "no_caller"]),
+                "capabilities": ActionDef(),
+            ],
+            backend: backend
+        )
+    }
+}
+
+// MARK: - Workspace Tool
+
+public final class WorkspaceTool: GroupedTool {
+    public init(backend: MCPBackend) {
+        super.init(
+            name: "cmux_workspace",
+            namespace: "workspace",
+            description: """
+                Manage cmux workspaces (tabs in the tab bar).
+
+                Actions:
+                - list: List all workspaces. Params: (none)
+                - create: Create a new workspace. Params: command (optional)
+                - select: Switch to a workspace. Params: workspace_id (required)
+                - close: Close a workspace. Params: workspace_id (required)
+                - current: Get the active workspace. Params: (none)
+                - rename: Rename a workspace. Params: workspace_id (required), name (required)
+                - next: Switch to next workspace. Params: (none)
+                - previous: Switch to previous workspace. Params: (none)
+                - last: Switch to last active workspace. Params: (none)
+                - reorder: Reorder a workspace. Params: workspace_id (required), index (required)
+                - action: Run a workspace action. Params: workspace_id (required), action_name (required)
+                - move_to_window: Move workspace to another window. Params: workspace_id (required), window_id (optional)
+                """,
+            actions: [
+                "list": ActionDef(),
+                "create": ActionDef(optional: ["command", "cwd"]),
+                "select": ActionDef(required: ["workspace_id"]),
+                "close": ActionDef(required: ["workspace_id"]),
+                "current": ActionDef(),
+                "rename": ActionDef(required: ["workspace_id", "name"]),
+                "next": ActionDef(),
+                "previous": ActionDef(),
+                "last": ActionDef(),
+                "reorder": ActionDef(required: ["workspace_id", "index"]),
+                "action": ActionDef(required: ["workspace_id", "action_name"]),
+                "move_to_window": ActionDef(required: ["workspace_id"], optional: ["window_id"]),
+            ],
+            backend: backend
+        )
+    }
+}
+
+// MARK: - Window Tool
+
+public final class WindowTool: GroupedTool {
+    public init(backend: MCPBackend) {
+        super.init(
+            name: "cmux_window",
+            namespace: "window",
+            description: """
+                Manage cmux windows.
+
+                Actions:
+                - list: List all windows. Params: (none)
+                - create: Create a new window. Params: (none)
+                - close: Close a window. Params: window_id (required)
+                - focus: Focus a window. Params: window_id (required)
+                - current: Get the active window. Params: (none)
+                """,
+            actions: [
+                "list": ActionDef(),
+                "create": ActionDef(),
+                "close": ActionDef(required: ["window_id"]),
+                "focus": ActionDef(required: ["window_id"]),
+                "current": ActionDef(),
+            ],
+            backend: backend
+        )
+    }
+}
+
+// MARK: - Pane Tool
+
+public final class PaneTool: GroupedTool {
+    public init(backend: MCPBackend) {
+        super.init(
+            name: "cmux_pane",
+            namespace: "pane",
+            description: """
+                Manage panes (split containers) within a workspace.
+
+                Actions:
+                - list: List all panes in a workspace. Params: workspace_id (optional)
+                - surfaces: List surfaces in a pane. Params: pane_id (optional)
+                - focus: Focus a pane. Params: pane_id (required)
+                - create: Create a new pane. Params: direction (required: left/right/up/down), pane_id (optional)
+                - resize: Resize a pane. Params: pane_id (required), amount (required)
+                - swap: Swap two panes. Params: pane_id (required), target_pane_id (required)
+                - break: Break pane into its own workspace. Params: pane_id (required)
+                - join: Join a pane into another. Params: pane_id (required), target_pane_id (required), direction (required)
+                - last: Focus the last active pane. Params: (none)
+                """,
+            actions: [
+                "list": ActionDef(optional: ["workspace_id"]),
+                "surfaces": ActionDef(optional: ["pane_id"]),
+                "focus": ActionDef(required: ["pane_id"]),
+                "create": ActionDef(required: ["direction"], optional: ["pane_id"]),
+                "resize": ActionDef(required: ["pane_id", "amount"]),
+                "swap": ActionDef(required: ["pane_id", "target_pane_id"]),
+                "break": ActionDef(required: ["pane_id"]),
+                "join": ActionDef(required: ["pane_id", "target_pane_id", "direction"]),
+                "last": ActionDef(),
+            ],
+            backend: backend
+        )
+    }
+}
+
+// MARK: - Surface Tool
+
+public final class SurfaceTool: GroupedTool {
+    public init(backend: MCPBackend) {
+        super.init(
+            name: "cmux_surface",
+            namespace: "surface",
+            description: """
+                Interact with terminal surfaces (individual terminal instances).
+
+                Actions:
+                - list: List all surfaces. Params: workspace_id (optional)
+                - focus: Focus a surface. Params: surface_id (required)
+                - read_text: Read terminal screen text. Params: surface_id (optional), scrollback (optional bool), lines (optional number)
+                - send_text: Send text input to a surface. Params: text (required), surface_id (optional)
+                - send_key: Send a key press. Params: key (required, e.g. 'enter', 'ctrl-c', 'escape', 'tab', 'up', 'down'), surface_id (optional)
+                - split: Create a new split. Params: direction (required: left/right/up/down), surface_id (optional)
+                - close: Close a surface. Params: surface_id (required)
+                - create: Create a new surface. Params: (none)
+                - current: Get the focused surface. Params: (none)
+                - move: Move a surface. Params: surface_id (required), target_pane_id (required)
+                - reorder: Reorder surface within pane. Params: surface_id (required), index (required)
+                - trigger_flash: Flash a surface for attention. Params: surface_id (optional)
+                - clear_history: Clear scrollback history. Params: surface_id (optional)
+                - health: Check surface health. Params: surface_id (optional)
+                - action: Run a surface action. Params: surface_id (required), action_name (required)
+                - refresh: Refresh a surface. Params: surface_id (optional)
+                - drag_to_split: Drag surface to create split. Params: surface_id (required), direction (required)
+                """,
+            actions: [
+                "list": ActionDef(optional: ["workspace_id"]),
+                "focus": ActionDef(required: ["surface_id"]),
+                "read_text": ActionDef(optional: ["surface_id", "scrollback", "lines"]),
+                "send_text": ActionDef(required: ["text"], optional: ["surface_id"]),
+                "send_key": ActionDef(required: ["key"], optional: ["surface_id"]),
+                "split": ActionDef(required: ["direction"], optional: ["surface_id"]),
+                "close": ActionDef(required: ["surface_id"]),
+                "create": ActionDef(),
+                "current": ActionDef(),
+                "move": ActionDef(required: ["surface_id", "target_pane_id"]),
+                "reorder": ActionDef(required: ["surface_id", "index"]),
+                "trigger_flash": ActionDef(optional: ["surface_id"]),
+                "clear_history": ActionDef(optional: ["surface_id"]),
+                "health": ActionDef(optional: ["surface_id"]),
+                "action": ActionDef(required: ["surface_id", "action_name"]),
+                "refresh": ActionDef(optional: ["surface_id"]),
+                "drag_to_split": ActionDef(required: ["surface_id", "direction"]),
+            ],
             backend: backend
         )
     }
 
+    /// Override to extract just the text field from read_text responses.
     public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "identify --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-        if let noCaller = arguments["no_caller"] as? Bool, noCaller {
-            command += " --no-caller"
+        guard let action = arguments["action"] as? String else {
+            throw MCPError.invalidParameters("Missing required parameter: action")
         }
 
-        return try executeCommand(command)
+        // For read_text, return just the text content for cleaner output
+        if action == "read_text" {
+            guard let def = actions[action] else {
+                throw MCPError.invalidParameters("Unknown action '\(action)'")
+            }
+            for param in def.required {
+                guard arguments[param] != nil else {
+                    throw MCPError.invalidParameters("Action '\(action)' requires parameter: \(param)")
+                }
+            }
+            var params: [String: Any] = [:]
+            let allowed = Set(def.required + def.optional)
+            for (key, value) in arguments where key != "action" {
+                if allowed.contains(key) { params[key] = value }
+            }
+            let result = try backend.rpc(method: "surface.read_text", params: params)
+            if let text = result["text"] as? String {
+                return MCPToolCallResult(content: [.text(text)])
+            }
+            return try backend.rpcForTool(method: "surface.read_text", params: params)
+        }
+
+        return try super.execute(arguments: arguments)
     }
 }
 
-/// cmux_list_workspaces - List all workspaces
-public final class ListWorkspacesTool: SimpleMCPTool {
+// MARK: - Notification Tool
+
+public final class NotificationTool: GroupedTool {
     public init(backend: MCPBackend) {
         super.init(
-            name: "cmux_list_workspaces",
-            description: "List all workspaces in cmux",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Filter by workspace ID or ref")
-                ]
-            ),
+            name: "cmux_notification",
+            namespace: "notification",
+            description: """
+                Manage cmux notifications.
+
+                Actions:
+                - create: Send a notification. Params: title (required), body (optional), subtitle (optional)
+                - create_for_surface: Notify for a surface. Params: surface_id (required), title (required), body (optional)
+                - create_for_target: Notify for a target. Params: target (required), title (required), body (optional)
+                - list: List all notifications. Params: (none)
+                - clear: Clear all notifications. Params: (none)
+                """,
+            actions: [
+                "create": ActionDef(required: ["title"], optional: ["body", "subtitle"]),
+                "create_for_surface": ActionDef(required: ["surface_id", "title"], optional: ["body"]),
+                "create_for_target": ActionDef(required: ["target", "title"], optional: ["body"]),
+                "list": ActionDef(),
+                "clear": ActionDef(),
+            ],
             backend: backend
         )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "list-workspaces --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-
-        return try executeCommand(command)
     }
 }
 
-/// cmux_list_panes - List all panes
-public final class ListPanesTool: SimpleMCPTool {
+// MARK: - Tab Tool
+
+public final class TabTool: GroupedTool {
     public init(backend: MCPBackend) {
         super.init(
-            name: "cmux_list_panes",
-            description: "List all panes in a workspace",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref")
-                ]
-            ),
+            name: "cmux_tab",
+            namespace: "tab",
+            description: """
+                Tab actions.
+
+                Actions:
+                - action: Run a tab action. Params: tab_id (required), action_name (required)
+                """,
+            actions: [
+                "action": ActionDef(required: ["tab_id", "action_name"]),
+            ],
             backend: backend
         )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "list-panes --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-
-        return try executeCommand(command)
     }
 }
 
-/// cmux_list_pane_surfaces - List surfaces in a pane
-public final class ListPaneSurfacesTool: SimpleMCPTool {
+// MARK: - Browser Tool
+
+public final class BrowserTool: GroupedTool {
     public init(backend: MCPBackend) {
         super.init(
-            name: "cmux_list_pane_surfaces",
-            description: "List all surfaces in a pane",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "pane": MCPToolProperty(type: "string", description: "Pane ID or ref")
-                ]
-            ),
+            name: "cmux_browser",
+            namespace: "browser",
+            description: """
+                Browser automation for cmux web views. All actions target the focused browser surface unless surface_id is provided.
+
+                Navigation:
+                - navigate: Go to URL. Params: url (required), surface_id (optional)
+                - back: Go back. Params: surface_id (optional)
+                - forward: Go forward. Params: surface_id (optional)
+                - reload: Reload page. Params: surface_id (optional)
+
+                Finding elements:
+                - find.text: Find by text. Params: text (required), surface_id (optional)
+                - find.role: Find by ARIA role. Params: role (required), name (optional), surface_id (optional)
+                - find.label: Find by label. Params: label (required), surface_id (optional)
+                - find.placeholder: Find by placeholder. Params: placeholder (required), surface_id (optional)
+                - find.testid: Find by test ID. Params: testid (required), surface_id (optional)
+                - find.alt: Find by alt text. Params: alt (required), surface_id (optional)
+                - find.title: Find by title. Params: title (required), surface_id (optional)
+                - find.first: Find first element. Params: selector (required), surface_id (optional)
+                - find.last: Find last element. Params: selector (required), surface_id (optional)
+                - find.nth: Find nth element. Params: selector (required), index (required), surface_id (optional)
+
+                Interaction:
+                - click: Click element. Params: selector (required), surface_id (optional)
+                - dblclick: Double-click. Params: selector (required), surface_id (optional)
+                - hover: Hover element. Params: selector (required), surface_id (optional)
+                - fill: Fill input. Params: selector (required), value (required), surface_id (optional)
+                - type: Type text. Params: selector (required), text (required), surface_id (optional)
+                - press: Press key. Params: key (required), surface_id (optional)
+                - check: Check checkbox. Params: selector (required), surface_id (optional)
+                - uncheck: Uncheck checkbox. Params: selector (required), surface_id (optional)
+                - select: Select option. Params: selector (required), value (required), surface_id (optional)
+                - focus: Focus element. Params: selector (required), surface_id (optional)
+                - scroll: Scroll. Params: selector (optional), x (optional), y (optional), surface_id (optional)
+                - scroll_into_view: Scroll element into view. Params: selector (required), surface_id (optional)
+
+                Inspection:
+                - get.text: Get text content. Params: selector (required), surface_id (optional)
+                - get.html: Get HTML. Params: selector (required), surface_id (optional)
+                - get.attr: Get attribute. Params: selector (required), attribute (required), surface_id (optional)
+                - get.value: Get input value. Params: selector (required), surface_id (optional)
+                - get.title: Get page title. Params: surface_id (optional)
+                - get.box: Get bounding box. Params: selector (required), surface_id (optional)
+                - get.count: Count elements. Params: selector (required), surface_id (optional)
+                - get.styles: Get computed styles. Params: selector (required), properties (optional), surface_id (optional)
+                - url.get: Get current URL. Params: surface_id (optional)
+                - is.visible: Check visibility. Params: selector (required), surface_id (optional)
+                - is.enabled: Check enabled. Params: selector (required), surface_id (optional)
+                - is.checked: Check checked. Params: selector (required), surface_id (optional)
+
+                Page:
+                - screenshot: Take screenshot. Params: selector (optional), path (optional), surface_id (optional)
+                - snapshot: Get accessibility snapshot. Params: surface_id (optional)
+                - eval: Evaluate JavaScript. Params: expression (required), surface_id (optional)
+                - wait: Wait for condition. Params: selector (optional), state (optional), timeout (optional), surface_id (optional)
+                - highlight: Highlight element. Params: selector (required), surface_id (optional)
+
+                Tabs:
+                - tab.new: Open new tab. Params: url (optional), surface_id (optional)
+                - tab.list: List tabs. Params: surface_id (optional)
+                - tab.switch: Switch tab. Params: index (required), surface_id (optional)
+                - tab.close: Close tab. Params: index (optional), surface_id (optional)
+
+                Advanced:
+                - cookies.get: Get cookies. Params: url (optional), surface_id (optional)
+                - cookies.set: Set cookie. Params: name (required), value (required), domain (optional), surface_id (optional)
+                - cookies.clear: Clear cookies. Params: surface_id (optional)
+                - storage.get: Get storage. Params: key (required), type (optional), surface_id (optional)
+                - storage.set: Set storage. Params: key (required), value (required), type (optional), surface_id (optional)
+                - storage.clear: Clear storage. Params: type (optional), surface_id (optional)
+                - console.list: List console messages. Params: surface_id (optional)
+                - console.clear: Clear console. Params: surface_id (optional)
+                - errors.list: List page errors. Params: surface_id (optional)
+                - network.requests: List network requests. Params: surface_id (optional)
+                - network.route: Set up network route. Params: pattern (required), response (optional), surface_id (optional)
+                - network.unroute: Remove network route. Params: pattern (required), surface_id (optional)
+                - viewport.set: Set viewport size. Params: width (required), height (required), surface_id (optional)
+                - geolocation.set: Set geolocation. Params: latitude (required), longitude (required), surface_id (optional)
+                - offline.set: Toggle offline mode. Params: offline (required), surface_id (optional)
+
+                Scripts & Styles:
+                - addscript: Add script. Params: content (optional), url (optional), surface_id (optional)
+                - addinitscript: Add init script. Params: script (required), surface_id (optional)
+                - addstyle: Add stylesheet. Params: content (optional), url (optional), surface_id (optional)
+
+                Input:
+                - input_keyboard: Raw keyboard input. Params: type (required), key (required), surface_id (optional)
+                - input_mouse: Raw mouse input. Params: type (required), x (required), y (required), button (optional), surface_id (optional)
+                - input_touch: Raw touch input. Params: type (required), x (required), y (required), surface_id (optional)
+                - keydown: Key down. Params: key (required), surface_id (optional)
+                - keyup: Key up. Params: key (required), surface_id (optional)
+
+                State:
+                - state.save: Save browser state. Params: name (required), surface_id (optional)
+                - state.load: Load browser state. Params: name (required), surface_id (optional)
+
+                Frames:
+                - frame.main: Switch to main frame. Params: surface_id (optional)
+                - frame.select: Switch to frame. Params: selector (required), surface_id (optional)
+
+                Recording:
+                - screencast.start: Start screencast. Params: path (optional), surface_id (optional)
+                - screencast.stop: Stop screencast. Params: surface_id (optional)
+                - trace.start: Start trace. Params: path (optional), surface_id (optional)
+                - trace.stop: Stop trace. Params: surface_id (optional)
+                - download.wait: Wait for download. Params: surface_id (optional)
+
+                Other:
+                - dialog.accept: Accept dialog. Params: text (optional), surface_id (optional)
+                - dialog.dismiss: Dismiss dialog. Params: surface_id (optional)
+                - open_split: Open browser in split. Params: url (optional), direction (optional), surface_id (optional)
+                - focus_webview: Focus the web view. Params: surface_id (optional)
+                - is_webview_focused: Check if web view is focused. Params: surface_id (optional)
+                """,
+            actions: [
+                // Navigation
+                "navigate": ActionDef(required: ["url"], optional: ["surface_id"]),
+                "back": ActionDef(optional: ["surface_id"]),
+                "forward": ActionDef(optional: ["surface_id"]),
+                "reload": ActionDef(optional: ["surface_id"]),
+                // Finding elements
+                "find.text": ActionDef(required: ["text"], optional: ["surface_id"]),
+                "find.role": ActionDef(required: ["role"], optional: ["name", "surface_id"]),
+                "find.label": ActionDef(required: ["label"], optional: ["surface_id"]),
+                "find.placeholder": ActionDef(required: ["placeholder"], optional: ["surface_id"]),
+                "find.testid": ActionDef(required: ["testid"], optional: ["surface_id"]),
+                "find.alt": ActionDef(required: ["alt"], optional: ["surface_id"]),
+                "find.title": ActionDef(required: ["title"], optional: ["surface_id"]),
+                "find.first": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "find.last": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "find.nth": ActionDef(required: ["selector", "index"], optional: ["surface_id"]),
+                // Interaction
+                "click": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "dblclick": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "hover": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "fill": ActionDef(required: ["selector", "value"], optional: ["surface_id"]),
+                "type": ActionDef(required: ["selector", "text"], optional: ["surface_id"]),
+                "press": ActionDef(required: ["key"], optional: ["surface_id"]),
+                "check": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "uncheck": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "select": ActionDef(required: ["selector", "value"], optional: ["surface_id"]),
+                "focus": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "scroll": ActionDef(optional: ["selector", "x", "y", "surface_id"]),
+                "scroll_into_view": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                // Inspection
+                "get.text": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "get.html": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "get.attr": ActionDef(required: ["selector", "attribute"], optional: ["surface_id"]),
+                "get.value": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "get.title": ActionDef(optional: ["surface_id"]),
+                "get.box": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "get.count": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "get.styles": ActionDef(required: ["selector"], optional: ["properties", "surface_id"]),
+                "url.get": ActionDef(optional: ["surface_id"]),
+                "is.visible": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "is.enabled": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                "is.checked": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                // Page
+                "screenshot": ActionDef(optional: ["selector", "path", "surface_id"]),
+                "snapshot": ActionDef(optional: ["surface_id"]),
+                "eval": ActionDef(required: ["expression"], optional: ["surface_id"]),
+                "wait": ActionDef(optional: ["selector", "state", "timeout", "surface_id"]),
+                "highlight": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                // Tabs
+                "tab.new": ActionDef(optional: ["url", "surface_id"]),
+                "tab.list": ActionDef(optional: ["surface_id"]),
+                "tab.switch": ActionDef(required: ["index"], optional: ["surface_id"]),
+                "tab.close": ActionDef(optional: ["index", "surface_id"]),
+                // Cookies
+                "cookies.get": ActionDef(optional: ["url", "surface_id"]),
+                "cookies.set": ActionDef(required: ["name", "value"], optional: ["domain", "surface_id"]),
+                "cookies.clear": ActionDef(optional: ["surface_id"]),
+                // Storage
+                "storage.get": ActionDef(required: ["key"], optional: ["type", "surface_id"]),
+                "storage.set": ActionDef(required: ["key", "value"], optional: ["type", "surface_id"]),
+                "storage.clear": ActionDef(optional: ["type", "surface_id"]),
+                // Console & errors
+                "console.list": ActionDef(optional: ["surface_id"]),
+                "console.clear": ActionDef(optional: ["surface_id"]),
+                "errors.list": ActionDef(optional: ["surface_id"]),
+                // Network
+                "network.requests": ActionDef(optional: ["surface_id"]),
+                "network.route": ActionDef(required: ["pattern"], optional: ["response", "surface_id"]),
+                "network.unroute": ActionDef(required: ["pattern"], optional: ["surface_id"]),
+                // Viewport & environment
+                "viewport.set": ActionDef(required: ["width", "height"], optional: ["surface_id"]),
+                "geolocation.set": ActionDef(required: ["latitude", "longitude"], optional: ["surface_id"]),
+                "offline.set": ActionDef(required: ["offline"], optional: ["surface_id"]),
+                // Scripts & styles
+                "addscript": ActionDef(optional: ["content", "url", "surface_id"]),
+                "addinitscript": ActionDef(required: ["script"], optional: ["surface_id"]),
+                "addstyle": ActionDef(optional: ["content", "url", "surface_id"]),
+                // Raw input
+                "input_keyboard": ActionDef(required: ["type", "key"], optional: ["surface_id"]),
+                "input_mouse": ActionDef(required: ["type", "x", "y"], optional: ["button", "surface_id"]),
+                "input_touch": ActionDef(required: ["type", "x", "y"], optional: ["surface_id"]),
+                "keydown": ActionDef(required: ["key"], optional: ["surface_id"]),
+                "keyup": ActionDef(required: ["key"], optional: ["surface_id"]),
+                // State
+                "state.save": ActionDef(required: ["name"], optional: ["surface_id"]),
+                "state.load": ActionDef(required: ["name"], optional: ["surface_id"]),
+                // Frames
+                "frame.main": ActionDef(optional: ["surface_id"]),
+                "frame.select": ActionDef(required: ["selector"], optional: ["surface_id"]),
+                // Recording
+                "screencast.start": ActionDef(optional: ["path", "surface_id"]),
+                "screencast.stop": ActionDef(optional: ["surface_id"]),
+                "trace.start": ActionDef(optional: ["path", "surface_id"]),
+                "trace.stop": ActionDef(optional: ["surface_id"]),
+                "download.wait": ActionDef(optional: ["surface_id"]),
+                // Dialog
+                "dialog.accept": ActionDef(optional: ["text", "surface_id"]),
+                "dialog.dismiss": ActionDef(optional: ["surface_id"]),
+                // Other
+                "open_split": ActionDef(optional: ["url", "direction", "surface_id"]),
+                "focus_webview": ActionDef(optional: ["surface_id"]),
+                "is_webview_focused": ActionDef(optional: ["surface_id"]),
+            ],
             backend: backend
         )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "list-pane-surfaces --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let pane = arguments["pane"] as? String, !pane.isEmpty {
-            command += " --pane \(pane)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_read_screen - Read terminal output
-public final class ReadScreenTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_read_screen",
-            description: "Read terminal screen output from a cmux surface",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref"),
-                    "scrollback": MCPToolProperty(type: "boolean", description: "Include scrollback buffer"),
-                    "lines": MCPToolProperty(type: "number", description: "Number of lines to read")
-                ]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "read-screen --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-        if let scrollback = arguments["scrollback"] as? Bool, scrollback {
-            command += " --scrollback"
-        }
-        if let lines = arguments["lines"] as? Int {
-            command += " --lines \(lines)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_send_input - Send input to surface
-public final class SendInputTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_send_input",
-            description: "Send text input to a cmux surface",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref"),
-                    "text": MCPToolProperty(type: "string", description: "Text to send (required)")
-                ],
-                required: ["text"]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        guard let text = arguments["text"] as? String else {
-            throw MCPError.invalidParameters("Missing required parameter: text")
-        }
-
-        // Escape special characters
-        let escapedText = text.replacingOccurrences(of: "\\", with: "\\\\")
-                                 .replacingOccurrences(of: "\"", with: "\\\"")
-                                 .replacingOccurrences(of: "\n", with: "\\n")
-                                 .replacingOccurrences(of: "\r", with: "\\r")
-                                 .replacingOccurrences(of: "\t", with: "\\t")
-
-        var command = "send --json \"\(escapedText)\""
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_send_key - Send key press
-public final class SendKeyTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_send_key",
-            description: "Send a key press to a cmux surface",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref"),
-                    "key": MCPToolProperty(type: "string", description: "Key name (e.g., 'enter', 'ctrl-c', 'escape')")
-                ],
-                required: ["key"]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        guard let key = arguments["key"] as? String else {
-            throw MCPError.invalidParameters("Missing required parameter: key")
-        }
-
-        var command = "send-key --json \(key)"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-// MARK: - P1 Tools
-
-/// cmux_create_split - Create a split
-public final class CreateSplitTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_create_split",
-            description: "Create a new split in the workspace",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "direction": MCPToolProperty(type: "string", description: "Direction: left, right, up, down"),
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref"),
-                    "panel": MCPToolProperty(type: "string", description: "Panel ID or ref")
-                ],
-                required: ["direction"]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        guard let direction = arguments["direction"] as? String else {
-            throw MCPError.invalidParameters("Missing required parameter: direction")
-        }
-
-        var command = "new-split \(direction) --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-        if let panel = arguments["panel"] as? String, !panel.isEmpty {
-            command += " --panel \(panel)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_focus_pane - Focus a pane
-public final class FocusPaneTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_focus_pane",
-            description: "Focus a specific pane",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "pane": MCPToolProperty(type: "string", description: "Pane ID or ref (required)"),
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref")
-                ],
-                required: ["pane"]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        guard let pane = arguments["pane"] as? String else {
-            throw MCPError.invalidParameters("Missing required parameter: pane")
-        }
-
-        var command = "focus-pane --pane \(pane) --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_new_workspace - Create a new workspace
-public final class NewWorkspaceTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_new_workspace",
-            description: "Create a new workspace",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "command": MCPToolProperty(type: "string", description: "Command to run in the new workspace")
-                ]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "new-workspace --json"
-
-        if let cmd = arguments["command"] as? String, !cmd.isEmpty {
-            command += " --command \"\(cmd)\""
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_trigger_flash - Trigger attention flash
-public final class TriggerFlashTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_trigger_flash",
-            description: "Trigger a visual attention flash on a surface",
-            inputSchema: MCPToolInputSchema(
-                properties: [
-                    "workspace": MCPToolProperty(type: "string", description: "Workspace ID or ref"),
-                    "surface": MCPToolProperty(type: "string", description: "Surface ID or ref")
-                ]
-            ),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        var command = "trigger-flash --json"
-
-        if let workspace = arguments["workspace"] as? String, !workspace.isEmpty {
-            command += " --workspace \(workspace)"
-        }
-        if let surface = arguments["surface"] as? String, !surface.isEmpty {
-            command += " --surface \(surface)"
-        }
-
-        return try executeCommand(command)
-    }
-}
-
-/// cmux_list_windows - List all windows
-public final class ListWindowsTool: SimpleMCPTool {
-    public init(backend: MCPBackend) {
-        super.init(
-            name: "cmux_list_windows",
-            description: "List all top-level windows",
-            inputSchema: MCPToolInputSchema(),
-            backend: backend
-        )
-    }
-
-    public override func execute(arguments: [String: Any]) throws -> MCPToolCallResult {
-        return try executeCommand("list-windows --json")
     }
 }
