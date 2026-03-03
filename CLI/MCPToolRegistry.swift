@@ -120,6 +120,13 @@ public class GroupedTool: MCPExecutionTool {
             }
         }
 
+        // Remap action_name -> action for *.action RPC methods
+        // The socket handler expects params.action, but we use action_name in MCP
+        // to avoid collision with the top-level action dispatch key.
+        if action == "action", let actionName = params.removeValue(forKey: "action_name") {
+            params["action"] = actionName
+        }
+
         let method = "\(namespace).\(action)"
         return try backend.rpcForTool(method: method, params: params)
     }
@@ -336,7 +343,9 @@ public final class SurfaceTool: GroupedTool {
             if let text = result["text"] as? String {
                 return MCPToolCallResult(content: [.text(text)])
             }
-            return try backend.rpcForTool(method: "surface.read_text", params: params)
+            let data = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
+            let text = String(data: data, encoding: .utf8) ?? "{}"
+            return MCPToolCallResult(content: [.text(text)])
         }
 
         return try super.execute(arguments: arguments)

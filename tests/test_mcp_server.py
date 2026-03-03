@@ -309,6 +309,61 @@ def test_socket_ownership_error():
     check("socket ownership check documented (tested in test_mcp_socket_rpc.py)", True)
 
 
+def test_action_name_remapping():
+    """Test that action_name is remapped to action for *.action RPC methods."""
+    print("\n--- test_action_name_remapping ---")
+    # workspace.action should remap action_name -> action
+    msgs = [init_msg(1), tools_call_msg("cmux_workspace", {"action": "action", "workspace_id": "test", "action_name": "close"}, id=2)]
+    responses = mcp_session(msgs)
+    # The call will fail (no socket) but should NOT fail with "missing required parameter"
+    if len(responses) >= 2:
+        err = responses[1].get("error", {})
+        # Should get a backend/socket error, not an invalid params error
+        check("workspace.action remaps action_name", err.get("code") != -32602,
+              f"got invalid_params instead of backend error: {err.get('message')}")
+
+    # surface.action should also remap action_name -> action
+    msgs = [init_msg(1), tools_call_msg("cmux_surface", {"action": "action", "surface_id": "test", "action_name": "close"}, id=2)]
+    responses = mcp_session(msgs)
+    if len(responses) >= 2:
+        err = responses[1].get("error", {})
+        check("surface.action remaps action_name", err.get("code") != -32602,
+              f"got invalid_params instead of backend error: {err.get('message')}")
+
+    # tab.action should also remap action_name -> action
+    msgs = [init_msg(1), tools_call_msg("cmux_tab", {"action": "action", "tab_id": "test", "action_name": "close"}, id=2)]
+    responses = mcp_session(msgs)
+    if len(responses) >= 2:
+        err = responses[1].get("error", {})
+        check("tab.action remaps action_name", err.get("code") != -32602,
+              f"got invalid_params instead of backend error: {err.get('message')}")
+
+
+def test_error_id_correlation():
+    """Test that error responses use the request id, not a fixed id."""
+    print("\n--- test_error_id_correlation ---")
+    # Send a request that will fail to a method that doesn't exist
+    msgs = [init_msg(1)]
+    responses = mcp_session(msgs)
+    if responses:
+        check("init response has correct id", responses[0].get("id") == 1,
+              f"expected id=1, got id={responses[0].get('id')}")
+
+    # Test with a string id
+    msgs = [init_msg("abc")]
+    responses = mcp_session(msgs)
+    if responses:
+        check("string id is preserved", responses[0].get("id") == "abc",
+              f"expected id='abc', got id={responses[0].get('id')}")
+
+    # Test with a higher numeric id
+    msgs = [init_msg(42)]
+    responses = mcp_session(msgs)
+    if responses:
+        check("numeric id is preserved", responses[0].get("id") == 42,
+              f"expected id=42, got id={responses[0].get('id')}")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -346,6 +401,8 @@ def main():
     test_tool_not_found()
     test_not_initialized()
     test_socket_ownership_error()
+    test_action_name_remapping()
+    test_error_id_correlation()
 
     print(f"\n{'='*50}")
     print(f"Results: {passed} passed, {failed} failed")

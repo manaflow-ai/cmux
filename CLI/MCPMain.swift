@@ -46,8 +46,22 @@ private func runStdIOLoop(protocolHandler: MCPProtocol) {
             // Return a JSON-RPC error response so the client doesn't hang.
             // Also log to stderr for debugging.
             errorStream.write("MCP error: \(error)\n".data(using: .utf8) ?? Data())
+            // Try to extract the request id for proper correlation
+            let requestId: JSONRPCId
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let rawId = json["id"] {
+                if let intId = rawId as? Int {
+                    requestId = .number(intId)
+                } else if let strId = rawId as? String {
+                    requestId = .string(strId)
+                } else {
+                    requestId = .number(0)
+                }
+            } else {
+                requestId = .number(0)
+            }
             let errResp = JSONRPCErrorResponse(
-                id: .number(0),
+                id: requestId,
                 error: JSONRPCError(
                     code: JSONRPCErrorCode.internalError.rawValue,
                     message: "Internal error: \(error.localizedDescription)"
@@ -102,7 +116,7 @@ public struct MCMain {
             // Write debug messages to stderr
             let stderr = FileHandle.standardError
             let debugMsg = "cmux MCP Server starting...\n"
-            stderr.write(debugMsg.data(using: .utf8)!)
+            stderr.write(debugMsg.data(using: .utf8) ?? Data())
         }
 
         // Run MCP server
