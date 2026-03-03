@@ -24,17 +24,19 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
+          # Pick the latest Xcode installed on the runner. GitHub-hosted macos-14
+          # defaults to Xcode 15.4, but the project needs Xcode 16+ (Swift tools
+          # version 6.0 required by sentry-cocoa).
+          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1)"
+          if [ -z "$XCODE_APP" ]; then
+            XCODE_APP="/Applications/Xcode.app"
           fi
+          XCODE_DIR="$XCODE_APP/Contents/Developer"
+          if [ ! -d "$XCODE_DIR" ]; then
+            echo "No Xcode found under /Applications" >&2
+            exit 1
+          fi
+          echo "Selected: $XCODE_APP"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
