@@ -1753,6 +1753,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(includeScrollback: false)
     }
 
+    // MARK: - Open File (Finder, dock drop, `open -a`, .command files)
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: filename, isDirectory: &isDirectory) else {
+            return false
+        }
+
+        // Suppress session restore when opened via file association.
+        didHandleExplicitOpenIntentAtStartup = true
+        if !didAttemptStartupSessionRestore {
+            startupSessionSnapshot = nil
+            didAttemptStartupSessionRestore = true
+        }
+
+        if isDirectory.boolValue {
+            openWorkspaceFromService(workingDirectory: filename)
+            return true
+        }
+
+        // Script or executable: confirm before executing (sandbox escape mitigation).
+        let alert = NSAlert()
+        alert.messageText = "Allow cmux to execute \"\((filename as NSString).lastPathComponent)\"?"
+        alert.informativeText = filename
+        alert.addButton(withTitle: "Allow")
+        alert.addButton(withTitle: "Cancel")
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return false
+        }
+
+        let parentDir = (filename as NSString).deletingLastPathComponent
+        let workspace: Workspace
+        if let wsId = addWorkspaceInPreferredMainWindow(
+            workingDirectory: parentDir,
+            shouldBringToFront: true,
+            debugSource: "openFile"
+        ), let tm = tabManagerFor(tabId: wsId),
+           let ws = tm.tabs.first(where: { $0.id == wsId }) {
+            workspace = ws
+        } else {
+            // Fallback: create a new window with the script's parent directory.
+            let windowId = createMainWindow(initialWorkingDirectory: parentDir)
+            guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+                  let ws = context.tabManager.selectedWorkspace else {
+                return false
+            }
+            workspace = ws
+        }
+
+        // Inject the script execution command once the terminal surface is ready.
+        // Uses the same pattern as Terminal.app and iTerm2: run the script via the
+        // user's shell so profile/rc files load first (important for Homebrew PATH, etc.).
+        let quoted = "'" + filename.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        openFileSendTextWhenReady("\(quoted); exit\n", to: workspace)
+        return true
+    }
+
+    private func openFileSendTextWhenReady(_ text: String, to workspace: Workspace, attempt: Int = 0) {
+        let maxAttempts = 60
+        if let terminalPanel = workspace.focusedTerminalPanel,
+           terminalPanel.surface.surface != nil {
+            terminalPanel.sendText(text)
+            return
+        }
+        guard attempt < maxAttempts else {
+            NSLog("openFile: surface not ready after \(maxAttempts) attempts for workspace \(workspace.id)")
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.openFileSendTextWhenReady(text, to: workspace, attempt: attempt + 1)
+        }
+    }
+
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
