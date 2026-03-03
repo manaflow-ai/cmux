@@ -694,6 +694,50 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testCmdDigitShortcutFallsBackByKeyCodeOnSymbolFirstLayouts() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+        ) {
+            // Symbol-first layouts (for example AZERTY) can report "&" for the ANSI 1 key.
+            // Cmd+1 shortcuts should still match via keyCode fallback in this case.
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "&",
+                charactersIgnoringModifiers: "&",
+                isARepeat: false,
+                keyCode: 18 // kVK_ANSI_1
+            ) else {
+                XCTFail("Failed to construct Cmd+& event on ANSI 1 key")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

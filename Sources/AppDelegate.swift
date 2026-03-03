@@ -6523,8 +6523,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
-        // This keeps Cmd letter/digit shortcuts semantic (character-based) across layouts
-        // while still allowing keyCode fallback for punctuation shortcuts on non-US layouts.
+        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
+        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
         if hasEventChars,
            flags.contains(.command),
@@ -6562,7 +6562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
             return false
         }
-        return CharacterSet.alphanumerics.contains(scalar)
+        return CharacterSet.letters.contains(scalar)
     }
 
     private func shortcutCharacterMatches(
