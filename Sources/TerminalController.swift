@@ -1521,6 +1521,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugRenderStats(params: params))
         case "debug.layout":
             return v2Result(id: id, self.v2DebugLayout())
+        case "debug.portal.stats":
+            return v2Result(id: id, self.v2DebugPortalStats())
         case "debug.bonsplit_underflow.count":
             return v2Result(id: id, self.v2DebugBonsplitUnderflowCount())
         case "debug.bonsplit_underflow.reset":
@@ -1725,6 +1727,7 @@ class TerminalController {
             "debug.terminal.read_text",
             "debug.terminal.render_stats",
             "debug.layout",
+            "debug.portal.stats",
             "debug.bonsplit_underflow.count",
             "debug.bonsplit_underflow.reset",
             "debug.empty_panel.count",
@@ -8524,6 +8527,13 @@ class TerminalController {
             return .err(code: "internal_error", message: "layout_debug JSON decode failed", data: ["payload": String(jsonStr.prefix(200))])
         }
         return .ok(["layout": obj])
+    }
+
+    private func v2DebugPortalStats() -> V2CallResult {
+        let payload: [String: Any] = v2MainSync {
+            TerminalWindowPortalRegistry.debugPortalStats()
+        }
+        return .ok(payload)
     }
 
     private func v2DebugBonsplitUnderflowCount() -> V2CallResult {

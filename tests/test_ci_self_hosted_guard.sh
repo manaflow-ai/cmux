@@ -16,14 +16,14 @@ if ! grep -Fq "$EXPECTED_IF" "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
-  /^  tests:/ { in_tests=1; next }
+  /^  tests-depot:/ { in_tests=1; next }
   in_tests && /^  [^[:space:]]/ { in_tests=0 }
   in_tests && /runs-on: depot-macos-latest/ { saw_depot=1 }
   in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
   END { exit !(saw_depot && saw_guard) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests block must keep both depot-macos-latest runner and fork guard"
+  echo "FAIL: tests-depot block must keep both depot-macos-latest runner and fork guard"
   exit 1
 fi
 
-echo "PASS: tests Depot runner fork guard is present"
+echo "PASS: tests-depot Depot runner fork guard is present"

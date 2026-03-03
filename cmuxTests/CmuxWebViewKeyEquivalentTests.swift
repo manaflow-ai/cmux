@@ -2576,11 +2576,31 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 final class SidebarCommandHintPolicyTests: XCTestCase {
     func testCommandHintRequiresCommandOnlyModifier() {
-        XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: []))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option]))
-        XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control]))
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command, .control], defaults: defaults))
+        }
+    }
+
+    func testCommandHintCanBeDisabledInSettings() {
+        withDefaultsSuite { defaults in
+            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertFalse(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
+    }
+
+    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
+        withDefaultsSuite { defaults in
+            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(SidebarCommandHintPolicy.shouldShowHints(for: [.command], defaults: defaults))
+        }
     }
 
     func testCommandHintUsesIntentionalHoldDelay() {
@@ -2617,25 +2637,43 @@ final class SidebarCommandHintPolicyTests: XCTestCase {
     }
 
     func testWindowScopedCommandHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
-        XCTAssertTrue(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 42
-            )
-        )
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
-        XCTAssertFalse(
-            SidebarCommandHintPolicy.shouldShowHints(
-                for: [.command],
-                hostWindowNumber: 42,
-                hostWindowIsKey: true,
-                eventWindowNumber: nil,
-                keyWindowNumber: 7
+            XCTAssertTrue(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 42,
+                    defaults: defaults
+                )
             )
-        )
+
+            XCTAssertFalse(
+                SidebarCommandHintPolicy.shouldShowHints(
+                    for: [.command],
+                    hostWindowNumber: 42,
+                    hostWindowIsKey: true,
+                    eventWindowNumber: nil,
+                    keyWindowNumber: 7,
+                    defaults: defaults
+                )
+            )
+        }
+    }
+
+    private func withDefaultsSuite(_ body: (UserDefaults) -> Void) {
+        let suiteName = "SidebarCommandHintPolicyTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        body(defaults)
+        defaults.removePersistentDomain(forName: suiteName)
     }
 }
 
@@ -2655,6 +2693,27 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
+        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
+    }
+
+    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+        let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create defaults suite")
+            return
+        }
+
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 }
 
@@ -6543,6 +6602,24 @@ final class WindowDragHandleHitTests: XCTestCase {
         }
     }
 
+    /// A sibling view whose hitTest re-enters windowDragHandleShouldCaptureHit,
+    /// simulating the crash path where sibling.hitTest triggers a SwiftUI layout
+    /// pass that calls back into the drag handle's hit resolution.
+    private final class ReentrantSiblingView: NSView {
+        weak var dragHandle: NSView?
+        var reenteredResult: Bool?
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard bounds.contains(point), let dragHandle else { return nil }
+            // Simulate the re-entry: during sibling hit test, SwiftUI layout
+            // calls windowDragHandleShouldCaptureHit on the drag handle again.
+            reenteredResult = windowDragHandleShouldCaptureHit(
+                point, in: dragHandle, eventType: .leftMouseDown, eventWindow: dragHandle.window
+            )
+            return nil
+        }
+    }
+
     func testDragHandleCapturesHitWhenNoSiblingClaimsPoint() {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
         let dragHandle = NSView(frame: container.bounds)
@@ -6770,6 +6847,29 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(
             windowDragHandleShouldCaptureHit(NSPoint(x: 180, y: 18), in: dragHandle, eventType: .leftMouseDown),
             "Subview mutations during hit testing should not crash or break drag-handle capture"
+        )
+    }
+
+    func testDragHandleSiblingHitTestReentrancyDoesNotCrash() {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 36))
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let reentrantSibling = ReentrantSiblingView(frame: container.bounds)
+        reentrantSibling.dragHandle = dragHandle
+        container.addSubview(reentrantSibling)
+
+        // The outer call enters the sibling walk, which calls
+        // reentrantSibling.hitTest(), which re-enters
+        // windowDragHandleShouldCaptureHit. Without the re-entrancy guard
+        // this would trigger a Swift exclusive-access violation (SIGABRT).
+        let outerResult = windowDragHandleShouldCaptureHit(
+            NSPoint(x: 110, y: 18), in: dragHandle, eventType: .leftMouseDown
+        )
+        XCTAssertTrue(outerResult, "Outer call should still capture when sibling returns nil")
+        XCTAssertEqual(
+            reentrantSibling.reenteredResult, false,
+            "Re-entrant call should bail out (return false) instead of crashing"
         )
     }
 
