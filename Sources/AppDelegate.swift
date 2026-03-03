@@ -5777,13 +5777,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
-                if num == 9 {
-                    tabManager?.selectLastSurface()
+        // Numeric shortcuts for surfaces within pane (default: Ctrl+1-9, customizable via Settings)
+        let surfaceShortcutActions: [(KeyboardShortcutSettings.Action, Int?)] = [
+            (.selectSurface1, 0), (.selectSurface2, 1), (.selectSurface3, 2),
+            (.selectSurface4, 3), (.selectSurface5, 4), (.selectSurface6, 5),
+            (.selectSurface7, 6), (.selectSurface8, 7), (.selectSurface9, nil),
+        ]
+        for (action, surfaceIndex) in surfaceShortcutActions {
+            if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: action)) {
+                if let index = surfaceIndex {
+                    tabManager?.selectSurface(at: index)
                 } else {
-                    tabManager?.selectSurface(at: num - 1)
+                    tabManager?.selectLastSurface()
                 }
                 return true
             }

@@ -924,6 +924,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Callback used by TabManager to capture recently closed browser panels for Cmd+Shift+T restore.
     var onClosedBrowserPanel: ((ClosedBrowserPanelRestoreSnapshot) -> Void)?
 
+    /// Observer token for shortcut hint config refresh.
+    private var shortcutHintObserver: NSObjectProtocol?
+
 
     // Closing tabs mutates split layout immediately; terminal views handle their own AppKit
     // layout/size synchronization.
@@ -1031,7 +1034,38 @@ final class Workspace: Identifiable, ObservableObject {
                     backgroundColor: backgroundColor,
                     backgroundOpacity: backgroundOpacity
                 )
-            )
+            ),
+            shortcutHintConfig: Self.currentShortcutHintConfig()
+        )
+    }
+
+    deinit {
+        if let shortcutHintObserver {
+            NotificationCenter.default.removeObserver(shortcutHintObserver)
+        }
+    }
+
+    private static func currentShortcutHintConfig() -> BonsplitConfiguration.ShortcutHintConfig {
+        let modSets = KeyboardShortcutSettings.surfaceShortcutModifierFlagSets
+        let actions: [KeyboardShortcutSettings.Action] = [
+            .selectSurface1, .selectSurface2, .selectSurface3,
+            .selectSurface4, .selectSurface5, .selectSurface6,
+            .selectSurface7, .selectSurface8, .selectSurface9,
+        ]
+        var digitLabels: [Int: String] = [:]
+        for (i, action) in actions.enumerated() {
+            let sc = KeyboardShortcutSettings.shortcut(for: action)
+            digitLabels[i + 1] = sc.displayString
+        }
+        // Always include Command modifier for pane hints (matches production behavior
+        // where both Cmd and Ctrl trigger pane tab hints).
+        var triggerRawValues = Set(modSets.map { $0.rawValue })
+        let cmdRaw = NSEvent.ModifierFlags.command.intersection(.deviceIndependentFlagsMask).rawValue
+        triggerRawValues.insert(cmdRaw)
+        return .init(
+            triggerModifierRawValues: triggerRawValues,
+            modifierSymbols: Dictionary(modSets.map { ($0.rawValue, $0.symbol) }, uniquingKeysWith: { first, _ in first }),
+            digitLabels: digitLabels
         )
     }
 
@@ -1062,6 +1096,7 @@ final class Workspace: Identifiable, ObservableObject {
             return
         }
         bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+        bonsplitController.configuration.appearance.shortcutHintConfig = Self.currentShortcutHintConfig()
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
                 "theme applied workspace=\(id.uuidString) reason=\(reason) resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") resultingBorder=\(bonsplitController.configuration.appearance.chromeColors.borderHex ?? "nil")"
@@ -1116,6 +1151,19 @@ final class Workspace: Identifiable, ObservableObject {
         )
         self.bonsplitController = BonsplitController(configuration: config)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
+
+        // Refresh pane shortcut hints when the user changes shortcut settings.
+        shortcutHintObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let updated = Self.currentShortcutHintConfig()
+            if self.bonsplitController.configuration.appearance.shortcutHintConfig != updated {
+                self.bonsplitController.configuration.appearance.shortcutHintConfig = updated
+            }
+        }
 
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
