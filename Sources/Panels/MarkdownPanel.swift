@@ -31,7 +31,9 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     // MARK: - File watching
 
-    private var fileWatchSource: DispatchSourceFileSystemObject?
+    // nonisolated(unsafe) because deinit is not guaranteed to run on the
+    // main actor, but DispatchSource.cancel() is thread-safe.
+    private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
     private var fileDescriptor: Int32 = -1
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
