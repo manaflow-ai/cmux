@@ -1988,7 +1988,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1997,7 +1998,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 76,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2006,7 +2008,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 13,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2015,7 +2018,58 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: false
+                firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesForShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command, .shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+    }
+
+    func testDoesNotRouteForOptionReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.option]
+            )
+        )
+    }
+
+    func testDoesNotRouteForControlReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.control]
             )
         )
     }
