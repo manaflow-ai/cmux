@@ -3,13 +3,15 @@
 use std::rc::Rc;
 
 use gtk4::prelude::*;
-use libadwaita as adw;
-use libadwaita::prelude::*;
 
 use crate::app::AppState;
 
 /// Create the sidebar widget containing the workspace list.
-pub fn create_sidebar(state: &Rc<AppState>) -> gtk4::Box {
+/// Returns both the sidebar box and the inner ListBox (for external refresh).
+pub fn create_sidebar(
+    state: &Rc<AppState>,
+    content_box: &gtk4::Box,
+) -> (gtk4::Box, gtk4::ListBox) {
     let sidebar_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     sidebar_box.add_css_class("sidebar");
 
@@ -25,15 +27,17 @@ pub fn create_sidebar(state: &Rc<AppState>) -> gtk4::Box {
     // Populate the list
     populate_workspace_list(&list_box, state);
 
-    // Handle selection changes
+    // Handle selection changes — also rebuild the content area
     {
         let state = state.clone();
+        let content_box = content_box.clone();
         list_box.connect_row_selected(move |_list_box, row| {
             if let Some(row) = row {
                 let i = row.index();
                 if i >= 0 {
                     let index = i as usize;
                     state.tab_manager().select(index);
+                    super::window::rebuild_content(&content_box, &state);
                     tracing::debug!("Workspace selected: index={}", index);
                 }
             }
@@ -43,7 +47,12 @@ pub fn create_sidebar(state: &Rc<AppState>) -> gtk4::Box {
     scrolled.set_child(Some(&list_box));
     sidebar_box.append(&scrolled);
 
-    sidebar_box
+    (sidebar_box, list_box)
+}
+
+/// Refresh the sidebar list from the current tab manager state.
+pub fn refresh_sidebar(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
+    populate_workspace_list(list_box, state);
 }
 
 /// Populate the workspace list from the current tab manager state.

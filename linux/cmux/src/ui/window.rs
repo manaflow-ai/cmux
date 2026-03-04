@@ -28,20 +28,18 @@ pub fn create_window(
     split_view.set_min_sidebar_width(180.0);
     split_view.set_max_sidebar_width(320.0);
 
-    // Sidebar
-    let sidebar_page = adw::NavigationPage::new(
-        &sidebar::create_sidebar(state),
-        "Workspaces",
-    );
-    split_view.set_sidebar(Some(&sidebar_page));
-
-    // Content area
+    // Content area (created first so sidebar can reference it)
     let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     content_box.set_hexpand(true);
     content_box.set_vexpand(true);
 
     // Build the initial layout from the selected workspace
     rebuild_content(&content_box, state);
+
+    // Sidebar (receives content_box so selection changes rebuild content)
+    let (sidebar_widget, sidebar_list) = sidebar::create_sidebar(state, &content_box);
+    let sidebar_page = adw::NavigationPage::new(&sidebar_widget, "Workspaces");
+    split_view.set_sidebar(Some(&sidebar_page));
 
     let content_page = adw::NavigationPage::new(&content_box, "Terminal");
     split_view.set_content(Some(&content_page));
@@ -55,9 +53,11 @@ pub fn create_window(
     {
         let state = state.clone();
         let content_box = content_box.clone();
+        let sidebar_list = sidebar_list.clone();
         new_ws_btn.connect_clicked(move |_| {
             let ws = crate::model::Workspace::new();
             state.tab_manager().add_workspace(ws);
+            sidebar::refresh_sidebar(&sidebar_list, &state);
             rebuild_content(&content_box, &state);
             tracing::debug!("New workspace added");
         });
@@ -102,7 +102,7 @@ pub fn create_window(
     window.set_content(Some(&outer_box));
 
     // Keyboard shortcuts
-    setup_shortcuts(&window, state, &content_box);
+    setup_shortcuts(&window, state, &content_box, &sidebar_list);
 
     window
 }
@@ -131,11 +131,13 @@ fn setup_shortcuts(
     window: &adw::ApplicationWindow,
     state: &Rc<AppState>,
     content_box: &gtk4::Box,
+    sidebar_list: &gtk4::ListBox,
 ) {
     let controller = gtk4::EventControllerKey::new();
 
     let state = state.clone();
     let content_box = content_box.clone();
+    let sidebar_list = sidebar_list.clone();
 
     controller.connect_key_pressed(move |_controller, keyval, _keycode, modifier| {
         let ctrl = modifier.contains(gdk4::ModifierType::CONTROL_MASK);
@@ -147,6 +149,7 @@ fn setup_shortcuts(
             (gdk4::Key::T, true, true) => {
                 let ws = crate::model::Workspace::new();
                 state.tab_manager().add_workspace(ws);
+                sidebar::refresh_sidebar(&sidebar_list, &state);
                 rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
@@ -157,6 +160,7 @@ fn setup_shortcuts(
                     tm.remove(idx);
                 }
                 drop(tm);
+                sidebar::refresh_sidebar(&sidebar_list, &state);
                 rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
