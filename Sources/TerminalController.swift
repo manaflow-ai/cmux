@@ -878,7 +878,7 @@ class TerminalController {
             return listNotifications()
 
         case "clear_notifications":
-            return clearNotifications()
+            return clearNotifications(args)
 
         case "set_app_focus":
             return setAppFocusOverride(args)
@@ -8790,7 +8790,7 @@ class TerminalController {
           notify_surface <id|idx> <payload>  - Notify a specific surface
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
           list_notifications              - List all notifications
-          clear_notifications             - Clear all notifications
+          clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
@@ -10124,9 +10124,26 @@ class TerminalController {
         return result.isEmpty ? "No notifications" : result
     }
 
-    private func clearNotifications() -> String {
-        DispatchQueue.main.sync {
-            TerminalNotificationStore.shared.clearAll()
+    private func clearNotifications(_ args: String) -> String {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            DispatchQueue.main.sync {
+                TerminalNotificationStore.shared.clearAll()
+            }
+        } else {
+            var tabId: UUID?
+            DispatchQueue.main.sync {
+                if let tab = resolveTabForReport(trimmed) {
+                    tabId = tab.id
+                }
+            }
+            if let tabId {
+                DispatchQueue.main.sync {
+                    TerminalNotificationStore.shared.clearNotifications(forTabId: tabId)
+                }
+            } else {
+                return "ERROR: Tab not found"
+            }
         }
         return "OK"
     }

@@ -1305,7 +1305,13 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let response = try sendV1Command("clear_notifications", client: client)
+            let wsFlag = optionValue(commandArgs, name: "--workspace")
+            let wsArg = wsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            var socketCmd = "clear_notifications"
+            if let wsArg, let wsId = try? resolveWorkspaceId(wsArg, client: client) {
+                socketCmd += " --tab=\(wsId)"
+            }
+            let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
         case "claude-hook":
@@ -4441,7 +4447,7 @@ struct CMUXCLI {
             """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
@@ -4452,6 +4458,7 @@ struct CMUXCLI {
               idle            Alias for stop
               notification    Forward a Claude notification
               notify          Alias for notification
+              prompt-submit   Clear notification and set Running on user prompt
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -5699,6 +5706,24 @@ struct CMUXCLI {
             } else {
                 print("OK")
             }
+
+        case "prompt-submit":
+            telemetry.breadcrumb("claude-hook.prompt-submit")
+            var workspaceId = fallbackWorkspaceId
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+            }
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
