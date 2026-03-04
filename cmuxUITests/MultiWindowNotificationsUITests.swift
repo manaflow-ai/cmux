@@ -236,16 +236,18 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let tmuxServerName = "cmuxui\(String(token.prefix(12)))"
-        let sessionName = "cmuxui\(String(token.prefix(10)))"
+        let tmuxSuffix = String(token.prefix(6))
+        let tmuxServerName = "c\(tmuxSuffix)"
+        let sessionName = "s\(tmuxSuffix)"
         let notificationTitle = "tmux_bridge_\(String(token.prefix(8)))"
         let notificationBody = "bridge_body_\(String(token.suffix(8)))"
         let tmpRoot = FileManager.default.temporaryDirectory
         let bridgeLogPath = tmpRoot
             .appendingPathComponent("cmux-ui-test-tmux-bridge-\(token).log")
             .path
+        // Keep the tmux socket path short to stay below UNIX domain socket path limits.
         let tmuxTmpDir = tmpRoot
-            .appendingPathComponent("cmux-ui-test-tmux-\(String(token.prefix(12)))")
+            .appendingPathComponent("ct\(tmuxSuffix)")
             .path
         try? FileManager.default.removeItem(atPath: tmuxTmpDir)
         try FileManager.default.createDirectory(atPath: tmuxTmpDir, withIntermediateDirectories: true)
