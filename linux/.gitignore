@@ -1,6 +1,5 @@
 /target
 /ghostty
-Cargo.lock
 *.swp
 *.swo
 *~

@@ -40,8 +40,10 @@ fn main() {
         println!("cargo:rustc-link-lib=dylib=fontconfig");
         println!("cargo:rustc-link-lib=dylib=freetype");
 
-        // Rerun if ghostty source changes
-        println!("cargo:rerun-if-changed={}", ghostty_dir.display());
+        // Rerun if ghostty source changes (enumerate key files)
+        println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig").display());
+        println!("cargo:rerun-if-changed={}", ghostty_dir.join("build.zig.zon").display());
+        println!("cargo:rerun-if-changed={}", ghostty_dir.join("src").display());
     } else {
         // Ghostty submodule not initialized yet — build with stub mode
         println!(

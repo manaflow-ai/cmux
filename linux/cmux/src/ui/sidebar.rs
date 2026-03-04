@@ -30,9 +30,12 @@ pub fn create_sidebar(state: &Rc<AppState>) -> gtk4::Box {
         let state = state.clone();
         list_box.connect_row_selected(move |_list_box, row| {
             if let Some(row) = row {
-                let index = row.index() as usize;
-                state.tab_manager().select(index);
-                tracing::debug!("Workspace selected: index={}", index);
+                let i = row.index();
+                if i >= 0 {
+                    let index = i as usize;
+                    state.tab_manager().select(index);
+                    tracing::debug!("Workspace selected: index={}", index);
+                }
             }
         });
     }

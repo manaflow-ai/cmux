@@ -101,13 +101,9 @@ impl NotificationStore {
 }
 
 /// Send a desktop notification using gio::Notification.
-fn send_desktop_notification(title: &str, body: &str) {
-    // Use gio::Notification for GNOME-native notifications
-    let notification = gio::Notification::new(title);
-    notification.set_body(Some(body));
-
-    // The notification needs an Application to send.
-    // This will be connected when the GtkApplication is available.
-    // For now, log it.
-    tracing::info!("Desktop notification: {} - {}", title, body);
+fn send_desktop_notification(_title: &str, _body: &str) {
+    // TODO: Send via gio::Notification once GtkApplication reference is available.
+    // gio::Notification requires an Application instance to dispatch.
+    // This will be wired up when the notification system is fully integrated (Phase 3).
+    tracing::debug!("Desktop notification queued (dispatch not yet wired)");
 }

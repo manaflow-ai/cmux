@@ -139,8 +139,8 @@ fn handle_capabilities(id: Value) -> Response {
         "workspace.set_progress",
         "workspace.append_log",
         "pane.new",
-        "surface.send_input",
-        "notification.create",
+        // "surface.send_input" — not yet implemented (requires ghostty integration)
+        // "notification.create" — placeholder (desktop notification dispatch pending)
     ];
     Response::success(id, serde_json::json!({"methods": methods}))
 }
@@ -150,7 +150,7 @@ fn handle_capabilities(id: Value) -> Response {
 // -----------------------------------------------------------------------
 
 fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
-    let tm = state.tab_manager.lock().unwrap();
+    let tm = state.lock_tab_manager();
     let workspaces: Vec<Value> = tm
         .iter()
         .enumerate()
@@ -184,7 +184,7 @@ fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> 
     }
 
     let ws_id = ws.id;
-    state.tab_manager.lock().unwrap().add_workspace(ws);
+    state.lock_tab_manager().add_workspace(ws);
 
     Response::success(id, serde_json::json!({"workspace": ws_id.to_string()}))
 }
@@ -196,7 +196,7 @@ fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) 
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
 
     let selected = if let Some(idx) = index {
         tm.select(idx)
@@ -215,18 +215,18 @@ fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) 
 
 fn handle_workspace_next(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let wrap = params.get("wrap").and_then(|v| v.as_bool()).unwrap_or(true);
-    state.tab_manager.lock().unwrap().select_next(wrap);
+    state.lock_tab_manager().select_next(wrap);
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
 fn handle_workspace_previous(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let wrap = params.get("wrap").and_then(|v| v.as_bool()).unwrap_or(true);
-    state.tab_manager.lock().unwrap().select_previous(wrap);
+    state.lock_tab_manager().select_previous(wrap);
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
 fn handle_workspace_last(id: Value, state: &Arc<SharedState>) -> Response {
-    state.tab_manager.lock().unwrap().select_last();
+    state.lock_tab_manager().select_last();
     Response::success(id, serde_json::json!({"ok": true}))
 }
 
@@ -237,7 +237,7 @@ fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
 
     let removed = if let Some(idx) = index {
         tm.remove(idx).is_some()
@@ -270,7 +270,7 @@ fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedStat
         return Response::error(id, "invalid_params", "Provide 'key' and 'value'");
     };
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
         tm.workspace_mut(wid)
     } else {
@@ -297,7 +297,7 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
         return Response::error(id, "invalid_params", "Provide 'branch'");
     };
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
         tm.workspace_mut(wid)
     } else {
@@ -323,7 +323,7 @@ fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedSt
     let value = params.get("value").and_then(|v| v.as_f64());
     let label = params.get("label").and_then(|v| v.as_str());
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
         tm.workspace_mut(wid)
     } else {
@@ -358,7 +358,7 @@ fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedStat
         return Response::error(id, "invalid_params", "Provide 'message'");
     };
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
     let ws = if let Some(wid) = ws_id {
         tm.workspace_mut(wid)
     } else {
@@ -384,7 +384,7 @@ fn handle_pane_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Respo
         _ => SplitOrientation::Horizontal,
     };
 
-    let mut tm = state.tab_manager.lock().unwrap();
+    let mut tm = state.lock_tab_manager();
     if let Some(ws) = tm.selected_mut() {
         let panel_id = ws.split(orientation, PanelType::Terminal);
         Response::success(id, serde_json::json!({"panel_id": panel_id.to_string()}))

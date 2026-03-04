@@ -24,6 +24,17 @@ impl SharedState {
             tab_manager: Mutex::new(TabManager::new()),
         }
     }
+
+    /// Lock the tab manager, recovering from poisoned mutex.
+    pub fn lock_tab_manager(&self) -> std::sync::MutexGuard<'_, TabManager> {
+        match self.tab_manager.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("TabManager mutex was poisoned, recovering");
+                poisoned.into_inner()
+            }
+        }
+    }
 }
 
 /// Application state accessible from UI callbacks (single-threaded, GTK main thread).
@@ -43,7 +54,7 @@ impl AppState {
 
     /// Lock the tab manager. Convenience method for UI code.
     pub fn tab_manager(&self) -> std::sync::MutexGuard<'_, TabManager> {
-        self.shared.tab_manager.lock().unwrap()
+        self.shared.lock_tab_manager()
     }
 }
 
@@ -55,6 +66,23 @@ pub fn run() -> i32 {
 
     let shared = Arc::new(SharedState::new());
     let state = Rc::new(AppState::new(shared.clone()));
+
+    // Start the socket server once during startup (not on every activation)
+    {
+        let shared_for_socket = shared.clone();
+        app.connect_startup(move |_app| {
+            let shared = shared_for_socket.clone();
+            std::thread::spawn(move || {
+                let rt =
+                    tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+                rt.block_on(async {
+                    if let Err(e) = socket::server::run_socket_server(shared).await {
+                        tracing::error!("Socket server error: {}", e);
+                    }
+                });
+            });
+        });
+    }
 
     let state_clone = state.clone();
     app.connect_activate(move |app| {
@@ -70,18 +98,7 @@ pub fn run() -> i32 {
 }
 
 fn activate(app: &adw::Application, state: &Rc<AppState>) {
-    // Start the socket server in a background tokio runtime
-    let shared_for_socket = state.shared.clone();
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-        rt.block_on(async {
-            if let Err(e) = socket::server::run_socket_server(shared_for_socket).await {
-                tracing::error!("Socket server error: {}", e);
-            }
-        });
-    });
-
-    // Create the main window
+    // Create the main window (called on every activation, e.g. raising the app)
     let window = ui::window::create_window(app, state);
     window.present();
 }

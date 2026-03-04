@@ -119,7 +119,7 @@ impl Workspace {
         self.panels.insert(new_id, new_panel);
 
         // Find the focused pane and split it
-        if let Some(focused_id) = self.focused_panel_id {
+        let split_focused = if let Some(focused_id) = self.focused_panel_id {
             if let Some(pane) = self.layout.find_pane_with_panel(focused_id) {
                 let old = std::mem::replace(
                     pane,
@@ -129,8 +129,15 @@ impl Workspace {
                     },
                 );
                 *pane = old.split(orientation, new_id);
+                true
+            } else {
+                false
             }
         } else {
+            false
+        };
+
+        if !split_focused {
             // No focused panel — just split the root
             let old = std::mem::replace(
                 &mut self.layout,

@@ -197,9 +197,15 @@ impl TabManager {
         let ws = self.workspaces.remove(from);
         self.workspaces.insert(to, ws);
 
-        // Adjust selection to follow the moved workspace
-        if self.selected_index == Some(from) {
-            self.selected_index = Some(to);
+        // Remap selected_index for all affected positions
+        if let Some(sel) = self.selected_index {
+            if sel == from {
+                self.selected_index = Some(to);
+            } else if from < to && from < sel && sel <= to {
+                self.selected_index = Some(sel - 1);
+            } else if from > to && to <= sel && sel < from {
+                self.selected_index = Some(sel + 1);
+            }
         }
         true
     }

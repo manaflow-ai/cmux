@@ -10,7 +10,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/manaflow-ai/cmux-linux"
+repository = "https://github.com/manaflow-ai/cmux"
 
 [workspace.dependencies]
 # GTK4 / libadwaita

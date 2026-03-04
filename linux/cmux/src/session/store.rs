@@ -7,7 +7,8 @@ use crate::session::snapshot::*;
 /// Get the session file path: ~/.local/share/cmux/session.json
 fn session_path() -> PathBuf {
     let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")))
+        .unwrap_or_else(|| PathBuf::from(".local/share"))
         .join("cmux");
     data_dir.join("session.json")
 }
@@ -20,7 +21,10 @@ pub fn save_session(snapshot: &AppSessionSnapshot) -> anyhow::Result<()> {
     }
 
     let json = serde_json::to_string_pretty(snapshot)?;
-    std::fs::write(&path, json)?;
+    // Atomic write: write to tmp file then rename to prevent corruption on crash
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, json)?;
+    std::fs::rename(&tmp_path, &path)?;
 
     tracing::debug!("Session saved to {}", path.display());
     Ok(())

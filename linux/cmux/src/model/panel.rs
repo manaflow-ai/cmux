@@ -240,7 +240,7 @@ mod tests {
         assert!(node.remove_panel(id2));
         assert_eq!(node.all_panel_ids(), vec![id1]);
         // Should have collapsed back to a single pane
-        matches!(node, LayoutNode::Pane { .. });
+        assert!(matches!(node, LayoutNode::Pane { .. }));
     }
 
     #[test]

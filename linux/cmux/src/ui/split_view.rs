@@ -117,7 +117,7 @@ fn build_split(
     paned.set_end_child(Some(&second_widget));
 
     // Set divider position after the widget is mapped
-    let pos = divider_position;
+    let pos = divider_position.clamp(0.0, 1.0);
     paned.connect_map(move |paned| {
         let size = match paned.orientation() {
             gtk4::Orientation::Horizontal => paned.width(),

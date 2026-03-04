@@ -13,6 +13,8 @@ use crate::socket::auth;
 use crate::socket::v2;
 
 const SOCKET_PATH: &str = "/tmp/cmux.sock";
+/// Maximum request line size (1 MB). Lines exceeding this limit cause disconnection.
+const MAX_REQUEST_LEN: usize = 1024 * 1024;
 
 /// Run the socket server. This should be called from a tokio runtime
 /// on a background thread.
@@ -86,6 +88,11 @@ async fn handle_client(
         let bytes_read = reader.read_line(&mut line).await?;
         if bytes_read == 0 {
             break; // Client disconnected
+        }
+
+        if line.len() > MAX_REQUEST_LEN {
+            tracing::warn!("Client sent oversized request ({} bytes), disconnecting", line.len());
+            break;
         }
 
         let trimmed = line.trim();
