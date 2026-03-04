@@ -1617,6 +1617,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var lastPixelHeight: UInt32 = 0
     private var lastXScale: CGFloat = 0
     private var lastYScale: CGFloat = 0
+    /// Coalesced size update state. NSSplitView's layoutSubtreeIfNeeded() can
+    /// produce intermediate frame values within a single runloop turn (e.g.
+    /// 763pt → 746pt → 763pt). By deferring the ghostty_surface_set_size call
+    /// to the next turn, all intermediate sizes collapse to the final value.
+    private var pendingPixelWidth: UInt32 = 0
+    private var pendingPixelHeight: UInt32 = 0
+    private var sizeFlushScheduled = false
     private var pendingTextQueue: [Data] = []
     private var pendingTextBytes: Int = 0
     private let maxPendingTextBytes = 1_048_576
@@ -2138,13 +2145,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard scaleChanged || sizeChanged else { return }
 
-        #if DEBUG
-        if sizeChanged {
-            let win = attachedView?.window != nil ? "1" : "0"
-            Self.sizeLog("updateSize surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) win=\(win)")
-        }
-        #endif
-
+        // Scale changes are applied immediately (rare, no bounce concern).
         if scaleChanged {
             ghostty_surface_set_content_scale(surface, xScale, yScale)
             lastXScale = xScale
@@ -2152,12 +2153,51 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         if sizeChanged {
-            ghostty_surface_set_size(surface, wpx, hpx)
-            lastPixelWidth = wpx
-            lastPixelHeight = hpx
+            #if DEBUG
+            let win = attachedView?.window != nil ? "1" : "0"
+            Self.sizeLog("updateSize surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) win=\(win)")
+            dlog("surface.resize.pending surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) delta=\(Int(wpx) - Int(lastPixelWidth))x\(Int(hpx) - Int(lastPixelHeight))")
+            #endif
+
+            // Defer the ghostty call to the next runloop turn. NSSplitView's
+            // layoutSubtreeIfNeeded() produces intermediate frame values within a
+            // single turn (e.g. 763→746→763). By flushing on the next turn, all
+            // intermediate sizes collapse to the final value.
+            pendingPixelWidth = wpx
+            pendingPixelHeight = hpx
+            if !sizeFlushScheduled {
+                sizeFlushScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.flushPendingSize()
+                }
+            }
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
+    }
+
+    /// Commit the coalesced pending size to ghostty. Called on the next runloop
+    /// turn so that NSSplitView layout intermediates within a single turn
+    /// collapse to the final size (typically a no-op when a bounce restores
+    /// the original value).
+    private func flushPendingSize() {
+        sizeFlushScheduled = false
+        guard let surface = surface else { return }
+        let wpx = pendingPixelWidth
+        let hpx = pendingPixelHeight
+        guard wpx > 0, hpx > 0 else { return }
+        guard wpx != lastPixelWidth || hpx != lastPixelHeight else {
+            #if DEBUG
+            dlog("surface.resize.flush.noop surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) (unchanged)")
+            #endif
+            return
+        }
+        #if DEBUG
+        dlog("surface.resize.flush surface=\(id.uuidString.prefix(8)) size=\(wpx)x\(hpx) prev=\(lastPixelWidth)x\(lastPixelHeight) delta=\(Int(wpx) - Int(lastPixelWidth))x\(Int(hpx) - Int(lastPixelHeight))")
+        #endif
+        ghostty_surface_set_size(surface, wpx, hpx)
+        lastPixelWidth = wpx
+        lastPixelHeight = hpx
     }
 
     /// Force a full size recalculation and surface redraw.
@@ -2693,18 +2733,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return size
         }
 
-        let currentBounds = bounds.size
-        if currentBounds.width > 0, currentBounds.height > 0 {
-            return currentBounds
-        }
-
+        // Prefer the last explicitly-pushed target size (from synchronizeCoreSurface)
+        // over raw bounds. The pushed size accounts for overlay scrollbar inset;
+        // raw bounds do not. Using bounds here would fight the pushed size and
+        // cause a ±17pt oscillation on every layout pass.
         if let pending = pendingSurfaceSize,
            pending.width > 0,
            pending.height > 0 {
             return pending
         }
 
-        return currentBounds
+        return bounds.size
     }
 
     private func updateSurfaceSize(size: CGSize? = nil) {
