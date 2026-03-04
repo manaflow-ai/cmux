@@ -2752,6 +2752,8 @@ struct SettingsView: View {
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(WorkspaceDirectorySettings.modeKey) private var newWorkspaceDirectoryMode = WorkspaceDirectorySettings.defaultMode.rawValue
+    @AppStorage(WorkspaceDirectorySettings.customPathKey) private var newWorkspaceDirectoryCustomPath = WorkspaceDirectorySettings.defaultCustomPath
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
@@ -2784,6 +2786,36 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedWorkspaceDirectoryMode: NewWorkspaceDirectoryMode {
+        WorkspaceDirectorySettings.current(defaults: .standard)
+    }
+
+    private var workspaceDirectoryModeSelection: Binding<String> {
+        Binding(
+            get: { WorkspaceDirectorySettings.current(defaults: .standard).rawValue },
+            set: { newWorkspaceDirectoryMode = $0 }
+        )
+    }
+
+    private var customWorkspaceDirectoryValidation: WorkspaceDirectorySettings.CustomDirectoryValidation {
+        WorkspaceDirectorySettings.validateCustomDirectory(
+            newWorkspaceDirectoryCustomPath,
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser.path
+        )
+    }
+
+    private var workspaceDirectorySubtitle: String {
+        switch selectedWorkspaceDirectoryMode {
+        case .customPath:
+            if case .valid(let resolved) = customWorkspaceDirectoryValidation {
+                return "Always start new workspaces in \(resolved)."
+            }
+            return "Enter a path such as ~/Developer."
+        default:
+            return selectedWorkspaceDirectoryMode.description
+        }
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -2929,6 +2961,51 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "New Workspace Directory",
+                            subtitle: workspaceDirectorySubtitle,
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Picker("", selection: workspaceDirectoryModeSelection) {
+                                ForEach(NewWorkspaceDirectoryMode.allCases) { mode in
+                                    Text(mode.displayName).tag(mode.rawValue)
+                                }
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        if selectedWorkspaceDirectoryMode == .customPath {
+                            SettingsCardDivider()
+
+                            SettingsCardRow(
+                                "Custom Workspace Path",
+                                subtitle: "Relative paths resolve from your home directory."
+                            ) {
+                                TextField("e.g. ~/Developer", text: $newWorkspaceDirectoryCustomPath)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: pickerColumnWidth)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .stroke(
+                                                {
+                                                    if case .invalid = customWorkspaceDirectoryValidation {
+                                                        return Color.red.opacity(0.65)
+                                                    }
+                                                    return Color.clear
+                                                }(),
+                                                lineWidth: 1
+                                            )
+                                    )
+                            }
+
+                            if case .invalid(let path, let reason) = customWorkspaceDirectoryValidation {
+                                SettingsCardNote("Custom path invalid (\(path)): \(reason)", color: .red)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -3704,6 +3781,8 @@ struct SettingsView: View {
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        newWorkspaceDirectoryMode = WorkspaceDirectorySettings.defaultMode.rawValue
+        newWorkspaceDirectoryCustomPath = WorkspaceDirectorySettings.defaultCustomPath
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -3889,15 +3968,17 @@ private struct SettingsCardDivider: View {
 
 private struct SettingsCardNote: View {
     let text: String
+    let color: Color
 
-    init(_ text: String) {
+    init(_ text: String, color: Color = .secondary) {
         self.text = text
+        self.color = color
     }
 
     var body: some View {
         Text(text)
             .font(.caption)
-            .foregroundColor(.secondary)
+            .foregroundColor(color)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
