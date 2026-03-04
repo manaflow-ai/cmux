@@ -64,13 +64,21 @@ fn build_pane(
     stack.set_hexpand(true);
     stack.set_vexpand(true);
 
+    let mut added = 0;
     for &panel_id in panel_ids {
         if let Some(panel) = panels.get(&panel_id) {
             let widget = terminal_panel::create_panel_widget(panel, state);
             let page = stack.add_child(&widget);
             page.set_title(panel.display_title());
             page.set_name(&panel_id.to_string());
+            added += 1;
         }
+    }
+
+    // If no panels resolved, show a placeholder
+    if added == 0 {
+        let label = gtk4::Label::new(Some("Panel not found"));
+        stack.add_child(&label);
     }
 
     // Select the active panel

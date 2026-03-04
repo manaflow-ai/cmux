@@ -191,7 +191,7 @@ fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> 
 }
 
 fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let index = params.get("index").and_then(|v| v.as_u64()).and_then(|v| usize::try_from(v).ok());
     let ws_id = params
         .get("workspace_id")
         .and_then(|v| v.as_str())
@@ -232,7 +232,7 @@ fn handle_workspace_last(id: Value, state: &Arc<SharedState>) -> Response {
 }
 
 fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
-    let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
+    let index = params.get("index").and_then(|v| v.as_u64()).and_then(|v| usize::try_from(v).ok());
     let ws_id = params
         .get("workspace_id")
         .and_then(|v| v.as_str())

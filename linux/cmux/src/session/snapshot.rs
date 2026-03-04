@@ -168,7 +168,11 @@ impl SessionWorkspaceLayoutSnapshot {
             },
             SessionWorkspaceLayoutSnapshot::Split(s) => LayoutNode::Split {
                 orientation: s.orientation,
-                divider_position: s.divider_position,
+                divider_position: if s.divider_position.is_finite() {
+                    s.divider_position.clamp(0.0, 1.0)
+                } else {
+                    0.5
+                },
                 first: Box::new(s.first.to_layout()),
                 second: Box::new(s.second.to_layout()),
             },

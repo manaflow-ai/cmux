@@ -252,7 +252,17 @@ fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Resul
 
     let mut reader = BufReader::new(&stream);
     let mut line = String::new();
-    reader.read_line(&mut line)?;
+    let bytes = reader.read_line(&mut line)?;
+    if bytes == 0 {
+        return Err(anyhow::anyhow!("cmux closed socket without a response"));
+    }
+    const MAX_RESPONSE_LEN: usize = 1024 * 1024;
+    if line.len() > MAX_RESPONSE_LEN {
+        return Err(anyhow::anyhow!(
+            "cmux response exceeded {} bytes",
+            MAX_RESPONSE_LEN
+        ));
+    }
 
     let response: Value = serde_json::from_str(line.trim())?;
     Ok(response)

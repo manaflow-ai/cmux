@@ -56,20 +56,33 @@ pub fn refresh_sidebar(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
 }
 
 /// Populate the workspace list from the current tab manager state.
+///
+/// Important: collects all rows while holding the TabManager lock, then drops
+/// the lock before calling `select_row` to avoid deadlock (the `row-selected`
+/// signal handler also acquires the lock).
 fn populate_workspace_list(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
     // Remove existing rows
     while let Some(child) = list_box.first_child() {
         list_box.remove(&child);
     }
 
-    let tm = state.tab_manager();
-    for (i, ws) in tm.iter().enumerate() {
-        let row = create_workspace_row(ws, i);
-        list_box.append(&row);
+    // Build rows while holding the lock
+    let (rows, selected_index) = {
+        let tm = state.tab_manager();
+        let selected = tm.selected_index();
+        let rows: Vec<gtk4::ListBoxRow> = tm
+            .iter()
+            .enumerate()
+            .map(|(i, ws)| create_workspace_row(ws, i))
+            .collect();
+        (rows, selected)
+    };
+    // Lock released here — safe to trigger signals
 
-        // Select the current workspace
-        if tm.selected_index() == Some(i) {
-            list_box.select_row(Some(&row));
+    for (i, row) in rows.iter().enumerate() {
+        list_box.append(row);
+        if selected_index == Some(i) {
+            list_box.select_row(Some(row));
         }
     }
 }
