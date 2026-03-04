@@ -2980,10 +2980,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // Prefer the owning window's selected workspace when available.
     static func shouldApplyWindowBackground(
         surfaceTabId: UUID?,
+        owningManagerExists: Bool,
         owningSelectedTabId: UUID?,
         activeSelectedTabId: UUID?
     ) -> Bool {
         guard let surfaceTabId else { return true }
+        if owningManagerExists {
+            guard let owningSelectedTabId else { return true }
+            return owningSelectedTabId == surfaceTabId
+        }
         if let owningSelectedTabId {
             return owningSelectedTabId == surfaceTabId
         }
@@ -2996,10 +3001,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
         let appDelegate = AppDelegate.shared
-        let owningSelectedTabId = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0)?.selectedTabId }
-        let activeSelectedTabId = appDelegate?.tabManager?.selectedTabId
+        let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
+        let owningSelectedTabId = owningManager?.selectedTabId
+        let activeSelectedTabId = owningManager == nil ? appDelegate?.tabManager?.selectedTabId : nil
         guard Self.shouldApplyWindowBackground(
             surfaceTabId: tabId,
+            owningManagerExists: owningManager != nil,
             owningSelectedTabId: owningSelectedTabId,
             activeSelectedTabId: activeSelectedTabId
         ) else {

@@ -667,6 +667,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertTrue(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
+                owningManagerExists: true,
                 owningSelectedTabId: tabId,
                 activeSelectedTabId: activeSelectedTabId
             )
@@ -679,8 +680,22 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertFalse(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
+                owningManagerExists: true,
                 owningSelectedTabId: UUID(),
                 activeSelectedTabId: tabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenOwningManagerSelectionIsTemporarilyNil() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningManagerExists: true,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
             )
         )
     }
@@ -691,6 +706,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertTrue(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
+                owningManagerExists: false,
                 owningSelectedTabId: nil,
                 activeSelectedTabId: tabId
             )
@@ -698,6 +714,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertFalse(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: tabId,
+                owningManagerExists: false,
                 owningSelectedTabId: nil,
                 activeSelectedTabId: UUID()
             )
@@ -708,6 +725,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertTrue(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: UUID(),
+                owningManagerExists: false,
                 owningSelectedTabId: nil,
                 activeSelectedTabId: nil
             )
@@ -715,8 +733,17 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
         XCTAssertTrue(
             GhosttyNSView.shouldApplyWindowBackground(
                 surfaceTabId: nil,
+                owningManagerExists: false,
                 owningSelectedTabId: nil,
                 activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningManagerExists: true,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: UUID()
             )
         )
     }
