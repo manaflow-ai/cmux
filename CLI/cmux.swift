@@ -1305,10 +1305,12 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let wsFlag = optionValue(commandArgs, name: "--workspace")
-            let wsArg = wsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
             var socketCmd = "clear_notifications"
-            if let wsArg, let wsId = try? resolveWorkspaceId(wsArg, client: client) {
+            if let wsFlag = optionValue(commandArgs, name: "--workspace") {
+                let wsId = try resolveWorkspaceId(wsFlag, client: client)
+                socketCmd += " --tab=\(wsId)"
+            } else if let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                      let wsId = try? resolveWorkspaceId(envWs, client: client) {
                 socketCmd += " --tab=\(wsId)"
             }
             let response = try sendV1Command(socketCmd, client: client)
@@ -5715,7 +5717,7 @@ struct CMUXCLI {
                let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
                 workspaceId = mappedWorkspace
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,

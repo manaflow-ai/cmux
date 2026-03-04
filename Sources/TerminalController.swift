@@ -10130,20 +10130,24 @@ class TerminalController {
             DispatchQueue.main.sync {
                 TerminalNotificationStore.shared.clearAll()
             }
-        } else {
-            var tabId: UUID?
-            DispatchQueue.main.sync {
-                if let tab = resolveTabForReport(trimmed) {
-                    tabId = tab.id
-                }
+            return "OK"
+        }
+        let parsed = parseOptions(trimmed)
+        guard let tabOption = parsed.options["tab"],
+              !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "ERROR: Usage: clear_notifications [--tab=X]"
+        }
+        var tabId: UUID?
+        DispatchQueue.main.sync {
+            if let tab = resolveTabForReport(trimmed) {
+                tabId = tab.id
             }
-            if let tabId {
-                DispatchQueue.main.sync {
-                    TerminalNotificationStore.shared.clearNotifications(forTabId: tabId)
-                }
-            } else {
-                return "ERROR: Tab not found"
-            }
+        }
+        guard let tabId else {
+            return "ERROR: Tab not found"
+        }
+        DispatchQueue.main.sync {
+            TerminalNotificationStore.shared.clearNotifications(forTabId: tabId)
         }
         return "OK"
     }
