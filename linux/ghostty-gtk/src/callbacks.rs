@@ -94,9 +94,16 @@ impl Drop for RuntimeCallbacks {
 // Helper to recover the handler from userdata
 // -----------------------------------------------------------------------
 
-unsafe fn handler_from_userdata<'a>(userdata: *mut c_void) -> &'a dyn GhosttyCallbackHandler {
+unsafe fn handler_from_userdata<'a>(userdata: *mut c_void) -> Option<&'a dyn GhosttyCallbackHandler> {
+    if userdata.is_null() {
+        return None;
+    }
     let fat_ptr = userdata as *const *mut dyn GhosttyCallbackHandler;
-    &**fat_ptr
+    let inner = *fat_ptr;
+    if inner.is_null() {
+        return None;
+    }
+    Some(&*inner)
 }
 
 // -----------------------------------------------------------------------
@@ -104,8 +111,9 @@ unsafe fn handler_from_userdata<'a>(userdata: *mut c_void) -> &'a dyn GhosttyCal
 // -----------------------------------------------------------------------
 
 unsafe extern "C" fn wakeup_trampoline(userdata: *mut c_void) {
-    let handler = handler_from_userdata(userdata);
-    handler.on_wakeup();
+    if let Some(handler) = handler_from_userdata(userdata) {
+        handler.on_wakeup();
+    }
 }
 
 unsafe extern "C" fn action_trampoline(
@@ -117,11 +125,10 @@ unsafe extern "C" fn action_trampoline(
     #[cfg(feature = "link-ghostty")]
     {
         let userdata = ghostty_app_userdata(_app);
-        if userdata.is_null() {
-            return false;
+        match handler_from_userdata(userdata) {
+            Some(handler) => handler.on_action(target, action),
+            None => false,
         }
-        let handler = handler_from_userdata(userdata);
-        handler.on_action(target, action)
     }
     #[cfg(not(feature = "link-ghostty"))]
     {
@@ -135,8 +142,9 @@ unsafe extern "C" fn read_clipboard_trampoline(
     clipboard: ghostty_clipboard_e,
     context: *mut c_void,
 ) {
-    let handler = handler_from_userdata(userdata);
-    handler.on_read_clipboard(clipboard, context);
+    if let Some(handler) = handler_from_userdata(userdata) {
+        handler.on_read_clipboard(clipboard, context);
+    }
 }
 
 unsafe extern "C" fn confirm_read_clipboard_trampoline(
@@ -145,13 +153,14 @@ unsafe extern "C" fn confirm_read_clipboard_trampoline(
     context: *mut c_void,
     request: ghostty_clipboard_request_e,
 ) {
-    let handler = handler_from_userdata(userdata);
-    let content_str = if content.is_null() {
-        ""
-    } else {
-        std::ffi::CStr::from_ptr(content).to_str().unwrap_or("")
-    };
-    handler.on_confirm_read_clipboard(content_str, context, request);
+    if let Some(handler) = handler_from_userdata(userdata) {
+        let content_str = if content.is_null() {
+            ""
+        } else {
+            std::ffi::CStr::from_ptr(content).to_str().unwrap_or("")
+        };
+        handler.on_confirm_read_clipboard(content_str, context, request);
+    }
 }
 
 unsafe extern "C" fn write_clipboard_trampoline(
@@ -161,16 +170,18 @@ unsafe extern "C" fn write_clipboard_trampoline(
     content_len: usize,
     confirm: bool,
 ) {
-    let handler = handler_from_userdata(userdata);
-    let slice = if content.is_null() || content_len == 0 {
-        &[]
-    } else {
-        std::slice::from_raw_parts(content, content_len)
-    };
-    handler.on_write_clipboard(clipboard, slice, confirm);
+    if let Some(handler) = handler_from_userdata(userdata) {
+        let slice = if content.is_null() || content_len == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(content, content_len)
+        };
+        handler.on_write_clipboard(clipboard, slice, confirm);
+    }
 }
 
 unsafe extern "C" fn close_surface_trampoline(userdata: *mut c_void, process_alive: bool) {
-    let handler = handler_from_userdata(userdata);
-    handler.on_close_surface(process_alive);
+    if let Some(handler) = handler_from_userdata(userdata) {
+        handler.on_close_surface(process_alive);
+    }
 }

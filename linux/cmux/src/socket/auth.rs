@@ -18,7 +18,7 @@ pub fn authenticate_peer(stream: &tokio::net::UnixStream) -> io::Result<PeerInfo
     let cred = stream.peer_cred()?;
 
     Ok(PeerInfo {
-        pid: cred.pid().unwrap_or(0) as u32,
+        pid: cred.pid().and_then(|p| u32::try_from(p).ok()).unwrap_or(0),
         uid: cred.uid(),
         gid: cred.gid(),
     })

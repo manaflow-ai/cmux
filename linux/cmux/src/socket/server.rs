@@ -1,20 +1,46 @@
 //! Unix socket server for the cmux control API.
 //!
-//! Listens on `/tmp/cmux.sock` and handles line-delimited JSON v2 protocol.
+//! Listens on a Unix socket and handles line-delimited JSON v2 protocol.
 //! Each client connection is handled in a separate tokio task.
 
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
+use tokio::sync::Semaphore;
 
 use crate::app::SharedState;
 use crate::socket::auth;
 use crate::socket::v2;
 
-const SOCKET_PATH: &str = "/tmp/cmux.sock";
 /// Maximum request line size (1 MB). Lines exceeding this limit cause disconnection.
 const MAX_REQUEST_LEN: usize = 1024 * 1024;
+/// Maximum concurrent client connections.
+const MAX_CONNECTIONS: usize = 64;
+
+/// Determine the socket path. Prefers `XDG_RUNTIME_DIR` (user-private) over `/tmp`.
+///
+/// Validates that `XDG_RUNTIME_DIR` is owned by the current user and not
+/// world-writable, per the XDG Base Directory Specification.
+pub fn socket_path() -> String {
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let path = std::path::Path::new(&dir);
+        if path.is_absolute() {
+            if let Ok(meta) = std::fs::metadata(path) {
+                use std::os::unix::fs::MetadataExt;
+                let my_uid = unsafe { libc::getuid() };
+                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o022) == 0 {
+                    return format!("{}/cmux.sock", dir);
+                }
+            }
+            tracing::warn!(
+                "XDG_RUNTIME_DIR ({}) failed validation, falling back to /tmp",
+                dir
+            );
+        }
+    }
+    "/tmp/cmux.sock".to_string()
+}
 
 /// Run the socket server. This should be called from a tokio runtime
 /// on a background thread.
@@ -22,18 +48,22 @@ pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
     let control_mode = auth::SocketControlMode::from_env();
     tracing::info!("Socket control mode: {:?}", control_mode);
 
-    // Remove stale socket file
-    let _ = std::fs::remove_file(SOCKET_PATH);
+    let path = socket_path();
 
-    let listener = UnixListener::bind(SOCKET_PATH)?;
-    tracing::info!("Socket server listening on {}", SOCKET_PATH);
+    // Remove stale socket file
+    let _ = std::fs::remove_file(&path);
+
+    let listener = UnixListener::bind(&path)?;
+    tracing::info!("Socket server listening on {}", path);
 
     // Set socket permissions (readable/writable by owner only)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o600))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
+
+    let semaphore = Arc::new(Semaphore::new(MAX_CONNECTIONS));
 
     loop {
         match listener.accept().await {
@@ -55,8 +85,14 @@ pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
                             peer_info.pid,
                             peer_info.uid
                         );
+                        // Acquire permit before spawning to bound both tasks and connections
+                        let permit = match semaphore.clone().acquire_owned().await {
+                            Ok(permit) => permit,
+                            Err(_) => continue,
+                        };
                         let state = state.clone();
                         tokio::spawn(async move {
+                            let _permit = permit;
                             if let Err(e) = handle_client(stream, state).await {
                                 tracing::debug!("Client disconnected: {}", e);
                             }
@@ -136,8 +172,13 @@ async fn handle_client(
             continue;
         }
 
-        // Parse and dispatch the v2 request
-        let response = v2::dispatch(trimmed, &state);
+        // Dispatch on a blocking thread to avoid holding std::sync::Mutex on async runtime
+        let state_clone = state.clone();
+        let trimmed_owned = trimmed.to_string();
+        let response = tokio::task::spawn_blocking(move || {
+            v2::dispatch(&trimmed_owned, &state_clone)
+        })
+        .await?;
         let response_json = serde_json::to_string(&response)?;
 
         writer.write_all(response_json.as_bytes()).await?;
@@ -154,5 +195,5 @@ async fn handle_client(
 
 /// Clean up the socket file on shutdown.
 pub fn cleanup() {
-    let _ = std::fs::remove_file(SOCKET_PATH);
+    let _ = std::fs::remove_file(socket_path());
 }

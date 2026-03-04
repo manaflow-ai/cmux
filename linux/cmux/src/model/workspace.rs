@@ -211,12 +211,19 @@ impl Workspace {
         }
     }
 
-    /// Append a log entry.
+    /// Maximum number of log entries retained per workspace.
+    const MAX_LOG_ENTRIES: usize = 1000;
+
+    /// Append a log entry, evicting the oldest if at capacity.
     pub fn append_log(&mut self, message: &str, level: &str, source: Option<&str>) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs_f64();
+
+        if self.log_entries.len() >= Self::MAX_LOG_ENTRIES {
+            self.log_entries.drain(..self.log_entries.len() / 4);
+        }
 
         self.log_entries.push(LogEntry {
             message: message.to_string(),

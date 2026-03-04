@@ -2,13 +2,31 @@
 
 use clap::{Parser, Subcommand};
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const SOCKET_PATH: &str = "/tmp/cmux.sock";
-
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Determine the default socket path, matching the server's validation logic.
+///
+/// Validates that `XDG_RUNTIME_DIR` is owned by the current user and not
+/// group/world-writable before using it. Falls back to `/tmp/cmux.sock`.
+fn default_socket_path() -> String {
+    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
+        let path = std::path::Path::new(&dir);
+        if path.is_absolute() {
+            if let Ok(meta) = std::fs::metadata(path) {
+                use std::os::unix::fs::MetadataExt;
+                let my_uid = unsafe { libc::getuid() };
+                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o022) == 0 {
+                    return format!("{}/cmux.sock", dir);
+                }
+            }
+        }
+    }
+    "/tmp/cmux.sock".to_string()
+}
 
 #[derive(Parser)]
 #[command(name = "cmux", about = "cmux terminal multiplexer CLI")]
@@ -17,7 +35,7 @@ struct Cli {
     command: Commands,
 
     /// Socket path override
-    #[arg(long, default_value = SOCKET_PATH, global = true)]
+    #[arg(long, default_value_t = default_socket_path(), global = true)]
     socket: String,
 
     /// Output raw JSON
@@ -250,13 +268,15 @@ fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Resul
     writer.write_all(b"\n")?;
     writer.flush()?;
 
-    let mut reader = BufReader::new(&stream);
+    // Bounded read: limit total bytes to prevent OOM from malformed responses
+    const MAX_RESPONSE_LEN: usize = 1024 * 1024;
+    let limited = (&stream).take(MAX_RESPONSE_LEN as u64 + 1);
+    let mut reader = BufReader::new(limited);
     let mut line = String::new();
     let bytes = reader.read_line(&mut line)?;
     if bytes == 0 {
         return Err(anyhow::anyhow!("cmux closed socket without a response"));
     }
-    const MAX_RESPONSE_LEN: usize = 1024 * 1024;
     if line.len() > MAX_RESPONSE_LEN {
         return Err(anyhow::anyhow!(
             "cmux response exceeded {} bytes",

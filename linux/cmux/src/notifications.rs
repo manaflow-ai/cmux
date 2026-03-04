@@ -21,6 +21,9 @@ pub struct NotificationStore {
     notifications: Vec<Notification>,
 }
 
+/// Maximum number of notifications retained.
+const MAX_NOTIFICATIONS: usize = 500;
+
 impl NotificationStore {
     pub fn new() -> Self {
         Self {
@@ -56,6 +59,11 @@ impl NotificationStore {
 
         if send_desktop {
             send_desktop_notification(title, body);
+        }
+
+        // Evict oldest notifications if at capacity
+        if self.notifications.len() >= MAX_NOTIFICATIONS {
+            self.notifications.drain(..self.notifications.len() / 4);
         }
 
         self.notifications.push(notification);

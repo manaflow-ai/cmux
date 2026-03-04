@@ -98,7 +98,12 @@ pub fn run() -> i32 {
 }
 
 fn activate(app: &adw::Application, state: &Rc<AppState>) {
-    // Create the main window (called on every activation, e.g. raising the app)
+    // Re-present existing window if one already exists (avoids duplicate windows)
+    if let Some(window) = app.active_window() {
+        window.present();
+        return;
+    }
+
     let window = ui::window::create_window(app, state);
     window.present();
 }
