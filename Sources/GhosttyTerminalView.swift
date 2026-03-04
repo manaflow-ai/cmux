@@ -292,6 +292,7 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case copyLineAndExit
     case scrollLines(Int)
     case scrollPage(Int)
+    case scrollHalfPage(Int)
     case scrollToTop
     case scrollToBottom
     case jumpToPrompt(Int)
@@ -304,10 +305,12 @@ enum TerminalKeyboardCopyModeAction: Equatable {
 struct TerminalKeyboardCopyModeInputState: Equatable {
     var countPrefix: Int?
     var pendingYankLine = false
+    var pendingG = false
 
     mutating func reset() {
         countPrefix = nil
         pendingYankLine = false
+        pendingG = false
     }
 }
 
@@ -395,10 +398,10 @@ func terminalKeyboardCopyModeAction(
 
     if normalized == [.control] {
         if chars == "u" || chars == "\u{15}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
+            return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
         }
         if chars == "d" || chars == "\u{04}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
+            return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
         }
         if chars == "b" || chars == "\u{02}" {
             return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
@@ -439,7 +442,8 @@ func terminalKeyboardCopyModeAction(
         if normalized == [.shift] {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
         }
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
+        return nil
     case "0", "^":
         return hasSelection ? .adjustSelection(.beginningOfLine) : nil
     case "$", "4":
@@ -486,6 +490,17 @@ func terminalKeyboardCopyModeResolve(
         state.pendingYankLine = false
     }
 
+    if state.pendingG {
+        if chars == "g", normalized.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
+            state.reset()
+            return .perform(action, count: count)
+        }
+        // Not `gg`, cancel and treat as fresh command.
+        state.pendingG = false
+    }
+
     if normalized.isEmpty,
        let scalar = chars.unicodeScalars.first,
        scalar.isASCII,
@@ -506,6 +521,11 @@ func terminalKeyboardCopyModeResolve(
 
     if !hasSelection, chars == "y", normalized.isEmpty {
         state.pendingYankLine = true
+        return .consume
+    }
+
+    if chars == "g", normalized.isEmpty {
+        state.pendingG = true
         return .consume
     }
 
@@ -2785,6 +2805,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
+    /// Tracks whether the user has explicitly entered visual selection mode (v).
+    /// Separate from Ghostty's `has_selection` because copy mode always maintains
+    /// a 1-cell selection as a visible cursor. This flag determines whether
+    /// movements should extend the selection (visual) or scroll the viewport.
+    private var keyboardCopyModeVisualActive = false
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -3229,6 +3254,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
+        keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
             keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
@@ -3236,6 +3262,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if keyboardCopyModeViewportRow == nil {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
+            // Create a 1-cell selection at the terminal cursor to serve as a
+            // visible cursor indicator in copy mode.
+            _ = ghostty_surface_select_cursor_cell(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
@@ -3344,7 +3373,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        let hasSelection = ghostty_surface_has_selection(surface)
+        // Use the visual-mode flag instead of raw has_selection so that the
+        // 1-cell cursor selection doesn't make every motion behave as visual.
+        let hasSelection = keyboardCopyModeVisualActive
         let resolution = terminalKeyboardCopyModeResolve(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
@@ -3361,9 +3392,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
-            _ = ghostty_surface_select_cursor_cell(surface)
+            keyboardCopyModeVisualActive = true
         case .clearSelection:
+            keyboardCopyModeVisualActive = false
             _ = ghostty_surface_clear_selection(surface)
+            // Re-create 1-cell cursor at terminal cursor position.
+            _ = ghostty_surface_select_cursor_cell(surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection(surface)
@@ -3382,6 +3416,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+        case let .scrollHalfPage(delta):
+            let fraction = delta > 0 ? 0.5 : -0.5
+            for _ in 0 ..< count {
+                _ = performBindingAction("scroll_page_fractional:\(fraction)")
+            }
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
