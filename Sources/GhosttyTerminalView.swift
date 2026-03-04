@@ -104,7 +104,8 @@ private enum GhosttyPasteboardHelper {
 
     static func hasString(for location: ghostty_clipboard_e) -> Bool {
         guard let pasteboard = pasteboard(for: location) else { return false }
-        return (stringContents(from: pasteboard) ?? "").isEmpty == false
+        if let text = stringContents(from: pasteboard), !text.isEmpty { return true }
+        return clipboardHasImageOnly()
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
@@ -113,12 +114,69 @@ private enum GhosttyPasteboardHelper {
         pasteboard.setString(string, forType: .string)
     }
 
-    private static func escapeForShell(_ value: String) -> String {
+    static func escapeForShell(_ value: String) -> String {
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
         }
         return result
+    }
+
+    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
+
+    /// Quick check: does the clipboard have image data and no text?
+    static func clipboardHasImageOnly() -> Bool {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return false }
+        return types.contains(.tiff) || types.contains(.png)
+    }
+
+    /// When the clipboard contains only image data (no text/HTML), saves it as
+    /// a temporary PNG file and returns the shell-escaped file path. Returns nil
+    /// if the clipboard contains text or no image.
+    static func saveClipboardImageIfNeeded() -> String? {
+        let pb = NSPasteboard.general
+        let types = pb.types ?? []
+
+        // If pasteboard has text/HTML, this is a normal copy.
+        let hasText = types.contains(.string) || types.contains(.html)
+            || types.contains(.rtf) || types.contains(.rtfd)
+        if hasText { return nil }
+
+        // Check for image types (TIFF from screenshots, PNG from some tools).
+        guard types.contains(.tiff) || types.contains(.png) else { return nil }
+        guard let image = NSImage(pasteboard: pb),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        guard pngData.count <= maxClipboardImageSize else {
+#if DEBUG
+            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
+#endif
+            return nil
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        let timestamp = formatter.string(from: Date())
+        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
+        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
+
+        do {
+            try pngData.write(to: URL(fileURLWithPath: path))
+        } catch {
+#if DEBUG
+            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
+#endif
+            return nil
+        }
+
+        return escapeForShell(path)
     }
 }
 
@@ -292,6 +350,7 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case copyLineAndExit
     case scrollLines(Int)
     case scrollPage(Int)
+    case scrollHalfPage(Int)
     case scrollToTop
     case scrollToBottom
     case jumpToPrompt(Int)
@@ -304,10 +363,12 @@ enum TerminalKeyboardCopyModeAction: Equatable {
 struct TerminalKeyboardCopyModeInputState: Equatable {
     var countPrefix: Int?
     var pendingYankLine = false
+    var pendingG = false
 
     mutating func reset() {
         countPrefix = nil
         pendingYankLine = false
+        pendingG = false
     }
 }
 
@@ -395,10 +456,10 @@ func terminalKeyboardCopyModeAction(
 
     if normalized == [.control] {
         if chars == "u" || chars == "\u{15}" {
-            return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
+            return hasSelection ? .adjustSelection(.pageUp) : .scrollHalfPage(-1)
         }
         if chars == "d" || chars == "\u{04}" {
-            return hasSelection ? .adjustSelection(.pageDown) : .scrollPage(1)
+            return hasSelection ? .adjustSelection(.pageDown) : .scrollHalfPage(1)
         }
         if chars == "b" || chars == "\u{02}" {
             return hasSelection ? .adjustSelection(.pageUp) : .scrollPage(-1)
@@ -439,7 +500,8 @@ func terminalKeyboardCopyModeAction(
         if normalized == [.shift] {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
         }
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
+        return nil
     case "0", "^":
         return hasSelection ? .adjustSelection(.beginningOfLine) : nil
     case "$", "4":
@@ -486,6 +548,17 @@ func terminalKeyboardCopyModeResolve(
         state.pendingYankLine = false
     }
 
+    if state.pendingG {
+        if chars == "g", normalized.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
+            state.reset()
+            return .perform(action, count: count)
+        }
+        // Not `gg`, cancel and treat as fresh command.
+        state.pendingG = false
+    }
+
     if normalized.isEmpty,
        let scalar = chars.unicodeScalars.first,
        scalar.isASCII,
@@ -506,6 +579,11 @@ func terminalKeyboardCopyModeResolve(
 
     if !hasSelection, chars == "y", normalized.isEmpty {
         state.pendingYankLine = true
+        return .consume
+    }
+
+    if chars == "g", normalized.isEmpty {
+        state.pendingG = true
         return .consume
     }
 
@@ -551,6 +629,7 @@ private final class GhosttySurfaceCallbackContext {
 
 class GhosttyApp {
     static let shared = GhosttyApp()
+    private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -765,7 +844,13 @@ class GhosttyApp {
                   let surface = callbackContext.runtimeSurface else { return }
 
             let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
-            let value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+            var value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+
+            // When clipboard has only image data (e.g. screenshot), save as temp
+            // PNG and paste the file path so CLI tools can receive images.
+            if value.isEmpty, let imagePath = GhosttyPasteboardHelper.saveClipboardImageIfNeeded() {
+                value = imagePath
+            }
 
             value.withCString { ptr in
                 ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
@@ -912,6 +997,7 @@ class GhosttyApp {
 
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
+        loadReleaseAppSupportGhosttyConfigIfNeeded(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
@@ -924,6 +1010,22 @@ class GhosttyApp {
         guard let newConfigFileSize, newConfigFileSize == 0 else { return false }
         guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
         return true
+    }
+
+    static func shouldLoadReleaseAppSupportGhosttyConfig(
+        currentBundleIdentifier: String?,
+        currentConfigFileSize: Int?,
+        currentLegacyConfigFileSize: Int?,
+        releaseConfigFileSize: Int?,
+        releaseLegacyConfigFileSize: Int?
+    ) -> Bool {
+        guard SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) else { return false }
+
+        let hasCurrentAppSupportConfig = (currentConfigFileSize ?? 0) > 0 || (currentLegacyConfigFileSize ?? 0) > 0
+        guard !hasCurrentAppSupportConfig else { return false }
+
+        let hasReleaseAppSupportConfig = (releaseConfigFileSize ?? 0) > 0 || (releaseLegacyConfigFileSize ?? 0) > 0
+        return hasReleaseAppSupportConfig
     }
 
     static func shouldApplyDefaultBackgroundUpdate(
@@ -961,6 +1063,57 @@ class GhosttyApp {
             return false
         }
         return true
+    }
+
+    private func loadReleaseAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
+        #if os(macOS)
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
+              !currentBundleIdentifier.isEmpty else { return }
+
+        let currentAppSupportDir = appSupport.appendingPathComponent(currentBundleIdentifier, isDirectory: true)
+        let releaseAppSupportDir = appSupport.appendingPathComponent(Self.releaseBundleIdentifier, isDirectory: true)
+        let currentConfig = currentAppSupportDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let currentLegacyConfig = currentAppSupportDir.appendingPathComponent("config", isDirectory: false)
+        let releaseConfig = releaseAppSupportDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let releaseLegacyConfig = releaseAppSupportDir.appendingPathComponent("config", isDirectory: false)
+
+        func fileSize(_ url: URL) -> Int? {
+            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? NSNumber else { return nil }
+            return size.intValue
+        }
+
+        let releaseConfigSize = fileSize(releaseConfig)
+        let releaseLegacyConfigSize = fileSize(releaseLegacyConfig)
+
+        guard Self.shouldLoadReleaseAppSupportGhosttyConfig(
+            currentBundleIdentifier: currentBundleIdentifier,
+            currentConfigFileSize: fileSize(currentConfig),
+            currentLegacyConfigFileSize: fileSize(currentLegacyConfig),
+            releaseConfigFileSize: releaseConfigSize,
+            releaseLegacyConfigFileSize: releaseLegacyConfigSize
+        ) else { return }
+
+        if let releaseLegacyConfigSize, releaseLegacyConfigSize > 0 {
+            releaseLegacyConfig.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        }
+
+        if let releaseConfigSize, releaseConfigSize > 0 {
+            releaseConfig.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        }
+
+        #if DEBUG
+        Self.initLog(
+            "loaded release app support ghostty config fallback from: \(releaseAppSupportDir.path)"
+        )
+        #endif
+        #endif
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
@@ -2716,6 +2869,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
+    /// Tracks whether the user has explicitly entered visual selection mode (v).
+    /// Separate from Ghostty's `has_selection` because copy mode always maintains
+    /// a 1-cell selection as a visible cursor. This flag determines whether
+    /// movements should extend the selection (visual) or scroll the viewport.
+    private var keyboardCopyModeVisualActive = false
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
 #if DEBUG
     private static let keyLatencyProbeEnabled: Bool = {
@@ -3160,6 +3318,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
+        keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
             keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
@@ -3167,6 +3326,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if keyboardCopyModeViewportRow == nil {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
+            // Create a 1-cell selection at the terminal cursor to serve as a
+            // visible cursor indicator in copy mode.
+            _ = ghostty_surface_select_cursor_cell(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
@@ -3217,10 +3379,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: ghostty_surface_t) {
-        guard !ghostty_surface_has_selection(surface) else { return }
+        // In visual mode the user owns the selection range; don't disturb it.
+        // Outside visual mode we keep a 1-cell cursor selection for visibility,
+        // so we still need to refresh the viewport row after scrolling.
+        guard !keyboardCopyModeVisualActive else { return }
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
         keyboardCopyModeViewportRow = anchor.row
-        _ = ghostty_surface_clear_selection(surface)
+        // Preserve the visible cursor indicator.
+        _ = ghostty_surface_select_cursor_cell(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -3275,7 +3441,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        let hasSelection = ghostty_surface_has_selection(surface)
+        // Use the visual-mode flag instead of raw has_selection so that the
+        // 1-cell cursor selection doesn't make every motion behave as visual.
+        let hasSelection = keyboardCopyModeVisualActive
         let resolution = terminalKeyboardCopyModeResolve(
             keyCode: event.keyCode,
             charactersIgnoringModifiers: event.charactersIgnoringModifiers,
@@ -3292,9 +3460,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
-            _ = ghostty_surface_select_cursor_cell(surface)
+            keyboardCopyModeVisualActive = true
         case .clearSelection:
+            keyboardCopyModeVisualActive = false
             _ = ghostty_surface_clear_selection(surface)
+            // Re-create 1-cell cursor at terminal cursor position.
+            _ = ghostty_surface_select_cursor_cell(surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
             _ = ghostty_surface_clear_selection(surface)
@@ -3313,6 +3484,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
+            refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
+        case let .scrollHalfPage(delta):
+            let fraction = delta > 0 ? 0.5 : -0.5
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
@@ -3343,78 +3518,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = performBindingAction("copy_to_clipboard")
     }
 
-    // MARK: - Clipboard image paste
+    // MARK: - Clipboard paste
 
-    private static let maxClipboardImageSize = 10 * 1024 * 1024  // 10 MB
-
-    /// Quick check: does the clipboard have image data and no text?
-    private static func clipboardHasImageOnly() -> Bool {
-        let pb = NSPasteboard.general
-        let types = pb.types ?? []
-        let hasText = types.contains(.string) || types.contains(.html)
-            || types.contains(.rtf) || types.contains(.rtfd)
-        if hasText { return false }
-        return types.contains(.tiff) || types.contains(.png)
-    }
-
-    /// When the clipboard contains only image data (no text/HTML), saves it as
-    /// a temporary PNG file and returns the file path. Returns nil if the
-    /// clipboard contains text or no image.
-    private static func saveClipboardImageIfNeeded() -> String? {
-        let pb = NSPasteboard.general
-        let types = pb.types ?? []
-
-        // If pasteboard has text/HTML, this is a normal copy — let Ghostty handle it.
-        let hasText = types.contains(.string) || types.contains(.html)
-            || types.contains(.rtf) || types.contains(.rtfd)
-        if hasText { return nil }
-
-        // Check for image types (TIFF from screenshots, PNG from some tools).
-        guard types.contains(.tiff) || types.contains(.png) else { return nil }
-        guard let image = NSImage(pasteboard: pb),
-              let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return nil }
-
-        guard pngData.count <= maxClipboardImageSize else {
-#if DEBUG
-            dlog("terminal.paste.image.rejected reason=tooLarge bytes=\(pngData.count)")
-#endif
-            return nil
-        }
-
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        let timestamp = formatter.string(from: Date())
-        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).png"
-        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
-
-        do {
-            try pngData.write(to: URL(fileURLWithPath: path))
-        } catch {
-#if DEBUG
-            dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
-#endif
-            return nil
-        }
-
-        return path
-    }
-
-    /// Pastes clipboard content into the terminal. If the clipboard contains only
-    /// image data, saves it as a temporary PNG and pastes the shell-escaped file path.
     @IBAction func paste(_ sender: Any?) {
-        // When the clipboard contains only image data (e.g. from Cmd+Ctrl+Shift+4
-        // screenshot), save it as a temporary PNG and paste the file path so that
-        // CLI tools like Claude Code can accept the image.
-        if let path = Self.saveClipboardImageIfNeeded() {
-#if DEBUG
-            dlog("terminal.paste.image path=\(path)")
-#endif
-            terminalSurface?.sendText(Self.escapeDropForShell(path))
-            return
-        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -3431,7 +3537,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return ghostty_surface_has_selection(surface)
         case #selector(paste(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
-                || Self.clipboardHasImageOnly()
         case #selector(pasteAsPlainText(_:)):
             return GhosttyPasteboardHelper.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):

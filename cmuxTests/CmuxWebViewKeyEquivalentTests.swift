@@ -1314,6 +1314,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     }
 
     func testControlPagingSupportsPrintableAndControlCharacters() {
+        // Ctrl+U = half-page up (vim standard).
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 0,
@@ -1321,7 +1322,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.control],
                 hasSelection: false
             ),
-            .scrollPage(-1)
+            .scrollHalfPage(-1)
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1401,14 +1402,14 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     }
 
     func testGAndShiftGMapping() {
-        XCTAssertEqual(
+        // Bare "g" is a prefix key (gg), not an immediate action.
+        XCTAssertNil(
             terminalKeyboardCopyModeAction(
                 keyCode: 5,
                 charactersIgnoringModifiers: "g",
                 modifierFlags: [],
                 hasSelection: false
-            ),
-            .scrollToTop
+            )
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1646,6 +1647,79 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - gg (scroll to top via two-key sequence)
+
+    func testGGScrollsToTop() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testGGWithSelectionAdjustsToHome() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .perform(.adjustSelection(.home), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testCountedGG() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(22, chars: "5", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 5))
+    }
+
+    func testPendingGCancelledByOtherKey() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testShiftGStillWorksImmediately() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(5, chars: "g", modifiers: [.shift], hasSelection: false, state: &state),
+            .perform(.scrollToBottom, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    // MARK: - Ctrl+U/D half-page scroll
+
+    func testCtrlUHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(32, chars: "u", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlDHalfPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(2, chars: "d", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollHalfPage(1), count: 1)
+        )
+    }
+
+    func testCtrlBFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(11, chars: "b", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(-1), count: 1)
+        )
+    }
+
+    func testCtrlFFullPage() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(3, chars: "f", modifiers: [.control], hasSelection: false, state: &state),
+            .perform(.scrollPage(1), count: 1)
+        )
     }
 }
 

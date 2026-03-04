@@ -1080,6 +1080,43 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     return true
 }
 
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    guard let editor = window.firstResponder as? NSTextView,
+          editor.isFieldEditor else {
+        return false
+    }
+    return editor.hasMarkedText()
+}
+
+func shouldHandleCommandPaletteShortcutEvent(
+    _ event: NSEvent,
+    paletteWindow: NSWindow?
+) -> Bool {
+    guard let paletteWindow else { return false }
+    if let eventWindow = event.window {
+        return eventWindow === paletteWindow
+    }
+    let eventWindowNumber = event.windowNumber
+    if eventWindowNumber > 0 {
+        return eventWindowNumber == paletteWindow.windowNumber
+    }
+    if let keyWindow = NSApp.keyWindow {
+        return keyWindow === paletteWindow
+    }
+    return false
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -5784,7 +5821,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
-        let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
+        let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
+            event,
+            paletteWindow: commandPaletteTargetWindow
+        ) ? commandPaletteTargetWindow : nil
+        let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
 
@@ -5794,13 +5835,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             keyCode: event.keyCode
         ),
            commandPaletteVisibleInTargetWindow,
-           let paletteWindow = commandPaletteTargetWindow {
+           let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
                 object: paletteWindow,
                 userInfo: ["delta": delta]
             )
             return true
+        }
+
+        if commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteShortcutWindow {
+            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            if normalizedFlags.isEmpty, event.keyCode == 53 {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                return true
+            }
+
+            if shouldSubmitCommandPaletteWithReturn(
+                keyCode: event.keyCode,
+                flags: event.modifierFlags
+            ) {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: paletteWindow)
+                return true
+            }
         }
 
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions
@@ -7153,7 +7217,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .list])
+        var options: UNNotificationPresentationOptions = [.banner, .list]
+        if !NotificationSoundSettings.isSilent() {
+            options.insert(.sound)
+        }
+        completionHandler(options)
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {

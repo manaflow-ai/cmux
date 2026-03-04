@@ -2282,6 +2282,30 @@ struct ContentView: View {
             openCommandPaletteSwitcher()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            handleCommandPaletteSubmitRequest()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            dismissCommandPalette()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -2972,7 +2996,7 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
-            return String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces and tabs")
+            return String(localized: "commandPalette.search.switcherPlaceholder", defaultValue: "Search workspaces")
         }
     }
 
@@ -2981,7 +3005,7 @@ struct ContentView: View {
         case .commands:
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
-            return String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces or tabs match your search.")
+            return String(localized: "commandPalette.search.switcherEmpty", defaultValue: "No workspaces match your search.")
         }
     }
 
@@ -3076,9 +3100,6 @@ struct ContentView: View {
         if command.id.hasPrefix("switcher.workspace.") {
             return CommandPaletteTrailingLabel(text: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"), style: .kind)
         }
-        if command.id.hasPrefix("switcher.surface.") {
-            return CommandPaletteTrailingLabel(text: String(localized: "commandPalette.kind.surface", defaultValue: "Surface"), style: .kind)
-        }
         return nil
     }
 
@@ -3088,7 +3109,7 @@ struct ContentView: View {
 
         var entries: [CommandPaletteCommand] = []
         let estimatedCount = windowContexts.reduce(0) { partial, context in
-            partial + max(1, context.tabManager.tabs.count) * 4
+            partial + context.tabManager.tabs.count
         }
         entries.reserveCapacity(estimatedCount)
         var nextRank = 0
@@ -3135,62 +3156,12 @@ struct ContentView: View {
                             focusCommandPaletteSwitcherTarget(
                                 windowId: windowId,
                                 tabManager: windowTabManager,
-                                workspaceId: workspaceId,
-                                panelId: nil
+                                workspaceId: workspaceId
                             )
                         }
                     )
                 )
                 nextRank += 1
-
-                var orderedPanelIds = workspace.sidebarOrderedPanelIds()
-                if let focusedPanelId = workspace.focusedPanelId,
-                   let focusedIndex = orderedPanelIds.firstIndex(of: focusedPanelId) {
-                    orderedPanelIds.remove(at: focusedIndex)
-                    orderedPanelIds.insert(focusedPanelId, at: 0)
-                }
-
-                for panelId in orderedPanelIds {
-                    guard let panel = workspace.panels[panelId] else { continue }
-                    let panelTitle = panelDisplayName(workspace: workspace, panelId: panelId, fallback: panel.displayTitle)
-                    let typeLabel: String = (panel.panelType == .browser) ? String(localized: "commandPalette.switcher.browserLabel", defaultValue: "Browser") : String(localized: "commandPalette.switcher.terminalLabel", defaultValue: "Terminal")
-                    let panelKeywords = CommandPaletteSwitcherSearchIndexer.keywords(
-                        baseKeywords: [
-                            "tab",
-                            "surface",
-                            "panel",
-                            "switch",
-                            "go",
-                            workspaceName,
-                            panelTitle,
-                            typeLabel.lowercased()
-                        ] + windowKeywords,
-                        metadata: commandPalettePanelSearchMetadata(in: workspace, panelId: panelId)
-                    )
-                    entries.append(
-                        CommandPaletteCommand(
-                            id: "switcher.surface.\(workspace.id.uuidString.lowercased()).\(panelId.uuidString.lowercased())",
-                            rank: nextRank,
-                            title: panelTitle,
-                            subtitle: commandPaletteSwitcherSubtitle(
-                                base: "\(typeLabel) • \(workspaceName)",
-                                windowLabel: context.windowLabel
-                            ),
-                            shortcutHint: nil,
-                            keywords: panelKeywords,
-                            dismissOnRun: true,
-                            action: {
-                                focusCommandPaletteSwitcherTarget(
-                                    windowId: windowId,
-                                    tabManager: windowTabManager,
-                                    workspaceId: workspaceId,
-                                    panelId: panelId
-                                )
-                            }
-                        )
-                    )
-                    nextRank += 1
-                }
             }
         }
 
@@ -3259,54 +3230,22 @@ struct ContentView: View {
     private func focusCommandPaletteSwitcherTarget(
         windowId: UUID,
         tabManager: TabManager,
-        workspaceId: UUID,
-        panelId: UUID?
+        workspaceId: UUID
     ) {
         // Switcher commands dismiss the palette after action dispatch.
         // Defer focus mutation one turn so browser omnibar autofocus can run
         // without being blocked by the palette-visibility guard.
         DispatchQueue.main.async {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
-            if let panelId {
-                tabManager.focusTab(workspaceId, surfaceId: panelId, suppressFlash: true)
-            } else {
-                tabManager.focusTab(workspaceId, suppressFlash: true)
-            }
+            tabManager.focusTab(workspaceId, suppressFlash: true)
         }
     }
 
     private func commandPaletteWorkspaceSearchMetadata(for workspace: Workspace) -> CommandPaletteSwitcherSearchMetadata {
-        // Keep workspace rows coarse so surface rows win for directory/branch-specific queries.
+        // Keep workspace rows coarse and stable for predictable workspace switching queries.
         let directories = [workspace.currentDirectory]
         let branches = [workspace.gitBranch?.branch].compactMap { $0 }
         let ports = workspace.listeningPorts
-        return CommandPaletteSwitcherSearchMetadata(
-            directories: directories,
-            branches: branches,
-            ports: ports
-        )
-    }
-
-    private func commandPalettePanelSearchMetadata(in workspace: Workspace, panelId: UUID) -> CommandPaletteSwitcherSearchMetadata {
-        var directories: [String] = []
-        if let directory = workspace.panelDirectories[panelId] {
-            directories.append(directory)
-        } else if workspace.focusedPanelId == panelId {
-            directories.append(workspace.currentDirectory)
-        }
-
-        var branches: [String] = []
-        if let branch = workspace.panelGitBranches[panelId]?.branch {
-            branches.append(branch)
-        } else if workspace.focusedPanelId == panelId, let branch = workspace.gitBranch?.branch {
-            branches.append(branch)
-        }
-
-        var ports = workspace.surfaceListeningPorts[panelId] ?? []
-        if ports.isEmpty, workspace.panels.count == 1 {
-            ports = workspace.listeningPorts
-        }
-
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
@@ -4550,6 +4489,17 @@ struct ContentView: View {
         }
         let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         runCommandPaletteCommand(visibleResults[index].command)
+    }
+
+    private func handleCommandPaletteSubmitRequest() {
+        switch commandPaletteMode {
+        case .commands:
+            runSelectedCommandPaletteResult()
+        case .renameInput(let target):
+            continueRenameFlow(target: target)
+        case .renameConfirm(let target, let proposedName):
+            applyRenameFlow(target: target, proposedName: proposedName)
+        }
     }
 
     private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {

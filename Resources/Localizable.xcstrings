@@ -2875,23 +2875,6 @@
         }
       }
     },
-    "commandPalette.kind.surface": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Surface"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サーフェス"
-          }
-        }
-      }
-    },
     "commandPalette.kind.workspace": {
       "extractionState": "manual",
       "localizations": {
@@ -3136,13 +3119,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No workspaces or tabs match your search."
+            "value": "No workspaces match your search."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索に一致するワークスペースまたはタブがありません。"
+            "value": "検索に一致するワークスペースがありません。"
           }
         }
       }
@@ -3153,13 +3136,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search workspaces and tabs"
+            "value": "Search workspaces"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースとタブを検索"
+            "value": "ワークスペースを検索"
           }
         }
       }
@@ -3262,40 +3245,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペース"
-          }
-        }
-      }
-    },
-    "commandPalette.switcher.browserLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Browser"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブラウザ"
-          }
-        }
-      }
-    },
-    "commandPalette.switcher.terminalLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル"
           }
         }
       }
@@ -4711,19 +4660,19 @@
         }
       }
     },
-    "menu.file.goToWorkspaceOrTab": {
+    "menu.file.goToWorkspace": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Go to Workspace or Tab…"
+            "value": "Go to Workspace…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースまたはタブに移動…"
+            "value": "ワークスペースに移動…"
           }
         }
       }

@@ -57,7 +57,15 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
-        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+        // Skip keychain migration for DEV/staging builds. Each tagged build gets a
+        // unique bundle ID with its own UserDefaults domain, so migration would run
+        // on every launch and trigger a macOS keychain access prompt (the legacy
+        // keychain item was created by a differently-signed app).
+        let bundleID = Bundle.main.bundleIdentifier
+        if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
+            && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
+            SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+        }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
@@ -410,7 +418,7 @@ struct cmuxApp: App {
 
             // Close tab/workspace
             CommandGroup(after: .newItem) {
-                Button(String(localized: "menu.file.goToWorkspaceOrTab", defaultValue: "Go to Workspace or Tab…")) {
+                Button(String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")) {
                     let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow
                     NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
                 }
@@ -2734,6 +2742,8 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
+    @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
@@ -2938,6 +2948,42 @@ struct SettingsView: View {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Notification Sound",
+                            subtitle: "Sound played when a notification arrives."
+                        ) {
+                            HStack(spacing: 6) {
+                                Picker("", selection: $notificationSound) {
+                                    ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
+                                        Text(sound.label).tag(sound.value)
+                                    }
+                                }
+                                .labelsHidden()
+                                Button {
+                                    NotificationSoundSettings.previewSound(value: notificationSound)
+                                } label: {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 9))
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .disabled(notificationSound == "none")
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Notification Command",
+                            subtitle: "Run a shell command when a notification arrives. $CMUX_NOTIFICATION_TITLE, $CMUX_NOTIFICATION_SUBTITLE, $CMUX_NOTIFICATION_BODY are set."
+                        ) {
+                            TextField("say \"done\"", text: $notificationCustomCommand)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 200)
                         }
 
                         SettingsCardDivider()
@@ -3649,6 +3695,8 @@ struct SettingsView: View {
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+        notificationSound = NotificationSoundSettings.defaultValue
+        notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
