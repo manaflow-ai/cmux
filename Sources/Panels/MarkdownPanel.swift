@@ -111,13 +111,18 @@ final class MarkdownPanel: Panel, ObservableObject {
             guard let self else { return }
             let flags = source.data
             if flags.contains(.delete) || flags.contains(.rename) {
-                // File was deleted or renamed. Try to re-read (it may have been
-                // atomically replaced, which shows as delete+create).
+                // File was deleted or renamed. The old file descriptor points to
+                // a stale inode, so we must always stop and reattach the watcher
+                // even if the new file is already readable (atomic save case).
                 DispatchQueue.main.async {
+                    self.stopFileWatcher()
                     self.loadFileContent()
                     if self.isFileUnavailable {
-                        self.stopFileWatcher()
+                        // File not yet replaced — retry until it reappears.
                         self.scheduleReattach(attempt: 1)
+                    } else {
+                        // File already replaced — reattach to the new inode immediately.
+                        self.startFileWatcher()
                     }
                 }
             } else {
