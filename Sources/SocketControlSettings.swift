@@ -238,7 +238,6 @@ enum SocketControlPasswordStore {
             kSecAttrAccount: legacyKeychainAccount,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
-            kSecUseAuthenticationUI: kSecUseAuthenticationUIFail,
         ]
 
         var result: CFTypeRef?
