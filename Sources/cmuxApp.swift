@@ -2444,6 +2444,18 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum CodexIntegrationSettings {
+    static let hooksEnabledKey = "codexHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -2452,6 +2464,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(CodexIntegrationSettings.hooksEnabledKey)
+    private var codexHooksEnabled = CodexIntegrationSettings.defaultHooksEnabled
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -2728,6 +2742,24 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote("When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself.")
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            "Codex Integration",
+                            subtitle: codexHooksEnabled
+                                ? "Sidebar shows Codex status and notifications."
+                                : "Codex runs without cmux integration."
+                        ) {
+                            Toggle("", isOn: $codexHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsCodexHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote("When enabled, cmux wraps the codex command to inject notification and status hooks.")
                     }
 
                     SettingsCard {
@@ -3085,6 +3117,7 @@ struct SettingsView: View {
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        codexHooksEnabled = CodexIntegrationSettings.defaultHooksEnabled
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserForcedDarkModeEnabled = BrowserForcedDarkModeSettings.defaultEnabled

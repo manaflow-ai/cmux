@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - injects cmux hooks and status routing
+#
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# injects Codex runtime config so notifications are routed through
+# `cmux codex-hook`. Outside cmux, it passes through unchanged.
+
+set -u
+
+find_real_codex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/codex" ]] && printf '%s' "$d/codex" && return 0
+    done
+    return 1
+}
+
+json_escape() {
+    printf '%s' "${1:-}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+# Pass through if not running inside a cmux shell or integration is disabled.
+if [[ -z "${CMUX_SOCKET_PATH:-}" || "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+# Pass through utility/admin subcommands that don't need integration.
+case "${1:-}" in
+    mcp|completion|sandbox|debug|features|login|logout|app|app-server|mcp-server)
+        exec "$REAL_CODEX" "$@"
+        ;;
+esac
+
+SESSION_ID="${CMUX_CODEX_SESSION_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+ESCAPED_CWD="$(json_escape "${PWD:-}")"
+START_PAYLOAD="{\"session_id\":\"$SESSION_ID\",\"cwd\":\"$ESCAPED_CWD\"}"
+
+printf '%s' "$START_PAYLOAD" | cmux codex-hook session-start >/dev/null 2>&1 || true
+
+# Official Codex notification hooks:
+# - notify command receives a JSON payload as argv[1]
+# - approval-requested is surfaced through TUI notifications
+NOTIFY_CFG='notify=["cmux","codex-hook","notification"]'
+TUI_EVENTS_CFG='tui.notifications=["agent-turn-complete","approval-requested"]'
+TUI_METHOD_CFG='tui.notification_method="osc9"'
+
+CMUX_CODEX_SESSION_ID="$SESSION_ID" \
+    "$REAL_CODEX" \
+    -c "$NOTIFY_CFG" \
+    -c "$TUI_EVENTS_CFG" \
+    -c "$TUI_METHOD_CFG" \
+    "$@"
+status=$?
+
+STOP_PAYLOAD="{\"session_id\":\"$SESSION_ID\",\"cwd\":\"$ESCAPED_CWD\",\"exit_code\":$status}"
+printf '%s' "$STOP_PAYLOAD" | cmux codex-hook stop >/dev/null 2>&1 || true
+
+exit "$status"
