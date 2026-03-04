@@ -254,10 +254,16 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
         let createSession = try runProcess(
             executable: tmuxBin,
-            arguments: ["-S", tmuxSocket, "new-session", "-d", "-s", sessionName]
+            arguments: ["-S", tmuxSocket, "new-session", "-d", "-s", sessionName, "/bin/sh"]
         )
         guard createSession.status == 0 else {
             XCTFail("Failed to create tmux session: \(createSession.stderr)")
+            return
+        }
+        guard waitForFileExists(at: tmuxSocket, timeout: 2.0) else {
+            XCTFail(
+                "tmux socket did not appear at \(tmuxSocket). stdout=\(createSession.stdout) stderr=\(createSession.stderr)"
+            )
             return
         }
         let paneLookup = try firstTmuxPaneId(
@@ -631,6 +637,17 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return true
         }
         return false
+    }
+
+    private func waitForFileExists(at path: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return FileManager.default.fileExists(atPath: path)
     }
 
     private func firstTmuxPaneId(
