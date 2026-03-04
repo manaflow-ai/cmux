@@ -4604,7 +4604,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
-        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: "COPY MODE")
+        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: "VI MODE")
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
