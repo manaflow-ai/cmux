@@ -236,9 +236,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let tmuxTempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-ui-test-tmux-\(token)", isDirectory: true)
-        let tmuxSocket = tmuxTempDir.appendingPathComponent("tmux.sock").path
+        let tmuxTempDir = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-ui-test-tmux-\(String(token.prefix(8)))", isDirectory: true)
+        let tmuxSocket = tmuxTempDir.appendingPathComponent("s").path
         let bridgeLogPath = tmuxTempDir.appendingPathComponent("bridge.log").path
         let sessionName = "cmuxui\(String(token.prefix(10)))"
         let notificationTitle = "tmux_bridge_\(String(token.prefix(8)))"
