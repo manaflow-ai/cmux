@@ -1457,6 +1457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var deviceRegistrationManager: DeviceRegistrationManager?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -1683,6 +1684,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.startIfNeeded()
         }
 
+        if !isRunningUnderXCTest {
+            startDeviceRegistrationIfConfigured()
+        }
+
         // UI tests frequently time out waiting for the main window if we do heavyweight
         // LaunchServices registration / single-instance enforcement synchronously at startup.
         // Skip these during XCTest (the app-under-test) so the window can appear quickly.
@@ -1814,6 +1819,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         stopSocketListenerHealthMonitor()
+        stopDeviceRegistration()
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserHistoryStore.shared.flushPendingSaves()
@@ -2420,6 +2426,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(sessionResignObserver)
 
+        let willSleepObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.stopDeviceRegistration()
+            }
+        }
+        lifecycleSnapshotObservers.append(willSleepObserver)
+
         let didWakeObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -2427,6 +2444,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                self?.startDeviceRegistrationIfConfigured()
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
@@ -2472,6 +2490,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func stopSocketListenerHealthMonitor() {
         socketListenerHealthTimer?.cancel()
         socketListenerHealthTimer = nil
+    }
+
+    // MARK: - Device Registration (Convex)
+
+    private static let convexURLDefaultsKey = "com.cmux.convexURL"
+    private static let convexAPIKeyDefaultsKey = "com.cmux.convexAPIKey"
+
+    private func startDeviceRegistrationIfConfigured() {
+        let defaults = UserDefaults.standard
+        guard let urlString = defaults.string(forKey: Self.convexURLDefaultsKey),
+              let baseURL = URL(string: urlString),
+              let apiKey = defaults.string(forKey: Self.convexAPIKeyDefaultsKey),
+              !apiKey.isEmpty else {
+            return
+        }
+        guard deviceRegistrationManager == nil else { return }
+        let client = ConvexHTTPClient(baseURL: baseURL, apiKey: apiKey)
+        let manager = DeviceRegistrationManager(client: client)
+        deviceRegistrationManager = manager
+        Task {
+            await manager.start()
+        }
+    }
+
+    private func stopDeviceRegistration() {
+        guard let manager = deviceRegistrationManager else { return }
+        deviceRegistrationManager = nil
+        Task {
+            await manager.stop()
+        }
     }
 
     private func restartSocketListenerIfNeededForHealthCheck(source: String) {
