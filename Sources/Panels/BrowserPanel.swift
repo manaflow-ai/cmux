@@ -1596,6 +1596,9 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
         }
+        browserUIDelegate.openPopup = { [weak self] configuration, windowFeatures in
+            self?.createFloatingPopup(configuration: configuration, windowFeatures: windowFeatures)
+        }
         webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
 
@@ -2271,6 +2274,23 @@ extension BrowserPanel {
             "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
         )
 #endif
+    }
+
+    /// Create a floating popup window using WebKit's pre-configured configuration.
+    /// Returns the popup's WKWebView so WebKit can bridge opener↔popup.
+    func createFloatingPopup(
+        configuration: WKWebViewConfiguration,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+#if DEBUG
+        dlog("browser.popup.createFloating panel=\(id.uuidString.prefix(5))")
+#endif
+        // Controller self-retains via objc_setAssociatedObject in its init.
+        let controller = BrowserPopupWindowController(
+            configuration: configuration,
+            windowFeatures: windowFeatures
+        )
+        return controller.popupWebView
     }
 
     /// Reload the current page
@@ -3239,7 +3259,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // target=_blank or window.open() — open in a new tab.
+        // Let WKUIDelegate.createWebViewWith own scripted new-window requests (window.open).
+        // Scoped to .other only — target="_blank" (.linkActivated) keeps existing new-tab behavior.
+        if navigationAction.targetFrame == nil,
+           navigationAction.navigationType == .other {
+#if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=allowForPopup")
+#endif
+            decisionHandler(.allow)
+            return
+        }
+
+        // target=_blank link clicks — open in a new tab.
         if navigationAction.targetFrame == nil,
            let url = navigationAction.request.url {
 #if DEBUG
@@ -3331,6 +3362,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    var openPopup: (@MainActor (_ configuration: WKWebViewConfiguration, _ windowFeatures: WKWindowFeatures) -> WKWebView?)?
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
@@ -3351,56 +3383,92 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         completion(alert.runModal())
     }
 
-    /// Returning nil tells WebKit not to open a new window.
-    /// createWebViewWith is only called when the page requests a new window
-    /// (window.open(), target=_blank, etc.). Always open in a new tab.
+    /// Handle new-window requests: cmd+click → new tab, window.open() → floating popup,
+    /// target="_blank" link click → new tab (via decidePolicyFor). Returns a real WKWebView
+    /// for scripted popups so that `window.opener` and `postMessage` work (required for OAuth/OIDC).
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        // createWebViewWith is only called when the page requests a new window,
-        // so always treat as new-tab intent regardless of modifiers/button.
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+
 #if DEBUG
-        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
-        let navType = String(describing: navigationAction.navigationType)
+        let urlString = navigationAction.request.url?.absoluteString ?? "nil"
         dlog(
-            "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
-            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
-            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
-            "openInNewTab=1"
+            "browser.nav.createWebView kind=\(navigationAction.navigationType.rawValue) " +
+            "url=\(urlString) shouldOpenInNewTab=\(shouldOpenInNewTab ? 1 : 0) " +
+            "modifiers=\(navigationAction.modifierFlags.rawValue) " +
+            "button=\(navigationAction.buttonNumber)"
         )
 #endif
-        if let url = navigationAction.request.url {
-            if browserShouldOpenURLExternally(url) {
-                let opened = NSWorkspace.shared.open(url)
-                if !opened {
-                    NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+
+        // Cmd+click and middle-click: open URL in a new tab (existing behavior)
+        if shouldOpenInNewTab {
+            if let url = navigationAction.request.url {
+                if let requestNavigation {
+                    requestNavigation(navigationAction.request, .newTab)
+                } else {
+                    openInNewTab?(url)
                 }
-                #if DEBUG
-                dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
-                #endif
-                return nil
             }
-            if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent = .newTab
-#if DEBUG
-                dlog(
-                    "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
-                    "url=\(url.absoluteString)"
-                )
-#endif
-                requestNavigation(navigationAction.request, intent)
-            } else {
-#if DEBUG
-                dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
-#endif
-                openInNewTab?(url)
-            }
+            return nil
         }
+
+        // External URL schemes (mailto:, tel:, etc.): open in system handler
+        if let url = navigationAction.request.url,
+           browserShouldOpenURLExternally(url) {
+            let opened = NSWorkspace.shared.open(url)
+#if DEBUG
+            dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+#endif
+            return nil
+        }
+
+        // Scripted popup (window.open): create a floating popup window.
+        // URL may be nil for window.open('') or window.open() — that's valid.
+        if navigationAction.navigationType == .other,
+           let popupWebView = openPopup?(configuration, windowFeatures) {
+#if DEBUG
+            dlog("browser.nav.createWebView.action kind=openPopup url=\(urlString)")
+#endif
+            return popupWebView
+        }
+
+        // Fallback: return nil for non-popup new-window requests (e.g. target="_blank" link clicks).
+        // decidePolicyFor handles these via its nil-target branch → opens in a new tab.
         return nil
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+#if DEBUG
+        dlog("browser.nav.webViewDidClose")
+#endif
+        // Popup close is handled by the popup's own UIDelegate.
+        // This exists as a defensive fallback.
+    }
+
+    /// Handle camera/microphone permission requests from websites.
+    /// Without this, WKWebView silently denies all media capture.
+    @available(macOS 12.0, *)
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping (WKPermissionDecision) -> Void
+    ) {
+#if DEBUG
+        dlog("browser.media.permission origin=\(origin.host) type=\(type.rawValue)")
+#endif
+        decisionHandler(.prompt)
     }
 
     /// Handle <input type="file"> elements by presenting the native file picker.
