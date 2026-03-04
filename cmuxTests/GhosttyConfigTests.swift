@@ -258,6 +258,52 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testReleaseAppSupportFallbackLoadsForDebugWhenOnlyReleaseConfigExists() {
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsWhenDebugConfigAlreadyExists() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug.issue-829",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: 64,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+    }
+
+    func testReleaseAppSupportFallbackSkipsForNonDebugBundleOrMissingReleaseConfig() {
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: 128,
+                releaseLegacyConfigFileSize: nil
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadReleaseAppSupportGhosttyConfig(
+                currentBundleIdentifier: "com.cmuxterm.app.debug",
+                currentConfigFileSize: nil,
+                currentLegacyConfigFileSize: nil,
+                releaseConfigFileSize: nil,
+                releaseLegacyConfigFileSize: 0
+            )
+        )
+    }
+
     func testDefaultBackgroundUpdateScopePrioritizesSurfaceOverAppAndUnscoped() {
         XCTAssertTrue(
             GhosttyApp.shouldApplyDefaultBackgroundUpdate(
