@@ -5731,6 +5731,9 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             let summary = summarizeClaudeHookNotification(rawInput: rawInput)
+            let notificationType = parsedInput.object.flatMap {
+                firstString(in: $0, keys: ["notification_type", "notificationType"])
+            }
 
             var workspaceId = fallbackWorkspaceId
             var preferredSurface = surfaceArg
@@ -5764,13 +5767,18 @@ struct CMUXCLI {
             }
 
             let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-            _ = try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            let inputRequiredTypes: Set<String> = [
+                "permission_prompt", "idle_prompt", "elicitation_dialog"
+            ]
+            if notificationType == nil || inputRequiredTypes.contains(notificationType!) {
+                _ = try? setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Needs input",
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            }
             print(response)
 
         case "help", "--help", "-h":
