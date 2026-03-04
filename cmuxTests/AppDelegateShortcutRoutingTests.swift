@@ -565,15 +565,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        appDelegate.debugMarkCommandPaletteOpenPending(window: window)
+        XCTAssertTrue(
+            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 1.3),
+            "Expected to backdate pending-open age for stale visibility test"
+        )
 #else
-        XCTFail("debugMarkCommandPaletteOpenPending is only available in DEBUG")
+        XCTFail("debugSetCommandPalettePendingOpenAge is only available in DEBUG")
 #endif
 
         // Simulate stale app-level visibility bookkeeping.
         appDelegate.setCommandPaletteVisible(false, for: window)
-        // Reproduce the log-backed failure mode where the user presses Escape after a brief delay.
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.25))
 
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after delay")
         var observedDismissWindow: NSWindow?
@@ -624,14 +625,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
 #if DEBUG
-        appDelegate.debugMarkCommandPaletteOpenPending(window: window)
+        XCTAssertTrue(
+            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 6.25),
+            "Expected to backdate pending-open age for extended stale visibility test"
+        )
 #else
-        XCTFail("debugMarkCommandPaletteOpenPending is only available in DEBUG")
+        XCTFail("debugSetCommandPalettePendingOpenAge is only available in DEBUG")
 #endif
 
         // Simulate stale app-level visibility bookkeeping for a longer user delay.
         appDelegate.setCommandPaletteVisible(false, for: window)
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 6.25))
 
         let dismissExpectation = expectation(description: "Escape should dismiss stale-state command palette after extended delay")
         var observedDismissWindow: NSWindow?
@@ -665,6 +668,66 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
+    func testEscapeDoesNotConsumeWhenMenuTriggeredPendingOpenStateExpires() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 20.0),
+            "Expected to seed an expired pending-open request state"
+        )
+#else
+        XCTFail("debugSetCommandPalettePendingOpenAge is only available in DEBUG")
+#endif
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+
+        let dismissExpectation = expectation(description: "No dismiss notification for expired pending-open state")
+        dismissExpectation.isInverted = true
+        let dismissToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteToggleRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(dismissToken) }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: 53,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: escapeEvent),
+            "Escape should pass through once pending-open grace has expired"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [dismissExpectation], timeout: 0.2)
+    }
+
     func testEscapeDismissesMenuTriggeredCommandPaletteWhenVisibilitySyncIsStale() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -688,6 +751,26 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         // Simulate delayed/stale visibility sync from SwiftUI overlay state.
         appDelegate.setCommandPaletteVisible(false, for: window)
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugSetCommandPalettePendingOpenAge(window: window, age: 0.1),
+            "Expected deterministic pending-open state for menu-triggered stale-visibility path"
+        )
+#else
+        XCTFail("debugSetCommandPalettePendingOpenAge is only available in DEBUG")
+#endif
+
+        let dismissExpectation = expectation(description: "Expected command palette dismiss notification for menu-triggered stale visibility")
+        var observedDismissWindow: NSWindow?
+        let dismissToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteToggleRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedDismissWindow = notification.object as? NSWindow
+            dismissExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(dismissToken) }
 
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
@@ -707,6 +790,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+
+        wait(for: [dismissExpectation], timeout: 1.0)
+        XCTAssertEqual(observedDismissWindow?.windowNumber, window.windowNumber)
     }
 
     func testEscapeRepeatIsConsumedImmediatelyAfterPaletteDismiss() {
@@ -726,6 +812,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
+        defer {
+            appDelegate.setCommandPaletteVisible(false, for: window)
+        }
 
         guard let firstEscape = makeKeyDownEvent(
             key: "\u{1b}",
@@ -784,6 +873,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
+        defer {
+            appDelegate.setCommandPaletteVisible(false, for: window)
+        }
 
         guard let escapeKeyDown = makeKeyEvent(
             type: .keyDown,

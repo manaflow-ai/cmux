@@ -1539,6 +1539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
+    private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -3325,10 +3327,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
         commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func pruneExpiredCommandPalettePendingOpenStates(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        for windowId in Array(commandPalettePendingOpenByWindowId.keys) {
+            guard commandPalettePendingOpenByWindowId[windowId] == true else { continue }
+            guard let requestedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+                commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+                dlog("shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) reason=missingTimestamp")
+#endif
+                continue
+            }
+            let age = now - requestedAt
+            guard age > Self.commandPalettePendingOpenMaxAge else { continue }
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+            dlog(
+                "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
+                "reason=stale ageMs=\(Int(age * 1000))"
+            )
+#endif
+        }
     }
 
     private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
+        pruneExpiredCommandPalettePendingOpenStates()
         return commandPalettePendingOpenByWindowId[windowId] == true
     }
 
@@ -3366,15 +3395,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func recentCommandPaletteRequestAge(for window: NSWindow?) -> TimeInterval? {
         guard let window,
-              let windowId = mainWindowId(for: window),
-              let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+              let windowId = mainWindowId(for: window) else {
             return nil
         }
-        let age = ProcessInfo.processInfo.systemUptime - startedAt
-        if age <= 1.25 {
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneExpiredCommandPalettePendingOpenStates(now: now)
+        guard commandPalettePendingOpenByWindowId[windowId] == true else {
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        guard let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        let age = now - startedAt
+        if age <= Self.commandPaletteRequestGraceInterval {
             return age
         }
-        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
         return nil
     }
 
@@ -3414,6 +3451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.
         if visible || wasVisible {
             commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
         }
 #if DEBUG
         if !visible,
@@ -3851,6 +3889,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func activeCommandPaletteWindow() -> NSWindow? {
+        pruneExpiredCommandPalettePendingOpenStates()
         if let keyWindow = NSApp.keyWindow,
            isMainTerminalWindow(keyWindow),
            isCommandPaletteEffectivelyVisible(in: keyWindow) {
@@ -7185,6 +7224,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
         markCommandPaletteOpenRequested(for: window)
+    }
+
+    @discardableResult
+    func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
+        return true
     }
 
     // Test hook: remap a window context under a detached window key so direct
