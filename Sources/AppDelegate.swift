@@ -1051,6 +1051,13 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     keyCode: UInt16
 ) -> Bool {
     guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
     guard normalizedFlags.contains(.command) else { return false }
 
     let normalizedChars = chars.lowercased()
@@ -1563,8 +1570,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
+    private var commandPalettePendingOpenByWindowId: [UUID: Bool] = [:]
+    private var commandPaletteRecentRequestAtByWindowId: [UUID: TimeInterval] = [:]
+    private var commandPaletteEscapeSuppressionByWindowId: Set<UUID> = []
+    private var commandPaletteEscapeSuppressionStartedAtByWindowId: [UUID: TimeInterval] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
+    private static let commandPaletteRequestGraceInterval: TimeInterval = 1.25
+    private static let commandPalettePendingOpenMaxAge: TimeInterval = 8.0
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -3281,9 +3294,212 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowForMainWindowId(windowId)
     }
 
+    private func markCommandPaletteOpenRequested(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func postCommandPaletteRequest(
+        name: Notification.Name,
+        preferredWindow: NSWindow?,
+        source: String,
+        markPending: Bool
+    ) {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if markPending {
+            markCommandPaletteOpenRequested(for: targetWindow)
+        }
+        NotificationCenter.default.post(name: name, object: targetWindow)
+#if DEBUG
+        dlog(
+            "shortcut.palette.request source=\(source) " +
+            "target={\(debugWindowToken(targetWindow))} " +
+            "pendingMarked=\(markPending ? 1 : 0)"
+        )
+#endif
+    }
+
+    func requestCommandPaletteCommands(preferredWindow: NSWindow? = nil, source: String = "api.commandPalette") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteSwitcher(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteSwitcher") {
+        postCommandPaletteRequest(
+            name: .commandPaletteSwitcherRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameTab(preferredWindow: NSWindow? = nil, source: String = "api.commandPaletteRenameTab") {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameTabRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    func requestCommandPaletteRenameWorkspace(
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteRenameWorkspace"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameWorkspaceRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
+    private func clearCommandPalettePendingOpen(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func pruneExpiredCommandPalettePendingOpenStates(
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        for windowId in Array(commandPalettePendingOpenByWindowId.keys) {
+            guard commandPalettePendingOpenByWindowId[windowId] == true else { continue }
+            guard let requestedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+                commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+                dlog("shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) reason=missingTimestamp")
+#endif
+                continue
+            }
+            let age = now - requestedAt
+            guard age > Self.commandPalettePendingOpenMaxAge else { continue }
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+            dlog(
+                "shortcut.palette.pendingPrune windowId=\(windowId.uuidString.prefix(8)) " +
+                "reason=stale ageMs=\(Int(age * 1000))"
+            )
+#endif
+        }
+    }
+
+    private func isCommandPalettePendingOpen(for window: NSWindow) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        pruneExpiredCommandPalettePendingOpenStates()
+        return commandPalettePendingOpenByWindowId[windowId] == true
+    }
+
+    private func beginCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.insert(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime
+    }
+
+    private func endCommandPaletteEscapeSuppression(for window: NSWindow?) {
+        guard let window,
+              let windowId = mainWindowId(for: window) else { return }
+        commandPaletteEscapeSuppressionByWindowId.remove(windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: windowId)
+    }
+
+    private func shouldConsumeSuppressedEscape(event: NSEvent, window: NSWindow?) -> Bool {
+        guard let window,
+              let windowId = mainWindowId(for: window),
+              commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
+            return false
+        }
+        if event.isARepeat {
+            return true
+        }
+        let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
+        if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
+            return true
+        }
+        // Fallback cleanup when keyUp is lost for any reason.
+        endCommandPaletteEscapeSuppression(for: window)
+        return false
+    }
+
+    private func recentCommandPaletteRequestAge(for window: NSWindow?) -> TimeInterval? {
+        guard let window,
+              let windowId = mainWindowId(for: window) else {
+            return nil
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        pruneExpiredCommandPalettePendingOpenStates(now: now)
+        guard commandPalettePendingOpenByWindowId[windowId] == true else {
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        guard let startedAt = commandPaletteRecentRequestAtByWindowId[windowId] else {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            return nil
+        }
+        let age = now - startedAt
+        if age <= Self.commandPaletteRequestGraceInterval {
+            return age
+        }
+        return nil
+    }
+
+    private func escapeSuppressionWindow(for event: NSEvent) -> NSWindow? {
+        commandPaletteWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    @discardableResult
+    private func clearEscapeSuppressionForKeyUp(event: NSEvent, consumeIfSuppressed: Bool = false) -> Bool {
+        guard event.type == .keyUp, event.keyCode == 53 else { return false }
+        let suppressionWindow = escapeSuppressionWindow(for: event)
+        let didConsume = consumeIfSuppressed && shouldConsumeSuppressedEscape(event: event, window: suppressionWindow)
+        if let window = suppressionWindow {
+            endCommandPaletteEscapeSuppression(for: window)
+#if DEBUG
+            dlog(
+                "shortcut.escape suppressionClear target={\(debugWindowToken(window))} " +
+                "keyUpConsumed=\(didConsume ? 1 : 0)"
+            )
+#endif
+            return didConsume
+        }
+        commandPaletteEscapeSuppressionByWindowId.removeAll()
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeAll()
+#if DEBUG
+        dlog("shortcut.escape suppressionClear target={nil} clearedAll=1 keyUpConsumed=\(didConsume ? 1 : 0)")
+#endif
+        return didConsume
+    }
+
     func setCommandPaletteVisible(_ visible: Bool, for window: NSWindow) {
         guard let windowId = mainWindowId(for: window) else { return }
+        let wasVisible = commandPaletteVisibilityByWindowId[windowId] ?? false
         commandPaletteVisibilityByWindowId[windowId] = visible
+        // Opening (false -> true) always resolves pending-open.
+        // Closing (true -> false) also clears stale pending state.
+        // Ignore repeated false updates so a stale sync cannot erase an in-flight open request.
+        if visible || wasVisible {
+            commandPalettePendingOpenByWindowId.removeValue(forKey: windowId)
+            commandPaletteRecentRequestAtByWindowId.removeValue(forKey: windowId)
+        }
+#if DEBUG
+        if !visible,
+           !wasVisible,
+           commandPalettePendingOpenByWindowId[windowId] == true {
+            dlog(
+                "palette.visibility.retainPending " +
+                "window={\(debugWindowToken(window))} visible=0 wasVisible=0 pending=1"
+            )
+        }
+#endif
     }
 
     func isCommandPaletteVisible(windowId: UUID) -> Bool {
@@ -3656,19 +3872,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return UUID(uuidString: idPart)
     }
 
+    private func commandPaletteOverlayContainer(in window: NSWindow) -> NSView? {
+        guard let searchRoot = window.contentView?.superview ?? window.contentView else { return nil }
+        var stack: [NSView] = [searchRoot]
+        while let candidate = stack.popLast() {
+            if candidate.identifier == commandPaletteOverlayContainerIdentifier {
+                return candidate
+            }
+            stack.append(contentsOf: candidate.subviews)
+        }
+        return nil
+    }
+
+    private func isCommandPaletteOverlayPresented(in window: NSWindow) -> Bool {
+        guard let container = commandPaletteOverlayContainer(in: window) else { return false }
+        return !container.isHidden && container.alphaValue > 0.001
+    }
+
+    private func isCommandPaletteResponderActive(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return false }
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           !(textView.delegate is NSView) {
+            // Field-editor delegates can be non-view responders. Confirm the overlay is
+            // mounted and visible to avoid treating unrelated editors as palette input.
+            return isCommandPaletteOverlayPresented(in: window)
+        }
+        return isCommandPaletteResponder(responder)
+    }
+
+    private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
+        if let textView = window.firstResponder as? NSTextView,
+           isCommandPaletteResponder(textView),
+           textView.hasMarkedText() {
+            return textView
+        }
+
+        if let textField = window.firstResponder as? NSTextField,
+           let editor = textField.currentEditor() as? NSTextView,
+           isCommandPaletteResponder(editor),
+           editor.hasMarkedText() {
+            return editor
+        }
+
+        return nil
+    }
+
+    private func isCommandPaletteEffectivelyVisible(in window: NSWindow) -> Bool {
+        isCommandPaletteVisible(for: window)
+            || isCommandPalettePendingOpen(for: window)
+            || isCommandPaletteOverlayPresented(in: window)
+            || isCommandPaletteResponderActive(in: window)
+    }
+
     private func activeCommandPaletteWindow() -> NSWindow? {
+        pruneExpiredCommandPalettePendingOpenStates()
         if let keyWindow = NSApp.keyWindow,
-           let windowId = mainWindowId(for: keyWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(keyWindow),
+           isCommandPaletteEffectivelyVisible(in: keyWindow) {
             return keyWindow
         }
         if let mainWindow = NSApp.mainWindow,
-           let windowId = mainWindowId(for: mainWindow),
-           commandPaletteVisibilityByWindowId[windowId] == true {
+           isMainTerminalWindow(mainWindow),
+           isCommandPaletteEffectivelyVisible(in: mainWindow) {
             return mainWindow
+        }
+        if let orderedWindow = NSApp.orderedWindows.first(where: { window in
+            isMainTerminalWindow(window) && isCommandPaletteEffectivelyVisible(in: window)
+        }) {
+            return orderedWindow
         }
         if let visibleWindowId = commandPaletteVisibilityByWindowId.first(where: { $0.value })?.key {
             return windowForMainWindowId(visibleWindowId)
+        }
+        if let pendingWindowId = commandPalettePendingOpenByWindowId.first(where: { $0.value })?.key {
+            return windowForMainWindowId(pendingWindowId)
         }
         return nil
     }
@@ -5553,6 +5831,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return event // Pass through
             }
             self.handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+            if self.clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true) {
+                return nil
+            }
             return event
         }
     }
@@ -5831,6 +6112,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteVisibleInTargetWindow = commandPaletteShortcutWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+        let commandPalettePendingOpenInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPalettePendingOpen(for: $0)
+        } ?? false
+        let commandPaletteOverlayVisibleInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteOverlayPresented(in: $0)
+        } ?? false
+        let commandPaletteResponderActiveInTargetWindow = commandPaletteTargetWindow.map {
+            isCommandPaletteResponderActive(in: $0)
+        } ?? false
+        let commandPaletteEffectiveInTargetWindow =
+            commandPaletteVisibleInTargetWindow
+            || commandPalettePendingOpenInTargetWindow
+            || commandPaletteOverlayVisibleInTargetWindow
+            || commandPaletteResponderActiveInTargetWindow
+
+        if normalizedFlags.isEmpty, event.keyCode == 53 {
+            let activePaletteWindow = activeCommandPaletteWindow()
+            let escapePaletteWindow: NSWindow? = {
+                if let targetWindow = commandPaletteTargetWindow {
+                    guard commandPaletteEffectiveInTargetWindow else {
+                        return nil
+                    }
+                    return targetWindow
+                }
+                return activePaletteWindow
+            }()
+#if DEBUG
+            dlog(
+                "shortcut.escape route target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))} " +
+                "visibleTarget=\(commandPaletteVisibleInTargetWindow ? 1 : 0) " +
+                "pendingTarget=\(commandPalettePendingOpenInTargetWindow ? 1 : 0) " +
+                "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0) " +
+                "effectiveTarget=\(commandPaletteEffectiveInTargetWindow ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+            if commandPaletteTargetWindow != nil,
+               !commandPaletteVisibleInTargetWindow,
+               !commandPalettePendingOpenInTargetWindow,
+               (commandPaletteOverlayVisibleInTargetWindow || commandPaletteResponderActiveInTargetWindow) {
+                dlog(
+                    "shortcut.escape stateMismatch target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                    "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                    "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0)"
+                )
+            }
+#endif
+            if let paletteWindow = escapePaletteWindow,
+               isCommandPaletteEffectivelyVisible(in: paletteWindow) {
+                if commandPaletteMarkedTextInput(in: paletteWindow) != nil {
+#if DEBUG
+                    dlog(
+                        "shortcut.escape imeMarkedTextBypass consumed=0 target={\(debugWindowToken(paletteWindow))}"
+                    )
+#endif
+                    return false
+                }
+                clearCommandPalettePendingOpen(for: paletteWindow)
+                beginCommandPaletteEscapeSuppression(for: paletteWindow)
+                NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+#if DEBUG
+                dlog("shortcut.escape paletteDismiss consumed=1 target={\(debugWindowToken(paletteWindow))}")
+#endif
+                return true
+            }
+            let suppressionWindow = commandPaletteTargetWindow
+                ?? event.window
+                ?? NSApp.keyWindow
+                ?? NSApp.mainWindow
+            if shouldConsumeSuppressedEscape(event: event, window: suppressionWindow) {
+#if DEBUG
+                dlog(
+                    "shortcut.escape suppressionConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+            if let requestAge = recentCommandPaletteRequestAge(for: suppressionWindow) {
+                beginCommandPaletteEscapeSuppression(for: suppressionWindow)
+#if DEBUG
+                dlog(
+                    "shortcut.escape requestGraceConsume consumed=1 target={\(debugWindowToken(suppressionWindow))} " +
+                    "ageMs=\(Int(requestAge * 1000)) repeat=\(event.isARepeat ? 1 : 0)"
+                )
+#endif
+                return true
+            }
+#if DEBUG
+            dlog(
+                "shortcut.escape paletteDismiss consumed=0 target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "active={\(debugWindowToken(activePaletteWindow))}"
+            )
+#endif
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
@@ -5892,19 +6269,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             && (chars == "p" || event.keyCode == 35)
         if isCommandP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteSwitcherRequested, object: targetWindow)
+            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
             return true
         }
 
         let isCommandShiftP = normalizedFlags == [.command, .shift] && (chars == "p" || event.keyCode == 35)
         if isCommandShiftP {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRequested, object: targetWindow)
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
             return true
         }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
-            isCommandPaletteVisible: commandPaletteVisibleInTargetWindow,
+            isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
             normalizedFlags: normalizedFlags,
             chars: chars,
             keyCode: event.keyCode
@@ -6206,7 +6583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return false
             }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            NotificationCenter.default.post(name: .commandPaletteRenameTabRequested, object: targetWindow)
+            requestCommandPaletteRenameTab(preferredWindow: targetWindow, source: "shortcut.renameTab")
             return true
         }
 
@@ -6885,7 +7262,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func requestRenameWorkspaceViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
-        NotificationCenter.default.post(name: .commandPaletteRenameWorkspaceRequested, object: targetWindow)
+        requestCommandPaletteRenameWorkspace(
+            preferredWindow: targetWindow,
+            source: "shortcut.renameWorkspace"
+        )
         return true
     }
 
@@ -6895,6 +7275,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // synthetic NSEvents.
     func debugHandleCustomShortcut(event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
+    }
+
+    // Debug/test hook: mirrors local monitor routing (keyDown + keyUp lifecycle).
+    func debugHandleShortcutMonitorEvent(event: NSEvent) -> Bool {
+        if event.type == .keyDown {
+            return handleCustomShortcut(event: event)
+        }
+        handleBrowserOmnibarSelectionRepeatLifecycleEvent(event)
+        return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
+    }
+
+    func debugMarkCommandPaletteOpenPending(window: NSWindow) {
+        markCommandPaletteOpenRequested(for: window)
+    }
+
+    @discardableResult
+    func debugSetCommandPalettePendingOpenAge(window: NSWindow, age: TimeInterval) -> Bool {
+        guard let windowId = mainWindowId(for: window) else { return false }
+        commandPalettePendingOpenByWindowId[windowId] = true
+        commandPaletteRecentRequestAtByWindowId[windowId] = ProcessInfo.processInfo.systemUptime - max(age, 0)
+        return true
     }
 
     // Test hook: remap a window context under a detached window key so direct
@@ -7342,6 +7743,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistWindowGeometry(from: window)
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
+        commandPalettePendingOpenByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteRecentRequestAtByWindowId.removeValue(forKey: removed.windowId)
+        commandPaletteEscapeSuppressionByWindowId.remove(removed.windowId)
+        commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
