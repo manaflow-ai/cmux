@@ -298,6 +298,7 @@ private final class GhosttySurfaceCallbackContext {
 
 class GhosttyApp {
     static let shared = GhosttyApp()
+    private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -659,6 +660,7 @@ class GhosttyApp {
 
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
+        loadReleaseAppSupportGhosttyConfigIfNeeded(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
@@ -671,6 +673,22 @@ class GhosttyApp {
         guard let newConfigFileSize, newConfigFileSize == 0 else { return false }
         guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
         return true
+    }
+
+    static func shouldLoadReleaseAppSupportGhosttyConfig(
+        currentBundleIdentifier: String?,
+        currentConfigFileSize: Int?,
+        currentLegacyConfigFileSize: Int?,
+        releaseConfigFileSize: Int?,
+        releaseLegacyConfigFileSize: Int?
+    ) -> Bool {
+        guard SocketControlSettings.isDebugLikeBundleIdentifier(currentBundleIdentifier) else { return false }
+
+        let hasCurrentAppSupportConfig = (currentConfigFileSize ?? 0) > 0 || (currentLegacyConfigFileSize ?? 0) > 0
+        guard !hasCurrentAppSupportConfig else { return false }
+
+        let hasReleaseAppSupportConfig = (releaseConfigFileSize ?? 0) > 0 || (releaseLegacyConfigFileSize ?? 0) > 0
+        return hasReleaseAppSupportConfig
     }
 
     static func shouldApplyDefaultBackgroundUpdate(
@@ -708,6 +726,57 @@ class GhosttyApp {
             return false
         }
         return true
+    }
+
+    private func loadReleaseAppSupportGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
+        #if os(macOS)
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
+        guard let currentBundleIdentifier = Bundle.main.bundleIdentifier,
+              !currentBundleIdentifier.isEmpty else { return }
+
+        let currentAppSupportDir = appSupport.appendingPathComponent(currentBundleIdentifier, isDirectory: true)
+        let releaseAppSupportDir = appSupport.appendingPathComponent(Self.releaseBundleIdentifier, isDirectory: true)
+        let currentConfig = currentAppSupportDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let currentLegacyConfig = currentAppSupportDir.appendingPathComponent("config", isDirectory: false)
+        let releaseConfig = releaseAppSupportDir.appendingPathComponent("config.ghostty", isDirectory: false)
+        let releaseLegacyConfig = releaseAppSupportDir.appendingPathComponent("config", isDirectory: false)
+
+        func fileSize(_ url: URL) -> Int? {
+            guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                  let size = attrs[.size] as? NSNumber else { return nil }
+            return size.intValue
+        }
+
+        let releaseConfigSize = fileSize(releaseConfig)
+        let releaseLegacyConfigSize = fileSize(releaseLegacyConfig)
+
+        guard Self.shouldLoadReleaseAppSupportGhosttyConfig(
+            currentBundleIdentifier: currentBundleIdentifier,
+            currentConfigFileSize: fileSize(currentConfig),
+            currentLegacyConfigFileSize: fileSize(currentLegacyConfig),
+            releaseConfigFileSize: releaseConfigSize,
+            releaseLegacyConfigFileSize: releaseLegacyConfigSize
+        ) else { return }
+
+        if let releaseLegacyConfigSize, releaseLegacyConfigSize > 0 {
+            releaseLegacyConfig.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        }
+
+        if let releaseConfigSize, releaseConfigSize > 0 {
+            releaseConfig.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        }
+
+        #if DEBUG
+        Self.initLog(
+            "loaded release app support ghostty config fallback from: \(releaseAppSupportDir.path)"
+        )
+        #endif
+        #endif
     }
 
     private func loadLegacyGhosttyConfigIfNeeded(_ config: ghostty_config_t) {
