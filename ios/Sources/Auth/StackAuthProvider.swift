@@ -40,6 +40,8 @@ class StackAuthProvider: AuthProvider {
             throw AuthError.unauthorized
         }
 
+        onIdToken(accessToken)
+
         do {
             if let currentUser = try await stack.getUser(or: .returnNull) {
                 let user = await StackAuthUser(currentUser: currentUser)
