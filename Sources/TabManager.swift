@@ -1017,6 +1017,7 @@ class TabManager: ObservableObject {
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         unwireClosedBrowserTracking(for: workspace)
+        workspace.teardownAllPanels()
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)

@@ -2147,6 +2147,29 @@ final class TerminalSurface: Identifiable, ObservableObject {
         )
 #endif
     }
+
+    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
+    /// before deinit; deinit will skip the free if already torn down.
+    func teardownSurface() {
+        markPortalLifecycleClosed(reason: "teardown")
+
+        let callbackContext = surfaceCallbackContext
+        surfaceCallbackContext = nil
+
+        let surfaceToFree = surface
+        surface = nil
+
+        guard let surfaceToFree else {
+            callbackContext?.release()
+            return
+        }
+
+        Task { @MainActor in
+            ghostty_surface_free(surfaceToFree)
+            callbackContext?.release()
+        }
+    }
+
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
