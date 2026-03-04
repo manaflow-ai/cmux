@@ -1,0 +1,45 @@
+[workspace]
+members = [
+    "ghostty-sys",
+    "ghostty-gtk",
+    "cmux",
+    "cmux-cli",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/manaflow-ai/cmux-linux"
+
+[workspace.dependencies]
+# GTK4 / libadwaita
+gtk4 = { version = "0.9", features = ["v4_6"] }
+libadwaita = { version = "0.7", features = ["v1_4", "gtk_v4_6"] }
+glib = "0.20"
+gdk4 = { version = "0.9", features = ["v4_6"] }
+gio = "0.20"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Paths
+dirs = "6"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"

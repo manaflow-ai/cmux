@@ -1,0 +1,7 @@
+/target
+/ghostty
+Cargo.lock
+*.swp
+*.swo
+*~
+.DS_Store
