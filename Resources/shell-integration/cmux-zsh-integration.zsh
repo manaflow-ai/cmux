@@ -58,6 +58,9 @@ typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
+typeset -g _CMUX_TMUX_CONTEXT_KEY=""
+typeset -g _CMUX_TMUX_BRIDGE_LAST_RUN=0
+typeset -g _CMUX_TMUX_BRIDGE_SOCKET=""
 
 _cmux_ensure_zstat() {
     # zstat is substantially cheaper than spawning external `stat`.
@@ -148,6 +151,44 @@ _cmux_ports_kick() {
     } >/dev/null 2>&1 &!
 }
 
+_cmux_tmux_publish_pane_context() {
+    [[ -n "${TMUX:-}" ]] || return 0
+    [[ -n "${TMUX_PANE:-}" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local key="${TMUX_PANE}|${CMUX_TAB_ID}|${CMUX_PANEL_ID}|${CMUX_SOCKET_PATH}"
+    [[ "$key" == "$_CMUX_TMUX_CONTEXT_KEY" ]] && return 0
+
+    tmux set-option -p -t "$TMUX_PANE" @cmux_workspace_id "$CMUX_TAB_ID" >/dev/null 2>&1 || return 0
+    tmux set-option -p -t "$TMUX_PANE" @cmux_surface_id "$CMUX_PANEL_ID" >/dev/null 2>&1 || return 0
+    tmux set-option -p -t "$TMUX_PANE" @cmux_socket_path "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+    _CMUX_TMUX_CONTEXT_KEY="$key"
+}
+
+_cmux_tmux_bridge_ensure() {
+    [[ "${CMUX_TMUX_OSC_BRIDGE_DISABLED:-0}" != "1" ]] || return 0
+    [[ -n "${TMUX:-}" ]] || return 0
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    command -v cmux >/dev/null 2>&1 || return 0
+
+    local tmux_socket="${TMUX%%,*}"
+    [[ -n "$tmux_socket" ]] || return 0
+
+    local now=$EPOCHSECONDS
+    if (( now - _CMUX_TMUX_BRIDGE_LAST_RUN < 20 )) && [[ "$tmux_socket" == "$_CMUX_TMUX_BRIDGE_SOCKET" ]]; then
+        return 0
+    fi
+    _CMUX_TMUX_BRIDGE_LAST_RUN=$now
+    _CMUX_TMUX_BRIDGE_SOCKET="$tmux_socket"
+
+    {
+        cmux tmux-osc-bridge --ensure --tmux-socket "$tmux_socket"
+    } >/dev/null 2>&1 &!
+}
+
 _cmux_preexec() {
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -169,6 +210,8 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_tmux_publish_pane_context
+    _cmux_tmux_bridge_ensure
 }
 
 _cmux_precmd() {
@@ -185,6 +228,8 @@ _cmux_precmd() {
     fi
 
     _cmux_report_tty_once
+    _cmux_tmux_publish_pane_context
+    _cmux_tmux_bridge_ensure
 
     local now=$EPOCHSECONDS
     local pwd="$PWD"

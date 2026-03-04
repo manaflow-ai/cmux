@@ -28,21 +28,40 @@ command -v cmux &>/dev/null && cmux notify --title "Hello" || osascript -e 'disp
 
 ## tmux sessions
 
-When Claude/Codex run inside tmux panes, make sure the tmux server carries cmux
-environment variables so `cmux notify` can target the right workspace/surface.
+cmux shell integration now starts a tmux control-mode bridge automatically.
+The bridge watches `%output` events, parses OSC notifications (OSC 9/99/777),
+and forwards them to the mapped cmux workspace/surface.
 
-Run this once in a tmux client launched from cmux:
+How mapping works:
 
 ```bash
-tmux set-environment -g CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH"
-tmux set-environment -g CMUX_WORKSPACE_ID "$CMUX_WORKSPACE_ID"
-tmux set-environment -g CMUX_SURFACE_ID "$CMUX_SURFACE_ID"
-tmux set-environment -g CMUX_TAB_ID "$CMUX_TAB_ID"
+tmux set-option -p -t "$TMUX_PANE" @cmux_workspace_id "$CMUX_TAB_ID"
+tmux set-option -p -t "$TMUX_PANE" @cmux_surface_id "$CMUX_PANEL_ID"
+tmux set-option -p -t "$TMUX_PANE" @cmux_socket_path "$CMUX_SOCKET_PATH"
 ```
 
-If the tmux server was started outside cmux and these values are empty, start a
-new tmux server from a cmux terminal (or set the values manually) so agent
-hooks can route notifications correctly.
+You do not need to run this manually in zsh/bash when cmux shell integration is active.
+It is documented here for custom shells.
+
+Manual bridge start (for custom shells):
+
+```bash
+cmux tmux-osc-bridge --ensure --tmux-socket "${TMUX%%,*}"
+```
+
+Disable auto-bridge:
+
+```bash
+export CMUX_TMUX_OSC_BRIDGE_DISABLED=1
+```
+
+Debug bridge logs:
+
+```bash
+export CMUX_TMUX_OSC_BRIDGE_DEBUG=1
+export CMUX_TMUX_OSC_BRIDGE_DEBUG_LOG=/tmp/cmux-tmux-osc-bridge.log
+tail -f /tmp/cmux-tmux-osc-bridge.log
+```
 
 To debug Claude wrapper decisions in tmux, enable wrapper logging:
 

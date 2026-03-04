@@ -469,6 +469,8 @@ final class SocketClient {
         self.path = path
     }
 
+    var socketPath: String { path }
+
     func connect() throws {
         if socketFD >= 0 { return }
 
@@ -1453,7 +1455,8 @@ struct CMUXCLI {
              "paste-buffer",
              "list-buffers",
              "respawn-pane",
-             "display-message":
+             "display-message",
+             "tmux-osc-bridge":
             try runTmuxCompatCommand(
                 command: command,
                 commandArgs: commandArgs,
@@ -4199,6 +4202,19 @@ struct CMUXCLI {
             Flags:
               -p, --print   Print to stdout only
             """
+        case "tmux-osc-bridge":
+            return """
+            Usage: cmux tmux-osc-bridge [--ensure] [--tmux-socket <path>] [--tmux-bin <path>] [--debug-log <path>]
+
+            Observe tmux pane output in control mode, parse OSC notifications (OSC 9/99/777),
+            and forward them into cmux notifications for the mapped workspace/surface.
+
+            Flags:
+              --ensure              Exit immediately when another bridge already runs for this tmux socket.
+              --tmux-socket <path>  tmux server socket path (default: parse from $TMUX).
+              --tmux-bin <path>     tmux executable path (default: tmux).
+              --debug-log <path>    Enable debug logging and write logs to path.
+            """
         case "read-screen":
             return """
             Usage: cmux read-screen [flags]
@@ -5615,9 +5631,726 @@ struct CMUXCLI {
                 print(message)
             }
 
+        case "tmux-osc-bridge":
+            try runTmuxOSCBridge(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         default:
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
+    }
+
+    private struct TmuxPaneTarget {
+        let workspaceId: String
+        let surfaceId: String
+    }
+
+    private struct TmuxBridgeNotification {
+        let title: String
+        let subtitle: String
+        let body: String
+    }
+
+    private final class TmuxBridgeLogger {
+        private let enabled: Bool
+        private let path: String
+
+        init(enabled: Bool, path: String) {
+            self.enabled = enabled
+            self.path = path
+        }
+
+        func log(_ message: String) {
+            guard enabled else { return }
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let line = "[\(timestamp)] \(message)\n"
+            let data = Data(line.utf8)
+            if FileManager.default.fileExists(atPath: path) {
+                if let handle = try? FileHandle(forWritingTo: URL(fileURLWithPath: path)) {
+                    do {
+                        try handle.seekToEnd()
+                        handle.write(data)
+                        try handle.close()
+                        return
+                    } catch {
+                        try? handle.close()
+                    }
+                }
+            }
+            FileManager.default.createFile(atPath: path, contents: data)
+        }
+    }
+
+    private final class TmuxOSCStreamParser {
+        private enum State {
+            case normal
+            case afterEsc
+            case osc
+            case oscAfterEsc
+            case dcs
+            case dcsAfterEsc
+        }
+
+        private var state: State = .normal
+        private var oscBuffer: [UInt8] = []
+        private var dcsBuffer: [UInt8] = []
+        private var kittyTitlesById: [String: String] = [:]
+
+        func feed(_ data: Data) -> [TmuxBridgeNotification] {
+            var notifications: [TmuxBridgeNotification] = []
+            consume(Array(data), notifications: &notifications)
+            return notifications
+        }
+
+        private func consume(_ bytes: [UInt8], notifications: inout [TmuxBridgeNotification]) {
+            for byte in bytes {
+                switch state {
+                case .normal:
+                    if byte == 0x1B {
+                        state = .afterEsc
+                    }
+                case .afterEsc:
+                    if byte == 0x5D { // ]
+                        oscBuffer.removeAll(keepingCapacity: true)
+                        state = .osc
+                    } else if byte == 0x50 { // P
+                        dcsBuffer.removeAll(keepingCapacity: true)
+                        state = .dcs
+                    } else {
+                        state = .normal
+                    }
+                case .osc:
+                    if byte == 0x07 { // BEL
+                        flushOSC(notifications: &notifications)
+                        state = .normal
+                    } else if byte == 0x1B {
+                        state = .oscAfterEsc
+                    } else {
+                        oscBuffer.append(byte)
+                    }
+                case .oscAfterEsc:
+                    if byte == 0x5C { // \
+                        flushOSC(notifications: &notifications)
+                        state = .normal
+                    } else {
+                        oscBuffer.append(0x1B)
+                        oscBuffer.append(byte)
+                        state = .osc
+                    }
+                case .dcs:
+                    if byte == 0x1B {
+                        state = .dcsAfterEsc
+                    } else {
+                        dcsBuffer.append(byte)
+                    }
+                case .dcsAfterEsc:
+                    if byte == 0x5C { // \
+                        state = .normal
+                        flushDCS(notifications: &notifications)
+                    } else {
+                        dcsBuffer.append(0x1B)
+                        dcsBuffer.append(byte)
+                        state = .dcs
+                    }
+                }
+            }
+        }
+
+        private func flushOSC(notifications: inout [TmuxBridgeNotification]) {
+            defer { oscBuffer.removeAll(keepingCapacity: true) }
+            guard let payload = String(bytes: oscBuffer, encoding: .utf8) else { return }
+            if let notification = parseOSCPayload(payload) {
+                notifications.append(notification)
+            }
+        }
+
+        private func flushDCS(notifications: inout [TmuxBridgeNotification]) {
+            defer { dcsBuffer.removeAll(keepingCapacity: true) }
+            let prefix = Array("tmux;".utf8)
+            guard dcsBuffer.starts(with: prefix) else { return }
+            let payload = collapseEscapes(Array(dcsBuffer.dropFirst(prefix.count)))
+            consume(payload, notifications: &notifications)
+        }
+
+        private func collapseEscapes(_ bytes: [UInt8]) -> [UInt8] {
+            var out: [UInt8] = []
+            out.reserveCapacity(bytes.count)
+            var index = 0
+            while index < bytes.count {
+                let byte = bytes[index]
+                if byte == 0x1B, index + 1 < bytes.count, bytes[index + 1] == 0x1B {
+                    out.append(0x1B)
+                    index += 2
+                    continue
+                }
+                out.append(byte)
+                index += 1
+            }
+            return out
+        }
+
+        private func parseOSCPayload(_ payload: String) -> TmuxBridgeNotification? {
+            let pieces = payload.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let code = pieces.first else { return nil }
+            let rawValue = pieces.count > 1 ? String(pieces[1]) : ""
+            switch code {
+            case "9":
+                let message = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !message.isEmpty else { return nil }
+                return TmuxBridgeNotification(title: message, subtitle: "tmux", body: "")
+            case "777":
+                return parseOSC777(rawValue)
+            case "99":
+                return parseKittyOSC99(rawValue)
+            default:
+                return nil
+            }
+        }
+
+        private func parseOSC777(_ rawValue: String) -> TmuxBridgeNotification? {
+            let parts = rawValue.split(separator: ";", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count >= 2 else { return nil }
+            guard parts[0].lowercased() == "notify" else { return nil }
+            let title = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            let body = parts.count > 2 ? String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            let finalTitle: String
+            if !title.isEmpty {
+                finalTitle = title
+            } else if !body.isEmpty {
+                finalTitle = body
+            } else {
+                finalTitle = "Terminal"
+            }
+            return TmuxBridgeNotification(title: finalTitle, subtitle: "tmux", body: body)
+        }
+
+        private func parseKittyOSC99(_ rawValue: String) -> TmuxBridgeNotification? {
+            let parts = rawValue.split(separator: ";", maxSplits: 1, omittingEmptySubsequences: false)
+            guard !parts.isEmpty else { return nil }
+            let metadata = String(parts[0])
+            let text = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            if metadata.isEmpty {
+                guard !text.isEmpty else { return nil }
+                return TmuxBridgeNotification(title: text, subtitle: "tmux", body: "")
+            }
+
+            var identifier = "default"
+            var part: String?
+            for field in metadata.split(separator: ":", omittingEmptySubsequences: true) {
+                if field.hasPrefix("i=") {
+                    let value = String(field.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !value.isEmpty {
+                        identifier = value
+                    }
+                } else if field.hasPrefix("p=") {
+                    part = String(field.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+
+            if part == "title" {
+                kittyTitlesById[identifier] = text
+                return nil
+            }
+            if part == "body" {
+                let title = kittyTitlesById.removeValue(forKey: identifier) ?? (text.isEmpty ? "Terminal" : text)
+                return TmuxBridgeNotification(title: title, subtitle: "tmux", body: text)
+            }
+            guard !text.isEmpty else { return nil }
+            return TmuxBridgeNotification(title: text, subtitle: "tmux", body: "")
+        }
+    }
+
+    private func runTmuxOSCBridge(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let ensureMode = commandArgs.contains("--ensure")
+        let filteredArgs = commandArgs.filter { $0 != "--ensure" }
+        let (socketArg, rem0) = parseOption(filteredArgs, name: "--tmux-socket")
+        let (tmuxBinArg, rem1) = parseOption(rem0, name: "--tmux-bin")
+        let (debugLogArg, rem2) = parseOption(rem1, name: "--debug-log")
+        guard rem2.isEmpty else {
+            throw CLIError(message: "Usage: cmux tmux-osc-bridge [--ensure] [--tmux-socket <path>] [--tmux-bin <path>] [--debug-log <path>]")
+        }
+
+        let environment = ProcessInfo.processInfo.environment
+        let tmuxSocketPath = socketArg
+            ?? tmuxSocketPathFromEnv(environment["TMUX"])
+        guard let tmuxSocketPath, !tmuxSocketPath.isEmpty else {
+            throw CLIError(message: "tmux-osc-bridge requires --tmux-socket or TMUX environment")
+        }
+
+        let tmuxBinInput = tmuxBinArg ?? environment["CMUX_TMUX_BIN"] ?? "tmux"
+        guard let tmuxBin = resolveExecutablePath(tmuxBinInput, environment: environment) else {
+            throw CLIError(message: "Unable to resolve tmux executable: \(tmuxBinInput)")
+        }
+        let debugEnabled = environment["CMUX_TMUX_OSC_BRIDGE_DEBUG"] == "1" || debugLogArg != nil
+        let debugPath = debugLogArg ?? environment["CMUX_TMUX_OSC_BRIDGE_DEBUG_LOG"] ?? "/tmp/cmux-tmux-osc-bridge.log"
+        let logger = TmuxBridgeLogger(enabled: debugEnabled, path: debugPath)
+        logger.log("start socket=\(tmuxSocketPath) ensure=\(ensureMode ? 1 : 0)")
+
+        let cmuxSocketPath = client.socketPath
+        let pidFilePath = tmuxBridgePIDFilePath(tmuxSocketPath: tmuxSocketPath, cmuxSocketPath: cmuxSocketPath)
+        if ensureMode {
+            let alreadyRunning = try withFileLock(path: "\(pidFilePath).lock") {
+                if let existing = readBridgePIDRecord(path: pidFilePath), isProcessAlive(pid: existing.pid) {
+                    if bridgeProcessLooksHealthy(pid: existing.pid, expectedSocketPath: cmuxSocketPath),
+                       bridgeProcessMatchesRecord(existing) {
+                        logger.log("ensure existing_pid=\(existing.pid)")
+                        if jsonOutput {
+                            print(jsonString(["ok": true, "running": true, "pid": existing.pid]))
+                        }
+                        return true
+                    }
+                    if canSafelyTerminateBridgeProcess(record: existing) {
+                        logger.log("ensure replacing_stale_pid=\(existing.pid)")
+                        _ = kill(existing.pid, SIGTERM)
+                        Thread.sleep(forTimeInterval: 0.15)
+                    } else {
+                        logger.log("ensure stale_pid_unverified_skip_terminate pid=\(existing.pid)")
+                    }
+                }
+                try writeBridgePID(path: pidFilePath, pid: getpid())
+                logger.log("ensure claimed_pid=\(getpid())")
+                return false
+            }
+            if alreadyRunning {
+                return
+            }
+        }
+        defer {
+            if ensureMode {
+                try? withFileLock(path: "\(pidFilePath).lock") {
+                    if let existing = readBridgePIDRecord(path: pidFilePath), existing.pid == getpid() {
+                        try? FileManager.default.removeItem(atPath: pidFilePath)
+                        logger.log("ensure released_pid=\(existing.pid)")
+                    }
+                }
+            }
+        }
+
+        var paneTargets = try listTmuxPaneTargets(
+            tmuxBin: tmuxBin,
+            tmuxSocketPath: tmuxSocketPath,
+            expectedCmuxSocketPath: cmuxSocketPath
+        )
+        var lastTargetRefresh = Date()
+        let sessionId = try resolveTmuxSessionId(tmuxBin: tmuxBin, tmuxSocketPath: tmuxSocketPath)
+        logger.log("attach session=\(sessionId) pane_targets=\(paneTargets.count)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: tmuxBin)
+        process.arguments = ["-S", tmuxSocketPath, "-u", "-C", "attach-session", "-t", sessionId]
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        process.standardInput = Pipe()
+        try process.run()
+
+        var parsers: [String: TmuxOSCStreamParser] = [:]
+        var dedupeTimestamps: [String: TimeInterval] = [:]
+        var pending = Data()
+
+        func flushLine(_ line: String) throws {
+            guard let event = parseTmuxControlOutputEvent(line: line) else { return }
+
+            if Date().timeIntervalSince(lastTargetRefresh) > 5 {
+                if let refreshed = try? listTmuxPaneTargets(
+                    tmuxBin: tmuxBin,
+                    tmuxSocketPath: tmuxSocketPath,
+                    expectedCmuxSocketPath: cmuxSocketPath
+                ) {
+                    paneTargets = refreshed
+                    lastTargetRefresh = Date()
+                    logger.log("refresh pane_targets=\(paneTargets.count)")
+                }
+            }
+
+            var target = paneTargets[event.paneId]
+            if target == nil {
+                if let refreshed = try? listTmuxPaneTargets(
+                    tmuxBin: tmuxBin,
+                    tmuxSocketPath: tmuxSocketPath,
+                    expectedCmuxSocketPath: cmuxSocketPath
+                ) {
+                    paneTargets = refreshed
+                    lastTargetRefresh = Date()
+                    target = paneTargets[event.paneId]
+                    logger.log("refresh_missing pane=\(event.paneId) mapped=\(target != nil ? 1 : 0)")
+                }
+            }
+            guard let target else { return }
+
+            let parser = parsers[event.paneId] ?? {
+                let parser = TmuxOSCStreamParser()
+                parsers[event.paneId] = parser
+                return parser
+            }()
+
+            let notifications = parser.feed(event.data)
+            for item in notifications {
+                let dedupeKey = "\(target.workspaceId)|\(target.surfaceId)|\(item.title)|\(item.subtitle)|\(item.body)"
+                let now = Date().timeIntervalSince1970
+                if let previous = dedupeTimestamps[dedupeKey], now - previous < 0.8 {
+                    logger.log("drop_duplicate pane=\(event.paneId) title=\(item.title)")
+                    continue
+                }
+                dedupeTimestamps[dedupeKey] = now
+                if dedupeTimestamps.count > 256 {
+                    dedupeTimestamps = dedupeTimestamps.filter { now - $0.value < 10 }
+                }
+
+                do {
+                    _ = try client.sendV2(
+                        method: "notification.create_for_target",
+                        params: [
+                            "workspace_id": target.workspaceId,
+                            "surface_id": target.surfaceId,
+                            "title": item.title,
+                            "subtitle": item.subtitle,
+                            "body": item.body
+                        ]
+                    )
+                    logger.log("notify pane=\(event.paneId) workspace=\(target.workspaceId) surface=\(target.surfaceId) title=\(item.title)")
+                } catch {
+                    logger.log("notify_failed pane=\(event.paneId) error=\(error)")
+                    throw CLIError(message: "tmux-osc-bridge lost cmux socket connectivity: \(error)")
+                }
+            }
+        }
+
+        while true {
+            let chunk = outputPipe.fileHandleForReading.availableData
+            if chunk.isEmpty {
+                break
+            }
+            pending.append(chunk)
+            while let newlineIndex = pending.firstIndex(of: 0x0A) {
+                let lineData = pending.prefix(upTo: newlineIndex)
+                pending.removeSubrange(...newlineIndex)
+                var line = String(decoding: lineData, as: UTF8.self)
+                if line.hasSuffix("\r") {
+                    line.removeLast()
+                }
+                try flushLine(line)
+            }
+        }
+
+        process.waitUntilExit()
+        logger.log("exit status=\(process.terminationStatus)")
+        if process.terminationStatus != 0 {
+            throw CLIError(message: "tmux-osc-bridge exited with status \(process.terminationStatus)")
+        }
+    }
+
+    private func resolveTmuxSessionId(tmuxBin: String, tmuxSocketPath: String) throws -> String {
+        let display = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocketPath, "display-message", "-p", "#{session_id}"]
+        )
+        let displayValue = display.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        if display.status == 0, !displayValue.isEmpty {
+            return displayValue
+        }
+
+        let listed = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocketPath, "list-sessions", "-F", "#{session_id}"]
+        )
+        let session = listed.stdout
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+        if listed.status == 0, let session {
+            return session
+        }
+
+        throw CLIError(message: "Unable to resolve tmux session for socket: \(tmuxSocketPath)")
+    }
+
+    private func listTmuxPaneTargets(
+        tmuxBin: String,
+        tmuxSocketPath: String,
+        expectedCmuxSocketPath: String
+    ) throws -> [String: TmuxPaneTarget] {
+        let format = "#{pane_id}\t#{@cmux_workspace_id}\t#{@cmux_surface_id}\t#{@cmux_socket_path}"
+        let result = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocketPath, "list-panes", "-a", "-F", format]
+        )
+        guard result.status == 0 else {
+            throw CLIError(message: "Failed to query tmux panes: \(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+
+        var mapping: [String: TmuxPaneTarget] = [:]
+        for line in result.stdout.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let parts = trimmed.split(separator: "\t", omittingEmptySubsequences: false)
+            guard parts.count >= 4 else { continue }
+            let paneId = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let workspaceId = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let surfaceId = String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let socketPath = String(parts[3]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard socketPath == expectedCmuxSocketPath else { continue }
+            guard !paneId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else { continue }
+            mapping[paneId] = TmuxPaneTarget(workspaceId: workspaceId, surfaceId: surfaceId)
+        }
+        return mapping
+    }
+
+    private func parseTmuxControlOutputEvent(line: String) -> (paneId: String, data: Data)? {
+        if line.hasPrefix("%output ") {
+            let raw = String(line.dropFirst("%output ".count))
+            let parts = raw.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            let paneId = String(parts[0])
+            let payload = decodeTmuxControlEscaped(String(parts[1]))
+            return (paneId, payload)
+        }
+        if line.hasPrefix("%extended-output ") {
+            let raw = String(line.dropFirst("%extended-output ".count))
+            let parts = raw.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return nil }
+            let paneId = String(parts[0])
+            guard let payloadEscaped = parseExtendedOutputPayload(String(parts[2])) else { return nil }
+            let payload = decodeTmuxControlEscaped(payloadEscaped)
+            return (paneId, payload)
+        }
+        return nil
+    }
+
+    private func parseExtendedOutputPayload(_ value: String) -> String? {
+        if let range = value.range(of: " : ") {
+            return String(value[range.upperBound...])
+        }
+        if let colon = value.firstIndex(of: ":") {
+            var payload = String(value[value.index(after: colon)...])
+            if payload.hasPrefix(" ") {
+                payload.removeFirst()
+            }
+            return payload
+        }
+        return nil
+    }
+
+    private func decodeTmuxControlEscaped(_ value: String) -> Data {
+        let bytes = Array(value.utf8)
+        var output: [UInt8] = []
+        output.reserveCapacity(bytes.count)
+        var index = 0
+        while index < bytes.count {
+            let current = bytes[index]
+            if current == 0x5C { // \
+                if index + 3 < bytes.count,
+                   isOctalDigit(bytes[index + 1]),
+                   isOctalDigit(bytes[index + 2]),
+                   isOctalDigit(bytes[index + 3]) {
+                    let n1 = Int(bytes[index + 1] - 48)
+                    let n2 = Int(bytes[index + 2] - 48)
+                    let n3 = Int(bytes[index + 3] - 48)
+                    let decoded = UInt8((n1 << 6) + (n2 << 3) + n3)
+                    output.append(decoded)
+                    index += 4
+                    continue
+                }
+                if index + 1 < bytes.count {
+                    output.append(bytes[index + 1])
+                    index += 2
+                    continue
+                }
+            }
+            output.append(current)
+            index += 1
+        }
+        return Data(output)
+    }
+
+    private func isOctalDigit(_ byte: UInt8) -> Bool {
+        byte >= 48 && byte <= 55
+    }
+
+    private func tmuxSocketPathFromEnv(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let first = trimmed.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).first else {
+            return nil
+        }
+        let candidate = String(first).trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidate.isEmpty ? nil : candidate
+    }
+
+    private func tmuxBridgePIDFilePath(tmuxSocketPath: String, cmuxSocketPath: String) -> String {
+        let hash = fnv1aHex("\(tmuxSocketPath)|\(cmuxSocketPath)")
+        return "/tmp/cmux-tmux-osc-bridge-\(hash).pid"
+    }
+
+    private func fnv1aHex(_ value: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(format: "%016llx", hash)
+    }
+
+    private func withFileLock<T>(path: String, body: () throws -> T) throws -> T {
+        let fd = open(path, O_CREAT | O_RDWR, 0o600)
+        guard fd >= 0 else {
+            throw CLIError(message: "Failed to open lock file: \(path)")
+        }
+        defer { close(fd) }
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock file: \(path)")
+        }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
+
+    private struct BridgePIDRecord: Codable {
+        let pid: Int32
+        let startedAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case pid
+            case startedAt = "started_at"
+        }
+    }
+
+    private func readBridgePIDRecord(path: String) -> BridgePIDRecord? {
+        guard let raw = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        if let parsed = try? JSONDecoder().decode(BridgePIDRecord.self, from: raw), parsed.pid > 0 {
+            return parsed
+        }
+        guard let legacy = String(data: raw, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let value = Int32(legacy),
+            value > 0 else { return nil }
+        return BridgePIDRecord(pid: value, startedAt: nil)
+    }
+
+    private func writeBridgePID(path: String, pid: Int32) throws {
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: nil)
+        let payload = BridgePIDRecord(pid: pid, startedAt: processStartTime(pid: pid))
+        let data = try JSONEncoder().encode(payload)
+        try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func isProcessAlive(pid: Int32) -> Bool {
+        if pid <= 0 { return false }
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        return errno == EPERM
+    }
+
+    private func bridgeProcessLooksHealthy(pid: Int32, expectedSocketPath: String) -> Bool {
+        guard !expectedSocketPath.isEmpty else { return true }
+        guard FileManager.default.fileExists(atPath: expectedSocketPath) else { return false }
+        let env = ProcessInfo.processInfo.environment
+        let lsofPath = resolveExecutablePath("/usr/sbin/lsof", environment: env)
+            ?? resolveExecutablePath("lsof", environment: env)
+        guard let lsofPath else {
+            return true
+        }
+
+        guard let result = try? runProcess(
+            executable: lsofPath,
+            arguments: ["-a", "-p", String(pid), "-U", "-Fn"]
+        ) else {
+            return true
+        }
+        guard result.status == 0 else { return false }
+
+        for rawLine in result.stdout.components(separatedBy: .newlines) {
+            guard rawLine.hasPrefix("n") else { continue }
+            let path = String(rawLine.dropFirst())
+            if path == expectedSocketPath || path.contains(expectedSocketPath) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func canSafelyTerminateBridgeProcess(record: BridgePIDRecord) -> Bool {
+        bridgeProcessMatchesRecord(record)
+    }
+
+    private func bridgeProcessMatchesRecord(_ record: BridgePIDRecord) -> Bool {
+        guard let command = processCommandLine(pid: record.pid),
+              command.contains("tmux-osc-bridge") else { return false }
+        if let recordedStart = record.startedAt, !recordedStart.isEmpty {
+            guard let currentStart = processStartTime(pid: record.pid),
+                  currentStart == recordedStart else { return false }
+        }
+        return true
+    }
+
+    private func processStartTime(pid: Int32) -> String? {
+        guard pid > 0 else { return nil }
+        let env = ProcessInfo.processInfo.environment
+        let psPath = resolveExecutablePath("/bin/ps", environment: env)
+            ?? resolveExecutablePath("ps", environment: env)
+        guard let psPath else { return nil }
+        guard let result = try? runProcess(
+            executable: psPath,
+            arguments: ["-p", String(pid), "-o", "lstart="]
+        ), result.status == 0 else { return nil }
+        let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func processCommandLine(pid: Int32) -> String? {
+        guard pid > 0 else { return nil }
+        let env = ProcessInfo.processInfo.environment
+        let psPath = resolveExecutablePath("/bin/ps", environment: env)
+            ?? resolveExecutablePath("ps", environment: env)
+        guard let psPath else { return nil }
+        guard let result = try? runProcess(
+            executable: psPath,
+            arguments: ["-p", String(pid), "-o", "command="]
+        ), result.status == 0 else { return nil }
+        let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func resolveExecutablePath(_ executable: String, environment: [String: String]) -> String? {
+        let trimmed = executable.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let fileManager = FileManager.default
+
+        if trimmed.contains("/") {
+            return fileManager.isExecutableFile(atPath: trimmed) ? trimmed : nil
+        }
+
+        let pathValue = environment["PATH"]
+            ?? getenv("PATH").map { String(cString: $0) }
+            ?? ""
+        for entry in pathValue.split(separator: ":", omittingEmptySubsequences: false) {
+            let base = String(entry)
+            let candidate = base.isEmpty ? "./\(trimmed)" : "\(base)/\(trimmed)"
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func runProcess(executable: String, arguments: [String]) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
     }
 
     private func runClaudeHook(
@@ -6430,6 +7163,7 @@ struct CMUXCLI {
           paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
+          tmux-osc-bridge [--ensure] [--tmux-socket <path>] [--tmux-bin <path>] [--debug-log <path>]
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
