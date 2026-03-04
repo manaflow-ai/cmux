@@ -26,6 +26,24 @@ fi
 command -v cmux &>/dev/null && cmux notify --title "Hello" || osascript -e 'display notification "" with title "Hello"'
 ```
 
+## tmux sessions
+
+When Claude/Codex run inside tmux panes, make sure the tmux server carries cmux
+environment variables so `cmux notify` can target the right workspace/surface.
+
+Run this once in a tmux client launched from cmux:
+
+```bash
+tmux set-environment -g CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH"
+tmux set-environment -g CMUX_WORKSPACE_ID "$CMUX_WORKSPACE_ID"
+tmux set-environment -g CMUX_SURFACE_ID "$CMUX_SURFACE_ID"
+tmux set-environment -g CMUX_TAB_ID "$CMUX_TAB_ID"
+```
+
+If the tmux server was started outside cmux and these values are empty, start a
+new tmux server from a cmux terminal (or set the values manually) so agent
+hooks can route notifications correctly.
+
 ```python
 # Python
 import shutil

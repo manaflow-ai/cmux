@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # cmux claude wrapper - injects hooks and session tracking
 #
-# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
 # intercepts `claude` invocations to inject --session-id and --settings flags
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
@@ -19,7 +19,9 @@ find_real_claude() {
 }
 
 # Pass through if not in a cmux terminal or hooks are disabled.
-if [[ -z "$CMUX_SURFACE_ID" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+# We key off CMUX_SOCKET_PATH instead of CMUX_SURFACE_ID so hooks still work
+# in tmux panes where surface/workspace IDs may be missing from the shell env.
+if [[ -z "${CMUX_SOCKET_PATH:-}" || "${CMUX_CLAUDE_HOOKS_DISABLED:-}" == "1" ]]; then
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
