@@ -4014,13 +4014,30 @@
         }
       }
     },
-    "dialog.closeOtherTabs.message": {
+    "dialog.closeOtherTabs.message.one": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This will close ^[%1$lld tab](inflect: true) in this pane:\n%2$@"
+            "value": "This will close 1 tab in this pane:\n%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインの 1 個のタブを閉じます:\n%@"
+          }
+        }
+      }
+    },
+    "dialog.closeOtherTabs.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close %1$lld tabs in this pane:\n%2$@"
           }
         },
         "ja": {
