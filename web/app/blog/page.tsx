@@ -8,6 +8,13 @@ export const metadata: Metadata = {
 
 const posts = [
   {
+    slug: "cmux-vs-cursor-conductor-emdash-superset-zed",
+    title: "cmux vs Cursor vs Conductor vs Emdash vs Superset vs Zed",
+    date: "2026-03-03",
+    summary:
+      "How cmux compares to Cursor, Conductor, Emdash, Superset, and Zed for running AI coding agents.",
+  },
+  {
     slug: "zen-of-cmux",
     title: "The Zen of cmux",
     date: "2026-02-27",
