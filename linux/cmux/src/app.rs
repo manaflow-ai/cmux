@@ -12,24 +12,8 @@ use crate::model::TabManager;
 use crate::socket;
 use crate::ui;
 
-/// Shared application state accessible from UI callbacks (single-threaded, GTK main thread).
-pub struct AppState {
-    pub tab_manager: RefCell<TabManager>,
-    pub ghostty_app: RefCell<Option<ghostty_gtk::app::GhosttyApp>>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self {
-            tab_manager: RefCell::new(TabManager::new()),
-            ghostty_app: RefCell::new(None),
-        }
-    }
-}
-
 /// Thread-safe state shared between GTK main thread and socket server.
-/// The socket server reads/writes through this, then signals the GTK main thread
-/// via glib channels for UI updates.
+/// Both UI callbacks and socket handlers access the same TabManager instance.
 pub struct SharedState {
     pub tab_manager: Mutex<TabManager>,
 }
@@ -42,19 +26,39 @@ impl SharedState {
     }
 }
 
+/// Application state accessible from UI callbacks (single-threaded, GTK main thread).
+/// Wraps SharedState so UI and socket server operate on the same data.
+pub struct AppState {
+    pub shared: Arc<SharedState>,
+    pub ghostty_app: RefCell<Option<ghostty_gtk::app::GhosttyApp>>,
+}
+
+impl AppState {
+    pub fn new(shared: Arc<SharedState>) -> Self {
+        Self {
+            shared,
+            ghostty_app: RefCell::new(None),
+        }
+    }
+
+    /// Lock the tab manager. Convenience method for UI code.
+    pub fn tab_manager(&self) -> std::sync::MutexGuard<'_, TabManager> {
+        self.shared.tab_manager.lock().unwrap()
+    }
+}
+
 /// Run the GTK application. Returns the exit code.
 pub fn run() -> i32 {
     let app = adw::Application::builder()
         .application_id("ai.manaflow.cmux")
         .build();
 
-    let state = Rc::new(AppState::new());
     let shared = Arc::new(SharedState::new());
+    let state = Rc::new(AppState::new(shared.clone()));
 
     let state_clone = state.clone();
-    let shared_clone = shared.clone();
     app.connect_activate(move |app| {
-        activate(app, &state_clone, &shared_clone);
+        activate(app, &state_clone);
     });
 
     app.connect_shutdown(|_app| {
@@ -65,9 +69,9 @@ pub fn run() -> i32 {
     app.run().into()
 }
 
-fn activate(app: &adw::Application, state: &Rc<AppState>, shared: &Arc<SharedState>) {
+fn activate(app: &adw::Application, state: &Rc<AppState>) {
     // Start the socket server in a background tokio runtime
-    let shared_for_socket = shared.clone();
+    let shared_for_socket = state.shared.clone();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         rt.block_on(async {

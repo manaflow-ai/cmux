@@ -397,12 +397,13 @@ fn handle_pane_new(id: Value, params: &Value, state: &Arc<SharedState>) -> Respo
 // Surface handlers
 // -----------------------------------------------------------------------
 
-fn handle_surface_send_input(id: Value, params: &Value, _state: &Arc<SharedState>) -> Response {
-    let _input = params.get("input").and_then(|v| v.as_str());
-    let _surface = params.get("surface").and_then(|v| v.as_str());
-
-    // TODO: Forward to ghostty surface via GTK main thread (Phase 2 integration)
-    Response::success(id, serde_json::json!({"sent": true}))
+fn handle_surface_send_input(id: Value, _params: &Value, _state: &Arc<SharedState>) -> Response {
+    // TODO: Forward to ghostty surface via GTK main thread (requires Phase 0 ghostty integration)
+    Response::error(
+        id,
+        "not_implemented",
+        "surface.send_input is not yet implemented (requires ghostty integration)",
+    )
 }
 
 // -----------------------------------------------------------------------

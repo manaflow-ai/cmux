@@ -57,7 +57,10 @@ pub fn is_authorized(peer: &PeerInfo, mode: SocketControlMode) -> bool {
         SocketControlMode::AllowAll => true,
         SocketControlMode::LocalUser => is_same_user(peer),
         SocketControlMode::CmuxOnly => {
-            // Same UID required; full descendant-PID check is TODO (Phase 2+)
+            // Full policy: same UID + peer must be a descendant of the cmux process.
+            // Currently only enforces same-UID (equivalent to LocalUser).
+            // Descendant-PID check requires /proc traversal and will be added
+            // once ghostty integration is complete (Phase 2+).
             is_same_user(peer)
         }
     }

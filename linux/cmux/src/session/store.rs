@@ -42,7 +42,7 @@ pub fn load_session() -> anyhow::Result<Option<AppSessionSnapshot>> {
 
 /// Create a snapshot from the current application state.
 pub fn create_snapshot(state: &crate::app::AppState) -> AppSessionSnapshot {
-    let tm = state.tab_manager.borrow();
+    let tm = state.tab_manager();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

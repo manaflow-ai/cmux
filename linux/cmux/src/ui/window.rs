@@ -1,6 +1,5 @@
 //! Main application window using AdwNavigationSplitView.
 
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk4::prelude::*;
@@ -58,7 +57,7 @@ pub fn create_window(
         let content_box = content_box.clone();
         new_ws_btn.connect_clicked(move |_| {
             let ws = crate::model::Workspace::new();
-            state.tab_manager.borrow_mut().add_workspace(ws);
+            state.tab_manager().add_workspace(ws);
             rebuild_content(&content_box, &state);
             tracing::debug!("New workspace added");
         });
@@ -72,7 +71,7 @@ pub fn create_window(
         let state = state.clone();
         let content_box = content_box.clone();
         split_h_btn.connect_clicked(move |_| {
-            if let Some(ws) = state.tab_manager.borrow_mut().selected_mut() {
+            if let Some(ws) = state.tab_manager().selected_mut() {
                 ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
                 rebuild_content(&content_box, &state);
             }
@@ -87,7 +86,7 @@ pub fn create_window(
         let state = state.clone();
         let content_box = content_box.clone();
         split_v_btn.connect_clicked(move |_| {
-            if let Some(ws) = state.tab_manager.borrow_mut().selected_mut() {
+            if let Some(ws) = state.tab_manager().selected_mut() {
                 ws.split(SplitOrientation::Vertical, PanelType::Terminal);
                 rebuild_content(&content_box, &state);
             }
@@ -115,7 +114,7 @@ pub fn rebuild_content(content_box: &gtk4::Box, state: &Rc<AppState>) {
         content_box.remove(&child);
     }
 
-    let tm = state.tab_manager.borrow();
+    let tm = state.tab_manager();
     if let Some(ws) = tm.selected() {
         let widget = split_view::build_layout(&ws.layout, &ws.panels, state);
         content_box.append(&widget);
@@ -147,13 +146,13 @@ fn setup_shortcuts(
             // Ctrl+Shift+T: new workspace
             (gdk4::Key::T, true, true) => {
                 let ws = crate::model::Workspace::new();
-                state.tab_manager.borrow_mut().add_workspace(ws);
+                state.tab_manager().add_workspace(ws);
                 rebuild_content(&content_box, &state);
                 glib::Propagation::Stop
             }
             // Ctrl+Shift+W: close workspace
             (gdk4::Key::W, true, true) => {
-                let mut tm = state.tab_manager.borrow_mut();
+                let mut tm = state.tab_manager();
                 if let Some(idx) = tm.selected_index() {
                     tm.remove(idx);
                 }
@@ -163,7 +162,7 @@ fn setup_shortcuts(
             }
             // Ctrl+Shift+D: horizontal split
             (gdk4::Key::D, true, true) => {
-                if let Some(ws) = state.tab_manager.borrow_mut().selected_mut() {
+                if let Some(ws) = state.tab_manager().selected_mut() {
                     ws.split(SplitOrientation::Horizontal, PanelType::Terminal);
                 }
                 rebuild_content(&content_box, &state);
@@ -171,7 +170,7 @@ fn setup_shortcuts(
             }
             // Ctrl+Shift+E: vertical split
             (gdk4::Key::E, true, true) => {
-                if let Some(ws) = state.tab_manager.borrow_mut().selected_mut() {
+                if let Some(ws) = state.tab_manager().selected_mut() {
                     ws.split(SplitOrientation::Vertical, PanelType::Terminal);
                 }
                 rebuild_content(&content_box, &state);

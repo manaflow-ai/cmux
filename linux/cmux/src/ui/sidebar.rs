@@ -31,7 +31,7 @@ pub fn create_sidebar(state: &Rc<AppState>) -> gtk4::Box {
         list_box.connect_row_selected(move |_list_box, row| {
             if let Some(row) = row {
                 let index = row.index() as usize;
-                state.tab_manager.borrow_mut().select(index);
+                state.tab_manager().select(index);
                 tracing::debug!("Workspace selected: index={}", index);
             }
         });
@@ -50,7 +50,7 @@ fn populate_workspace_list(list_box: &gtk4::ListBox, state: &Rc<AppState>) {
         list_box.remove(&child);
     }
 
-    let tm = state.tab_manager.borrow();
+    let tm = state.tab_manager();
     for (i, ws) in tm.iter().enumerate() {
         let row = create_workspace_row(ws, i);
         list_box.append(&row);
