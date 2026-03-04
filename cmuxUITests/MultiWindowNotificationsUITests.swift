@@ -236,44 +236,35 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let tmuxTempDir = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent("cmux-ui-test-tmux-\(String(token.prefix(8)))", isDirectory: true)
-        let tmuxSocket = tmuxTempDir.appendingPathComponent("s").path
-        let bridgeLogPath = tmuxTempDir.appendingPathComponent("bridge.log").path
+        let tmuxServerName = "cmuxui\(String(token.prefix(12)))"
         let sessionName = "cmuxui\(String(token.prefix(10)))"
         let notificationTitle = "tmux_bridge_\(String(token.prefix(8)))"
         let notificationBody = "bridge_body_\(String(token.suffix(8)))"
-        try? FileManager.default.removeItem(at: tmuxTempDir)
-        try? FileManager.default.createDirectory(
-            at: tmuxTempDir,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        let bridgeLogPath = "/tmp/cmux-ui-test-tmux-bridge-\(token).log"
+        try? FileManager.default.removeItem(atPath: bridgeLogPath)
         defer {
             _ = try? runProcess(
                 executable: tmuxBin,
-                arguments: ["-S", tmuxSocket, "kill-server"]
+                arguments: ["-L", tmuxServerName, "kill-server"]
             )
-            try? FileManager.default.removeItem(at: tmuxTempDir)
+            try? FileManager.default.removeItem(atPath: bridgeLogPath)
         }
 
         let createSession = try runProcess(
             executable: tmuxBin,
-            arguments: ["-S", tmuxSocket, "new-session", "-d", "-s", sessionName, "/bin/sh"]
+            arguments: ["-L", tmuxServerName, "new-session", "-d", "-s", sessionName, "/bin/sh"]
         )
         guard createSession.status == 0 else {
             XCTFail("Failed to create tmux session: \(createSession.stderr)")
             return
         }
-        guard waitForFileExists(at: tmuxSocket, timeout: 2.0) else {
-            XCTFail(
-                "tmux socket did not appear at \(tmuxSocket). stdout=\(createSession.stdout) stderr=\(createSession.stderr)"
-            )
+        guard let tmuxSocketPath = try resolveTmuxSocketPath(tmuxBin: tmuxBin, tmuxServerName: tmuxServerName) else {
+            XCTFail("Failed to resolve tmux socket path for server \(tmuxServerName)")
             return
         }
         let paneLookup = try firstTmuxPaneId(
             tmuxBin: tmuxBin,
-            tmuxSocket: tmuxSocket,
+            tmuxServerName: tmuxServerName,
             sessionName: sessionName
         )
         guard let paneId = paneLookup.id else {
@@ -288,7 +279,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         ] {
             let setResult = try runProcess(
                 executable: tmuxBin,
-                arguments: ["-S", tmuxSocket, "set-option", "-p", "-t", paneId, option, value]
+                arguments: ["-L", tmuxServerName, "set-option", "-p", "-t", paneId, option, value]
             )
             guard setResult.status == 0 else {
                 XCTFail("Failed to set tmux pane option \(option): \(setResult.stderr)")
@@ -304,7 +295,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "tmux-osc-bridge",
             "--ensure",
             "--tmux-socket",
-            tmuxSocket,
+            tmuxSocketPath,
             "--tmux-bin",
             tmuxBin,
             "--debug-log",
@@ -329,7 +320,7 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let oscCommand = "printf '\\033]777;notify;\(notificationTitle);\(notificationBody)\\a'"
         let sendResult = try runProcess(
             executable: tmuxBin,
-            arguments: ["-S", tmuxSocket, "send-keys", "-t", paneId, oscCommand, "C-m"]
+            arguments: ["-L", tmuxServerName, "send-keys", "-t", paneId, oscCommand, "C-m"]
         )
         guard sendResult.status == 0 else {
             XCTFail("Failed to send OSC payload via tmux: \(sendResult.stderr)")
@@ -644,20 +635,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return false
     }
 
-    private func waitForFileExists(at path: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if FileManager.default.fileExists(atPath: path) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return FileManager.default.fileExists(atPath: path)
-    }
-
     private func firstTmuxPaneId(
         tmuxBin: String,
-        tmuxSocket: String,
+        tmuxServerName: String,
         sessionName: String,
         timeout: TimeInterval = 3.0
     ) throws -> (id: String?, debug: String) {
@@ -668,8 +648,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             let result = try runProcess(
                 executable: tmuxBin,
                 arguments: [
-                    "-S",
-                    tmuxSocket,
+                    "-L",
+                    tmuxServerName,
                     "list-panes",
                     "-t",
                     sessionName,
@@ -696,6 +676,16 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             }
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
+    }
+
+    private func resolveTmuxSocketPath(tmuxBin: String, tmuxServerName: String) throws -> String? {
+        let result = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-L", tmuxServerName, "display-message", "-p", "#{socket_path}"]
+        )
+        guard result.status == 0 else { return nil }
+        let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     private func resolveCmuxCLIExecutable() -> String? {
