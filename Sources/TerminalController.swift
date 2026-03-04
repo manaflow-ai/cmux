@@ -5269,9 +5269,18 @@ class TerminalController {
         let expandedPath = NSString(string: rawPath).expandingTildeInPath
         let filePath = NSString(string: expandedPath).standardizingPath
 
-        // Validate the file exists
-        guard FileManager.default.fileExists(atPath: filePath) else {
+        // Reject paths that aren't absolute after resolution
+        guard filePath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(filePath)", data: ["path": filePath])
+        }
+
+        // Validate the file exists and is a regular file (not a directory)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir) else {
             return .err(code: "not_found", message: "File not found: \(filePath)", data: ["path": filePath])
+        }
+        guard !isDir.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(filePath)", data: ["path": filePath])
         }
         guard FileManager.default.isReadableFile(atPath: filePath) else {
             return .err(code: "permission_denied", message: "File not readable: \(filePath)", data: ["path": filePath])
