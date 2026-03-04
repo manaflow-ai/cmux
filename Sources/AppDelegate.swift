@@ -991,10 +991,15 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
 
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
-    firstResponderIsBrowser: Bool
+    firstResponderIsBrowser: Bool,
+    flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
-    return keyCode == 36 || keyCode == 76
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    // Keep browser Return forwarding narrow: only plain/Shift Return should be
+    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
+    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -8462,7 +8467,8 @@ private extension NSWindow {
         // mark handled to avoid the AppKit alert sound path.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil
+            firstResponderIsBrowser: firstResponderWebView != nil,
+            flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
