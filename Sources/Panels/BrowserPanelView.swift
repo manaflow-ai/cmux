@@ -2294,8 +2294,6 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
-        // IME変換中はカスタムキーハンドリングをバイパスし、
-        // NSTextFieldの標準IME処理に委譲する
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
             super.keyDown(with: event)
             return
@@ -2624,9 +2622,6 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         )
         let desiredDisplayText = activeInlineCompletion?.displayText ?? text
         if let editor = nsView.currentEditor() as? NSTextView {
-            // IME変換中（marked text あり）はテキスト同期をスキップ。
-            // SwiftUIのバインディング更新がeditor.stringを上書きすると
-            // 変換中のmarked textが破壊される。
             if !editor.hasMarkedText(), editor.string != desiredDisplayText {
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = desiredDisplayText
