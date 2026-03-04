@@ -246,4 +246,97 @@ final class SchedulerSidebarTests: XCTestCase {
         XCTAssertEqual(engine.tasks.count, 1)
         XCTAssertEqual(engine.tasks.first?.name, "Test Task")
     }
+
+    // MARK: - Cron Preset Validation
+
+    func testCronPresetRawValuesAreValidExpressions() {
+        for preset in CronPreset.allCases where preset != .custom {
+            guard let expression = preset.expression else {
+                XCTFail("Non-custom preset \(preset.rawValue) should have an expression")
+                continue
+            }
+            XCTAssertNotNil(
+                CronExpression(expression),
+                "Preset \"\(preset.rawValue)\" expression \"\(expression)\" should parse as valid CronExpression"
+            )
+        }
+    }
+
+    func testNextFireDateGeneratesThreeConsecutiveDates() {
+        guard let cron = CronExpression("*/5 * * * *") else {
+            XCTFail("*/5 * * * * should be a valid cron expression")
+            return
+        }
+
+        var dates: [Date] = []
+        var reference = Date()
+        for _ in 0..<3 {
+            guard let next = cron.nextFireDate(after: reference) else {
+                XCTFail("Should generate next fire date")
+                return
+            }
+            dates.append(next)
+            reference = next
+        }
+
+        XCTAssertEqual(dates.count, 3, "Should generate exactly 3 dates")
+
+        // Each consecutive date should be ~5 minutes apart (300 seconds)
+        for i in 1..<dates.count {
+            let interval = dates[i].timeIntervalSince(dates[i - 1])
+            XCTAssertEqual(interval, 300, accuracy: 1, "Consecutive dates should be ~5 minutes apart")
+        }
+    }
+
+    // MARK: - Task CRUD via Engine
+
+    @MainActor
+    func testAddTaskThenManuallyRunCallsOnTaskDue() {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scheduler-run-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let expectation = expectation(description: "onTaskDue called")
+        let engine = SchedulerEngine(persistenceFileURL: tempFile)
+        engine.onTaskDue = { _, _ in
+            expectation.fulfill()
+        }
+
+        let task = ScheduledTask(
+            name: "Run Now Test",
+            cronExpression: "0 0 * * *",
+            command: "echo test"
+        )
+        engine.addTask(task)
+        let run = engine.manuallyRunTask(task)
+        XCTAssertNotNil(run, "manuallyRunTask should return a TaskRun")
+
+        waitForExpectations(timeout: 2)
+    }
+
+    @MainActor
+    func testUpdateTaskPreservesIdAndUpdatesFields() {
+        let tempFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scheduler-update-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let engine = SchedulerEngine(persistenceFileURL: tempFile)
+        let original = ScheduledTask(
+            name: "Original",
+            cronExpression: "*/5 * * * *",
+            command: "echo original"
+        )
+        engine.addTask(original)
+
+        var updated = original
+        updated.name = "Updated"
+        updated.command = "echo updated"
+        engine.updateTask(updated)
+
+        XCTAssertEqual(engine.tasks.count, 1, "Should still have exactly one task")
+        let result = engine.tasks.first!
+        XCTAssertEqual(result.id, original.id, "Task ID should be preserved after update")
+        XCTAssertEqual(result.name, "Updated", "Task name should be updated")
+        XCTAssertEqual(result.command, "echo updated", "Task command should be updated")
+    }
 }
