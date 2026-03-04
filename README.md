@@ -219,6 +219,32 @@ On relaunch, cmux currently restores app layout and metadata only:
 
 cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
 
+## MCP Server
+
+cmux includes a built-in [MCP](https://modelcontextprotocol.io/) server that lets AI tools (Claude Desktop, Claude Code, etc.) control workspaces, terminals, browser, and notifications.
+
+```bash
+# Start the MCP server (stdio transport)
+cmux --mcp
+```
+
+Claude Code auto-discovers cmux when running inside a cmux terminal. For Claude Desktop, add to your config:
+
+```json
+{
+  "mcpServers": {
+    "cmux": {
+      "command": "/Applications/cmux.app/Contents/Resources/bin/cmux",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+The server exposes 8 grouped tools: `cmux_system`, `cmux_workspace`, `cmux_window`, `cmux_pane`, `cmux_surface`, `cmux_notification`, `cmux_tab`, and `cmux_browser`. Each tool accepts an `action` parameter for the specific operation. See [docs/MCP-SERVER.md](docs/MCP-SERVER.md) for details.
+
+Toggle the MCP server on/off in **Settings > Automation > MCP Server**.
+
 ## Star History
 
 <a href="https://star-history.com/#manaflow-ai/cmux&Date">
