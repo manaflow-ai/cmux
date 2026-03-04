@@ -4669,6 +4669,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
+    /// Tracks whether keyboard focus should go to the search field or the terminal
+    /// when the window becomes key while the find bar is open.
+    enum SearchFocusTarget {
+        case searchField
+        case terminal
+    }
+    private(set) var searchFocusTarget: SearchFocusTarget = .searchField
+
     private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
         // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
         // additional translucent layer here, alpha stacks and appears effectively opaque.
@@ -4955,6 +4963,17 @@ final class GhosttySurfaceScrollView: NSView {
         })
 
         observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttySearchFocus,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let surface = notification.object as? TerminalSurface,
+                  surface === self.surfaceView.terminalSurface else { return }
+            self.searchFocusTarget = .searchField
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidUpdateCellSize,
             object: surfaceView,
             queue: .main
@@ -5058,7 +5077,7 @@ final class GhosttySurfaceScrollView: NSView {
             guard let self else { return }
             let searchActive = self.surfaceView.terminalSurface?.searchState != nil
 #if DEBUG
-            dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: self.window?.firstResponder))")
+            dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
             self.applyFirstResponderIfNeeded()
         })
@@ -5150,6 +5169,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
+            searchFocusTarget = .searchField
             return
         }
 
@@ -5165,6 +5185,7 @@ final class GhosttySurfaceScrollView: NSView {
             surfaceId: surfaceId,
             searchState: searchState,
             onMoveFocusToTerminal: { [weak self] in
+                self?.searchFocusTarget = .terminal
                 self?.moveFocus()
             },
             onNavigateSearch: { [weak terminalSurface] action in
@@ -5194,6 +5215,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
         overlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(overlay)
@@ -5650,10 +5672,9 @@ final class GhosttySurfaceScrollView: NSView {
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
 
         guard isActive else { return }
-        guard surfaceView.terminalSurface?.searchState == nil else {
-#if DEBUG
-            dlog("find.ensureFocus SKIP surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=searchActive")
-#endif
+        if surfaceView.terminalSurface?.searchState != nil {
+            guard let window else { return }
+            restoreSearchFocus(window: window)
             return
         }
         guard let window else { return }
@@ -5747,13 +5768,12 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             return
         }
-        guard surfaceView.terminalSurface?.searchState == nil else {
-#if DEBUG
-            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchActive")
-#endif
+        guard let window, window.isKeyWindow else { return }
+        if surfaceView.terminalSurface?.searchState != nil {
+            // Find bar is open. Restore focus based on what the user last intended.
+            restoreSearchFocus(window: window)
             return
         }
-        guard let window, window.isKeyWindow else { return }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
             return
@@ -5762,6 +5782,30 @@ final class GhosttySurfaceScrollView: NSView {
         dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
 #endif
         window.makeFirstResponder(surfaceView)
+    }
+
+    /// Restore focus when window becomes key and the find bar is open.
+    /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
+    private func restoreSearchFocus(window: NSWindow) {
+        switch searchFocusTarget {
+        case .searchField:
+            // Make the hosting view first responder so SwiftUI @FocusState can take effect,
+            // then post the notification to set isSearchFieldFocused = true.
+            if let overlay = searchOverlayHostingView {
+                window.makeFirstResponder(overlay)
+            }
+            if let terminalSurface = surfaceView.terminalSurface {
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
+#if DEBUG
+            dlog("find.restoreSearchFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") target=searchField")
+#endif
+        case .terminal:
+            window.makeFirstResponder(surfaceView)
+#if DEBUG
+            dlog("find.restoreSearchFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") target=terminal")
+#endif
+        }
     }
 
 #if DEBUG
