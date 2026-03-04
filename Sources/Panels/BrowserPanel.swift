@@ -1389,7 +1389,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var workspaceId: UUID
 
     /// The underlying web view
-    let webView: WKWebView
+    private(set) var webView: WKWebView
+
+    /// Monotonic identity for the current WKWebView instance.
+    /// Incremented whenever we replace the underlying WKWebView after a process crash.
+    @Published private(set) var webViewInstanceID: UUID = UUID()
 
     /// Prevent the omnibar from auto-focusing for a short window after explicit programmatic focus.
     /// This avoids races where SwiftUI focus state steals first responder back from WebKit.
@@ -1527,13 +1531,7 @@ final class BrowserPanel: Panel, ObservableObject {
         false
     }
 
-    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
-        self.id = UUID()
-        self.workspaceId = workspaceId
-        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.browserThemeMode = BrowserThemeSettings.mode()
-
-        // Configure web view
+    private static func makeWebView() -> CmuxWebView {
         let config = WKWebViewConfiguration()
         config.processPool = BrowserPanel.sharedProcessPool
         // Ensure browser cookies/storage persist across navigations and launches.
@@ -1554,27 +1552,42 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         )
 
-        // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
-
-        // Required for Web Inspector support on recent WebKit SDKs.
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
-
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        return webView
+    }
 
+    private func bindWebView(_ webView: CmuxWebView) {
+        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
+            if downloading {
+                self?.beginDownloadActivity()
+            } else {
+                self?.endDownloadActivity()
+            }
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.uiDelegate = uiDelegate
+        setupObservers(for: webView)
+    }
+
+    init(workspaceId: UUID, initialURL: URL? = nil, bypassInsecureHTTPHostOnce: String? = nil) {
+        self.id = UUID()
+        self.workspaceId = workspaceId
+        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.browserThemeMode = BrowserThemeSettings.mode()
+
+        let webView = Self.makeWebView()
         self.webView = webView
         self.insecureHTTPAlertFactory = { NSAlert() }
-        self.insecureHTTPAlertWindowProvider = { [weak webView] in
-            webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-        }
+        self.insecureHTTPAlertWindowProvider = { NSApp.keyWindow ?? NSApp.mainWindow }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1612,6 +1625,9 @@ final class BrowserPanel: Panel, ObservableObject {
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
         }
+        navDelegate.didTerminateWebContentProcess = { [weak self] webView in
+            self?.replaceWebViewAfterContentProcessTermination(for: webView)
+        }
         // Set up download delegate for navigation-based downloads.
         // Downloads save to a temp file synchronously (no NSSavePanel during WebKit
         // callbacks), then show NSSavePanel after the download completes.
@@ -1627,14 +1643,6 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.downloadDelegate = dlDelegate
         self.downloadDelegate = dlDelegate
-        webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
-            if downloading {
-                self?.beginDownloadActivity()
-            } else {
-                self?.endDownloadActivity()
-            }
-        }
-        webView.navigationDelegate = navDelegate
         self.navigationDelegate = navDelegate
 
         // Set up UI delegate (handles cmd+click, target=_blank, and context menu)
@@ -1646,12 +1654,13 @@ final class BrowserPanel: Panel, ObservableObject {
         browserUIDelegate.requestNavigation = { [weak self] request, intent in
             self?.requestNavigation(request, intent: intent)
         }
-        webView.uiDelegate = browserUIDelegate
         self.uiDelegate = browserUIDelegate
 
-        // Observe web view properties
-        setupObservers()
+        bindWebView(webView)
         applyBrowserThemeModeIfNeeded()
+        insecureHTTPAlertWindowProvider = { [weak self] in
+            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
 
         // Navigate to initial URL if provided
         if let url = initialURL {
@@ -1729,7 +1738,7 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
     }
 
-    private func setupObservers() {
+    private func setupObservers(for webView: WKWebView) {
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
@@ -1794,6 +1803,81 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             .store(in: &cancellables)
     }
+
+    private func replaceWebViewAfterContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+
+        let wasRenderable = shouldRenderWebView
+        let restoreURL = terminatedWebView.url ?? currentURL
+        let restoreURLString = restoreURL?.absoluteString
+        let shouldRestoreURL = wasRenderable && restoreURLString != nil && restoreURLString != blankURLString
+        let history = sessionNavigationHistorySnapshot()
+        let historyCurrentURL = preferredURLStringForOmnibar()
+        let desiredZoom = max(minPageZoom, min(maxPageZoom, terminatedWebView.pageZoom))
+        let restoreDevTools = preferredDeveloperToolsVisible
+
+#if DEBUG
+        dlog(
+            "browser.webview.replace.begin panel=\(id.uuidString.prefix(5)) " +
+            "renderable=\(wasRenderable ? 1 : 0) restoreURL=\(restoreURLString ?? "nil") " +
+            "restoreHistoryBack=\(history.backHistoryURLStrings.count) " +
+            "restoreHistoryForward=\(history.forwardHistoryURLStrings.count)"
+        )
+#endif
+
+        webViewObservers.removeAll()
+        BrowserWindowPortalRegistry.detach(webView: terminatedWebView)
+        terminatedWebView.stopLoading()
+        terminatedWebView.navigationDelegate = nil
+        terminatedWebView.uiDelegate = nil
+        if let terminatedCmuxWebView = terminatedWebView as? CmuxWebView {
+            terminatedCmuxWebView.onContextMenuDownloadStateChanged = nil
+        }
+
+        let replacement = Self.makeWebView()
+        replacement.pageZoom = desiredZoom
+        webView = replacement
+        webViewInstanceID = UUID()
+        shouldRenderWebView = wasRenderable
+
+        bindWebView(replacement)
+
+        if !history.backHistoryURLStrings.isEmpty || !history.forwardHistoryURLStrings.isEmpty {
+            restoreSessionNavigationHistory(
+                backHistoryURLStrings: history.backHistoryURLStrings,
+                forwardHistoryURLStrings: history.forwardHistoryURLStrings,
+                currentURLString: historyCurrentURL
+            )
+        }
+
+        if shouldRestoreURL, let restoreURL {
+            navigateWithoutInsecureHTTPPrompt(
+                to: restoreURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+        } else {
+            refreshNavigationAvailability()
+        }
+
+        if restoreDevTools {
+            requestDeveloperToolsRefreshAfterNextAttach(reason: "webcontent_process_terminated")
+        }
+
+#if DEBUG
+        dlog(
+            "browser.webview.replace.end panel=\(id.uuidString.prefix(5)) " +
+            "instance=\(webViewInstanceID.uuidString.prefix(6)) " +
+            "restoreURL=\(restoreURLString ?? "nil") shouldRestore=\(shouldRestoreURL ? 1 : 0)"
+        )
+#endif
+    }
+
+#if DEBUG
+    func debugSimulateWebContentProcessTermination() {
+        replaceWebViewAfterContentProcessTermination(for: webView)
+    }
+#endif
 
     // MARK: - Panel Protocol
 
@@ -3155,6 +3239,7 @@ func browserNavigationShouldOpenInNewTab(
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
+    var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
@@ -3222,8 +3307,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, webContentProcessDidTerminate: WKWebView) {
-        NSLog("BrowserPanel web content process terminated, reloading")
-        webView.reload()
+        NSLog("BrowserPanel web content process terminated, replacing web view")
+        didTerminateWebContentProcess?(webView)
     }
 
     private func loadErrorPage(in webView: WKWebView, failedURL: String, error: NSError) {
