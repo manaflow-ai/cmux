@@ -3490,7 +3490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
         let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? String(localized: "workspace.defaultName", defaultValue: "Workspace") : trimmed
+        return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
     private func rollbackDetachedSurface(
@@ -7814,7 +7814,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
                 ? "cmux"
-                : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+                : displayedUnreadCount == 1
+                    ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
+                    : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
     }
 

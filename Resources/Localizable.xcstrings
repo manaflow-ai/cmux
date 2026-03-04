@@ -3147,36 +3147,36 @@
         }
       }
     },
-    "commandPalette.subtitle.browser": {
+    "commandPalette.subtitle.browserWithName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browser"
+            "value": "Browser • %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザ"
+            "value": "ブラウザ • %@"
           }
         }
       }
     },
-    "commandPalette.subtitle.tab": {
+    "commandPalette.subtitle.tabWithName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tab"
+            "value": "Tab • %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブ"
+            "value": "タブ • %@"
           }
         }
       }
@@ -3198,36 +3198,36 @@
         }
       }
     },
-    "commandPalette.subtitle.terminal": {
+    "commandPalette.subtitle.terminalWithName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal"
+            "value": "Terminal • %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナル"
+            "value": "ターミナル • %@"
           }
         }
       }
     },
-    "commandPalette.subtitle.workspace": {
+    "commandPalette.subtitle.workspaceWithName": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace"
+            "value": "Workspace • %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース"
+            "value": "ワークスペース • %@"
           }
         }
       }
@@ -9318,6 +9318,40 @@
         }
       }
     },
+    "statusMenu.tooltip.unread.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 unread notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知 1件"
+          }
+        }
+      }
+    },
+    "statusMenu.tooltip.unread.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld unread notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読通知 %lld件"
+          }
+        }
+      }
+    },
     "tab.untitled": {
       "extractionState": "manual",
       "localizations": {
@@ -10504,23 +10538,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "リリースノートを表示"
-          }
-        }
-      }
-    },
-    "workspace.defaultName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース"
           }
         }
       }

@@ -3459,22 +3459,22 @@ struct ContentView: View {
 
         func workspaceSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.workspaceName) ?? String(localized: "commandPalette.subtitle.workspaceFallback", defaultValue: "Workspace")
-            return String(localized: "commandPalette.subtitle.workspace", defaultValue: "Workspace") + " • " + name
+            return String(localized: "commandPalette.subtitle.workspaceWithName", defaultValue: "Workspace • \(name)")
         }
 
         func panelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.tab", defaultValue: "Tab") + " • " + name
+            return String(localized: "commandPalette.subtitle.tabWithName", defaultValue: "Tab • \(name)")
         }
 
         func browserPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.browser", defaultValue: "Browser") + " • " + name
+            return String(localized: "commandPalette.subtitle.browserWithName", defaultValue: "Browser • \(name)")
         }
 
         func terminalPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
-            return String(localized: "commandPalette.subtitle.terminal", defaultValue: "Terminal") + " • " + name
+            return String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(name)")
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
