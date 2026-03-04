@@ -2753,6 +2753,7 @@ struct SettingsView: View {
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+    @AppStorage(SidebarFontSizeSettings.key) private var sidebarFontSize = SidebarFontSizeSettings.defaultSize.rawValue
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -3040,6 +3041,21 @@ struct SettingsView: View {
                             Picker("", selection: $sidebarBranchVerticalLayout) {
                                 Text("Vertical").tag(true)
                                 Text("Inline").tag(false)
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Sidebar Font Size",
+                            subtitle: "Adjust text size for workspace names and metadata."
+                        ) {
+                            Picker("", selection: $sidebarFontSize) {
+                                ForEach(SidebarFontSize.allCases) { size in
+                                    Text(size.displayName).tag(size.rawValue)
+                                }
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
@@ -3705,6 +3721,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
+        sidebarFontSize = SidebarFontSizeSettings.defaultSize.rawValue
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarShowBranchDirectory = true

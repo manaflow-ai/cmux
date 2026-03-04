@@ -51,6 +51,73 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarFontSize: String, CaseIterable, Identifiable {
+    case small
+    case `default`
+    case large
+    case extraLarge
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .small: return "Small"
+        case .default: return "Default"
+        case .large: return "Large"
+        case .extraLarge: return "Extra Large"
+        }
+    }
+
+    var titleSize: CGFloat {
+        switch self {
+        case .small: return 11
+        case .default: return 12.5
+        case .large: return 14
+        case .extraLarge: return 16
+        }
+    }
+
+    var metadataSize: CGFloat {
+        switch self {
+        case .small: return 9
+        case .default: return 10
+        case .large: return 11
+        case .extraLarge: return 12
+        }
+    }
+
+    var badgeSize: CGFloat {
+        switch self {
+        case .small: return 8
+        case .default: return 9
+        case .large: return 10
+        case .extraLarge: return 11
+        }
+    }
+
+    var branchSize: CGFloat {
+        switch self {
+        case .small: return 9
+        case .default: return 10
+        case .large: return 11
+        case .extraLarge: return 12
+        }
+    }
+}
+
+enum SidebarFontSizeSettings {
+    static let key = "sidebarFontSize"
+    static let defaultSize: SidebarFontSize = .default
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarFontSize {
+        guard let raw = defaults.string(forKey: key),
+              let size = SidebarFontSize(rawValue: raw) else {
+            return defaultSize
+        }
+        return size
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
