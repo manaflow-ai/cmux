@@ -44,11 +44,19 @@ struct SurfaceSearchOverlay: View {
                     }
                 }
                 .onExitCommand {
+                    #if DEBUG
+                    dlog("find.overlay.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
+                    #endif
                     if searchState.needle.isEmpty {
                         onClose()
                     } else {
                         onMoveFocusToTerminal()
                     }
+                }
+                .onChange(of: isSearchFieldFocused) { focused in
+                    #if DEBUG
+                    dlog("find.overlay.focusChanged surface=\(surfaceId.uuidString.prefix(5)) focused=\(focused)")
+                    #endif
                 }
                 .backport.onKeyPress(.return) { modifiers in
                     let action = modifiers.contains(.shift)

@@ -5055,7 +5055,12 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            self?.applyFirstResponderIfNeeded()
+            guard let self else { return }
+            let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+#if DEBUG
+            dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: self.window?.firstResponder))")
+#endif
+            self.applyFirstResponderIfNeeded()
         })
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification,
@@ -5063,11 +5068,19 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             guard let self, let window = self.window else { return }
+            let searchActive = self.surfaceView.terminalSurface?.searchState != nil
             // Losing key window does not always trigger first-responder resignation, so force
             // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
             if let fr = window.firstResponder as? NSView,
                fr === self.surfaceView || fr.isDescendant(of: self.surfaceView) {
+#if DEBUG
+                dlog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) resigningFirstResponder")
+#endif
                 window.makeFirstResponder(nil)
+            } else {
+#if DEBUG
+                dlog("find.window.didResignKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) firstResponder=\(String(describing: window.firstResponder)) (not terminal, skipping)")
+#endif
             }
         })
         if window.isKeyWindow { applyFirstResponderIfNeeded() }
@@ -5131,10 +5144,19 @@ final class GhosttySurfaceScrollView: NSView {
         // SwiftUI panel-level overlays can fall behind portal-hosted terminal surfaces.
         guard let terminalSurface = surfaceView.terminalSurface,
               let searchState else {
+            let hadOverlay = searchOverlayHostingView != nil
+#if DEBUG
+            dlog("find.setSearchOverlay REMOVE surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") hadOverlay=\(hadOverlay)")
+#endif
             searchOverlayHostingView?.removeFromSuperview()
             searchOverlayHostingView = nil
             return
         }
+
+        let hadOverlay = searchOverlayHostingView != nil
+#if DEBUG
+        dlog("find.setSearchOverlay MOUNT surface=\(terminalSurface.id.uuidString.prefix(5)) existingOverlay=\(hadOverlay ? "yes(update)" : "no(create)")")
+#endif
 
         let tabId = terminalSurface.tabId
         let surfaceId = terminalSurface.id
@@ -5476,7 +5498,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
 #if DEBUG
-        dlog("focus.moveFocus to=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+        let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+        dlog("find.moveFocus to=\(surfaceShort) searchState=\(searchActive ? "active" : "nil")")
 #endif
         let work = { [weak self] in
             guard let self else { return }
@@ -5626,7 +5650,12 @@ final class GhosttySurfaceScrollView: NSView {
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
 
         guard isActive else { return }
-        guard surfaceView.terminalSurface?.searchState == nil else { return }
+        guard surfaceView.terminalSurface?.searchState == nil else {
+#if DEBUG
+            dlog("find.ensureFocus SKIP surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=searchActive")
+#endif
+            return
+        }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
             retry()
@@ -5705,24 +5734,33 @@ final class GhosttySurfaceScrollView: NSView {
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
             dlog(
-                "focus.apply.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                "focus.apply.skip surface=\(surfaceShort) " +
                 "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
             )
 #endif
             return
         }
-        guard surfaceView.terminalSurface?.searchState == nil else { return }
+        guard surfaceView.terminalSurface?.searchState == nil else {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchActive")
+#endif
+            return
+        }
         guard let window, window.isKeyWindow else { return }
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
             return
         }
+#if DEBUG
+        dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
+#endif
         window.makeFirstResponder(surfaceView)
     }
 

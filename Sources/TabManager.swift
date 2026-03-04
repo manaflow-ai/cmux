@@ -726,11 +726,18 @@ class TabManager: ObservableObject {
     }
 
     func startSearch() {
-        guard let panel = selectedTerminalPanel else { return }
-        if panel.searchState == nil {
+        guard let panel = selectedTerminalPanel else {
+            NSLog("Find: startSearch SKIPPED no selectedTerminalPanel")
+            return
+        }
+        let wasNil = panel.searchState == nil
+        if wasNil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+        NSLog("Find: startSearch workspace=%@ panel=%@ created=%@ firstResponder=%@",
+              panel.workspaceId.uuidString, panel.id.uuidString,
+              wasNil ? "yes" : "no(reuse)",
+              String(describing: panel.surface.hostedView.window?.firstResponder))
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("start_search")
     }
@@ -760,6 +767,7 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
+        NSLog("Find: hideFind panel=%@", selectedTerminalPanel?.id.uuidString ?? "nil")
         selectedTerminalPanel?.searchState = nil
     }
 

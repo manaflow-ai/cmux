@@ -454,6 +454,7 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu("Find") {
                     Button("Find…") {
+                        NSLog("Find: menu Cmd+F fired")
                         activeTabManager.startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
