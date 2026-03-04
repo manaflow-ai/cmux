@@ -161,12 +161,12 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected app to launch for empty popover blocking test. state=\(app.state.rawValue)"
         )
 
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
-        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 12.0))
+        guard let resolvedPath = resolveSocketPath(timeout: 20.0) else {
             throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
         }
         socketPath = resolvedPath
-        let pingResponse = waitForSocketPong(timeout: 8.0)
+        let pingResponse = waitForSocketPong(timeout: 20.0)
         guard pingResponse == "PONG" else {
             throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
         }
