@@ -1051,6 +1051,13 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     keyCode: UInt16
 ) -> Bool {
     guard isCommandPaletteVisible else { return false }
+
+    // Escape dismisses the palette, and must not leak through to the
+    // underlying terminal or browser content.
+    if normalizedFlags.isEmpty, keyCode == 53 {
+        return true
+    }
+
     guard normalizedFlags.contains(.command) else { return false }
 
     let normalizedChars = chars.lowercased()
@@ -5790,6 +5797,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let commandPaletteVisibleInTargetWindow = commandPaletteTargetWindow.map {
             isCommandPaletteVisible(for: $0)
         } ?? false
+
+        if commandPaletteVisibleInTargetWindow, normalizedFlags.isEmpty, event.keyCode == 53 {
+            guard let paletteWindow = commandPaletteTargetWindow else {
+                return false
+            }
+            NotificationCenter.default.post(name: .commandPaletteToggleRequested, object: paletteWindow)
+            return true
+        }
 
         if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
