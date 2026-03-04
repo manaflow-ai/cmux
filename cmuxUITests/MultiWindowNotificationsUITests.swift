@@ -236,20 +236,25 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         }
 
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let tmuxSocket = "/tmp/cmux-ui-test-tmux-\(token).sock"
-        let bridgeLogPath = "/tmp/cmux-ui-test-tmux-bridge-\(token).log"
+        let tmuxTempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-tmux-\(token)", isDirectory: true)
+        let tmuxSocket = tmuxTempDir.appendingPathComponent("tmux.sock").path
+        let bridgeLogPath = tmuxTempDir.appendingPathComponent("bridge.log").path
         let sessionName = "cmuxui\(String(token.prefix(10)))"
         let notificationTitle = "tmux_bridge_\(String(token.prefix(8)))"
         let notificationBody = "bridge_body_\(String(token.suffix(8)))"
-        try? FileManager.default.removeItem(atPath: tmuxSocket)
-        try? FileManager.default.removeItem(atPath: bridgeLogPath)
+        try? FileManager.default.removeItem(at: tmuxTempDir)
+        try? FileManager.default.createDirectory(
+            at: tmuxTempDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         defer {
             _ = try? runProcess(
                 executable: tmuxBin,
                 arguments: ["-S", tmuxSocket, "kill-server"]
             )
-            try? FileManager.default.removeItem(atPath: tmuxSocket)
-            try? FileManager.default.removeItem(atPath: bridgeLogPath)
+            try? FileManager.default.removeItem(at: tmuxTempDir)
         }
 
         let createSession = try runProcess(
