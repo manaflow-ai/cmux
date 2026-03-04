@@ -4,6 +4,9 @@ import Darwin
 import Sentry
 #endif
 
+/// Global flag for attach mode signal handling (must be file-level for C signal handlers).
+private var attachRunning = false
+
 struct CLIError: Error, CustomStringConvertible {
     let message: String
 
@@ -1511,6 +1514,9 @@ struct CMUXCLI {
             let bridged = replaceToken(commandArgs, from: "--panel", to: "--surface")
             try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "attach":
+            try runAttach(commandArgs: commandArgs, client: client, windowId: windowId)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -2269,6 +2275,155 @@ struct CMUXCLI {
             idFormat: idFormat,
             windowOverride: windowOverride
         )
+    }
+
+    // MARK: - Attach
+
+    /// Attach to a terminal surface, bridging stdin/stdout to the surface's I/O.
+    /// Uses polling for screen output and surface.write_pty for raw input forwarding.
+    /// Detach with ~. (tilde-dot after newline/Enter).
+    private func runAttach(commandArgs: [String], client: SocketClient, windowId: String?) throws {
+        let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (sfArg, _) = parseOption(rem0, name: "--surface")
+        let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+
+        // Resolve workspace and surface
+        var params: [String: Any] = [:]
+        let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+        if let wsId { params["workspace_id"] = wsId }
+        let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
+        if let sfId { params["surface_id"] = sfId }
+
+        // Verify the surface exists by reading its content
+        let info = try client.sendV2(method: "surface.read_text", params: params)
+        guard let resolvedWs = info["workspace_id"] as? String,
+              let resolvedSf = info["surface_id"] as? String else {
+            throw CLIError(message: "Could not resolve workspace/surface")
+        }
+
+        // Check that stdin is a terminal
+        guard isatty(STDIN_FILENO) != 0 else {
+            throw CLIError(message: "attach requires an interactive terminal (stdin must be a tty)")
+        }
+
+        // Save original terminal attributes
+        var originalTermios = termios()
+        guard tcgetattr(STDIN_FILENO, &originalTermios) == 0 else {
+            throw CLIError(message: "Failed to get terminal attributes")
+        }
+
+        // Set raw mode
+        var rawTermios = originalTermios
+        cfmakeraw(&rawTermios)
+        tcsetattr(STDIN_FILENO, TCSANOW, &rawTermios)
+
+        // Ensure terminal is restored on exit
+        defer {
+            tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios)
+            // Clear screen and show detach message
+            let msg = "\u{1b}[2J\u{1b}[HDetached from \(resolvedWs)\r\n"
+            msg.withCString { ptr in
+                _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
+            }
+        }
+
+        // Set up signal handling for clean exit
+        attachRunning = true
+        signal(SIGINT) { _ in attachRunning = false }
+        signal(SIGTERM) { _ in attachRunning = false }
+        signal(SIGWINCH, SIG_IGN) // ignore resize for now
+
+        // Make stdin non-blocking
+        let stdinFlags = fcntl(STDIN_FILENO, F_GETFL)
+        fcntl(STDIN_FILENO, F_SETFL, stdinFlags | O_NONBLOCK)
+        defer { fcntl(STDIN_FILENO, F_SETFL, stdinFlags) }
+
+        // Print attach banner to stderr (doesn't interfere with terminal output)
+        FileHandle.standardError.write(Data("Attached to \(resolvedWs) / \(resolvedSf). Detach: ~.\r\n".utf8))
+
+        let readParams: [String: Any] = ["workspace_id": resolvedWs, "surface_id": resolvedSf]
+        let writeParams: [String: Any] = ["workspace_id": resolvedWs, "surface_id": resolvedSf]
+        var lastScreenContent = ""
+        var inputBuffer = [UInt8](repeating: 0, count: 4096)
+        var afterNewline = true // track ~. escape sequence state
+
+        // Initial screen draw
+        if let text = info["text"] as? String {
+            lastScreenContent = text
+            let output = "\u{1b}[2J\u{1b}[H" + text
+            output.withCString { ptr in
+                _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
+            }
+        }
+
+        // Main event loop
+        while attachRunning {
+            // Poll stdin with 50ms timeout
+            var fds = [pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)]
+            let pollResult = poll(&fds, 1, 50)
+
+            if pollResult > 0 && (fds[0].revents & Int16(POLLIN)) != 0 {
+                let bytesRead = Darwin.read(STDIN_FILENO, &inputBuffer, inputBuffer.count)
+                if bytesRead <= 0 {
+                    break // EOF
+                }
+
+                // Check for ~. detach sequence
+                let inputSlice = inputBuffer[0..<bytesRead]
+                if let detachIdx = detectDetachSequence(inputSlice, afterNewline: &afterNewline) {
+                    // Send bytes before the detach sequence, then exit
+                    if detachIdx > 0 {
+                        let preDetach = Data(inputSlice[0..<detachIdx])
+                        let base64 = preDetach.base64EncodedString()
+                        var wp = writeParams
+                        wp["data"] = base64
+                        _ = try? client.sendV2(method: "surface.write_pty", params: wp)
+                    }
+                    break
+                }
+
+                // Forward all input bytes to the surface via raw pty write
+                let base64 = Data(inputSlice).base64EncodedString()
+                var wp = writeParams
+                wp["data"] = base64
+                _ = try? client.sendV2(method: "surface.write_pty", params: wp)
+            }
+
+            // Poll screen content for changes
+            if let screenRead = try? client.sendV2(method: "surface.read_text", params: readParams),
+               let text = screenRead["text"] as? String,
+               text != lastScreenContent {
+                lastScreenContent = text
+                let output = "\u{1b}[2J\u{1b}[H" + text
+                output.withCString { ptr in
+                    _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
+                }
+            }
+        }
+    }
+
+    /// Detect the ~. (tilde-dot) detach escape sequence in input bytes.
+    /// Returns the index of the tilde that starts the sequence, or nil if not found.
+    /// Updates afterNewline state for tracking across calls.
+    private func detectDetachSequence(_ bytes: ArraySlice<UInt8>, afterNewline: inout Bool) -> Int? {
+        for (i, byte) in bytes.enumerated() {
+            let ch = Character(UnicodeScalar(byte))
+            if afterNewline && ch == "~" {
+                // Check if next byte is "."
+                let nextIdx = bytes.startIndex + i + 1
+                if nextIdx < bytes.endIndex && bytes[nextIdx] == UInt8(ascii: ".") {
+                    return i
+                }
+                // Tilde without dot, not a detach
+                afterNewline = false
+            } else if byte == 0x0D || byte == 0x0A { // CR or LF
+                afterNewline = true
+            } else {
+                afterNewline = false
+            }
+        }
+        return nil
     }
 
     private func runBrowserCommand(
@@ -4223,6 +4378,27 @@ struct CMUXCLI {
             Example:
               cmux read-screen
               cmux read-screen --surface surface:2 --scrollback --lines 200
+            """
+        case "attach":
+            return """
+            Usage: cmux attach [flags]
+
+            Attach to a terminal surface, bridging stdin/stdout to its I/O.
+            Useful for remote access over SSH: ssh mac -- cmux attach --workspace workspace:1
+
+            Input is forwarded as raw bytes to the terminal's pty. Screen content is
+            polled and displayed as plain text (no colors/styles in this version).
+
+            Detach with ~. (tilde then dot, after Enter).
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              cmux attach
+              cmux attach --workspace workspace:3
+              ssh macbook -- cmux attach --workspace workspace:1
             """
         case "send":
             return """
@@ -6415,6 +6591,7 @@ struct CMUXCLI {
           rename-window [--workspace <id|ref>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+          attach [--workspace <id|ref>] [--surface <id|ref>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
           send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>

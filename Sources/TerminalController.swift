@@ -1263,6 +1263,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceHealth(params: params))
         case "surface.send_text":
             return v2Result(id: id, self.v2SurfaceSendText(params: params))
+        case "surface.write_pty":
+            return v2Result(id: id, self.v2SurfaceWritePty(params: params))
         case "surface.send_key":
             return v2Result(id: id, self.v2SurfaceSendKey(params: params))
         case "surface.clear_history":
@@ -1601,6 +1603,7 @@ class TerminalController {
             "surface.refresh",
             "surface.health",
             "surface.send_text",
+            "surface.write_pty",
             "surface.send_key",
             "surface.read_text",
             "surface.clear_history",
@@ -3749,6 +3752,72 @@ class TerminalController {
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "queued": queued,
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
+            ])
+        }
+        return result
+    }
+
+    /// Write raw bytes to a terminal surface's pty via ghostty_surface_text.
+    /// Accepts either "text" (string) or "data" (base64-encoded bytes).
+    /// Unlike surface.send_text, this writes bytes directly to the pty without
+    /// splitting escape sequences into individual key events.
+    private func v2SurfaceWritePty(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        let textParam = params["text"] as? String
+        let dataParam = params["data"] as? String
+        guard textParam != nil || dataParam != nil else {
+            return .err(code: "invalid_params", message: "Missing text or data (base64)", data: nil)
+        }
+
+        let rawData: Data
+        if let dataParam {
+            guard let decoded = Data(base64Encoded: dataParam) else {
+                return .err(code: "invalid_params", message: "Invalid base64 data", data: nil)
+            }
+            rawData = decoded
+        } else if let textParam {
+            rawData = Data(textParam.utf8)
+        } else {
+            return .err(code: "invalid_params", message: "Missing text or data", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to write pty", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            guard let surface = terminalPanel.surface.surface else {
+                result = .err(code: "unavailable", message: "Surface not attached", data: nil)
+                return
+            }
+
+            rawData.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+                ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+            }
+            terminalPanel.surface.forceRefresh()
+
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "bytes": rawData.count,
                 "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
             ])
