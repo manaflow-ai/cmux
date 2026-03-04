@@ -27,6 +27,7 @@ final class BrowserPopupWindowController: NSWindowController, NSWindowDelegate {
 #if DEBUG
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
 #endif
+        // Required for OAuth/OIDC form submission in popups
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         self.depth = depth
 
