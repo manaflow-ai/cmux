@@ -2981,9 +2981,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    // Theme/background application is window-local. During cross-window workspace
+    // switches (e.g. jump-to-unread), the global active tab manager can lag behind.
+    // Prefer the owning window's selected workspace when available.
+    static func shouldApplyWindowBackground(
+        surfaceTabId: UUID?,
+        owningManagerExists: Bool,
+        owningSelectedTabId: UUID?,
+        activeSelectedTabId: UUID?
+    ) -> Bool {
+        guard let surfaceTabId else { return true }
+        if owningManagerExists {
+            guard let owningSelectedTabId else { return true }
+            return owningSelectedTabId == surfaceTabId
+        }
+        if let activeSelectedTabId {
+            return activeSelectedTabId == surfaceTabId
+        }
+        return true
+    }
+
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
-        if let tabId, let selectedId = AppDelegate.shared?.tabManager?.selectedTabId, tabId != selectedId {
+        let appDelegate = AppDelegate.shared
+        let owningManager = tabId.flatMap { appDelegate?.tabManagerFor(tabId: $0) }
+        let owningSelectedTabId = owningManager?.selectedTabId
+        let activeSelectedTabId = owningManager == nil ? appDelegate?.tabManager?.selectedTabId : nil
+        guard Self.shouldApplyWindowBackground(
+            surfaceTabId: tabId,
+            owningManagerExists: owningManager != nil,
+            owningSelectedTabId: owningSelectedTabId,
+            activeSelectedTabId: activeSelectedTabId
+        ) else {
             return
         }
         applySurfaceBackground()
