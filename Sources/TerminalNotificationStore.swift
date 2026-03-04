@@ -2,6 +2,32 @@ import AppKit
 import Foundation
 import UserNotifications
 
+// UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
+// removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
+// usernoted under the hood. When usernoted is slow, this blocks the calling thread
+// indefinitely. These helpers dispatch the calls off the main thread so they never
+// freeze the UI.
+extension UNUserNotificationCenter {
+    private static let removalQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-removal",
+        qos: .utility
+    )
+
+    func removeDeliveredNotificationsOffMain(withIdentifiers ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Self.removalQueue.async {
+            self.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    func removePendingNotificationRequestsOffMain(withIdentifiers ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Self.removalQueue.async {
+            self.removePendingNotificationRequests(withIdentifiers: ids)
+        }
+    }
+}
+
 enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
     static let defaultDockBadgeEnabled = true
@@ -190,8 +216,8 @@ final class TerminalNotificationStore: ObservableObject {
         if isAppFocused && isFocusedPanel {
             if !idsToClear.isEmpty {
                 notifications = updated
-                center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-                center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+                center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+                center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
             }
             return
         }
@@ -213,8 +239,8 @@ final class TerminalNotificationStore: ObservableObject {
         updated.insert(notification, at: 0)
         notifications = updated
         if !idsToClear.isEmpty {
-            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
         scheduleUserNotification(notification)
     }
@@ -225,7 +251,7 @@ final class TerminalNotificationStore: ObservableObject {
         guard !updated[index].isRead else { return }
         updated[index].isRead = true
         notifications = updated
-        center.removeDeliveredNotifications(withIdentifiers: [id.uuidString])
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
     func markRead(forTabId tabId: UUID) {
@@ -239,7 +265,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !idsToClear.isEmpty {
             notifications = updated
-            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         }
     }
 
@@ -256,8 +282,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !idsToClear.isEmpty {
             notifications = updated
-            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
     }
 
@@ -286,8 +312,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
         if !idsToClear.isEmpty {
             notifications = updated
-            center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-            center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
     }
 
@@ -297,15 +323,15 @@ final class TerminalNotificationStore: ObservableObject {
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
         notifications = updated
-        center.removeDeliveredNotifications(withIdentifiers: [id.uuidString])
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
     func clearAll() {
         guard !notifications.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         notifications.removeAll()
-        center.removeDeliveredNotifications(withIdentifiers: ids)
-        center.removePendingNotificationRequests(withIdentifiers: ids)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
 
     func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
@@ -321,8 +347,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
-        center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-        center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
     func clearNotifications(forTabId tabId: UUID) {
@@ -338,8 +364,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
-        center.removeDeliveredNotifications(withIdentifiers: idsToClear)
-        center.removePendingNotificationRequests(withIdentifiers: idsToClear)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
     private func scheduleUserNotification(_ notification: TerminalNotification) {
