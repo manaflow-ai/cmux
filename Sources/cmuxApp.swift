@@ -57,7 +57,15 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
-        SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+        // Skip keychain migration for DEV/staging builds. Each tagged build gets a
+        // unique bundle ID with its own UserDefaults domain, so migration would run
+        // on every launch and trigger a macOS keychain access prompt (the legacy
+        // keychain item was created by a differently-signed app).
+        let bundleID = Bundle.main.bundleIdentifier
+        if !SocketControlSettings.isDebugLikeBundleIdentifier(bundleID)
+            && !SocketControlSettings.isStagingBundleIdentifier(bundleID) {
+            SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
+        }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
