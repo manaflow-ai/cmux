@@ -724,8 +724,15 @@ class TerminalController {
         }
     }
 
+    /// Sentinel prefix returned by processCommand when the socket should be
+    /// upgraded to a raw byte stream (e.g. surface.attach_stream). The handler
+    /// loop stops processing commands and the fd is NOT closed, since the
+    /// SurfaceOutputStreamer now owns it.
+    private static let streamUpgradeSentinel = "__STREAM_UPGRADE__"
+
     private func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
-        defer { close(socket) }
+        var socketUpgraded = false
+        defer { if !socketUpgraded { close(socket) } }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // Other modes allow external clients and apply separate auth controls.
@@ -778,19 +785,23 @@ class TerminalController {
                     continue
                 }
 
-                let response = processCommand(trimmed)
+                let response = processCommand(trimmed, clientSocket: socket)
+                if response.hasPrefix(Self.streamUpgradeSentinel) {
+                    socketUpgraded = true
+                    return
+                }
                 writeSocketResponse(response, to: socket)
             }
         }
     }
 
-    private func processCommand(_ command: String) -> String {
+    private func processCommand(_ command: String, clientSocket: Int32 = -1) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
 
         // v2 protocol: newline-delimited JSON.
         if trimmed.hasPrefix("{") {
-            return processV2Command(trimmed)
+            return processV2Command(trimmed, clientSocket: clientSocket)
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -1141,7 +1152,7 @@ class TerminalController {
 
     // MARK: - V2 JSON Socket Protocol
 
-    private func processV2Command(_ jsonLine: String) -> String {
+    private func processV2Command(_ jsonLine: String, clientSocket: Int32 = -1) -> String {
         // v1 access-mode gating applies to v2 as well. We can't know which v2 method maps
         // to which v1 command without parsing, so parse first and then apply allow-list.
 
@@ -1271,6 +1282,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
         case "surface.trigger_flash":
             return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+        case "surface.attach_stream":
+            return self.v2SurfaceAttachStream(id: id, params: params, clientSocket: clientSocket)
 
         // Panes
         case "pane.list":
@@ -1608,6 +1621,7 @@ class TerminalController {
             "surface.read_text",
             "surface.clear_history",
             "surface.trigger_flash",
+            "surface.attach_stream",
             "pane.list",
             "pane.focus",
             "pane.surfaces",
@@ -3963,6 +3977,98 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    /// Upgrade a socket connection to a raw pty output stream.
+    /// Protocol:
+    ///   1. Server writes a JSON header line with stream metadata (size, ids)
+    ///   2. Server writes the bootstrap payload (screen snapshot as VT sequences)
+    ///   3. Connection transitions to live raw pty byte stream
+    /// Returns the stream-upgrade sentinel so handleClient stops its read loop.
+    private func v2SurfaceAttachStream(id: Any?, params: [String: Any], clientSocket: Int32) -> String {
+        guard clientSocket >= 0 else {
+            return v2Error(id: id, code: "internal_error", message: "No client socket for stream upgrade")
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return v2Error(id: id, code: "unavailable", message: "TabManager not available")
+        }
+
+        var errorResponse: String?
+        var resolvedWsId: UUID?
+        var resolvedSfId: UUID?
+        var ghosttySurface: ghostty_surface_t?
+        var bootstrapText = ""
+        var cols: UInt16 = 80
+        var rows: UInt16 = 24
+
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                errorResponse = v2Error(id: id, code: "not_found", message: "Workspace not found")
+                return
+            }
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                errorResponse = v2Error(id: id, code: "not_found", message: "No focused surface")
+                return
+            }
+            guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
+                errorResponse = v2Error(id: id, code: "invalid_params", message: "Surface is not a terminal")
+                return
+            }
+            guard let surface = terminalPanel.surface.surface else {
+                errorResponse = v2Error(id: id, code: "unavailable", message: "Surface not attached")
+                return
+            }
+
+            resolvedWsId = ws.id
+            resolvedSfId = surfaceId
+            ghosttySurface = surface
+
+            // Get terminal size
+            let size = ghostty_surface_size(surface)
+            cols = size.columns
+            rows = size.rows
+
+            // Read current screen content for bootstrap
+            let response = readTerminalTextBase64(terminalPanel: terminalPanel)
+            if response.hasPrefix("OK ") {
+                let base64 = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let data = Data(base64Encoded: base64) {
+                    bootstrapText = String(data: data, encoding: .utf8) ?? ""
+                }
+            }
+
+            // Set up the output handler on this surface
+            let streamer = SurfaceOutputStreamer.streamer(for: surfaceId)
+            streamer.attach(to: surface)
+        }
+
+        if let errorResponse { return errorResponse }
+        guard let wsId = resolvedWsId, let sfId = resolvedSfId else {
+            return v2Error(id: id, code: "internal_error", message: "Failed to resolve surface")
+        }
+
+        // Write the JSON header line to the client (still in text mode)
+        let header = v2Ok(id: id, result: [
+            "stream": true,
+            "workspace_id": wsId.uuidString,
+            "surface_id": sfId.uuidString,
+            "cols": Int(cols),
+            "rows": Int(rows)
+        ])
+        writeSocketResponse(header, to: clientSocket)
+
+        // Write bootstrap payload: clear screen + home cursor + screen content
+        let bootstrap = "\u{1b}[2J\u{1b}[H" + bootstrapText
+        bootstrap.withCString { ptr in
+            _ = Darwin.write(clientSocket, ptr, strlen(ptr))
+        }
+
+        // Hand the socket to the streamer for live byte streaming
+        let streamer = SurfaceOutputStreamer.streamer(for: sfId)
+        streamer.addClient(fd: clientSocket)
+
+        return Self.streamUpgradeSentinel
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {

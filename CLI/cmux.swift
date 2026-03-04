@@ -511,10 +511,79 @@ final class SocketClient {
         }
     }
 
+    /// Raw socket file descriptor. Only valid after connect().
+    var fd: Int32 { socketFD }
+
     func close() {
         if socketFD >= 0 {
             Darwin.close(socketFD)
             socketFD = -1
+        }
+    }
+
+    /// Send a v2 request that upgrades to a raw stream. Returns the JSON header
+    /// and any extra bytes read past the header newline (bootstrap data).
+    func sendV2StreamRequest(method: String, params: [String: Any] = [:]) throws -> (header: [String: Any], extra: Data) {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
+        guard let requestLine = String(data: requestData, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+        let payload = requestLine + "\n"
+        try payload.withCString { ptr in
+            let sent = Darwin.write(socketFD, ptr, strlen(ptr))
+            if sent < 0 { throw CLIError(message: "Failed to write to socket") }
+        }
+
+        // Read until we get a complete JSON line (terminated by newline).
+        // Anything after the newline is the start of the raw byte stream.
+        var accumulated = Data()
+        let start = Date()
+        while true {
+            var pollFD = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&pollFD, 1, 100)
+            if ready < 0 { throw CLIError(message: "Socket read error") }
+            if ready == 0 {
+                if Date().timeIntervalSince(start) > Self.responseTimeoutSeconds {
+                    throw CLIError(message: "Stream request timed out")
+                }
+                continue
+            }
+            var buffer = [UInt8](repeating: 0, count: 8192)
+            let count = Darwin.read(socketFD, &buffer, buffer.count)
+            if count <= 0 { throw CLIError(message: "Socket closed during stream handshake") }
+            accumulated.append(buffer, count: count)
+
+            // Look for the header line terminator
+            if let newlineIdx = accumulated.firstIndex(of: UInt8(0x0A)) {
+                let headerData = accumulated[accumulated.startIndex..<newlineIdx]
+                let extra = accumulated[accumulated.index(after: newlineIdx)...]
+
+                guard let headerStr = String(data: headerData, encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 in stream header")
+                }
+                if headerStr.hasPrefix("ERROR:") {
+                    throw CLIError(message: headerStr)
+                }
+                guard let headerJSON = headerStr.data(using: .utf8),
+                      let response = try JSONSerialization.jsonObject(with: headerJSON, options: []) as? [String: Any] else {
+                    throw CLIError(message: "Invalid stream header: \(headerStr)")
+                }
+                if let ok = response["ok"] as? Bool, ok {
+                    let result = (response["result"] as? [String: Any]) ?? [:]
+                    return (result, Data(extra))
+                }
+                if let error = response["error"] as? [String: Any] {
+                    let code = (error["code"] as? String) ?? "error"
+                    let message = (error["message"] as? String) ?? "Unknown error"
+                    throw CLIError(message: "\(code): \(message)")
+                }
+                throw CLIError(message: "Unexpected stream header: \(headerStr)")
+            }
         }
     }
 
@@ -1515,7 +1584,7 @@ struct CMUXCLI {
             try runBrowserCommand(commandArgs: ["is-webview-focused"] + bridged, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "attach":
-            try runAttach(commandArgs: commandArgs, client: client, windowId: windowId)
+            try runAttach(commandArgs: commandArgs, client: client, windowId: windowId, socketPath: socketPath)
 
         default:
             print(usage())
@@ -2282,7 +2351,7 @@ struct CMUXCLI {
     /// Attach to a terminal surface, bridging stdin/stdout to the surface's I/O.
     /// Uses polling for screen output and surface.write_pty for raw input forwarding.
     /// Detach with ~. (tilde-dot after newline/Enter).
-    private func runAttach(commandArgs: [String], client: SocketClient, windowId: String?) throws {
+    private func runAttach(commandArgs: [String], client: SocketClient, windowId: String?, socketPath: String) throws {
         let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (sfArg, _) = parseOption(rem0, name: "--surface")
         let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -2295,17 +2364,25 @@ struct CMUXCLI {
         let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
         if let sfId { params["surface_id"] = sfId }
 
-        // Verify the surface exists by reading its content
-        let info = try client.sendV2(method: "surface.read_text", params: params)
-        guard let resolvedWs = info["workspace_id"] as? String,
-              let resolvedSf = info["surface_id"] as? String else {
-            throw CLIError(message: "Could not resolve workspace/surface")
-        }
-
         // Check that stdin is a terminal
         guard isatty(STDIN_FILENO) != 0 else {
             throw CLIError(message: "attach requires an interactive terminal (stdin must be a tty)")
         }
+
+        // Open a dedicated connection for the output stream. The original `client`
+        // is used for input forwarding (surface.write_pty) over the RPC protocol.
+        let streamClient = SocketClient(path: socketPath)
+        try streamClient.connect()
+
+        // Request stream upgrade. Server responds with JSON header + bootstrap bytes,
+        // then switches to raw pty output.
+        let (header, extraBytes) = try streamClient.sendV2StreamRequest(
+            method: "surface.attach_stream",
+            params: params
+        )
+        let resolvedWs = (header["workspace_id"] as? String) ?? "unknown"
+        let resolvedSf = (header["surface_id"] as? String) ?? "unknown"
+        let streamFD = streamClient.fd
 
         // Save original terminal attributes
         var originalTermios = termios()
@@ -2321,7 +2398,7 @@ struct CMUXCLI {
         // Ensure terminal is restored on exit
         defer {
             tcsetattr(STDIN_FILENO, TCSANOW, &originalTermios)
-            // Clear screen and show detach message
+            streamClient.close()
             let msg = "\u{1b}[2J\u{1b}[HDetached from \(resolvedWs)\r\n"
             msg.withCString { ptr in
                 _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
@@ -2342,28 +2419,48 @@ struct CMUXCLI {
         // Print attach banner to stderr (doesn't interfere with terminal output)
         FileHandle.standardError.write(Data("Attached to \(resolvedWs) / \(resolvedSf). Detach: ~.\r\n".utf8))
 
-        let readParams: [String: Any] = ["workspace_id": resolvedWs, "surface_id": resolvedSf]
         let writeParams: [String: Any] = ["workspace_id": resolvedWs, "surface_id": resolvedSf]
-        var lastScreenContent = ""
         var inputBuffer = [UInt8](repeating: 0, count: 4096)
+        var streamBuffer = [UInt8](repeating: 0, count: 16384)
         var afterNewline = true // track ~. escape sequence state
 
-        // Initial screen draw
-        if let text = info["text"] as? String {
-            lastScreenContent = text
-            let output = "\u{1b}[2J\u{1b}[H" + text
-            output.withCString { ptr in
-                _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
+        // Write any bootstrap bytes that arrived with the header
+        if !extraBytes.isEmpty {
+            extraBytes.withUnsafeBytes { rawBuf in
+                guard let ptr = rawBuf.baseAddress else { return }
+                _ = Darwin.write(STDOUT_FILENO, ptr, extraBytes.count)
             }
         }
 
-        // Main event loop
+        // Main event loop: multiplex stdin (input) and stream socket (output)
         while attachRunning {
-            // Poll stdin with 50ms timeout
-            var fds = [pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)]
-            let pollResult = poll(&fds, 1, 50)
+            var fds = [
+                pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0),
+                pollfd(fd: streamFD, events: Int16(POLLIN), revents: 0)
+            ]
+            let pollResult = poll(&fds, 2, 100)
+            if pollResult < 0 {
+                if errno == EINTR { continue }
+                break
+            }
 
-            if pollResult > 0 && (fds[0].revents & Int16(POLLIN)) != 0 {
+            // Handle stream output (pty bytes from cmux app)
+            if fds[1].revents & Int16(POLLIN) != 0 {
+                let bytesRead = Darwin.read(streamFD, &streamBuffer, streamBuffer.count)
+                if bytesRead <= 0 {
+                    // Stream closed (surface destroyed or cmux quit)
+                    break
+                }
+                _ = Darwin.write(STDOUT_FILENO, &streamBuffer, bytesRead)
+            }
+
+            // Check for stream error/hangup
+            if fds[1].revents & (Int16(POLLHUP) | Int16(POLLERR)) != 0 {
+                break
+            }
+
+            // Handle stdin input
+            if fds[0].revents & Int16(POLLIN) != 0 {
                 let bytesRead = Darwin.read(STDIN_FILENO, &inputBuffer, inputBuffer.count)
                 if bytesRead <= 0 {
                     break // EOF
@@ -2388,17 +2485,6 @@ struct CMUXCLI {
                 var wp = writeParams
                 wp["data"] = base64
                 _ = try? client.sendV2(method: "surface.write_pty", params: wp)
-            }
-
-            // Poll screen content for changes
-            if let screenRead = try? client.sendV2(method: "surface.read_text", params: readParams),
-               let text = screenRead["text"] as? String,
-               text != lastScreenContent {
-                lastScreenContent = text
-                let output = "\u{1b}[2J\u{1b}[H" + text
-                output.withCString { ptr in
-                    _ = Darwin.write(STDOUT_FILENO, ptr, strlen(ptr))
-                }
             }
         }
     }
@@ -4383,11 +4469,9 @@ struct CMUXCLI {
             return """
             Usage: cmux attach [flags]
 
-            Attach to a terminal surface, bridging stdin/stdout to its I/O.
-            Useful for remote access over SSH: ssh mac -- cmux attach --workspace workspace:1
-
-            Input is forwarded as raw bytes to the terminal's pty. Screen content is
-            polled and displayed as plain text (no colors/styles in this version).
+            Attach to a terminal surface, streaming raw pty output to stdout and
+            forwarding stdin as input. Supports full colors, cursor movement, and
+            all VT escape sequences. Useful for remote access over SSH.
 
             Detach with ~. (tilde then dot, after Enter).
 
