@@ -1332,6 +1332,42 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             ),
             .adjustSelection(.pageDown)
         )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{02}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollPage(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{06}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.pageDown)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{19}",
+                modifierFlags: [.control],
+                hasSelection: false
+            ),
+            .scrollLines(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 0,
+                charactersIgnoringModifiers: "\u{05}",
+                modifierFlags: [.control],
+                hasSelection: true
+            ),
+            .adjustSelection(.down)
+        )
     }
 
     func testVGYMapping() {
@@ -1385,6 +1421,126 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
+    func testLineBoundaryPromptAndSearchMappings() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 29,
+                charactersIgnoringModifiers: "0",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 20,
+                charactersIgnoringModifiers: "^",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.beginningOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .adjustSelection(.endOfLine)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(-1)
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .jumpToPrompt(1)
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 21,
+                charactersIgnoringModifiers: "4",
+                modifierFlags: [],
+                hasSelection: true
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 33,
+                charactersIgnoringModifiers: "[",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertNil(
+            terminalKeyboardCopyModeAction(
+                keyCode: 30,
+                charactersIgnoringModifiers: "]",
+                modifierFlags: [],
+                hasSelection: false
+            )
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 44,
+                charactersIgnoringModifiers: "/",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .startSearch
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .searchNext
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 45,
+                charactersIgnoringModifiers: "n",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .searchPrevious
+        )
+    }
+
+    func testShiftVMatchesVisualToggleBehavior() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: false
+            ),
+            .startSelection
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifierFlags: [.shift],
+                hasSelection: true
+            ),
+            .clearSelection
+        )
+    }
+
     func testEscapeAlwaysExits() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1394,6 +1550,146 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 hasSelection: false
             ),
             .exit
+        )
+    }
+}
+
+final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
+    private func resolve(
+        _ keyCode: UInt16,
+        chars: String,
+        modifiers: NSEvent.ModifierFlags = [],
+        hasSelection: Bool,
+        state: inout TerminalKeyboardCopyModeInputState
+    ) -> TerminalKeyboardCopyModeResolution {
+        terminalKeyboardCopyModeResolve(
+            keyCode: keyCode,
+            charactersIgnoringModifiers: chars,
+            modifierFlags: modifiers,
+            hasSelection: hasSelection,
+            state: &state
+        )
+    }
+
+    func testCountPrefixAppliesToMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 3))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testZeroAppendsCountOrActsAsMotion() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(19, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(29, chars: "0", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(40, chars: "k", hasSelection: false, state: &state), .perform(.scrollLines(-1), count: 20))
+
+        var selectionState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(29, chars: "0", hasSelection: true, state: &selectionState),
+            .perform(.adjustSelection(.beginningOfLine), count: 1)
+        )
+    }
+
+    func testYankLineOperatorSupportsYYAndYWithCounts() {
+        var yyState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &yyState), .perform(.copyLineAndExit, count: 1))
+
+        var countedState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(21, chars: "4", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .consume)
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &countedState), .perform(.copyLineAndExit, count: 4))
+
+        var shiftYState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &shiftYState), .consume)
+        XCTAssertEqual(
+            resolve(16, chars: "y", modifiers: [.shift], hasSelection: false, state: &shiftYState),
+            .perform(.copyLineAndExit, count: 3)
+        )
+    }
+
+    func testPendingYankLineDoesNotSwallowNextCommand() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testSearchAndPromptMotionsUseCounts() {
+        var promptState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &promptState), .consume)
+        XCTAssertEqual(
+            resolve(30, chars: "]", modifiers: [.shift], hasSelection: false, state: &promptState),
+            .perform(.jumpToPrompt(1), count: 3)
+        )
+
+        var searchState = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &searchState), .consume)
+        XCTAssertEqual(resolve(45, chars: "n", hasSelection: false, state: &searchState), .perform(.searchNext, count: 2))
+    }
+
+    func testInvalidKeyClearsPendingState() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+}
+
+final class TerminalKeyboardCopyModeViewportRowTests: XCTestCase {
+    func testInitialViewportRowUsesImePointBaseline() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 24,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 240,
+                imeCellHeight: 24
+            ),
+            9
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 48,
+                imeCellHeight: 24,
+                topPadding: 24
+            ),
+            0
+        )
+    }
+
+    func testInitialViewportRowClampsBoundsAndFallsBackWhenHeightMissing() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 0,
+                imeCellHeight: 24
+            ),
+            0
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 9999,
+                imeCellHeight: 24
+            ),
+            23
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeInitialViewportRow(
+                rows: 24,
+                imePointY: 123,
+                imeCellHeight: 0
+            ),
+            23
         )
     }
 }
