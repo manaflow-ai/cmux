@@ -1,11 +1,189 @@
 import Foundation
 import Darwin
-import Security
+#if canImport(Sentry)
+import Sentry
+#endif
 
 struct CLIError: Error, CustomStringConvertible {
     let message: String
 
     var description: String { message }
+}
+
+private final class CLISocketSentryTelemetry {
+    private let command: String
+    private let subcommand: String
+    private let socketPath: String
+    private let envSocketPath: String?
+    private let workspaceId: String?
+    private let surfaceId: String?
+    private let disabledByEnv: Bool
+
+#if canImport(Sentry)
+    private static let startupLock = NSLock()
+    private static var started = false
+    private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+#endif
+
+    init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
+        self.command = command.lowercased()
+        self.subcommand = commandArgs.first?.lowercased() ?? "help"
+        self.socketPath = socketPath
+        self.envSocketPath = processEnv["CMUX_SOCKET_PATH"]
+        self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
+        self.surfaceId = processEnv["CMUX_SURFACE_ID"]
+        self.disabledByEnv =
+            processEnv["CMUX_CLI_SENTRY_DISABLED"] == "1" ||
+            processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
+    }
+
+    func breadcrumb(_ message: String, data: [String: Any] = [:]) {
+        guard shouldEmit else { return }
+#if canImport(Sentry)
+        Self.ensureStarted()
+        var payload = baseContext()
+        for (key, value) in data {
+            payload[key] = value
+        }
+        let crumb = Breadcrumb(level: .info, category: "cmux.cli")
+        crumb.message = message
+        crumb.data = payload
+        SentrySDK.addBreadcrumb(crumb)
+#endif
+    }
+
+    func captureError(stage: String, error: Error) {
+        guard shouldEmit else { return }
+#if canImport(Sentry)
+        Self.ensureStarted()
+        var context = baseContext()
+        context["stage"] = stage
+        context["error"] = String(describing: error)
+        for (key, value) in socketDiagnostics() {
+            context[key] = value
+        }
+        let subcommand = self.subcommand
+        let command = self.command
+        _ = SentrySDK.capture(error: error) { scope in
+            scope.setLevel(.error)
+            scope.setTag(value: "cmux-cli", key: "component")
+            scope.setTag(value: command, key: "cli_command")
+            scope.setTag(value: subcommand, key: "cli_subcommand")
+            scope.setContext(value: context, key: "cli_socket")
+        }
+        SentrySDK.flush(timeout: 2.0)
+#endif
+    }
+
+    private var shouldEmit: Bool {
+        !disabledByEnv
+    }
+
+    private func baseContext() -> [String: Any] {
+        var context: [String: Any] = [
+            "command": command,
+            "subcommand": subcommand,
+            "requested_socket_path": socketPath,
+            "env_socket_path": envSocketPath ?? "<unset>"
+        ]
+        if let workspaceId {
+            context["workspace_id"] = workspaceId
+        }
+        if let surfaceId {
+            context["surface_id"] = surfaceId
+        }
+        return context
+    }
+
+    private func socketDiagnostics() -> [String: Any] {
+        var context: [String: Any] = [
+            "cwd": FileManager.default.currentDirectoryPath,
+            "uid": Int(getuid()),
+            "euid": Int(geteuid())
+        ]
+
+        var st = stat()
+        if lstat(socketPath, &st) == 0 {
+            context["socket_exists"] = true
+            context["socket_mode"] = String(format: "%o", Int(st.st_mode & 0o7777))
+            context["socket_owner_uid"] = Int(st.st_uid)
+            context["socket_owner_gid"] = Int(st.st_gid)
+            context["socket_file_type"] = Self.fileTypeDescription(mode: st.st_mode)
+        } else {
+            let code = errno
+            context["socket_exists"] = false
+            context["socket_errno"] = Int(code)
+            context["socket_errno_description"] = String(cString: strerror(code))
+        }
+
+        let tmpSockets = Self.discoverTmpCmuxSockets(limit: 10)
+        if !tmpSockets.isEmpty {
+            context["tmp_cmux_sockets"] = tmpSockets
+        }
+        let taggedSockets = tmpSockets.filter { $0 != "/tmp/cmux.sock" }
+        if socketPath == "/tmp/cmux.sock",
+           (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
+           !taggedSockets.isEmpty {
+            context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
+        }
+
+        return context
+    }
+
+    private static func fileTypeDescription(mode: mode_t) -> String {
+        switch mode & mode_t(S_IFMT) {
+        case mode_t(S_IFSOCK):
+            return "socket"
+        case mode_t(S_IFREG):
+            return "regular"
+        case mode_t(S_IFDIR):
+            return "directory"
+        case mode_t(S_IFLNK):
+            return "symlink"
+        default:
+            return "other"
+        }
+    }
+
+    private static func discoverTmpCmuxSockets(limit: Int) -> [String] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else {
+            return []
+        }
+        var sockets: [String] = []
+        for name in entries.sorted() {
+            guard name.hasPrefix("cmux"), name.hasSuffix(".sock") else { continue }
+            let fullPath = "/tmp/\(name)"
+            var st = stat()
+            guard lstat(fullPath, &st) == 0 else { continue }
+            guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
+            sockets.append(fullPath)
+            if sockets.count >= limit {
+                break
+            }
+        }
+        return sockets
+    }
+
+#if canImport(Sentry)
+    private static func ensureStarted() {
+        startupLock.lock()
+        defer { startupLock.unlock() }
+        guard !started else { return }
+        SentrySDK.start { options in
+            options.dsn = dsn
+#if DEBUG
+            options.environment = "development-cli"
+#else
+            options.environment = "production-cli"
+#endif
+            options.debug = false
+            options.sendDefaultPii = true
+            options.attachStacktrace = true
+            options.tracesSampleRate = 0.0
+        }
+        started = true
+    }
+#endif
 }
 
 struct WindowInfo {
@@ -435,17 +613,17 @@ enum CLIIDFormat: String {
 }
 
 private enum SocketPasswordResolver {
-    private static let service = "com.cmuxterm.app.socket-control"
-    private static let account = "local-socket-password"
+    private static let directoryName = "cmux"
+    private static let fileName = "socket-control-password"
 
     static func resolve(explicit: String?) -> String? {
-        if let explicit = normalized(explicit), !explicit.isEmpty {
+        if let explicit = normalized(explicit) {
             return explicit
         }
-        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]), !env.isEmpty {
+        if let env = normalized(ProcessInfo.processInfo.environment["CMUX_SOCKET_PASSWORD"]) {
             return env
         }
-        return loadFromKeychain()
+        return loadFromFile()
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -454,23 +632,20 @@ private enum SocketPasswordResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func loadFromKeychain() -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else {
+    private static func loadFromFile() -> String? {
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return nil
         }
-        guard let data = result as? Data else {
+        let passwordURL = appSupport
+            .appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(fileName, isDirectory: false)
+        guard let data = try? Data(contentsOf: passwordURL) else {
             return nil
         }
-        return String(data: data, encoding: .utf8)
+        guard let value = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalized(value)
     }
 }
 
@@ -701,9 +876,21 @@ struct CMUXCLI {
 
         let command = args[index]
         let commandArgs = Array(args[(index + 1)...])
+        let cliTelemetry = CLISocketSentryTelemetry(
+            command: command,
+            commandArgs: commandArgs,
+            socketPath: socketPath,
+            processEnv: ProcessInfo.processInfo.environment
+        )
 
         if command == "version" {
             print(versionSummary())
+            return
+        }
+
+        // If the argument looks like a path (not a known command), open a workspace there.
+        if looksLikePath(command) {
+            try openPath(command, socketPath: socketPath)
             return
         }
 
@@ -713,10 +900,23 @@ struct CMUXCLI {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
             }
+            print("Unknown command '\(command)'. Run 'cmux help' to see available commands.")
+            return
         }
 
         let client = SocketClient(path: socketPath)
-        try client.connect()
+        cliTelemetry.breadcrumb(
+            "socket.connect.attempt",
+            data: ["command": command]
+        )
+        do {
+            try client.connect()
+            cliTelemetry.breadcrumb("socket.connect.success")
+        } catch {
+            cliTelemetry.breadcrumb("socket.connect.failure")
+            cliTelemetry.captureError(stage: "socket_connect", error: error)
+            throw error
+        }
         defer { client.close() }
 
         if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
@@ -879,22 +1079,25 @@ struct CMUXCLI {
             }
 
         case "new-workspace":
-            let (commandOpt, remaining) = parseOption(commandArgs, name: "--command")
+            let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let (cwdOpt, remaining) = parseOption(rem0, name: "--cwd")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --command <text>, --cwd <path>")
             }
-            let response = try sendV1Command("new_workspace", client: client)
-            print(response)
-            if let commandText = commandOpt {
-                guard response.hasPrefix("OK ") else {
-                    throw CLIError(message: "new-workspace failed, cannot run --command")
-                }
-                let wsId = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            var params: [String: Any] = [:]
+            if let cwdOpt {
+                let resolved = resolvePath(cwdOpt)
+                params["cwd"] = resolved
+            }
+            let response = try client.sendV2(method: "workspace.create", params: params)
+            let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            print("OK \(wsId)")
+            if let commandText = commandOpt, !wsId.isEmpty {
                 // Wait for shell to initialize
                 Thread.sleep(forTimeInterval: 0.5)
                 let text = unescapeSendText(commandText + "\\n")
-                let params: [String: Any] = ["text": text, "workspace_id": wsId]
-                _ = try client.sendV2(method: "surface.send_text", params: params)
+                let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
+                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
 
         case "new-split":
@@ -964,6 +1167,9 @@ struct CMUXCLI {
                     }
                 }
             }
+
+        case "tree":
+            try runTreeCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -1297,11 +1503,131 @@ struct CMUXCLI {
             }
 
         case "clear-notifications":
-            let response = try sendV1Command("clear_notifications", client: client)
+            var socketCmd = "clear_notifications"
+            if let wsFlag = optionValue(commandArgs, name: "--workspace") {
+                let wsId = try resolveWorkspaceId(wsFlag, client: client)
+                socketCmd += " --tab=\(wsId)"
+            } else if windowId == nil,
+                      let envWs = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                      let wsId = try? resolveWorkspaceId(envWs, client: client) {
+                socketCmd += " --tab=\(wsId)"
+            }
+            let response = try sendV1Command(socketCmd, client: client)
             print(response)
 
         case "claude-hook":
-            try runClaudeHook(commandArgs: commandArgs, client: client)
+            cliTelemetry.breadcrumb("claude-hook.dispatch")
+            do {
+                try runClaudeHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("claude-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("claude-hook.failure")
+                cliTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "set-status":
+            let (icon, r1) = parseOption(commandArgs, name: "--icon")
+            let (color, r2) = parseOption(r1, name: "--color")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            guard r3.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = r3[0]
+            let value = r3.dropFirst().joined(separator: " ")
+            guard !value.isEmpty else {
+                throw CLIError(message: "set-status requires a non-empty value")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_status \(key) \(socketQuote(value))"
+            if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
+            if let color { socketCmd += " --color=\(socketQuote(color))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-status":
+            let (wsFlag, csRemaining) = parseOption(commandArgs, name: "--workspace")
+            guard let key = csRemaining.first else {
+                throw CLIError(message: "clear-status requires a <key>")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-status":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("list_status --tab=\(wsId)", client: client)
+            print(response)
+
+        case "set-progress":
+            let (label, spR1) = parseOption(commandArgs, name: "--label")
+            let (wsFlag, spR2) = parseOption(spR1, name: "--workspace")
+            guard let valueStr = spR2.first else {
+                throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_progress \(valueStr)"
+            if let label { socketCmd += " --label=\(socketQuote(label))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-progress":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_progress --tab=\(wsId)", client: client)
+            print(response)
+
+        case "log":
+            let (level, r1) = parseOption(commandArgs, name: "--level")
+            let (source, r2) = parseOption(r1, name: "--source")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            // Strip leading "--" separator if present
+            let positional = r3.first == "--" ? Array(r3.dropFirst()) : r3
+            let message = positional.joined(separator: " ")
+            guard !message.isEmpty else {
+                throw CLIError(message: "log requires a message")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "log"
+            if let level { socketCmd += " --level=\(level)" }
+            if let source { socketCmd += " --source=\(socketQuote(source))" }
+            socketCmd += " --tab=\(wsId) -- \(socketQuote(message))"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-log":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_log --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-log":
+            let (limitStr, r1) = parseOption(commandArgs, name: "--limit")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "list_log"
+            if let limitStr { socketCmd += " --limit=\(limitStr)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "sidebar-state":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
+            print(response)
 
         case "codex-hook":
             try runCodexHook(commandArgs: commandArgs, client: client)
@@ -1390,6 +1716,97 @@ struct CMUXCLI {
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
         }
+    }
+
+    private func resolvePath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        if expanded.hasPrefix("/") { return expanded }
+        let cwd = FileManager.default.currentDirectoryPath
+        return (cwd as NSString).appendingPathComponent(expanded)
+    }
+
+    /// Returns true if the argument looks like a filesystem path rather than a CLI command.
+    private func looksLikePath(_ arg: String) -> Bool {
+        if arg == "." || arg == ".." { return true }
+        if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
+        if arg.contains("/") { return true }
+        return false
+    }
+
+    /// Open a path in cmux by creating a new workspace with the given directory.
+    /// Launches the app if it isn't already running.
+    private func openPath(_ path: String, socketPath: String) throws {
+        let resolved = resolvePath(path)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
+
+        let directory: String
+        if exists && isDir.boolValue {
+            directory = resolved
+        } else if exists {
+            // It's a file; use its parent directory
+            directory = (resolved as NSString).deletingLastPathComponent
+        } else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+
+        // Try connecting to the socket. If it fails, launch the app and retry.
+        let client = SocketClient(path: socketPath)
+        if (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+            // Poll until socket accepts connections (up to 10 seconds)
+            let pollClient = SocketClient(path: socketPath)
+            var connected = false
+            for _ in 0..<100 {
+                if (try? pollClient.connect()) != nil {
+                    connected = true
+                    break
+                }
+                pollClient.close()
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            guard connected else {
+                throw CLIError(message: "cmux app did not start in time (socket not found at \(socketPath))")
+            }
+            // Use pollClient since it's connected
+            defer { pollClient.close() }
+            let params: [String: Any] = ["cwd": directory]
+            let response = try pollClient.sendV2(method: "workspace.create", params: params)
+            let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+            if !wsRef.isEmpty {
+                print("OK \(wsRef)")
+            }
+            try activateApp()
+            return
+        }
+        defer { client.close() }
+
+        let params: [String: Any] = ["cwd": directory]
+        let response = try client.sendV2(method: "workspace.create", params: params)
+        let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
+        if !wsRef.isEmpty {
+            print("OK \(wsRef)")
+        }
+
+        // Bring the app to front
+        try activateApp()
+    }
+
+    private func launchApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func activateApp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "cmux"]
+        try process.run()
+        process.waitUntilExit()
     }
 
     private func sendV1Command(_ command: String, client: SocketClient) throws -> String {
@@ -2105,6 +2522,59 @@ struct CMUXCLI {
             }
         }
 
+        func displayBrowserValue(_ value: Any) -> String {
+            if let dict = value as? [String: Any],
+               let type = dict["__cmux_t"] as? String,
+               type == "undefined" {
+                return "undefined"
+            }
+            if value is NSNull {
+                return "null"
+            }
+            if let string = value as? String {
+                return string
+            }
+            if let bool = value as? Bool {
+                return bool ? "true" : "false"
+            }
+            if let number = value as? NSNumber {
+                return number.stringValue
+            }
+            if JSONSerialization.isValidJSONObject(value),
+               let data = try? JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted]),
+               let text = String(data: data, encoding: .utf8) {
+                return text
+            }
+            return String(describing: value)
+        }
+
+        func displayBrowserLogItems(_ value: Any?) -> String? {
+            guard let items = value as? [Any], !items.isEmpty else {
+                return nil
+            }
+
+            let lines = items.map { item -> String in
+                guard let dict = item as? [String: Any] else {
+                    return displayBrowserValue(item)
+                }
+
+                let text = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let levelRaw = (dict["level"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let level = levelRaw.isEmpty ? "log" : levelRaw
+
+                if text.isEmpty {
+                    if let message = (dict["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !message.isEmpty {
+                        return "[error] \(message)"
+                    }
+                    return displayBrowserValue(dict)
+                }
+                return "[\(level)] \(text)"
+            }
+
+            return lines.joined(separator: "\n")
+        }
+
         func nonFlagArgs(_ values: [String]) -> [String] {
             values.filter { !$0.hasPrefix("-") }
         }
@@ -2130,6 +2600,17 @@ struct CMUXCLI {
             let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, urlArgs) = parseOption(argsAfterWorkspace, name: "--window")
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let respectExternalOpenRules: Bool = {
+                guard let raw = ProcessInfo.processInfo.environment["CMUX_RESPECT_EXTERNAL_OPEN_RULES"] else {
+                    return false
+                }
+                switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "1", "true", "yes", "on":
+                    return true
+                default:
+                    return false
+                }
+            }()
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
@@ -2154,6 +2635,9 @@ struct CMUXCLI {
                 if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
                     params["workspace_id"] = workspace
                 }
+            }
+            if respectExternalOpenRules {
+                params["respect_external_open_rules"] = true
             }
             if let windowRaw = windowOpt {
                 if let window = try normalizeWindowHandle(windowRaw, client: client) {
@@ -2272,7 +2756,13 @@ struct CMUXCLI {
                 throw CLIError(message: "browser eval requires a script")
             }
             let payload = try client.sendV2(method: "browser.eval", params: ["surface_id": sid, "script": trimmed])
-            output(payload, fallback: "OK")
+            let fallback: String
+            if let value = payload["value"] {
+                fallback = displayBrowserValue(value)
+            } else {
+                fallback = "OK"
+            }
+            output(payload, fallback: fallback)
             return
         }
 
@@ -2883,7 +3373,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser console subcommand: \(consoleVerb)")
             }
             let payload = try client.sendV2(method: method, params: ["surface_id": sid])
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["entries"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
@@ -2897,7 +3388,8 @@ struct CMUXCLI {
                 throw CLIError(message: "Unsupported browser errors subcommand: \(errorsVerb)")
             }
             let payload = try client.sendV2(method: "browser.errors.list", params: params)
-            output(payload, fallback: "OK")
+            let fallback = displayBrowserLogItems(payload["errors"]) ?? "OK"
+            output(payload, fallback: fallback)
             return
         }
 
@@ -3228,10 +3720,59 @@ struct CMUXCLI {
         throw CLIError(message: "Unable to resolve surface ID")
     }
 
-    /// Return the help/usage text for a subcommand, or nil if the command has no
-    /// dedicated help (e.g. simple no-arg commands like `ping`).
+    /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
+        case "ping":
+            return """
+            Usage: cmux ping
+
+            Check connectivity to the cmux socket server.
+            """
+        case "capabilities":
+            return """
+            Usage: cmux capabilities
+
+            Print server capabilities as JSON.
+            """
+        case "help":
+            return """
+            Usage: cmux help
+
+            Show top-level CLI usage and command list.
+            """
+        case "identify":
+            return """
+            Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
+
+            Print server identity and caller context details.
+
+            Flags:
+              --workspace <id|ref|index>   Caller workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Caller surface context (default: $CMUX_SURFACE_ID)
+              --no-caller                  Omit caller context from the request
+            """
+        case "list-windows":
+            return """
+            Usage: cmux list-windows
+
+            List open windows.
+            """
+        case "current-window":
+            return """
+            Usage: cmux current-window
+
+            Print the currently selected window ID.
+            """
+        case "new-window":
+            return """
+            Usage: cmux new-window
+
+            Create a new window.
+
+            Example:
+              cmux new-window
+            """
         case "focus-window":
             return """
             Usage: cmux focus-window --window <id|ref|index>
@@ -3260,47 +3801,56 @@ struct CMUXCLI {
             """
         case "move-workspace-to-window":
             return """
-            Usage: cmux move-workspace-to-window --workspace <id|ref> --window <id|ref>
+            Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
 
             Move a workspace to a different window.
 
             Flags:
-              --workspace <id|ref>   Workspace to move (required)
-              --window <id|ref>      Target window (required)
+              --workspace <id|ref|index>   Workspace to move (required)
+              --window <id|ref|index>      Target window (required)
 
             Example:
               cmux move-workspace-to-window --workspace workspace:2 --window window:1
             """
         case "move-surface":
             return """
-            Usage: cmux move-surface --surface <id|ref|index> [flags]
+            Usage: cmux move-surface [--surface <id|ref|index> | <id|ref|index>] [flags]
 
             Move a surface to a different pane, workspace, or window.
 
             Flags:
-              --surface <id|ref|index>   Surface to move (required)
+              --surface <id|ref|index>   Surface to move (required unless passed positionally)
               --pane <id|ref|index>      Target pane
               --workspace <id|ref|index> Target workspace
               --window <id|ref|index>    Target window
               --before <id|ref|index>    Place before this surface
+              --before-surface <id|ref|index>
+                                       Alias for --before
               --after <id|ref|index>     Place after this surface
+              --after-surface <id|ref|index>
+                                       Alias for --after
               --index <n>                Place at this index
               --focus <true|false>       Focus the surface after moving
 
             Example:
               cmux move-surface --surface surface:1 --workspace workspace:2
-              cmux move-surface --surface 0 --pane pane:2 --index 0
+              cmux move-surface surface:1 --pane pane:2 --index 0
             """
         case "reorder-surface":
             return """
-            Usage: cmux reorder-surface --surface <id|ref|index> [flags]
+            Usage: cmux reorder-surface [--surface <id|ref|index> | <id|ref|index>] [flags]
 
             Reorder a surface within its pane.
 
             Flags:
-              --surface <id|ref|index>   Surface to reorder (required)
+              --surface <id|ref|index>   Surface to reorder (required unless passed positionally)
+              --workspace <id|ref|index> Workspace context
               --before <id|ref|index>    Place before this surface
+              --before-surface <id|ref|index>
+                                       Alias for --before
               --after <id|ref|index>     Place after this surface
+              --after-surface <id|ref|index>
+                                       Alias for --after
               --index <n>                Place at this index
 
             Example:
@@ -3309,15 +3859,19 @@ struct CMUXCLI {
             """
         case "reorder-workspace":
             return """
-            Usage: cmux reorder-workspace --workspace <id|ref|index> [flags]
+            Usage: cmux reorder-workspace [--workspace <id|ref|index> | <id|ref|index>] [flags]
 
             Reorder a workspace within its window.
 
             Flags:
-              --workspace <id|ref|index>   Workspace to reorder (required)
+              --workspace <id|ref|index>   Workspace to reorder (required unless passed positionally)
               --index <n>                  Place at this index
               --before <id|ref|index>      Place before this workspace
+              --before-workspace <id|ref|index>
+                                         Alias for --before
               --after <id|ref|index>       Place after this workspace
+              --after-workspace <id|ref|index>
+                                         Alias for --after
               --window <id|ref|index>      Window context
 
             Example:
@@ -3340,7 +3894,7 @@ struct CMUXCLI {
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
-              --title <text>               Title for rename
+              --title <text>               Title for rename (or pass trailing title text)
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
@@ -3363,10 +3917,10 @@ struct CMUXCLI {
 
             Flags:
               --action <name>              Action name (required if not positional)
-              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; alias: --surface)
+              --tab <id|ref|index>         Target tab (accepts tab:<n> or surface:<n>; default: $CMUX_TAB_ID, then $CMUX_SURFACE_ID, then focused tab)
               --surface <id|ref|index>     Alias for --tab (backward compatibility)
               --workspace <id|ref|index>   Workspace context (default: current/$CMUX_WORKSPACE_ID)
-              --title <text>               Title for rename
+              --title <text>               Title for rename (or pass trailing title text)
               --url <url>                  Optional URL for new-browser-right
 
             Example:
@@ -3396,12 +3950,27 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace
+            Usage: cmux new-workspace [--cwd <path>] [--command <text>]
 
             Create a new workspace in the current window.
 
+            Flags:
+              --cwd <path>      Set the working directory for the new workspace
+              --command <text>   Send text+Enter to the new workspace after creation
+
             Example:
               cmux new-workspace
+              cmux new-workspace --cwd ~/projects/myapp
+              cmux new-workspace --cwd . --command "npm test"
+            """
+        case "list-workspaces":
+            return """
+            Usage: cmux list-workspaces
+
+            List workspaces in the current window.
+
+            Example:
+              cmux list-workspaces
             """
         case "new-split":
             return """
@@ -3418,18 +3987,72 @@ struct CMUXCLI {
               cmux new-split right
               cmux new-split down --workspace workspace:1
             """
+        case "list-panes":
+            return """
+            Usage: cmux list-panes [--workspace <id|ref>]
+
+            List panes in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panes
+              cmux list-panes --workspace workspace:2
+            """
+        case "list-pane-surfaces":
+            return """
+            Usage: cmux list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
+
+            List surfaces in a pane.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>        Restrict to a specific pane (default: focused pane)
+
+            Example:
+              cmux list-pane-surfaces
+              cmux list-pane-surfaces --workspace workspace:2 --pane pane:1
+            """
+        case "tree":
+            return """
+            Usage: cmux tree [flags]
+
+            Print the hierarchy of windows, workspaces, panes, and surfaces.
+
+            Flags:
+              --all                         Include all windows (default: current window only)
+              --workspace <id|ref|index>   Show only one workspace
+              --json                        Structured JSON output
+
+            Output:
+              Text mode prints a box-drawing tree with markers:
+              - ◀ active (true focused window/workspace/pane/surface path)
+              - ◀ here (caller surface where `cmux tree` was invoked)
+              - workspace [selected]
+              - pane [focused]
+              - surface [selected]
+              Browser surfaces also include their current URL.
+
+            Example:
+              cmux tree
+              cmux tree --all
+              cmux tree --workspace workspace:2
+              cmux --json tree --all
+            """
         case "focus-pane":
             return """
-            Usage: cmux focus-pane --pane <id|ref> [flags]
+            Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
 
             Focus the specified pane.
 
             Flags:
-              --pane <id|ref>          Pane to focus (required)
+              --pane <id|ref>          Pane to focus (required unless passed positionally)
               --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)
 
             Example:
               cmux focus-pane --pane pane:2
+              cmux focus-pane pane:1
               cmux focus-pane --pane pane:1 --workspace workspace:2
             """
         case "new-pane":
@@ -3493,26 +4116,87 @@ struct CMUXCLI {
               cmux drag-surface-to-split --surface surface:1 right
               cmux drag-surface-to-split --panel surface:2 down
             """
+        case "refresh-surfaces":
+            return """
+            Usage: cmux refresh-surfaces
+
+            Refresh surface snapshots for the focused workspace.
+            """
+        case "surface-health":
+            return """
+            Usage: cmux surface-health [--workspace <id|ref>]
+
+            List health details for surfaces in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux surface-health
+              cmux surface-health --workspace workspace:2
+            """
+        case "trigger-flash":
+            return """
+            Usage: cmux trigger-flash [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+
+            Trigger the unread flash indicator for a surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --panel <id|ref>       Alias for --surface
+
+            Example:
+              cmux trigger-flash
+              cmux trigger-flash --workspace workspace:2 --surface surface:3
+            """
+        case "list-panels":
+            return """
+            Usage: cmux list-panels [--workspace <id|ref>]
+
+            List surfaces (panels) in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-panels
+              cmux list-panels --workspace workspace:2
+            """
+        case "focus-panel":
+            return """
+            Usage: cmux focus-panel --panel <id|ref> [--workspace <id|ref>]
+
+            Focus a specific panel (surface).
+
+            Flags:
+              --panel <id|ref>       Panel/surface to focus (required)
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux focus-panel --panel surface:2
+              cmux focus-panel --panel surface:5 --workspace workspace:2
+            """
         case "close-workspace":
             return """
-            Usage: cmux close-workspace --workspace <id|ref>
+            Usage: cmux close-workspace --workspace <id|ref|index>
 
             Close the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to close (required)
+              --workspace <id|ref|index>   Workspace to close (required)
 
             Example:
               cmux close-workspace --workspace workspace:2
             """
         case "select-workspace":
             return """
-            Usage: cmux select-workspace --workspace <id|ref>
+            Usage: cmux select-workspace --workspace <id|ref|index>
 
             Select (switch to) the specified workspace.
 
             Flags:
-              --workspace <id|ref>   Workspace to select (required)
+              --workspace <id|ref|index>   Workspace to select (required)
 
             Example:
               cmux select-workspace --workspace workspace:2
@@ -3520,17 +4204,23 @@ struct CMUXCLI {
             """
         case "rename-workspace", "rename-window":
             return """
-            Usage: cmux rename-workspace [--workspace <id|ref>] [--] <title>
+            Usage: cmux rename-workspace [--workspace <id|ref|index>] [--] <title>
 
             Rename a workspace. Defaults to the current workspace.
             tmux-compatible alias: rename-window
 
             Flags:
-              --workspace <id|ref>   Workspace to rename (default: current workspace)
+              --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
 
             Example:
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
+            """
+        case "current-workspace":
+            return """
+            Usage: cmux current-workspace
+
+            Print the currently selected workspace ID.
             """
         case "capture-pane":
             return """
@@ -3538,33 +4228,186 @@ struct CMUXCLI {
 
             tmux-compatible alias for reading terminal text from a pane.
 
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: $CMUX_SURFACE_ID)
+              --scrollback           Include scrollback
+              --lines <n>            Return only the last N lines (implies --scrollback)
+
             Example:
               cmux capture-pane --workspace workspace:2 --surface surface:1 --scrollback --lines 200
             """
         case "resize-pane":
             return """
-            Usage: cmux resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+            Usage: cmux resize-pane [--pane <id|ref>] [--workspace <id|ref>] [-L|-R|-U|-D] [--amount <n>]
 
             tmux-compatible pane resize command.
-            Note: currently returns not_supported until programmable divider resize is implemented.
+
+            Flags:
+              --pane <id|ref>        Pane to resize (default: focused pane)
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              -L|-R|-U|-D            Direction (default: -R)
+              --amount <n>           Resize amount (default: 1)
             """
         case "pipe-pane":
             return """
-            Usage: cmux pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
+            Usage: cmux pipe-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <shell-command> | <shell-command>]
 
             Capture pane text and pipe it to a shell command via stdin.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+              --command <command>    Shell command to run (or pass as trailing text)
             """
         case "wait-for":
             return """
             Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]
 
             Wait for or signal a named synchronization token.
-            """
-        case "swap-pane", "break-pane", "join-pane", "next-window", "previous-window", "last-window", "last-pane", "find-window", "clear-history", "set-hook", "popup", "bind-key", "unbind-key", "copy-mode", "set-buffer", "paste-buffer", "list-buffers", "respawn-pane", "display-message":
-            return """
-            Usage: cmux \(command) --help
 
-            tmux compatibility command. See `cmux --help` for exact syntax.
+            Flags:
+              -S, --signal           Signal the token instead of waiting
+              --timeout <seconds>    Wait timeout (default: 30)
+            """
+        case "swap-pane":
+            return """
+            Usage: cmux swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
+
+            Swap two panes.
+
+            Flags:
+              --pane <id|ref>         Source pane (required)
+              --target-pane <id|ref>  Target pane (required)
+              --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+            """
+        case "break-pane":
+            return """
+            Usage: cmux break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+
+            Move a pane/surface out into its own pane context.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>        Source pane
+              --surface <id|ref>     Source surface
+              --no-focus             Do not focus the result
+            """
+        case "join-pane":
+            return """
+            Usage: cmux join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+
+            Join a pane/surface into another pane.
+
+            Flags:
+              --target-pane <id|ref>  Target pane (required)
+              --workspace <id|ref>    Workspace context (default: $CMUX_WORKSPACE_ID)
+              --pane <id|ref>         Source pane
+              --surface <id|ref>      Source surface
+              --no-focus              Do not focus the result
+            """
+        case "next-window", "previous-window", "last-window":
+            return """
+            Usage: cmux \(command)
+
+            Switch workspace selection (next/previous/last) in the current window.
+            """
+        case "last-pane":
+            return """
+            Usage: cmux last-pane [--workspace <id|ref>]
+
+            Focus the previously focused pane in a workspace.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+            """
+        case "find-window":
+            return """
+            Usage: cmux find-window [--content] [--select] [query]
+
+            Find workspaces by title (and optionally terminal content).
+
+            Flags:
+              --content   Search terminal content in addition to workspace titles
+              --select    Select the first match
+            """
+        case "clear-history":
+            return """
+            Usage: cmux clear-history [--workspace <id|ref>] [--surface <id|ref>]
+
+            Clear terminal scrollback history.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+            """
+        case "set-hook":
+            return """
+            Usage: cmux set-hook [--list] [--unset <event>] | <event> <command>
+
+            Manage tmux-compat hook definitions.
+
+            Flags:
+              --list            List configured hooks
+              --unset <event>   Remove a hook by event name
+            """
+        case "popup":
+            return """
+            Usage: cmux popup
+
+            tmux compatibility placeholder. This command is currently not supported.
+            """
+        case "bind-key", "unbind-key", "copy-mode":
+            return """
+            Usage: cmux \(command)
+
+            tmux compatibility placeholder. This command is currently not supported.
+            """
+        case "set-buffer":
+            return """
+            Usage: cmux set-buffer [--name <name>] [--] <text>
+
+            Save text into a named tmux-compat buffer.
+
+            Flags:
+              --name <name>   Buffer name (default: default)
+            """
+        case "paste-buffer":
+            return """
+            Usage: cmux paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+
+            Paste a named tmux-compat buffer into a surface.
+
+            Flags:
+              --name <name>         Buffer name (default: default)
+              --workspace <id|ref>  Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>    Surface context (default: focused surface)
+            """
+        case "list-buffers":
+            return """
+            Usage: cmux list-buffers
+
+            List tmux-compat buffers.
+            """
+        case "respawn-pane":
+            return """
+            Usage: cmux respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd> | <cmd>]
+
+            Send a command (or default shell restart command) to a surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Surface context (default: focused surface)
+              --command <cmd>        Command text (or pass trailing command text)
+            """
+        case "display-message":
+            return """
+            Usage: cmux display-message [-p|--print] <text>
+
+            Print text (or show it via notification bridge in parity mode).
+
+            Flags:
+              -p, --print   Print to stdout only
             """
         case "read-screen":
             return """
@@ -3654,16 +4497,172 @@ struct CMUXCLI {
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
             """
+        case "list-notifications":
+            return """
+            Usage: cmux list-notifications
+
+            List queued notifications.
+            """
+        case "clear-notifications":
+            return """
+            Usage: cmux clear-notifications
+
+            Clear all queued notifications.
+            """
+        case "set-status":
+            return """
+            Usage: cmux set-status <key> <value> [flags]
+
+            Set a sidebar status entry for a workspace. Status entries appear as
+            pills in the sidebar tab row. Use a unique key so different tools
+            (e.g. "claude_code", "build") can manage their own entries.
+
+            Flags:
+              --icon <name>          Icon name (e.g. "sparkle", "hammer")
+              --color <#hex>         Pill color (e.g. "#ff9500")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-status build "compiling" --icon hammer --color "#ff9500"
+              cmux set-status deploy "v1.2.3" --workspace workspace:2
+            """
+        case "clear-status":
+            return """
+            Usage: cmux clear-status <key> [flags]
+
+            Remove a sidebar status entry by key.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-status build
+            """
+        case "list-status":
+            return """
+            Usage: cmux list-status [flags]
+
+            List all sidebar status entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-status
+              cmux list-status --workspace workspace:2
+            """
+        case "set-progress":
+            return """
+            Usage: cmux set-progress <0.0-1.0> [flags]
+
+            Set a progress bar in the sidebar for a workspace.
+
+            Flags:
+              --label <text>         Label shown next to the progress bar
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-progress 0.5 --label "Building..."
+              cmux set-progress 1.0 --label "Done"
+            """
+        case "clear-progress":
+            return """
+            Usage: cmux clear-progress [flags]
+
+            Clear the sidebar progress bar for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-progress
+            """
+        case "log":
+            return """
+            Usage: cmux log [flags] [--] <message>
+
+            Append a log entry to the sidebar for a workspace.
+
+            Flags:
+              --level <level>        Log level: info, progress, success, warning, error (default: info)
+              --source <name>        Source label (e.g. "build", "test")
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux log "Build started"
+              cmux log --level error --source build "Compilation failed"
+              cmux log --level success -- "All 42 tests passed"
+            """
+        case "clear-log":
+            return """
+            Usage: cmux clear-log [flags]
+
+            Clear all sidebar log entries for a workspace.
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-log
+            """
+        case "list-log":
+            return """
+            Usage: cmux list-log [flags]
+
+            List sidebar log entries for a workspace.
+
+            Flags:
+              --limit <n>            Show only the last N entries
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux list-log
+              cmux list-log --limit 5
+            """
+        case "sidebar-state":
+            return """
+            Usage: cmux sidebar-state [flags]
+
+            Dump all sidebar metadata for a workspace (cwd, git branch, ports,
+            status entries, progress, log entries).
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux sidebar-state
+              cmux sidebar-state --workspace workspace:2
+            """
+        case "set-app-focus":
+            return """
+            Usage: cmux set-app-focus <active|inactive|clear>
+
+            Override app focus state for notification routing tests.
+
+            Example:
+              cmux set-app-focus inactive
+              cmux set-app-focus clear
+            """
+        case "simulate-app-active":
+            return """
+            Usage: cmux simulate-app-active
+
+            Trigger the app-active handler used by notification focus tests.
+            """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|stop|notification> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
             Subcommands:
               session-start   Signal that a Claude session has started
+              active          Alias for session-start
               stop            Signal that a Claude session has stopped
+              idle            Alias for stop
               notification    Forward a Claude notification
+              notify          Alias for notification
+              prompt-submit   Clear notification and set Running on user prompt
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -3699,29 +4698,81 @@ struct CMUXCLI {
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
 
             Browser automation commands. Most subcommands require a surface handle.
+            A surface can be passed as `--surface <handle>` or as the first positional token.
+            `open`/`open-split`/`new`/`identify` can run without an explicit surface.
 
             Subcommands:
-              open [url]                     Create browser split (or navigate if surface given)
-              open-split [url]               Create browser in a new split
-              goto|navigate <url>            Navigate to URL [--snapshot-after]
-              back|forward|reload            History navigation [--snapshot-after]
-              url|get-url                    Get current URL
-              snapshot                       Get DOM snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
-              eval <script>                  Evaluate JavaScript
-              wait                           Wait for condition [--selector] [--text] [--url-contains] [--timeout-ms]
-              click|dblclick|hover <sel>     Mouse actions [--snapshot-after]
-              type <selector> <text>         Type text [--snapshot-after]
-              fill <selector> [text]         Fill input [--snapshot-after]
-              press|keydown|keyup <key>      Keyboard actions [--snapshot-after]
-              get <property> [selector]      Get page properties (url|title|text|html|value|attr|count|box|styles)
-              find <strategy> <query>        Find elements (role|text|label|placeholder|testid|first|last|nth)
-              identify                       Identify browser surface
+              open|open-split|new [url] [--workspace <id|ref|index>] [--window <id|ref|index>]
+                open/open-split/new default to $CMUX_WORKSPACE_ID when --workspace is omitted and --window is not set
+              goto|navigate <url> [--snapshot-after]
+              back|forward|reload [--snapshot-after]
+              url|get-url
+              focus-webview | is-webview-focused
+              snapshot [--interactive|-i] [--cursor] [--compact] [--max-depth <n>] [--selector <css>]
+              eval [--script <js> | <js>]
+              wait [--selector <css>] [--text <text>] [--url-contains <text>|--url <text>] [--load-state <interactive|complete>] [--function <js>] [--timeout-ms <ms>|--timeout <seconds>]
+              click|dblclick|hover|focus|check|uncheck|scroll-into-view [--selector <css> | <css>] [--snapshot-after]
+              type|fill [--selector <css> | <css>] [--text <text> | <text>] [--snapshot-after]
+              press|key|keydown|keyup [--key <key> | <key>] [--snapshot-after]
+              select [--selector <css> | <css>] [--value <value> | <value>] [--snapshot-after]
+              scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
+              screenshot [--out <path>]
+              get <url|title|text|html|value|attr|count|box|styles> [...]
+                text|html|value|count|box|styles|attr: [--selector <css> | <css>]
+                attr: [--attr <name> | <name>]
+                styles: [--property <name>]
+              is <visible|enabled|checked> [--selector <css> | <css>]
+              find <role|text|label|placeholder|alt|title|testid|first|last|nth> [...]
+                role: [--name <text>] [--exact] <role>
+                text|label|placeholder|alt|title|testid: [--exact] <text>
+                first|last: [--selector <css> | <css>]
+                nth: [--index <n> | <n>] [--selector <css> | <css>]
+              frame <main|selector> [--selector <css>]
+              dialog <accept|dismiss> [text]
+              download [wait] [--path <path>] [--timeout-ms <ms>|--timeout <seconds>]
+              cookies <get|set|clear> [--name <name>] [--value <value>] [--url <url>] [--domain <domain>] [--path <path>] [--expires <unix>] [--secure] [--all]
+              storage <local|session> <get|set|clear> [...]
+              tab <new|list|switch|close|<index>> [...]
+              console <list|clear>
+              errors <list|clear>
+              highlight [--selector <css> | <css>]
+              state <save|load> <path>
+              addinitscript|addscript [--script <js> | <js>]
+              addstyle [--css <css> | <css>]
+              viewport <width> <height>
+              geolocation|geo <latitude> <longitude>
+              offline <true|false>
+              trace <start|stop> [path]
+              network <route|unroute|requests> ...
+                route <pattern> [--abort] [--body <text>]
+                unroute <pattern>
+              screencast <start|stop>
+              input <mouse|keyboard|touch> [args...]
+              input_mouse | input_keyboard | input_touch
+              identify [--surface <id|ref|index>]
 
             Example:
               cmux browser open https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
             """
+        // Legacy browser aliases — point users to `cmux browser --help`
+        case "open-browser":
+            return "Legacy alias for 'cmux browser open'. Run 'cmux browser --help' for details."
+        case "navigate":
+            return "Legacy alias for 'cmux browser navigate'. Run 'cmux browser --help' for details."
+        case "browser-back":
+            return "Legacy alias for 'cmux browser back'. Run 'cmux browser --help' for details."
+        case "browser-forward":
+            return "Legacy alias for 'cmux browser forward'. Run 'cmux browser --help' for details."
+        case "browser-reload":
+            return "Legacy alias for 'cmux browser reload'. Run 'cmux browser --help' for details."
+        case "get-url":
+            return "Legacy alias for 'cmux browser get-url'. Run 'cmux browser --help' for details."
+        case "focus-webview":
+            return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
+        case "is-webview-focused":
+            return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
         default:
             return nil
         }
@@ -3735,6 +4786,20 @@ struct CMUXCLI {
         print("")
         print(text)
         return true
+    }
+
+    /// Escape and quote a string for safe embedding in a v1 socket command.
+    /// The socket tokenizer treats `\` and `"` as special inside quoted strings,
+    /// so both must be escaped before wrapping in double quotes. Newlines and
+    /// carriage returns must also be escaped since the socket protocol uses
+    /// newline as the message terminator.
+    private func socketQuote(_ s: String) -> String {
+        let escaped = s
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+        return "\"\(escaped)\""
     }
 
     private func parseOption(_ args: [String], name: String) -> (String?, [String]) {
@@ -3808,6 +4873,536 @@ struct CMUXCLI {
             if let handle = formatHandle(payload, kind: kind, idFormat: idFormat) {
                 parts.append(handle)
             }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private struct TreeCommandOptions {
+        let includeAllWindows: Bool
+        let workspaceHandle: String?
+        let jsonOutput: Bool
+    }
+
+    private struct TreePath {
+        let windowHandle: String?
+        let workspaceHandle: String?
+        let paneHandle: String?
+        let surfaceHandle: String?
+    }
+
+    private func runTreeCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let options = try parseTreeCommandOptions(commandArgs)
+        let payload = try buildTreePayload(options: options, client: client)
+        if jsonOutput || options.jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let windows = payload["windows"] as? [[String: Any]] ?? []
+            print(renderTreeText(windows: windows, idFormat: idFormat))
+        }
+    }
+
+    private func parseTreeCommandOptions(_ args: [String]) throws -> TreeCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        if rem0.contains("--workspace") {
+            throw CLIError(message: "tree requires --workspace <id|ref|index>")
+        }
+
+        var includeAll = false
+        var jsonOutput = false
+        var remaining: [String] = []
+        for arg in rem0 {
+            if arg == "--all" {
+                includeAll = true
+                continue
+            }
+            if arg == "--json" {
+                jsonOutput = true
+                continue
+            }
+            remaining.append(arg)
+        }
+
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "tree: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "tree: unexpected argument '\(extra)'")
+        }
+
+        return TreeCommandOptions(includeAllWindows: includeAll, workspaceHandle: workspaceOpt, jsonOutput: jsonOutput)
+    }
+
+    private func buildTreePayload(
+        options: TreeCommandOptions,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var params: [String: Any] = ["all_windows": options.includeAllWindows]
+        if let workspaceRaw = options.workspaceHandle {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+            params["workspace_id"] = workspaceHandle
+        }
+        if let caller = treeCallerContextFromEnvironment() {
+            params["caller"] = caller
+        }
+
+        do {
+            let payload = try client.sendV2(method: "system.tree", params: params)
+            return treePayloadWithMarkers(payload)
+        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+            // Back-compat fallback for older servers that don't support system.tree.
+            return try buildLegacyTreePayload(options: options, params: params, client: client)
+        }
+    }
+
+    private func buildLegacyTreePayload(
+        options: TreeCommandOptions,
+        params: [String: Any],
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var identifyParams: [String: Any] = [:]
+        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
+            identifyParams["caller"] = caller
+        }
+
+        let identifyPayload = try client.sendV2(method: "system.identify", params: identifyParams)
+        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
+        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
+        let activePath = parseTreePath(payload: focused)
+        let windows = try buildTreeWindowNodes(options: options, activePath: activePath, client: client)
+
+        return treePayloadWithMarkers([
+            "active": focused.isEmpty ? NSNull() : focused,
+            "caller": caller.isEmpty ? NSNull() : caller,
+            "windows": windows
+        ])
+    }
+
+    private func buildTreeWindowNodes(
+        options: TreeCommandOptions,
+        activePath: TreePath,
+        client: SocketClient
+    ) throws -> [[String: Any]] {
+        let windowsPayload = try client.sendV2(method: "window.list")
+        let allWindows = windowsPayload["windows"] as? [[String: Any]] ?? []
+
+        if let workspaceRaw = options.workspaceHandle {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+
+            let workspaceListPayload = try client.sendV2(method: "workspace.list", params: ["workspace_id": workspaceHandle])
+            let workspaceWindowHandle = (workspaceListPayload["window_ref"] as? String) ?? (workspaceListPayload["window_id"] as? String)
+            let window = allWindows.first(where: { treeItemMatchesHandle($0, handle: workspaceWindowHandle) })
+                ?? treeFallbackWindow(from: workspaceListPayload)
+
+            let workspaces = workspaceListPayload["workspaces"] as? [[String: Any]] ?? []
+            if workspaces.isEmpty {
+                throw CLIError(message: "Workspace not found")
+            }
+            let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+            var node = window
+            let isActiveWindow = treeItemMatchesHandle(node, handle: activePath.windowHandle)
+            node["current"] = isActiveWindow
+            node["active"] = isActiveWindow
+            node["workspaces"] = workspaceNodes
+            node["workspace_count"] = workspaceNodes.count
+            return [node]
+        }
+
+        let targetWindows: [[String: Any]]
+        if options.includeAllWindows {
+            targetWindows = allWindows
+        } else if let currentWindowHandle = activePath.windowHandle {
+            let currentOnly = allWindows.filter { treeItemMatchesHandle($0, handle: currentWindowHandle) }
+            targetWindows = currentOnly.isEmpty ? Array(allWindows.prefix(1)) : currentOnly
+        } else {
+            targetWindows = Array(allWindows.prefix(1))
+        }
+
+        return try targetWindows.map {
+            try buildTreeWindowNode(
+                window: $0,
+                activePath: activePath,
+                client: client
+            )
+        }
+    }
+
+    private func treeFallbackWindow(from payload: [String: Any]) -> [String: Any] {
+        let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
+        let selectedWorkspace = workspaces.first(where: { ($0["selected"] as? Bool) == true })
+        return [
+            "id": payload["window_id"] ?? NSNull(),
+            "ref": payload["window_ref"] ?? NSNull(),
+            "index": 0,
+            "key": false,
+            "visible": true,
+            "workspace_count": workspaces.count,
+            "selected_workspace_id": selectedWorkspace?["id"] ?? NSNull(),
+            "selected_workspace_ref": selectedWorkspace?["ref"] ?? NSNull(),
+        ]
+    }
+
+    private func buildTreeWindowNode(
+        window: [String: Any],
+        activePath: TreePath,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var workspaceParams: [String: Any] = [:]
+        if let windowHandle = treeItemHandle(window) {
+            workspaceParams["window_id"] = windowHandle
+        }
+        let workspacePayload = try client.sendV2(method: "workspace.list", params: workspaceParams)
+        let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
+        let workspaceNodes = try workspaces.map { try buildTreeWorkspaceNode(workspace: $0, activePath: activePath, client: client) }
+        var windowNode = window
+        let isActiveWindow = treeItemMatchesHandle(windowNode, handle: activePath.windowHandle)
+        windowNode["current"] = isActiveWindow
+        windowNode["active"] = isActiveWindow
+        windowNode["workspaces"] = workspaceNodes
+        windowNode["workspace_count"] = workspaceNodes.count
+        return windowNode
+    }
+
+    private func buildTreeWorkspaceNode(
+        workspace: [String: Any],
+        activePath: TreePath,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var workspaceNode = workspace
+        guard let workspaceHandle = treeItemHandle(workspace) else {
+            workspaceNode["panes"] = []
+            return workspaceNode
+        }
+
+        let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceHandle])
+        let surfacePayload = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceHandle])
+        let panes = panePayload["panes"] as? [[String: Any]] ?? []
+        let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
+        let browserURLsByHandle = fetchTreeBrowserURLs(
+            workspaceHandle: workspaceHandle,
+            surfaces: surfaces,
+            client: client
+        )
+
+        var surfacesByPane: [String: [[String: Any]]] = [:]
+        for surface in surfaces {
+            var surfaceNode = surface
+            if surfaceNode["selected"] == nil {
+                surfaceNode["selected"] = (surfaceNode["selected_in_pane"] as? Bool) == true
+            }
+            surfaceNode["active"] = treeItemMatchesHandle(surfaceNode, handle: activePath.surfaceHandle)
+
+            let surfaceType = ((surfaceNode["type"] as? String) ?? "").lowercased()
+            if surfaceType == "browser",
+               let url = treeBrowserURL(surface: surfaceNode, urlsByHandle: browserURLsByHandle),
+               !url.isEmpty {
+                surfaceNode["url"] = url
+            } else {
+                surfaceNode["url"] = NSNull()
+            }
+
+            guard let paneHandle = treeRelatedHandle(surfaceNode, refKey: "pane_ref", idKey: "pane_id") else {
+                continue
+            }
+            surfacesByPane[paneHandle, default: []].append(surfaceNode)
+        }
+
+        for paneHandle in surfacesByPane.keys {
+            surfacesByPane[paneHandle]?.sort {
+                let lhs = intFromAny($0["index_in_pane"]) ?? intFromAny($0["index"]) ?? Int.max
+                let rhs = intFromAny($1["index_in_pane"]) ?? intFromAny($1["index"]) ?? Int.max
+                return lhs < rhs
+            }
+        }
+
+        let paneNodes: [[String: Any]] = panes.map { pane in
+            var paneNode = pane
+            paneNode["active"] = treeItemMatchesHandle(paneNode, handle: activePath.paneHandle)
+            if let paneHandle = treeItemHandle(paneNode) {
+                paneNode["surfaces"] = surfacesByPane[paneHandle] ?? []
+            } else {
+                paneNode["surfaces"] = []
+            }
+            return paneNode
+        }
+
+        workspaceNode["active"] = treeItemMatchesHandle(workspaceNode, handle: activePath.workspaceHandle)
+        workspaceNode["panes"] = paneNodes
+        return workspaceNode
+    }
+
+    private func treeItemHandle(_ item: [String: Any]) -> String? {
+        if let ref = item["ref"] as? String, !ref.isEmpty {
+            return ref
+        }
+        if let id = item["id"] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
+    }
+
+    private func treeRelatedHandle(_ item: [String: Any], refKey: String, idKey: String) -> String? {
+        if let ref = item[refKey] as? String, !ref.isEmpty {
+            return ref
+        }
+        if let id = item[idKey] as? String, !id.isEmpty {
+            return id
+        }
+        return nil
+    }
+
+    private func parseTreePath(payload: [String: Any]) -> TreePath {
+        return TreePath(
+            windowHandle: treeRelatedHandle(payload, refKey: "window_ref", idKey: "window_id"),
+            workspaceHandle: treeRelatedHandle(payload, refKey: "workspace_ref", idKey: "workspace_id"),
+            paneHandle: treeRelatedHandle(payload, refKey: "pane_ref", idKey: "pane_id"),
+            surfaceHandle: treeRelatedHandle(payload, refKey: "surface_ref", idKey: "surface_id")
+        )
+    }
+
+    private func treeCallerContextFromEnvironment() -> [String: Any]? {
+        let env = ProcessInfo.processInfo.environment
+        let workspaceRaw = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let surfaceRaw = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        var caller: [String: Any] = [:]
+        if let workspaceRaw, !workspaceRaw.isEmpty {
+            caller["workspace_id"] = workspaceRaw
+        }
+        if let surfaceRaw, !surfaceRaw.isEmpty {
+            caller["surface_id"] = surfaceRaw
+        }
+        return caller.isEmpty ? nil : caller
+    }
+
+    private func treePayloadWithMarkers(_ payload: [String: Any]) -> [String: Any] {
+        let active = payload["active"] as? [String: Any] ?? [:]
+        let caller = payload["caller"] as? [String: Any] ?? [:]
+        let activePath = parseTreePath(payload: active)
+        let callerPath = parseTreePath(payload: caller)
+        var result = payload
+        let windows = payload["windows"] as? [[String: Any]] ?? []
+        result["windows"] = treeApplyMarkers(windows: windows, activePath: activePath, callerPath: callerPath)
+        if result["active"] == nil {
+            result["active"] = active.isEmpty ? NSNull() : active
+        }
+        if result["caller"] == nil {
+            result["caller"] = caller.isEmpty ? NSNull() : caller
+        }
+        return result
+    }
+
+    private func treeApplyMarkers(
+        windows: [[String: Any]],
+        activePath: TreePath,
+        callerPath: TreePath
+    ) -> [[String: Any]] {
+        return windows.map { window in
+            var windowNode = window
+            let isActiveWindow = treeItemMatchesHandle(windowNode, handle: activePath.windowHandle)
+            windowNode["current"] = isActiveWindow
+            windowNode["active"] = isActiveWindow
+
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let workspaceNodes = workspaces.map { workspace in
+                var workspaceNode = workspace
+                workspaceNode["active"] = treeItemMatchesHandle(workspaceNode, handle: activePath.workspaceHandle)
+
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                let paneNodes = panes.map { pane in
+                    var paneNode = pane
+                    paneNode["active"] = treeItemMatchesHandle(paneNode, handle: activePath.paneHandle)
+
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    paneNode["surfaces"] = surfaces.map { surface in
+                        var surfaceNode = surface
+                        surfaceNode["active"] = treeItemMatchesHandle(surfaceNode, handle: activePath.surfaceHandle)
+                        surfaceNode["here"] = treeItemMatchesHandle(surfaceNode, handle: callerPath.surfaceHandle)
+                        return surfaceNode
+                    }
+                    return paneNode
+                }
+
+                workspaceNode["panes"] = paneNodes
+                return workspaceNode
+            }
+
+            windowNode["workspaces"] = workspaceNodes
+            return windowNode
+        }
+    }
+
+    private func fetchTreeBrowserURLs(
+        workspaceHandle: String,
+        surfaces: [[String: Any]],
+        client: SocketClient
+    ) -> [String: String] {
+        let hasBrowserSurfaces = surfaces.contains {
+            (($0["type"] as? String) ?? "").lowercased() == "browser"
+        }
+        guard hasBrowserSurfaces else { return [:] }
+
+        if let payload = try? client.sendV2(
+            method: "browser.tab.list",
+            params: ["workspace_id": workspaceHandle]
+        ) {
+            let tabs = payload["tabs"] as? [[String: Any]] ?? []
+            var urlByHandle: [String: String] = [:]
+            for tab in tabs {
+                guard let url = tab["url"] as? String, !url.isEmpty else { continue }
+                if let id = tab["id"] as? String, !id.isEmpty {
+                    urlByHandle[id] = url
+                }
+                if let ref = tab["ref"] as? String, !ref.isEmpty {
+                    urlByHandle[ref] = url
+                }
+            }
+            return urlByHandle
+        }
+
+        // Fallback for older servers that may not support browser.tab.list.
+        var fallbackURLs: [String: String] = [:]
+        for surface in surfaces {
+            guard ((surface["type"] as? String) ?? "").lowercased() == "browser" else { continue }
+            guard let surfaceHandle = treeItemHandle(surface) else { continue }
+            guard let payload = try? client.sendV2(
+                method: "browser.url.get",
+                params: ["workspace_id": workspaceHandle, "surface_id": surfaceHandle]
+            ),
+            let url = payload["url"] as? String,
+            !url.isEmpty else {
+                continue
+            }
+            fallbackURLs[surfaceHandle] = url
+            if let id = surface["id"] as? String, !id.isEmpty {
+                fallbackURLs[id] = url
+            }
+            if let ref = surface["ref"] as? String, !ref.isEmpty {
+                fallbackURLs[ref] = url
+            }
+        }
+        return fallbackURLs
+    }
+
+    private func treeBrowserURL(surface: [String: Any], urlsByHandle: [String: String]) -> String? {
+        if let id = surface["id"] as? String, let url = urlsByHandle[id] {
+            return url
+        }
+        if let ref = surface["ref"] as? String, let url = urlsByHandle[ref] {
+            return url
+        }
+        if let handle = treeItemHandle(surface), let url = urlsByHandle[handle] {
+            return url
+        }
+        return nil
+    }
+
+    private func treeItemMatchesHandle(_ item: [String: Any], handle: String?) -> Bool {
+        guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
+            return false
+        }
+        return (item["id"] as? String) == handle || (item["ref"] as? String) == handle
+    }
+
+    private func renderTreeText(windows: [[String: Any]], idFormat: CLIIDFormat) -> String {
+        guard !windows.isEmpty else { return "No windows" }
+
+        var lines: [String] = []
+        for window in windows {
+            lines.append(treeWindowLabel(window, idFormat: idFormat))
+
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for (workspaceIndex, workspace) in workspaces.enumerated() {
+                let workspaceIsLast = workspaceIndex == workspaces.count - 1
+                let workspaceBranch = workspaceIsLast ? "└── " : "├── "
+                let workspaceIndent = workspaceIsLast ? "    " : "│   "
+                lines.append("\(workspaceBranch)\(treeWorkspaceLabel(workspace, idFormat: idFormat))")
+
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for (paneIndex, pane) in panes.enumerated() {
+                    let paneIsLast = paneIndex == panes.count - 1
+                    let paneBranch = paneIsLast ? "└── " : "├── "
+                    let paneIndent = paneIsLast ? "    " : "│   "
+                    lines.append("\(workspaceIndent)\(paneBranch)\(treePaneLabel(pane, idFormat: idFormat))")
+
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for (surfaceIndex, surface) in surfaces.enumerated() {
+                        let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                        let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                        lines.append("\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(treeSurfaceLabel(surface, idFormat: idFormat))")
+                    }
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func treeWindowLabel(_ window: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["window \(textHandle(window, idFormat: idFormat))"]
+        if (window["current"] as? Bool) == true {
+            parts.append("[current]")
+        }
+        if (window["active"] as? Bool) == true {
+            parts.append("◀ active")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func treeWorkspaceLabel(_ workspace: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["workspace \(textHandle(workspace, idFormat: idFormat))"]
+        let title = (workspace["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        if (workspace["selected"] as? Bool) == true {
+            parts.append("[selected]")
+        }
+        if (workspace["active"] as? Bool) == true {
+            parts.append("◀ active")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func treePaneLabel(_ pane: [String: Any], idFormat: CLIIDFormat) -> String {
+        var parts = ["pane \(textHandle(pane, idFormat: idFormat))"]
+        if (pane["focused"] as? Bool) == true {
+            parts.append("[focused]")
+        }
+        if (pane["active"] as? Bool) == true {
+            parts.append("◀ active")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func treeSurfaceLabel(_ surface: [String: Any], idFormat: CLIIDFormat) -> String {
+        let rawType = ((surface["type"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let surfaceType = rawType.isEmpty ? "unknown" : rawType
+        var parts = ["surface \(textHandle(surface, idFormat: idFormat))", "[\(surfaceType)]"]
+        let title = (surface["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !title.isEmpty {
+            parts.append("\"\(title)\"")
+        }
+        if (surface["selected"] as? Bool) == true {
+            parts.append("[selected]")
+        }
+        if (surface["active"] as? Bool) == true {
+            parts.append("◀ active")
+        }
+        if (surface["here"] as? Bool) == true {
+            parts.append("◀ here")
+        }
+        if surfaceType.lowercased() == "browser",
+           let url = surface["url"] as? String,
+           !url.isEmpty {
+            parts.append(url)
         }
         return parts.joined(separator: " ")
     }
@@ -4257,7 +5852,11 @@ struct CMUXCLI {
         }
     }
 
-    private func runClaudeHook(commandArgs: [String], client: SocketClient) throws {
+    private func runClaudeHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
@@ -4266,11 +5865,21 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        telemetry.breadcrumb(
+            "claude-hook.input",
+            data: [
+                "subcommand": subcommand,
+                "has_session_id": parsedInput.sessionId != nil,
+                "has_workspace_flag": hookWsFlag != nil,
+                "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
+            ]
+        )
         let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
         let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
 
         switch subcommand {
         case "session-start", "active":
+            telemetry.breadcrumb("claude-hook.session-start")
             let workspaceId = fallbackWorkspaceId
             let surfaceId = try resolveSurfaceIdForClaudeHook(
                 surfaceArg,
@@ -4295,6 +5904,7 @@ struct CMUXCLI {
             print("OK")
 
         case "stop", "idle":
+            telemetry.breadcrumb("claude-hook.stop")
             let consumedSession = try? sessionStore.consume(
                 sessionId: parsedInput.sessionId,
                 workspaceId: fallbackWorkspaceId,
@@ -4322,7 +5932,26 @@ struct CMUXCLI {
                 print("OK")
             }
 
+        case "prompt-submit":
+            telemetry.breadcrumb("claude-hook.prompt-submit")
+            var workspaceId = fallbackWorkspaceId
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+            }
+            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
+
         case "notification", "notify":
+            telemetry.breadcrumb("claude-hook.notification")
             let summary = summarizeClaudeHookNotification(rawInput: rawInput)
 
             var workspaceId = fallbackWorkspaceId
@@ -4367,6 +5996,7 @@ struct CMUXCLI {
             print(response)
 
         case "help", "--help", "-h":
+            telemetry.breadcrumb("claude-hook.help")
             print(
                 """
                 cmux claude-hook <session-start|stop|notification> [--workspace <id|index>] [--surface <id|index>]
@@ -4575,6 +6205,8 @@ struct CMUXCLI {
         switch subtitle {
         case "Approval":
             return ("Approval requested", "exclamationmark.triangle.fill", "#F59E0B")
+        case "Completed":
+            return ("Completed", "checkmark.circle.fill", "#2EBD59")
         case "Error":
             return ("Error", "xmark.octagon.fill", "#FF4D4F")
         default:
@@ -5134,39 +6766,63 @@ struct CMUXCLI {
 
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
+        let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
+        let baseSummary: String
         if let version = info["CFBundleShortVersionString"], let build = info["CFBundleVersion"] {
-            return "cmux \(version) (\(build))"
+            baseSummary = "cmux \(version) (\(build))"
+        } else if let version = info["CFBundleShortVersionString"] {
+            baseSummary = "cmux \(version)"
+        } else if let build = info["CFBundleVersion"] {
+            baseSummary = "cmux build \(build)"
+        } else {
+            baseSummary = "cmux version unknown"
         }
-        if let version = info["CFBundleShortVersionString"] {
-            return "cmux \(version)"
-        }
-        if let build = info["CFBundleVersion"] {
-            return "cmux build \(build)"
-        }
-        return "cmux version unknown"
+        guard let commit else { return baseSummary }
+        return "\(baseSummary) [\(commit)]"
     }
 
     private func resolvedVersionInfo() -> [String: String] {
+        var info: [String: String] = [:]
         if let main = versionInfo(from: Bundle.main.infoDictionary) {
-            return main
+            info.merge(main, uniquingKeysWith: { current, _ in current })
         }
 
-        for plistURL in candidateInfoPlistURLs() {
-            guard let data = try? Data(contentsOf: plistURL),
-                  let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-                  let dictionary = raw as? [String: Any],
-                  let parsed = versionInfo(from: dictionary)
-            else {
-                continue
+        let needsPlistFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsPlistFallback {
+            for plistURL in candidateInfoPlistURLs() {
+                guard let data = try? Data(contentsOf: plistURL),
+                      let raw = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+                      let dictionary = raw as? [String: Any],
+                      let parsed = versionInfo(from: dictionary)
+                else {
+                    continue
+                }
+                info.merge(parsed, uniquingKeysWith: { current, _ in current })
+                if info["CFBundleShortVersionString"] != nil,
+                   info["CFBundleVersion"] != nil,
+                   info["CMUXCommit"] != nil {
+                    break
+                }
             }
-            return parsed
         }
 
-        if let fromProject = versionInfoFromProjectFile() {
-            return fromProject
+        let needsProjectFallback =
+            info["CFBundleShortVersionString"] == nil ||
+            info["CFBundleVersion"] == nil ||
+            info["CMUXCommit"] == nil
+        if needsProjectFallback, let fromProject = versionInfoFromProjectFile() {
+            info.merge(fromProject, uniquingKeysWith: { current, _ in current })
         }
 
-        return [:]
+        if info["CMUXCommit"] == nil,
+           let commit = normalizedCommitHash(ProcessInfo.processInfo.environment["CMUX_COMMIT"]) {
+            info["CMUXCommit"] = commit
+        }
+
+        return info
     }
 
     private func versionInfo(from dictionary: [String: Any]?) -> [String: String]? {
@@ -5184,6 +6840,10 @@ struct CMUXCLI {
             if !trimmed.isEmpty && !trimmed.contains("$(") {
                 info["CFBundleVersion"] = trimmed
             }
+        }
+        if let commit = dictionary["CMUXCommit"] as? String,
+           let normalizedCommit = normalizedCommitHash(commit) {
+            info["CMUXCommit"] = normalizedCommit
         }
         return info.isEmpty ? nil : info
     }
@@ -5209,6 +6869,9 @@ struct CMUXCLI {
                 }
                 if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
                     info["CFBundleVersion"] = build
+                }
+                if let commit = gitCommitHash(at: current) {
+                    info["CMUXCommit"] = commit
                 }
                 if !info.isEmpty {
                     return info
@@ -5244,6 +6907,45 @@ struct CMUXCLI {
             return nil
         }
         return value
+    }
+
+    private func gitCommitHash(at directory: URL) -> String? {
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "-C", directory.path, "rev-parse", "--short=9", "HEAD"]
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            return nil
+        }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return normalizedCommitHash(output)
+    }
+
+    private func normalizedCommitHash(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains("$(") else {
+            return nil
+        }
+        let normalized = trimmed.lowercased()
+        let allowed = CharacterSet(charactersIn: "0123456789abcdef")
+        guard normalized.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return nil
+        }
+        return String(normalized.prefix(12))
     }
 
     private func candidateInfoPlistURLs() -> [URL] {
@@ -5329,7 +7031,8 @@ struct CMUXCLI {
         cmux - control cmux via Unix socket
 
         Usage:
-          cmux [--socket PATH] [--window WINDOW] [--password PASSWORD] [--json] [--id-format refs|uuids|both] [--version] <command> [options]
+          cmux <path>                Open a directory in a new workspace (launches cmux if needed)
+          cmux [global-options] <command> [options]
 
         Handle Inputs:
           For most v2-backed commands you can use UUIDs, short refs (window:1/workspace:2/pane:3/surface:4), or indexes.
@@ -5337,7 +7040,7 @@ struct CMUXCLI {
           Output defaults to refs; pass --id-format uuids or --id-format both to include UUIDs.
 
         Socket Auth:
-          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then keychain password saved in Settings.
+          --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Commands:
           version
@@ -5353,10 +7056,11 @@ struct CMUXCLI {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
           list-workspaces
-          new-workspace [--command <text>]
+          new-workspace [--cwd <path>] [--command <text>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
+          tree [--all] [--workspace <id|ref|index>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
@@ -5386,6 +7090,17 @@ struct CMUXCLI {
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
           codex-hook <session-start|stop|notification|approval|prompt-submit> [--workspace <id|ref>] [--surface <id|ref>] [json-payload]
+
+          # sidebar metadata commands
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
@@ -5441,16 +7156,7 @@ struct CMUXCLI {
           browser addinitscript <script>
           browser addscript <script>
           browser addstyle <css>
-          browser viewport <width> <height>      (returns not_supported on WKWebView)
-          browser geolocation|geo <lat> <lon>    (returns not_supported on WKWebView)
-          browser offline <true|false>           (returns not_supported on WKWebView)
-          browser trace <start|stop> [path]      (returns not_supported on WKWebView)
-          browser network <route|unroute|requests> [...] (returns not_supported on WKWebView)
-          browser screencast <start|stop>        (returns not_supported on WKWebView)
-          browser input <mouse|keyboard|touch>   (returns not_supported on WKWebView)
           browser identify [--surface <id|ref|index>]
-
-          (legacy browser aliases still supported: open-browser, navigate, browser-back, browser-forward, browser-reload, get-url)
           help
 
         Environment:
@@ -5459,6 +7165,8 @@ struct CMUXCLI {
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
           CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
           CMUX_SOCKET_PATH    Override the default Unix socket path (/tmp/cmux.sock).
+          CMUX_CLI_SENTRY_DISABLED
+                              Set to 1 to disable CLI Sentry socket diagnostics.
         """
     }
 }
@@ -5466,6 +7174,8 @@ struct CMUXCLI {
 @main
 struct CMUXTermMain {
     static func main() {
+        // CLI tools should ignore SIGPIPE so closed stdout pipes do not terminate the process.
+        _ = signal(SIGPIPE, SIG_IGN)
         let cli = CMUXCLI(args: CommandLine.arguments)
         do {
             try cli.run()

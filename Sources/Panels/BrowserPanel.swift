@@ -4,10 +4,58 @@ import WebKit
 import AppKit
 import Bonsplit
 
+enum GhosttyBackgroundTheme {
+    static func clampedOpacity(_ opacity: Double) -> CGFloat {
+        CGFloat(max(0.0, min(1.0, opacity)))
+    }
+
+    static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    }
+
+    static func color(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let userInfo = notification?.userInfo
+        let backgroundColor =
+            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? fallbackColor
+
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = fallbackOpacity
+        }
+
+        return color(backgroundColor: backgroundColor, opacity: opacity)
+    }
+
+    static func color(from notification: Notification?) -> NSColor {
+        color(
+            from: notification,
+            fallbackColor: GhosttyApp.shared.defaultBackgroundColor,
+            fallbackOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+
+    static func currentColor() -> NSColor {
+        color(
+            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+        )
+    }
+}
+
 enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     case google
     case duckduckgo
     case bing
+    case kagi
 
     var id: String { rawValue }
 
@@ -16,6 +64,7 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
         case .google: return "Google"
         case .duckduckgo: return "DuckDuckGo"
         case .bing: return "Bing"
+        case .kagi: return "Kagi"
         }
     }
 
@@ -31,6 +80,8 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
             components = URLComponents(string: "https://duckduckgo.com/")
         case .bing:
             components = URLComponents(string: "https://www.bing.com/search")
+        case .kagi:
+            components = URLComponents(string: "https://kagi.com/search")
         }
 
         components?.queryItems = [
@@ -64,31 +115,62 @@ enum BrowserSearchSettings {
     }
 }
 
-enum BrowserForcedDarkModeSettings {
-    static let enabledKey = "browserForcedDarkModeEnabled"
-    static let opacityKey = "browserForcedDarkModeOpacity"
-    static let defaultEnabled: Bool = false
-    static let defaultOpacity: Double = 45
-    static let minOpacity: Double = 5
-    static let maxOpacity: Double = 90
+enum BrowserThemeMode: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
 
-    static func enabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system:
+            return "System"
+        case .light:
+            return "Light"
+        case .dark:
+            return "Dark"
         }
-        return defaults.bool(forKey: enabledKey)
     }
 
-    static func opacity(defaults: UserDefaults = .standard) -> Double {
-        if defaults.object(forKey: opacityKey) == nil {
-            return defaultOpacity
+    var iconName: String {
+        switch self {
+        case .system:
+            return "circle.lefthalf.filled"
+        case .light:
+            return "sun.max"
+        case .dark:
+            return "moon"
         }
-        return normalizedOpacity(defaults.double(forKey: opacityKey))
+    }
+}
+
+enum BrowserThemeSettings {
+    static let modeKey = "browserThemeMode"
+    static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
+    static let defaultMode: BrowserThemeMode = .system
+
+    static func mode(for rawValue: String?) -> BrowserThemeMode {
+        guard let rawValue, let mode = BrowserThemeMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
     }
 
-    static func normalizedOpacity(_ rawValue: Double) -> Double {
-        guard rawValue.isFinite else { return defaultOpacity }
-        return min(maxOpacity, max(minOpacity, rawValue))
+    static func mode(defaults: UserDefaults = .standard) -> BrowserThemeMode {
+        let resolvedMode = mode(for: defaults.string(forKey: modeKey))
+        if defaults.string(forKey: modeKey) != nil {
+            return resolvedMode
+        }
+
+        // Migrate the legacy bool toggle only when the new mode key is unset.
+        if defaults.object(forKey: legacyForcedDarkModeEnabledKey) != nil {
+            let migratedMode: BrowserThemeMode = defaults.bool(forKey: legacyForcedDarkModeEnabledKey) ? .dark : .system
+            defaults.set(migratedMode.rawValue, forKey: modeKey)
+            return migratedMode
+        }
+
+        return defaultMode
     }
 }
 
@@ -96,8 +178,16 @@ enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
+    static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
+    static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
+
+    static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
+    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
+
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""
+    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
+    static let defaultBrowserExternalOpenPatterns: String = ""
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
@@ -106,12 +196,68 @@ enum BrowserLinkOpenSettings {
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
     }
 
+    static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: openSidebarPullRequestLinksInCmuxBrowserKey) == nil {
+            return defaultOpenSidebarPullRequestLinksInCmuxBrowser
+        }
+        return defaults.bool(forKey: openSidebarPullRequestLinksInCmuxBrowserKey)
+    }
+
+    static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
+        }
+
+        // Migrate existing behavior for users who only had the link-click toggle.
+        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) != nil {
+            return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+        }
+
+        return defaultInterceptTerminalOpenCommandInCmuxBrowser
+    }
+
+    static func initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: UserDefaults = .standard) -> Bool {
+        interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
+    }
+
     static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
         let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
         return raw
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
+        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
+        return raw
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+
+    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        shouldOpenExternally(url.absoluteString, defaults: defaults)
+    }
+
+    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
+        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return false }
+
+        for rawPattern in externalOpenPatterns(defaults: defaults) {
+            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
+            if isRegex {
+                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
+                let range = NSRange(target.startIndex..<target.endIndex, in: target)
+                if regex.firstMatch(in: target, options: [], range: range) != nil {
+                    return true
+                }
+            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
+                return true
+            }
+        }
+
+        return false
     }
 
     /// Check whether a hostname matches the configured whitelist.
@@ -151,6 +297,19 @@ enum BrowserLinkOpenSettings {
             return host == suffix || host.hasSuffix(".\(suffix)")
         }
         return host == pattern
+    }
+
+    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
+        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.lowercased().hasPrefix("re:") {
+            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !regexPattern.isEmpty else { return nil }
+            return (isRegex: true, value: regexPattern)
+        }
+
+        return (isRegex: false, value: trimmed)
     }
 }
 
@@ -327,6 +486,45 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     // Match browser behavior for ordinary loads while preserving method/body/headers.
     preparedRequest.cachePolicy = .useProtocolCachePolicy
     return preparedRequest
+}
+
+func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
+    guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
+    let path = fileURL.path
+    var isDirectory: ObjCBool = false
+    if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return fileURL
+    }
+
+    let parent = fileURL.deletingLastPathComponent()
+    guard !parent.path.isEmpty, parent.path.hasPrefix("/") else { return nil }
+    return parent
+}
+
+@discardableResult
+func browserLoadRequest(_ request: URLRequest, in webView: WKWebView) -> WKNavigation? {
+    guard let url = request.url else { return nil }
+    if url.isFileURL {
+        guard let readAccessURL = browserReadAccessURL(forLocalFileURL: url) else { return nil }
+        return webView.loadFileURL(url, allowingReadAccessTo: readAccessURL)
+    }
+    return webView.load(browserPreparedNavigationRequest(request))
+}
+
+private let browserEmbeddedNavigationSchemes: Set<String> = [
+    "about",
+    "applewebdata",
+    "blob",
+    "data",
+    "file",
+    "http",
+    "https",
+    "javascript",
+]
+
+func browserShouldOpenURLExternally(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
+    return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
 enum BrowserUserAgentSettings {
@@ -954,6 +1152,12 @@ actor BrowserSearchSuggestionService {
                 URLQueryItem(name: "query", value: query),
             ]
             url = c?.url
+        case .kagi:
+            var c = URLComponents(string: "https://kagi.com/api/autosuggest")
+            c?.queryItems = [
+                URLQueryItem(name: "q", value: query),
+            ]
+            url = c?.url
         }
 
         guard let url else { return [] }
@@ -978,7 +1182,7 @@ actor BrowserSearchSuggestionService {
         }
 
         switch engine {
-        case .google, .bing:
+        case .google, .bing, .kagi:
             return parseOSJSON(data: data)
         case .duckduckgo:
             return parseDuckDuckGo(data: data)
@@ -1032,6 +1236,101 @@ private enum BrowserInsecureHTTPNavigationIntent {
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+
+    static let telemetryHookBootstrapScriptSource = """
+    (() => {
+      if (window.__cmuxHooksInstalled) return true;
+      window.__cmuxHooksInstalled = true;
+
+      window.__cmuxConsoleLog = window.__cmuxConsoleLog || [];
+      const __pushConsole = (level, args) => {
+        try {
+          const text = Array.from(args || []).map((x) => {
+            if (typeof x === 'string') return x;
+            try { return JSON.stringify(x); } catch (_) { return String(x); }
+          }).join(' ');
+          window.__cmuxConsoleLog.push({ level, text, timestamp_ms: Date.now() });
+          if (window.__cmuxConsoleLog.length > 512) {
+            window.__cmuxConsoleLog.splice(0, window.__cmuxConsoleLog.length - 512);
+          }
+        } catch (_) {}
+      };
+
+      const methods = ['log', 'info', 'warn', 'error', 'debug'];
+      for (const m of methods) {
+        const orig = (window.console && window.console[m]) ? window.console[m].bind(window.console) : null;
+        window.console[m] = function(...args) {
+          __pushConsole(m, args);
+          if (orig) return orig(...args);
+        };
+      }
+
+      window.__cmuxErrorLog = window.__cmuxErrorLog || [];
+      window.addEventListener('error', (ev) => {
+        try {
+          const message = String((ev && ev.message) || '');
+          const source = String((ev && ev.filename) || '');
+          const line = Number((ev && ev.lineno) || 0);
+          const col = Number((ev && ev.colno) || 0);
+          window.__cmuxErrorLog.push({ message, source, line, column: col, timestamp_ms: Date.now() });
+          if (window.__cmuxErrorLog.length > 512) {
+            window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
+          }
+        } catch (_) {}
+      });
+      window.addEventListener('unhandledrejection', (ev) => {
+        try {
+          const reason = ev && ev.reason;
+          const message = typeof reason === 'string' ? reason : (reason && reason.message ? String(reason.message) : String(reason));
+          window.__cmuxErrorLog.push({ message, source: 'unhandledrejection', line: 0, column: 0, timestamp_ms: Date.now() });
+          if (window.__cmuxErrorLog.length > 512) {
+            window.__cmuxErrorLog.splice(0, window.__cmuxErrorLog.length - 512);
+          }
+        } catch (_) {}
+      });
+
+      return true;
+    })()
+    """
+
+    static let dialogTelemetryHookBootstrapScriptSource = """
+    (() => {
+      if (window.__cmuxDialogHooksInstalled) return true;
+      window.__cmuxDialogHooksInstalled = true;
+
+      window.__cmuxDialogQueue = window.__cmuxDialogQueue || [];
+      window.__cmuxDialogDefaults = window.__cmuxDialogDefaults || { confirm: false, prompt: null };
+      const __pushDialog = (type, message, defaultText) => {
+        window.__cmuxDialogQueue.push({
+          type,
+          message: String(message || ''),
+          default_text: defaultText == null ? null : String(defaultText),
+          timestamp_ms: Date.now()
+        });
+        if (window.__cmuxDialogQueue.length > 128) {
+          window.__cmuxDialogQueue.splice(0, window.__cmuxDialogQueue.length - 128);
+        }
+      };
+
+      window.alert = function(message) {
+        __pushDialog('alert', message, null);
+      };
+      window.confirm = function(message) {
+        __pushDialog('confirm', message, null);
+        return !!window.__cmuxDialogDefaults.confirm;
+      };
+      window.prompt = function(message, defaultValue) {
+        __pushDialog('prompt', message, defaultValue == null ? null : defaultValue);
+        const v = window.__cmuxDialogDefaults.prompt;
+        if (v === null || v === undefined) {
+          return defaultValue == null ? '' : String(defaultValue);
+        }
+        return String(v);
+      };
+
+      return true;
+    })()
+    """
 
     private static func clampedGhosttyBackgroundOpacity(_ opacity: Double) -> CGFloat {
         CGFloat(max(0.0, min(1.0, opacity)))
@@ -1097,6 +1396,11 @@ final class BrowserPanel: Panel, ObservableObject {
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
 
+    /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
+    var isShowingNewTabPage: Bool {
+        !shouldRenderWebView
+    }
+
     /// Published page title
     @Published private(set) var pageTitle: String = ""
 
@@ -1114,6 +1418,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Published can go forward state
     @Published private(set) var canGoForward: Bool = false
+
+    private var nativeCanGoBack: Bool = false
+    private var nativeCanGoForward: Bool = false
+    private var usesRestoredSessionHistory: Bool = false
+    private var restoredBackHistoryStack: [URL] = []
+    private var restoredForwardHistoryStack: [URL] = []
+    private var restoredHistoryCurrentURL: URL?
 
     /// Published estimated progress (0.0 - 1.0)
     @Published private(set) var estimatedProgress: Double = 0.0
@@ -1145,6 +1456,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private let maxPageZoom: CGFloat = 5.0
     private let pageZoomStep: CGFloat = 0.1
     private var insecureHTTPBypassHostOnce: String?
+    private var insecureHTTPAlertFactory: () -> NSAlert
+    private var insecureHTTPAlertWindowProvider: () -> NSWindow?
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     private var preferredDeveloperToolsVisible: Bool = false
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
@@ -1152,8 +1465,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsRestoreRetryAttempt: Int = 0
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
-    private var forcedDarkModeEnabled: Bool
-    private var forcedDarkModeOpacity: Double
+    private var browserThemeMode: BrowserThemeMode
 
     var displayTitle: String {
         if !pageTitle.isEmpty {
@@ -1177,8 +1489,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
-        self.forcedDarkModeEnabled = BrowserForcedDarkModeSettings.enabled()
-        self.forcedDarkModeOpacity = BrowserForcedDarkModeSettings.opacity()
+        self.browserThemeMode = BrowserThemeSettings.mode()
 
         // Configure web view
         let config = WKWebViewConfiguration()
@@ -1192,6 +1503,14 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
 
         // Set up web view
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -1204,12 +1523,16 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
-        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
 
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
 
         self.webView = webView
+        self.insecureHTTPAlertFactory = { NSAlert() }
+        self.insecureHTTPAlertWindowProvider = { [weak webView] in
+            webView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -1217,7 +1540,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordVisit(url: webView.url, title: webView.title)
             Task { @MainActor [weak self] in
                 self?.refreshFavicon(from: webView)
-                self?.applyForcedDarkModeIfNeeded()
+                self?.applyBrowserThemeModeIfNeeded()
             }
         }
         navDelegate.didFailNavigation = { [weak self] _, failedURL in
@@ -1278,7 +1601,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Observe web view properties
         setupObservers()
-        applyForcedDarkModeIfNeeded()
+        applyBrowserThemeModeIfNeeded()
 
         // Navigate to initial URL if provided
         if let url = initialURL {
@@ -1319,6 +1642,43 @@ final class BrowserPanel: Panel, ObservableObject {
         focusFlashToken &+= 1
     }
 
+    func sessionNavigationHistorySnapshot() -> (
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String]
+    ) {
+        if usesRestoredSessionHistory {
+            let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
+            // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
+            let forward = restoredForwardHistoryStack.reversed().compactMap { Self.serializableSessionHistoryURLString($0) }
+            return (back, forward)
+        }
+
+        let back = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        let forward = webView.backForwardList.forwardList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        return (back, forward)
+    }
+
+    func restoreSessionNavigationHistory(
+        backHistoryURLStrings: [String],
+        forwardHistoryURLStrings: [String],
+        currentURLString: String?
+    ) {
+        let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
+        let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
+        guard !restoredBack.isEmpty || !restoredForward.isEmpty else { return }
+
+        usesRestoredSessionHistory = true
+        restoredBackHistoryStack = restoredBack
+        // Store nearest-forward entries at the end to make stack pop operations trivial.
+        restoredForwardHistoryStack = Array(restoredForward.reversed())
+        restoredHistoryCurrentURL = Self.sanitizedSessionHistoryURL(currentURLString)
+        refreshNavigationAvailability()
+    }
+
     private func setupObservers() {
         // URL changes
         let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
@@ -1352,7 +1712,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go back
         let backObserver = webView.observe(\.canGoBack, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoBack = webView.canGoBack
+                guard let self else { return }
+                self.nativeCanGoBack = webView.canGoBack
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(backObserver)
@@ -1360,7 +1722,9 @@ final class BrowserPanel: Panel, ObservableObject {
         // Can go forward
         let forwardObserver = webView.observe(\.canGoForward, options: [.new]) { [weak self] webView, _ in
             Task { @MainActor in
-                self?.canGoForward = webView.canGoForward
+                guard let self else { return }
+                self.nativeCanGoForward = webView.canGoForward
+                self.refreshNavigationAvailability()
             }
         }
         webViewObservers.append(forwardObserver)
@@ -1376,7 +1740,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor(from: notification)
+                self.webView.underPageBackgroundColor = GhosttyBackgroundTheme.color(from: notification)
             }
             .store(in: &cancellables)
     }
@@ -1578,6 +1942,9 @@ final class BrowserPanel: Panel, ObservableObject {
             faviconTask?.cancel()
             faviconTask = nil
             lastFaviconURLString = nil
+            // Clear the previous page's favicon so it never persists across navigations.
+            // The loading spinner covers this gap; didFinish will fetch the new favicon.
+            faviconPNGData = nil
             loadingGeneration &+= 1
             loadingEndWorkItem?.cancel()
             loadingEndWorkItem = nil
@@ -1623,13 +1990,28 @@ final class BrowserPanel: Panel, ObservableObject {
         navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(to url: URL, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        to url: URL,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         let request = URLRequest(url: url)
-        navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
+        navigateWithoutInsecureHTTPPrompt(
+            request: request,
+            recordTypedNavigation: recordTypedNavigation,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
     }
 
-    private func navigateWithoutInsecureHTTPPrompt(request: URLRequest, recordTypedNavigation: Bool) {
+    private func navigateWithoutInsecureHTTPPrompt(
+        request: URLRequest,
+        recordTypedNavigation: Bool,
+        preserveRestoredSessionHistory: Bool = false
+    ) {
         guard let url = request.url else { return }
+        if !preserveRestoredSessionHistory {
+            abandonRestoredSessionHistoryIfNeeded()
+        }
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
@@ -1637,7 +2019,7 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserHistoryStore.shared.recordTypedNavigation(url: url)
         }
         navigationDelegate?.lastAttemptedURL = url
-        webView.load(browserPreparedNavigationRequest(request))
+        browserLoadRequest(request, in: webView)
     }
 
     /// Navigate with smart URL/search detection
@@ -1690,7 +2072,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let url = request.url else { return }
         guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
 
-        let alert = NSAlert()
+        let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
         alert.messageText = "Connection isn't secure"
         alert.informativeText = """
@@ -1704,10 +2086,38 @@ final class BrowserPanel: Panel, ObservableObject {
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Always allow this host in cmux"
 
-        let response = alert.runModal()
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
+            self?.handleInsecureHTTPAlertResponse(
+                response,
+                alert: alert,
+                host: host,
+                request: request,
+                url: url,
+                intent: intent,
+                recordTypedNavigation: recordTypedNavigation
+            )
+        }
+
+        if let alertWindow = insecureHTTPAlertWindowProvider() {
+            alert.beginSheetModal(for: alertWindow, completionHandler: handleResponse)
+            return
+        }
+
+        handleResponse(alert.runModal())
+    }
+
+    private func handleInsecureHTTPAlertResponse(
+        _ response: NSApplication.ModalResponse,
+        alert: NSAlert?,
+        host: String,
+        request: URLRequest,
+        url: URL,
+        intent: BrowserInsecureHTTPNavigationIntent,
+        recordTypedNavigation: Bool
+    ) {
         if browserShouldPersistInsecureHTTPAllowlistSelection(
             response: response,
-            suppressionEnabled: alert.suppressionButton?.state == .on
+            suppressionEnabled: alert?.suppressionButton?.state == .on
         ) {
             BrowserInsecureHTTPSettings.addAllowedHost(host)
         }
@@ -1755,6 +2165,9 @@ func resolveBrowserNavigableURL(_ input: String) -> URL? {
         if scheme == "http" || scheme == "https" {
             return url
         }
+        if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
+            return url
+        }
         return nil
     }
 
@@ -1774,26 +2187,90 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredBackHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredForwardHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goBack()
     }
 
     /// Go forward in history
     func goForward() {
         guard canGoForward else { return }
+        if usesRestoredSessionHistory {
+            guard let targetURL = restoredForwardHistoryStack.popLast() else {
+                refreshNavigationAvailability()
+                return
+            }
+            if let current = resolvedCurrentSessionHistoryURL() {
+                restoredBackHistoryStack.append(current)
+            }
+            restoredHistoryCurrentURL = targetURL
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+            return
+        }
+
         webView.goForward()
     }
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let tabManager = AppDelegate.shared?.tabManager,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let paneId = workspace.paneId(forPanelId: id) else { return }
+#if DEBUG
+        dlog(
+            "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(url.absoluteString) " +
+            "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
+        )
+#endif
+        guard let tabManager = AppDelegate.shared?.tabManager else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=missingTabManager")
+#endif
+            return
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=workspaceMissing")
+#endif
+            return
+        }
+        guard let paneId = workspace.paneId(forPanelId: id) else {
+#if DEBUG
+            dlog("browser.newTab.open.abort panel=\(id.uuidString.prefix(5)) reason=paneMissing")
+#endif
+            return
+        }
         workspace.newBrowserSurface(
             inPane: paneId,
             url: url,
             focus: true,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         )
+#if DEBUG
+        dlog(
+            "browser.newTab.open.done panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5))"
+        )
+#endif
     }
 
     /// Reload the current page
@@ -1941,7 +2418,12 @@ extension BrowserPanel {
             dlog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
         }
         #endif
-        inspector.cmuxCallVoid(selector: selector)
+        // WebKit inspector "show" can trigger transient first-responder churn while
+        // panel attachment is still stabilizing. Keep this auto-restore path from
+        // mutating first responder so AppKit doesn't walk tearing-down responder chains.
+        cmuxWithWindowFirstResponderBypass {
+            inspector.cmuxCallVoid(selector: selector)
+        }
         preferredDeveloperToolsVisible = true
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
@@ -2024,14 +2506,13 @@ extension BrowserPanel {
         try await webView.evaluateJavaScript(script)
     }
 
-    func setForcedDarkMode(enabled: Bool, opacity: Double) {
-        forcedDarkModeEnabled = enabled
-        forcedDarkModeOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacity)
-        applyForcedDarkModeIfNeeded()
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) {
+        browserThemeMode = mode
+        applyBrowserThemeModeIfNeeded()
     }
 
     func refreshAppearanceDrivenColors() {
-        webView.underPageBackgroundColor = Self.resolvedBrowserChromeBackgroundColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
     }
 
     func suppressOmnibarAutofocus(for seconds: TimeInterval) {
@@ -2064,10 +2545,20 @@ extension BrowserPanel {
     }
 
     func beginSuppressWebViewFocusForAddressBar() {
+        if !suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.begin panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = true
     }
 
     func endSuppressWebViewFocusForAddressBar() {
+        if suppressWebViewFocusForAddressBar {
+#if DEBUG
+            dlog("browser.focus.addressBarSuppress.end panel=\(id.uuidString.prefix(5))")
+#endif
+        }
         suppressWebViewFocusForAddressBar = false
     }
 
@@ -2107,54 +2598,123 @@ extension BrowserPanel {
         return nil
     }
 
+    private func resolvedCurrentSessionHistoryURL() -> URL? {
+        if let webViewURL = webView.url,
+           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+            return webViewURL
+        }
+        if let currentURL,
+           Self.serializableSessionHistoryURLString(currentURL) != nil {
+            return currentURL
+        }
+        return restoredHistoryCurrentURL
+    }
+
+    private func refreshNavigationAvailability() {
+        let resolvedCanGoBack: Bool
+        let resolvedCanGoForward: Bool
+        if usesRestoredSessionHistory {
+            resolvedCanGoBack = !restoredBackHistoryStack.isEmpty
+            resolvedCanGoForward = !restoredForwardHistoryStack.isEmpty
+        } else {
+            resolvedCanGoBack = nativeCanGoBack
+            resolvedCanGoForward = nativeCanGoForward
+        }
+
+        if canGoBack != resolvedCanGoBack {
+            canGoBack = resolvedCanGoBack
+        }
+        if canGoForward != resolvedCanGoForward {
+            canGoForward = resolvedCanGoForward
+        }
+    }
+
+    private func abandonRestoredSessionHistoryIfNeeded() {
+        guard usesRestoredSessionHistory else { return }
+        usesRestoredSessionHistory = false
+        restoredBackHistoryStack.removeAll(keepingCapacity: false)
+        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
+        restoredHistoryCurrentURL = nil
+        refreshNavigationAvailability()
+    }
+
+    private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {
+        guard let url else { return nil }
+        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != "about:blank" else { return nil }
+        return value
+    }
+
+    private static func sanitizedSessionHistoryURL(_ raw: String?) -> URL? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "about:blank" else { return nil }
+        return URL(string: trimmed)
+    }
+
+    private static func sanitizedSessionHistoryURLs(_ values: [String]) -> [URL] {
+        values.compactMap { sanitizedSessionHistoryURL($0) }
+    }
+
 }
 
 private extension BrowserPanel {
-    func applyForcedDarkModeIfNeeded() {
-        let script = makeForcedDarkModeScript(
-            enabled: forcedDarkModeEnabled,
-            opacityPercent: forcedDarkModeOpacity
-        )
+    func applyBrowserThemeModeIfNeeded() {
+        switch browserThemeMode {
+        case .system:
+            webView.appearance = nil
+        case .light:
+            webView.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            webView.appearance = NSAppearance(named: .darkAqua)
+        }
+
+        let script = makeBrowserThemeModeScript(mode: browserThemeMode)
         webView.evaluateJavaScript(script) { _, error in
             #if DEBUG
             if let error {
-                dlog("browser.forcedDarkMode error=\(error.localizedDescription)")
+                dlog("browser.themeMode error=\(error.localizedDescription)")
             }
             #endif
         }
     }
 
-    func makeForcedDarkModeScript(enabled: Bool, opacityPercent: Double) -> String {
-        let clampedOpacity = BrowserForcedDarkModeSettings.normalizedOpacity(opacityPercent) / 100.0
-        let opacityLiteral = String(format: "%.4f", clampedOpacity)
-        let enabledLiteral = enabled ? "true" : "false"
+    func makeBrowserThemeModeScript(mode: BrowserThemeMode) -> String {
+        let colorSchemeLiteral: String
+        switch mode {
+        case .system:
+            colorSchemeLiteral = "null"
+        case .light:
+            colorSchemeLiteral = "'light'"
+        case .dark:
+            colorSchemeLiteral = "'dark'"
+        }
+
         return """
         (() => {
-          const overlayId = 'cmux-forced-dark-mode-overlay';
-          const shouldEnable = \(enabledLiteral);
-          const overlayOpacity = \(opacityLiteral);
+          const metaId = 'cmux-browser-theme-mode-meta';
+          const colorScheme = \(colorSchemeLiteral);
           const root = document.documentElement || document.body;
           if (!root) return;
 
-          let overlay = document.getElementById(overlayId);
-          if (!overlay) {
-            overlay = document.createElement('div');
-            overlay.id = overlayId;
-            overlay.style.position = 'fixed';
-            overlay.style.top = '0';
-            overlay.style.left = '0';
-            overlay.style.right = '0';
-            overlay.style.bottom = '0';
-            overlay.style.backgroundColor = 'black';
-            overlay.style.pointerEvents = 'none';
-            overlay.style.zIndex = '2147483647';
-            overlay.style.transition = 'opacity 120ms ease';
-            overlay.style.opacity = '0';
-            root.appendChild(overlay);
+          let meta = document.getElementById(metaId);
+          if (colorScheme) {
+            root.style.setProperty('color-scheme', colorScheme, 'important');
+            root.setAttribute('data-cmux-browser-theme', colorScheme);
+            if (!meta) {
+              meta = document.createElement('meta');
+              meta.id = metaId;
+              meta.name = 'color-scheme';
+              (document.head || root).appendChild(meta);
+            }
+            meta.setAttribute('content', colorScheme);
+          } else {
+            root.style.removeProperty('color-scheme');
+            root.removeAttribute('data-cmux-browser-theme');
+            if (meta) {
+              meta.remove();
+            }
           }
-
-          overlay.style.display = shouldEnable ? 'block' : 'none';
-          overlay.style.opacity = shouldEnable ? String(overlayOpacity) : '0';
         })();
         """
     }
@@ -2183,6 +2743,32 @@ private extension BrowserPanel {
 
 #if DEBUG
 extension BrowserPanel {
+    func configureInsecureHTTPAlertHooksForTesting(
+        alertFactory: @escaping () -> NSAlert,
+        windowProvider: @escaping () -> NSWindow?
+    ) {
+        insecureHTTPAlertFactory = alertFactory
+        insecureHTTPAlertWindowProvider = windowProvider
+    }
+
+    func resetInsecureHTTPAlertHooksForTesting() {
+        insecureHTTPAlertFactory = { NSAlert() }
+        insecureHTTPAlertWindowProvider = { [weak weakWebView = self.webView] in
+            weakWebView?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
+    }
+
+    func presentInsecureHTTPAlertForTesting(
+        url: URL,
+        recordTypedNavigation: Bool = false
+    ) {
+        presentInsecureHTTPAlert(
+            for: URLRequest(url: url),
+            intent: .currentTab,
+            recordTypedNavigation: recordTypedNavigation
+        )
+    }
+
     private static func debugRectDescription(_ rect: NSRect) -> String {
         String(
             format: "%.1f,%.1f %.1fx%.1f",
@@ -2415,6 +3001,39 @@ private class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - Navigation Delegate
 
+func browserNavigationShouldOpenInNewTab(
+    navigationType: WKNavigationType,
+    modifierFlags: NSEvent.ModifierFlags,
+    buttonNumber: Int,
+    hasRecentMiddleClickIntent: Bool = false,
+    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
+    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
+) -> Bool {
+    guard navigationType == .linkActivated || navigationType == .other else {
+        return false
+    }
+
+    if modifierFlags.contains(.command) {
+        return true
+    }
+    if buttonNumber == 2 {
+        return true
+    }
+    // In some WebKit paths, middle-click arrives as buttonNumber=4.
+    // Recover intent when we just observed a local middle-click.
+    if buttonNumber == 4, hasRecentMiddleClickIntent {
+        return true
+    }
+
+    // WebKit can omit buttonNumber for middle-click link activations.
+    if let currentEventType,
+       (currentEventType == .otherMouseDown || currentEventType == .otherMouseUp),
+       currentEventButtonNumber == 2 {
+        return true
+    }
+    return false
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -2437,6 +3056,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         NSLog("BrowserPanel navigation failed: %@", error.localizedDescription)
+        // Treat committed-navigation failures the same as provisional ones so
+        // stale favicon/title state from the prior page gets cleared.
+        let failedURL = webView.url?.absoluteString ?? ""
+        didFailNavigation?(webView, failedURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -2549,38 +3172,88 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
+        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+            navigationType: navigationAction.navigationType,
+            modifierFlags: navigationAction.modifierFlags,
+            buttonNumber: navigationAction.buttonNumber,
+            hasRecentMiddleClickIntent: hasRecentMiddleClickIntent
+        )
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "recentMiddleIntent=\(hasRecentMiddleClickIntent ? 1 : 0) " +
+            "openInNewTab=\(shouldOpenInNewTab ? 1 : 0)"
+        )
+#endif
+
         if let url = navigationAction.request.url,
            navigationAction.targetFrame?.isMainFrame != false,
            shouldBlockInsecureHTTPNavigation?(url) == true {
             let intent: BrowserInsecureHTTPNavigationIntent
-            if navigationAction.navigationType == .linkActivated,
-               navigationAction.modifierFlags.contains(.command) {
+            if shouldOpenInNewTab || navigationAction.targetFrame == nil {
                 intent = .newTab
             } else {
                 intent = .currentTab
             }
+#if DEBUG
+            dlog(
+                "browser.nav.decidePolicy.action kind=blockedInsecure intent=\(intent == .newTab ? "newTab" : "currentTab") " +
+                "url=\(url.absoluteString)"
+            )
+#endif
             handleBlockedInsecureHTTPNavigation?(navigationAction.request, intent)
             decisionHandler(.cancel)
             return
         }
 
-        // target=_blank or window.open() — navigate in the current webview
-        if navigationAction.targetFrame == nil,
-           navigationAction.request.url != nil {
-            webView.load(navigationAction.request)
+        // WebKit cannot open app-specific deeplinks (discord://, slack://, zoommtg://, etc.).
+        // Hand these off to macOS so the owning app can handle them.
+        if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
+           browserShouldOpenURLExternally(url) {
+            let opened = NSWorkspace.shared.open(url)
+            if !opened {
+                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+            }
+            #if DEBUG
+            dlog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            #endif
             decisionHandler(.cancel)
             return
         }
 
-        // Cmd+click on a regular link — open in a new tab
-        if navigationAction.navigationType == .linkActivated,
-           navigationAction.modifierFlags.contains(.command),
+        // Cmd+click and middle-click on regular links should always open in a new tab.
+        if shouldOpenInNewTab,
            let url = navigationAction.request.url {
+#if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
             openInNewTab?(url)
             decisionHandler(.cancel)
             return
         }
 
+        // target=_blank or window.open() — open in a new tab.
+        if navigationAction.targetFrame == nil,
+           let url = navigationAction.request.url {
+#if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")
+#endif
+            openInNewTab?(url)
+            decisionHandler(.cancel)
+            return
+        }
+
+#if DEBUG
+        let targetURL = navigationAction.request.url?.absoluteString ?? "nil"
+        dlog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
+#endif
         decisionHandler(.allow)
     }
 
@@ -2679,22 +3352,52 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
     }
 
     /// Returning nil tells WebKit not to open a new window.
-    /// Cmd+click opens in a new tab; regular target=_blank navigates in-place.
+    /// createWebViewWith is only called when the page requests a new window
+    /// (window.open(), target=_blank, etc.). Always open in a new tab.
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        // createWebViewWith is only called when the page requests a new window,
+        // so always treat as new-tab intent regardless of modifiers/button.
+#if DEBUG
+        let currentEventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
+        let navType = String(describing: navigationAction.navigationType)
+        dlog(
+            "browser.nav.createWebView navType=\(navType) button=\(navigationAction.buttonNumber) " +
+            "mods=\(navigationAction.modifierFlags.rawValue) targetNil=\(navigationAction.targetFrame == nil ? 1 : 0) " +
+            "eventType=\(currentEventType) eventButton=\(currentEventButton) " +
+            "openInNewTab=1"
+        )
+#endif
         if let url = navigationAction.request.url {
+            if browserShouldOpenURLExternally(url) {
+                let opened = NSWorkspace.shared.open(url)
+                if !opened {
+                    NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+                }
+                #if DEBUG
+                dlog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+                #endif
+                return nil
+            }
             if let requestNavigation {
-                let intent: BrowserInsecureHTTPNavigationIntent =
-                    navigationAction.modifierFlags.contains(.command) ? .newTab : .currentTab
+                let intent: BrowserInsecureHTTPNavigationIntent = .newTab
+#if DEBUG
+                dlog(
+                    "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
+                    "url=\(url.absoluteString)"
+                )
+#endif
                 requestNavigation(navigationAction.request, intent)
-            } else if navigationAction.modifierFlags.contains(.command) {
-                openInNewTab?(url)
             } else {
-                webView.load(navigationAction.request)
+#if DEBUG
+                dlog("browser.nav.createWebView.action kind=openInNewTab url=\(url.absoluteString)")
+#endif
+                openInNewTab?(url)
             }
         }
         return nil

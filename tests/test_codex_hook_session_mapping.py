@@ -55,14 +55,27 @@ def run_codex_hook(
     payload: dict,
     env: dict[str, str],
 ) -> str:
-    proc = subprocess.run(
-        [cli_path, "--socket", socket_path, "codex-hook", subcommand],
-        input=json.dumps(payload),
-        text=True,
-        capture_output=True,
-        env=env,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [cli_path, "--socket", socket_path, "codex-hook", subcommand],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if not isinstance(stdout, str):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if not isinstance(stderr, str):
+            stderr = stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"cmux codex-hook {subcommand} timed out after 30s:\n"
+            f"stdout={stdout}\nstderr={stderr}"
+        ) from exc
     if proc.returncode != 0:
         raise RuntimeError(
             f"cmux codex-hook {subcommand} failed:\n"

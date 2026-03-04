@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Bonsplit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.
@@ -83,13 +84,15 @@ final class TerminalPanel: Panel, ObservableObject {
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
         configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
+        additionalEnvironment: [String: String] = [:],
         portOrdinal: Int = 0
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
             context: context,
             configTemplate: configTemplate,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            additionalEnvironment: additionalEnvironment
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
@@ -135,8 +138,29 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func close() {
         // The surface will be cleaned up by its deinit
-        // Just unfocus before closing
+        // Detach from the window portal on real close so stale hosted views
+        // cannot remain above browser panes after split close.
+        surface.beginPortalCloseLifecycle(reason: "panel.close")
+#if DEBUG
+        let frame = String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height)
+        let bounds = String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height)
+        dlog(
+            "surface.panel.close.begin panel=\(id.uuidString.prefix(5)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) runtimeSurface=\(surface.surface != nil ? 1 : 0) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "hidden=\(hostedView.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
+        )
+#endif
         unfocus()
+        hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.detach(hostedView: hostedView)
+#if DEBUG
+        dlog(
+            "surface.panel.close.end panel=\(id.uuidString.prefix(5)) " +
+            "inWindow=\(hostedView.window != nil ? 1 : 0) hasSuperview=\(hostedView.superview != nil ? 1 : 0) " +
+            "hidden=\(hostedView.isHidden ? 1 : 0)"
+        )
+#endif
     }
 
     func requestViewReattach() {

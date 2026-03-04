@@ -1,9 +1,8 @@
 name: Nightly macOS build
 
 on:
-  schedule:
-    # Every hour at :30. The 'decide' job skips if main has no new commits.
-    - cron: "30 * * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       force:
@@ -12,8 +11,15 @@ on:
         default: false
         type: boolean
 
+concurrency:
+  group: nightly-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
+
+env:
+  CREATE_DMG_VERSION: 8.0.0
 
 jobs:
   decide:
@@ -25,7 +31,7 @@ jobs:
     steps:
       - name: Decide whether a nightly build is needed
         id: decide
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           FORCE_BUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force == 'true' && 'true' || 'false' }}
         with:
@@ -78,13 +84,10 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: self-hosted
-    concurrency:
-      group: self-hosted-build
-      cancel-in-progress: false
+    runs-on: macos-15
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
@@ -110,22 +113,34 @@ jobs:
 
       - name: Install build deps
         run: |
-          brew update
-          brew install zig
-          npm install --global create-dmg
+          npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
-      - name: Build GhosttyKit.xcframework
+      - name: Download pre-built GhosttyKit.xcframework
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd ghostty
-          zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native -Doptimize=ReleaseFast
-          cd ..
-          rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
-
-      - name: Clear SPM cache
-        run: |
-          rm -rf ~/Library/Caches/org.swift.swiftpm
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          set -euo pipefail
+          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
+          TAG="xcframework-$GHOSTTY_SHA"
+          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
+          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
+          MAX_RETRIES=30
+          RETRY_DELAY=20
+          for i in $(seq 1 $MAX_RETRIES); do
+            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
+              echo "Download succeeded on attempt $i"
+              break
+            fi
+            if [ "$i" -eq "$MAX_RETRIES" ]; then
+              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
+            sleep $RETRY_DELAY
+          done
+          tar xzf GhosttyKit.xcframework.tar.gz
+          rm GhosttyKit.xcframework.tar.gz
+          test -d GhosttyKit.xcframework
 
       - name: Configure SwiftPM cache
         run: |
@@ -294,6 +309,19 @@ jobs:
           # by appcast URLs to prevent signature/asset mismatch races.
           cp "$DMG_RELEASE" "$NIGHTLY_DMG_IMMUTABLE"
 
+      - name: Upload dSYMs to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "SENTRY_AUTH_TOKEN not set, skipping dSYM upload"
+            exit 0
+          fi
+          brew install getsentry/tools/sentry-cli || true
+          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+
       - name: Generate Sparkle appcast (nightly)
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -313,7 +341,7 @@ jobs:
           git push origin refs/tags/nightly --force
 
       - name: Publish nightly release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: nightly
           name: Nightly
@@ -336,12 +364,3 @@ jobs:
         run: |
           security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
-
-  skipped:
-    needs: decide
-    if: needs.decide.outputs.should_build != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: No nightly build needed
-        run: |
-          echo "No changes on main since last nightly tag; skipping build."

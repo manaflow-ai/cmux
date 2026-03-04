@@ -16,6 +16,22 @@ After making code changes, always run the reload script with a tag to launch the
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
+When reporting a tagged reload result in chat, use the format for your agent type:
+
+**Claude Code** (markdown link with correct derived-data path, cmd+clickable):
+```markdown
+=======================================================
+[cmux DEV <tag-name>.app](file:///tmp/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+=======================================================
+```
+
+**Codex** (plain text format):
+```
+=======================================================
+[<tag-name>: file:///tmp/cmux-<tag-name>.app](file:///tmp/cmux-<tag-name>.app)
+=======================================================
+```
+
 After making code changes, always run the build:
 
 ```bash
@@ -93,6 +109,7 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
+- **Terminal find layering contract:** `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), not from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
 
 ## Socket command threading policy
@@ -164,7 +181,7 @@ git commit -m "Update ghostty submodule"
 Use the `/release` command to prepare a new release. This will:
 1. Determine the new version (bumps minor by default)
 2. Gather commits since the last tag and update the changelog
-3. Update `CHANGELOG.md` and `docs-site/content/docs/changelog.mdx`
+3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
 5. Commit, tag, and push
 
@@ -193,4 +210,4 @@ Notes:
 - The release asset is `cmux-macos.dmg` attached to the tag.
 - README download button points to `releases/latest/download/cmux-macos.dmg`.
 - Versioning: bump the minor version for updates unless explicitly asked otherwise.
-- Changelog: always update both `CHANGELOG.md` and the docs-site version.
+- Changelog: update `CHANGELOG.md`; docs changelog is rendered from it.

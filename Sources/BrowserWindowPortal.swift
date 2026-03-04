@@ -117,6 +117,9 @@ final class WindowBrowserHostView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         updateDividerCursor(at: point)
 
+        if shouldPassThroughToTitlebar(at: point) {
+            return nil
+        }
         if shouldPassThroughToSidebarResizer(at: point) {
             return nil
         }
@@ -125,6 +128,18 @@ final class WindowBrowserHostView: NSView {
         }
         let hitView = super.hitTest(point)
         return hitView === self ? nil : hitView
+    }
+
+    private func shouldPassThroughToTitlebar(at point: NSPoint) -> Bool {
+        guard let window else { return false }
+        // Window-level portal hosts sit above SwiftUI content. Never intercept
+        // hits that land in native titlebar space or the custom titlebar strip
+        // we reserve directly under it for window drag/double-click behaviors.
+        let windowPoint = convert(point, to: nil)
+        let nativeTitlebarHeight = window.frame.height - window.contentLayoutRect.height
+        let customTitlebarBandHeight = max(28, min(72, nativeTitlebarHeight))
+        let interactionBandMinY = window.contentLayoutRect.maxY - customTitlebarBandHeight - 0.5
+        return windowPoint.y >= interactionBandMinY
     }
 
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
@@ -326,6 +341,8 @@ final class WindowBrowserPortal: NSObject {
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
     private var hasDeferredFullSyncScheduled = false
+    private var hasExternalGeometrySyncScheduled = false
+    private var geometryObservers: [NSObjectProtocol] = []
 
     private struct Entry {
         weak var webView: WKWebView?
@@ -345,7 +362,71 @@ final class WindowBrowserPortal: NSObject {
         hostView.layer?.masksToBounds = true
         hostView.translatesAutoresizingMaskIntoConstraints = true
         hostView.autoresizingMask = []
+        installGeometryObservers(for: window)
         _ = ensureInstalled()
+    }
+
+    private func installGeometryObservers(for window: NSWindow) {
+        guard geometryObservers.isEmpty else { return }
+
+        let center = NotificationCenter.default
+        geometryObservers.append(center.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleExternalGeometrySynchronize()
+            }
+        })
+        geometryObservers.append(center.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleExternalGeometrySynchronize()
+            }
+        })
+        geometryObservers.append(center.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let splitView = notification.object as? NSSplitView,
+                      let window = self.window,
+                      splitView.window === window else { return }
+                self.scheduleExternalGeometrySynchronize()
+            }
+        })
+    }
+
+    private func removeGeometryObservers() {
+        for observer in geometryObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        geometryObservers.removeAll()
+    }
+
+    private func scheduleExternalGeometrySynchronize() {
+        guard !hasExternalGeometrySyncScheduled else { return }
+        hasExternalGeometrySyncScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasExternalGeometrySyncScheduled = false
+            self.synchronizeAllEntriesFromExternalGeometryChange()
+        }
+    }
+
+    private func synchronizeAllEntriesFromExternalGeometryChange() {
+        guard ensureInstalled() else { return }
+        installedContainerView?.layoutSubtreeIfNeeded()
+        installedReferenceView?.layoutSubtreeIfNeeded()
+        hostView.superview?.layoutSubtreeIfNeeded()
+        hostView.layoutSubtreeIfNeeded()
+        synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
     }
 
     @discardableResult
@@ -419,11 +500,30 @@ final class WindowBrowserPortal: NSObject {
         return false
     }
 
-    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.5) -> Bool {
+    private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
             abs(lhs.size.width - rhs.size.width) <= epsilon &&
             abs(lhs.size.height - rhs.size.height) <= epsilon
+    }
+
+    private static func pixelSnappedRect(_ rect: NSRect, in view: NSView) -> NSRect {
+        guard rect.origin.x.isFinite,
+              rect.origin.y.isFinite,
+              rect.size.width.isFinite,
+              rect.size.height.isFinite else {
+            return rect
+        }
+        let scale = max(1.0, view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
+        func snap(_ value: CGFloat) -> CGFloat {
+            (value * scale).rounded(.toNearestOrAwayFromZero) / scale
+        }
+        return NSRect(
+            x: snap(rect.origin.x),
+            y: snap(rect.origin.y),
+            width: max(0, snap(rect.size.width)),
+            height: max(0, snap(rect.size.height))
+        )
     }
 
     private static func frameExtendsOutsideBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
@@ -765,7 +865,8 @@ final class WindowBrowserPortal: NSObject {
 
         _ = synchronizeHostFrameToReference()
         let frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
-        let frameInHost = hostView.convert(frameInWindow, from: nil)
+        let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
+        let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
         let hostBounds = hostView.bounds
         let hasFiniteHostBounds =
             hostBounds.origin.x.isFinite &&
@@ -838,6 +939,8 @@ final class WindowBrowserPortal: NSObject {
             CATransaction.setDisableActions(true)
             containerView.frame = targetFrame
             CATransaction.commit()
+            webView.needsLayout = true
+            webView.layoutSubtreeIfNeeded()
         }
 
         let expectedContainerBounds = NSRect(origin: .zero, size: targetFrame.size)
@@ -952,6 +1055,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func tearDown() {
+        removeGeometryObservers()
         for webViewId in Array(entriesByWebViewId.keys) {
             detachWebView(withId: webViewId)
         }

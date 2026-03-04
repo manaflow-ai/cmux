@@ -71,9 +71,25 @@ def main() -> int:
             f"addressBarVerticalPadding regressed to {vertical_padding:g}; expected <= 4 for compact omnibar height"
         )
 
+    omnibar_corner_radius = parse_cgfloat_constant(view_source, "omnibarPillCornerRadius")
+    if omnibar_corner_radius is None:
+        failures.append("omnibarPillCornerRadius constant is missing")
+    elif omnibar_corner_radius > 10:
+        failures.append(
+            f"omnibarPillCornerRadius regressed to {omnibar_corner_radius:g}; expected <= 10 to keep a squircle profile"
+        )
+
     address_bar_block = extract_block(view_source, "private var addressBar: some View")
     if ".padding(.vertical, addressBarVerticalPadding)" not in address_bar_block:
         failures.append("addressBar no longer applies compact vertical padding via addressBarVerticalPadding")
+
+    omnibar_field_block = extract_block(view_source, "private var omnibarField: some View")
+    if omnibar_field_block.count(
+        "RoundedRectangle(cornerRadius: omnibarPillCornerRadius, style: .continuous)"
+    ) < 2:
+        failures.append(
+            "omnibarField no longer uses continuous rounded-rectangle background+stroke tied to omnibarPillCornerRadius"
+        )
 
     button_bar_block = extract_block(view_source, "private var addressBarButtonBar: some View")
     hit_frame_uses = button_bar_block.count("addressBarButtonHitSize")

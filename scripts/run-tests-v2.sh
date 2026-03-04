@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v2"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
+RUN_TAG="tests-v2"
 
 echo "== build =="
 # Work around stale explicit-module cache artifacts (notably Sentry headers) that can
@@ -51,7 +52,7 @@ launch_and_wait() {
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
-  CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
+  CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
   SOCK=""
   for _ in {1..120}; do
@@ -70,7 +71,7 @@ launch_and_wait() {
   export CMUX_SOCKET="$SOCK"
 
   # Ensure LaunchServices has a visible/main window attached for rendering checks.
-  open "$APP" >/dev/null 2>&1 || true
+  CMUX_TAG="$RUN_TAG" open "$APP" >/dev/null 2>&1 || true
   sleep 0.5
 
   echo "== wait ready =="
