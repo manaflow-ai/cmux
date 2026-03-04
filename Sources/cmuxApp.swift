@@ -2820,6 +2820,7 @@ struct SettingsView: View {
     @State private var socketPasswordStatusIsError = false
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
+    @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
 
@@ -2963,6 +2964,7 @@ struct SettingsView: View {
                             .labelsHidden()
                             .pickerStyle(.menu)
                             .onChange(of: appLanguage) { newValue in
+                                guard !isResettingSettings else { return }
                                 if let lang = AppLanguage(rawValue: newValue) {
                                     LanguageSettings.apply(lang)
                                     if newValue != LanguageSettings.languageAtLaunch.rawValue {
@@ -3764,17 +3766,23 @@ struct SettingsView: View {
     private func relaunchApp() {
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
-        task.launchPath = "/usr/bin/open"
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["-n", bundlePath]
-        try? task.run()
+        do {
+            try task.run()
+        } catch {
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             NSApplication.shared.terminate(nil)
         }
     }
 
     private func resetAllSettings() {
+        isResettingSettings = true
         appLanguage = LanguageSettings.defaultLanguage.rawValue
         LanguageSettings.apply(.system)
+        isResettingSettings = false
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
