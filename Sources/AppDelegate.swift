@@ -80,31 +80,31 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     var commandPaletteTitle: String {
         switch self {
         case .androidStudio:
-            return "Open Current Directory in Android Studio"
+            return String(localized: "menu.openInAndroidStudio", defaultValue: "Open Current Directory in Android Studio")
         case .antigravity:
-            return "Open Current Directory in Antigravity"
+            return String(localized: "menu.openInAntigravity", defaultValue: "Open Current Directory in Antigravity")
         case .cursor:
-            return "Open Current Directory in Cursor"
+            return String(localized: "menu.openInCursor", defaultValue: "Open Current Directory in Cursor")
         case .finder:
-            return "Open Current Directory in Finder"
+            return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
-            return "Open Current Directory in Ghostty"
+            return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
         case .iterm2:
-            return "Open Current Directory in iTerm2"
+            return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
-            return "Open Current Directory in Terminal"
+            return String(localized: "menu.openInTerminal", defaultValue: "Open Current Directory in Terminal")
         case .tower:
-            return "Open Current Directory in Tower"
+            return String(localized: "menu.openInTower", defaultValue: "Open Current Directory in Tower")
         case .vscode:
-            return "Open Current Directory in VS Code (Inline)"
+            return String(localized: "menu.openInVSCode", defaultValue: "Open Current Directory in VS Code (Inline)")
         case .warp:
-            return "Open Current Directory in Warp"
+            return String(localized: "menu.openInWarp", defaultValue: "Open Current Directory in Warp")
         case .windsurf:
-            return "Open Current Directory in Windsurf"
+            return String(localized: "menu.openInWindsurf", defaultValue: "Open Current Directory in Windsurf")
         case .xcode:
-            return "Open Current Directory in Xcode"
+            return String(localized: "menu.openInXcode", defaultValue: "Open Current Directory in Xcode")
         case .zed:
-            return "Open Current Directory in Zed"
+            return String(localized: "menu.openInZed", defaultValue: "Open Current Directory in Zed")
         }
     }
 
@@ -1461,7 +1461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
     private var menuBarExtraController: MenuBarExtraController?
-    private static let serviceErrorNoPath = NSString(string: "Could not load any folder path from the clipboard.")
+    private static let serviceErrorNoPath = NSString(string: String(localized: "error.clipboardFolderPath", defaultValue: "Could not load any folder path from the clipboard."))
     private static let didInstallWindowKeyEquivalentSwizzle: Void = {
         let targetClass: AnyClass = NSWindow.self
         let originalSelector = #selector(NSWindow.performKeyEquivalent(with:))
@@ -3695,9 +3695,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var labels: [UUID: String] = [:]
         for (index, summary) in orderedSummaries.enumerated() {
             if summary.windowId == referenceWindowId {
-                labels[summary.windowId] = "Current Window"
+                labels[summary.windowId] = String(localized: "menu.currentWindow", defaultValue: "Current Window")
             } else {
-                labels[summary.windowId] = "Window \(index + 1)"
+                let number = index + 1
+                labels[summary.windowId] = String(localized: "menu.windowNumber", defaultValue: "Window \(number)")
             }
         }
         return labels
@@ -3705,7 +3706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
         let trimmed = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Workspace" : trimmed
+        return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
     private func rollbackDetachedSurface(
@@ -4648,22 +4649,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let installer = CmuxCLIPathInstaller()
         do {
             let outcome = try installer.install()
-            var informativeText = """
-            Created symlink:
-
-            \(outcome.destinationURL.path) -> \(outcome.sourceURL.path)
-            """
+            var informativeText = String(localized: "cli.install.symlinkCreated", defaultValue: "Created symlink:\n\n\(outcome.destinationURL.path) -> \(outcome.sourceURL.path)")
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to write to /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Installed",
+                title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Install cmux CLI",
+                title: String(localized: "cli.installFailed", defaultValue: "Couldn't Install cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -4675,20 +4672,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
-                ? "Removed \(outcome.destinationURL.path)."
-                : "No cmux CLI symlink was found at \(outcome.destinationURL.path)."
+                ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
+                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to modify /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
-                title: "cmux CLI Uninstalled",
+                title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
                 informativeText: informativeText,
                 style: .informational
             )
         } catch {
             presentCLIPathAlert(
-                title: "Couldn't Uninstall cmux CLI",
+                title: String(localized: "cli.uninstallFailed", defaultValue: "Couldn't Uninstall cmux CLI"),
                 informativeText: error.localizedDescription,
                 style: .warning
             )
@@ -4704,7 +4701,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
@@ -6003,12 +6000,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Quit cmux?"
-        alert.informativeText = "This will close all windows and workspaces."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+        alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+        alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Don't warn again for Cmd+Q"
+        alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
 
         let response = alert.runModal()
         if alert.suppressionButton?.state == .on {
@@ -6030,14 +6027,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Workspace"
-        alert.informativeText = "Enter a custom name for this workspace."
+        alert.messageText = String(localized: "dialog.renameWorkspace.title", defaultValue: "Rename Workspace")
+        alert.informativeText = String(localized: "dialog.renameWorkspace.message", defaultValue: "Enter a custom name for this workspace.")
         let input = NSTextField(string: tab.customTitle ?? tab.title)
-        input.placeholderString = "Workspace name"
+        input.placeholderString = String(localized: "dialog.renameWorkspace.placeholder", defaultValue: "Workspace name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
@@ -8083,17 +8080,17 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationsCancellable: AnyCancellable?
     private let buildHintTitle: String?
 
-    private let stateHintItem = NSMenuItem(title: "No unread notifications", action: nil, keyEquivalent: "")
+    private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
     private let buildHintItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
-    private let showNotificationsItem = NSMenuItem(title: "Show Notifications", action: nil, keyEquivalent: "")
-    private let jumpToUnreadItem = NSMenuItem(title: "Jump to Latest Unread", action: nil, keyEquivalent: "")
-    private let markAllReadItem = NSMenuItem(title: "Mark All Read", action: nil, keyEquivalent: "")
-    private let clearAllItem = NSMenuItem(title: "Clear All", action: nil, keyEquivalent: "")
-    private let checkForUpdatesItem = NSMenuItem(title: "Check for Updates…", action: nil, keyEquivalent: "")
-    private let preferencesItem = NSMenuItem(title: "Preferences…", action: nil, keyEquivalent: "")
-    private let quitItem = NSMenuItem(title: "Quit cmux", action: nil, keyEquivalent: "")
+    private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
+    private let jumpToUnreadItem = NSMenuItem(title: String(localized: "statusMenu.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"), action: nil, keyEquivalent: "")
+    private let markAllReadItem = NSMenuItem(title: String(localized: "statusMenu.markAllRead", defaultValue: "Mark All Read"), action: nil, keyEquivalent: "")
+    private let clearAllItem = NSMenuItem(title: String(localized: "statusMenu.clearAll", defaultValue: "Clear All"), action: nil, keyEquivalent: "")
+    private let checkForUpdatesItem = NSMenuItem(title: String(localized: "menu.checkForUpdates", defaultValue: "Check for Updates…"), action: nil, keyEquivalent: "")
+    private let preferencesItem = NSMenuItem(title: String(localized: "menu.preferences", defaultValue: "Preferences…"), action: nil, keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: String(localized: "menu.quitCmux", defaultValue: "Quit cmux"), action: nil, keyEquivalent: "")
 
     private var notificationItems: [NSMenuItem] = []
     private let maxInlineNotificationItems = 6
@@ -8222,7 +8219,9 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.image = MenuBarIconRenderer.makeImage(unreadCount: displayedUnreadCount)
             button.toolTip = displayedUnreadCount == 0
                 ? "cmux"
-                : "cmux: \(displayedUnreadCount) unread notification\(displayedUnreadCount == 1 ? "" : "s")"
+                : displayedUnreadCount == 1
+                    ? "cmux: " + String(localized: "statusMenu.tooltip.unread.one", defaultValue: "1 unread notification")
+                    : "cmux: " + String(localized: "statusMenu.tooltip.unread.other", defaultValue: "\(displayedUnreadCount) unread notifications")
         }
     }
 
@@ -8345,9 +8344,14 @@ enum NotificationMenuSnapshotBuilder {
     }
 
     static func stateHintTitle(unreadCount: Int) -> String {
-        unreadCount == 0
-            ? "No unread notifications"
-            : "\(unreadCount) unread notification\(unreadCount == 1 ? "" : "s")"
+        switch unreadCount {
+        case 0:
+            return String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
+        case 1:
+            return String(localized: "statusMenu.unreadCount.one", defaultValue: "1 unread notification")
+        default:
+            return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
+        }
     }
 }
 

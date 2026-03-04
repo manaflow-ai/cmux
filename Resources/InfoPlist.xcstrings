@@ -1,0 +1,57 @@
+{
+  "sourceLanguage" : "en",
+  "version" : "1.0",
+  "strings" : {
+    "NSMicrophoneUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A program running within cmux would like to use your microphone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 内で実行中のプログラムがマイクの使用を求めています。"
+          }
+        }
+      }
+    },
+    "New $(PRODUCT_NAME) Workspace Here" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New $(PRODUCT_NAME) Workspace Here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに新規 $(PRODUCT_NAME) ワークスペースを作成"
+          }
+        }
+      }
+    },
+    "New $(PRODUCT_NAME) Window Here" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New $(PRODUCT_NAME) Window Here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに新規 $(PRODUCT_NAME) ウインドウを作成"
+          }
+        }
+      }
+    }
+  }
+}

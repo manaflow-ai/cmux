@@ -125,11 +125,11 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .system:
-            return "System"
+            return String(localized: "theme.system", defaultValue: "System")
         case .light:
-            return "Light"
+            return String(localized: "theme.light", defaultValue: "Light")
         case .dark:
-            return "Dark"
+            return String(localized: "theme.dark", defaultValue: "Dark")
         }
     }
 
@@ -1474,7 +1474,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let url = currentURL {
             return url.host ?? url.absoluteString
         }
-        return "New tab"
+        return String(localized: "browser.newTab", defaultValue: "New tab")
     }
 
     var displayIcon: String? {
@@ -2074,17 +2074,13 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
-        alert.messageText = "Connection isn't secure"
-        alert.informativeText = """
-        \(host) uses plain HTTP, so traffic can be read or modified on the network.
-
-        Open this URL in your default browser, or proceed in cmux.
-        """
-        alert.addButton(withTitle: "Open in Default Browser")
-        alert.addButton(withTitle: "Proceed in cmux")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
+        alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux.")
+        alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
+        alert.addButton(withTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "Always allow this host in cmux"
+        alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak self, weak alert] response in
             self?.handleInsecureHTTPAlertResponse(
@@ -3098,29 +3094,40 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
              (NSURLErrorDomain, NSURLErrorCannotFindHost),
              (NSURLErrorDomain, NSURLErrorTimedOut):
-            title = "Can\u{2019}t reach this page"
-            message = "\(failedURL.isEmpty ? "The site" : failedURL) refused to connect. Check that a server is running on this address."
+            title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
+            if failedURL.isEmpty {
+                message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
+            } else {
+                message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
+            }
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
              (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
-            title = "No internet connection"
-            message = "Check your network connection and try again."
+            title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
+            message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
         case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
              (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
              (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
-            title = "Connection isn\u{2019}t secure"
-            message = "The certificate for this site is invalid."
+            title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
+            message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
         default:
-            title = "Can\u{2019}t open this page"
+            title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
             message = error.localizedDescription
         }
 
-        let escapedURL = failedURL
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
+        let escapeHTML: (String) -> String = { value in
+            value
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+        }
+
+        let escapedTitle = escapeHTML(title)
+        let escapedMessage = escapeHTML(message)
+        let escapedURL = escapeHTML(failedURL)
+        let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
 
         let html = """
         <!DOCTYPE html>
@@ -3156,10 +3163,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         </head>
         <body>
         <div class="container">
-            <h1>\(title)</h1>
-            <p>\(message)</p>
+            <h1>\(escapedTitle)</h1>
+            <p>\(escapedMessage)</p>
             <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">Reload</button>
+            <button onclick="location.reload()">\(escapedReloadLabel)</button>
         </div>
         </body>
         </html>
@@ -3334,9 +3341,9 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
-            return "The page at \(absolute) says:"
+            return String(localized: "browser.dialog.pageSaysAt", defaultValue: "The page at \(absolute) says:")
         }
-        return "This page says:"
+        return String(localized: "browser.dialog.pageSays", defaultValue: "This page says:")
     }
 
     private func presentDialog(
@@ -3429,7 +3436,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
         presentDialog(alert, for: webView) { _ in completionHandler() }
     }
 
@@ -3443,8 +3450,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         presentDialog(alert, for: webView) { response in
             completionHandler(response == .alertFirstButtonReturn)
         }
@@ -3461,8 +3468,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.alertStyle = .informational
         alert.messageText = javaScriptDialogTitle(for: webView)
         alert.informativeText = prompt
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
         field.stringValue = defaultText ?? ""

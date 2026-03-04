@@ -504,7 +504,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoBack)
             .opacity(panel.canGoBack ? 1.0 : 0.4)
-            .help("Go Back")
+            .help(String(localized: "browser.goBack", defaultValue: "Go Back"))
 
             Button(action: {
                 #if DEBUG
@@ -520,7 +520,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .disabled(!panel.canGoForward)
             .opacity(panel.canGoForward ? 1.0 : 0.4)
-            .help("Go Forward")
+            .help(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: {
                 if panel.isLoading {
@@ -541,18 +541,18 @@ struct BrowserPanelView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(OmnibarAddressButtonStyle())
-            .help(panel.isLoading ? "Stop" : "Reload")
+            .help(panel.isLoading ? String(localized: "browser.stop", defaultValue: "Stop") : String(localized: "browser.reload", defaultValue: "Reload"))
 
             if panel.isDownloading {
                 HStack(spacing: 4) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Downloading...")
+                    Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
-                .help("Download in progress")
+                .help(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
     }
@@ -570,7 +570,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip("Toggle Developer Tools"))
+        .help(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.tooltip(String(localized: "browser.toggleDevTools", defaultValue: "Toggle Developer Tools")))
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
     }
 
@@ -651,7 +651,7 @@ struct BrowserPanelView: View {
                 ),
                 isFocused: $addressBarFocused,
                 inlineCompletion: inlineCompletion,
-                placeholder: "Search or enter URL",
+                placeholder: String(localized: "browser.addressBar.placeholder", defaultValue: "Search or enter URL"),
                 onTap: {
                     handleOmnibarTap()
                 },
@@ -2146,7 +2146,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     var trailingBadgeText: String? {
         switch kind {
         case .switchToTab:
-            return "Switch to tab"
+            return String(localized: "browser.switchToTab", defaultValue: "Switch to tab")
         default:
             return nil
         }
@@ -2983,7 +2983,7 @@ private struct OmnibarSuggestionsView: View {
         .accessibilityElement(children: .contain)
         .accessibilityRespondsToUserInteraction(true)
         .accessibilityIdentifier("BrowserOmnibarSuggestions")
-        .accessibilityLabel("Address bar suggestions")
+        .accessibilityLabel(String(localized: "browser.addressBarSuggestions", defaultValue: "Address bar suggestions"))
     }
 }
 
