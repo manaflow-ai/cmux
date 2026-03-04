@@ -462,6 +462,9 @@ struct cmuxApp: App {
             CommandGroup(after: .textEditing) {
                 Menu(String(localized: "menu.find.title", defaultValue: "Find")) {
                     Button(String(localized: "menu.find.find", defaultValue: "Find…")) {
+#if DEBUG
+                        dlog("find.menu Cmd+F fired")
+#endif
                         activeTabManager.startSearch()
                     }
                     .keyboardShortcut("f", modifiers: .command)
