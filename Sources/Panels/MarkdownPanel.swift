@@ -73,9 +73,10 @@ final class MarkdownPanel: Panel, ObservableObject {
             content = newContent
             isFileUnavailable = false
         } catch {
-            // Try other common encodings before giving up
+            // Fallback: try ISO Latin-1, which accepts all 256 byte values,
+            // covering legacy encodings like Windows-1252.
             if let data = FileManager.default.contents(atPath: filePath),
-               let decoded = String(data: data, encoding: .ascii) {
+               let decoded = String(data: data, encoding: .isoLatin1) {
                 content = decoded
                 isFileUnavailable = false
             } else {
