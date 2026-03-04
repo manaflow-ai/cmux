@@ -2627,6 +2627,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
+    private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     fileprivate var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
@@ -3611,6 +3612,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         if handleKeyboardCopyModeIfNeeded(event, surface: surface) {
+            keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
 #if DEBUG
@@ -3819,6 +3821,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func keyUp(with event: NSEvent) {
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
+            return
+        }
+
+        if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
 

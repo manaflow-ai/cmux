@@ -1552,6 +1552,18 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .exit
         )
     }
+
+    func testQAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 12, // kVK_ANSI_Q
+                charactersIgnoringModifiers: "q",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+    }
 }
 
 final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
