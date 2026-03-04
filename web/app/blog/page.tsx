@@ -8,6 +8,13 @@ export const metadata: Metadata = {
 
 const posts = [
   {
+    slug: "cmd-shift-u",
+    title: "Cmd+Shift+U",
+    date: "2026-03-04",
+    summary:
+      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
+  },
+  {
     slug: "zen-of-cmux",
     title: "The Zen of cmux",
     date: "2026-02-27",
