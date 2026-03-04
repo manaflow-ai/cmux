@@ -386,7 +386,48 @@ def main() -> int:
         if not did_focus_switcher_target:
             raise cmuxError("Cmd+P workspace switch did not restore blank browser omnibar focus")
 
-        print("PASS: blank-browser focus paths (surface, pane, and Cmd+P workspace switcher) drive omnibar, while command palette visibility blocks focus stealing")
+        # Scenario 5: Cmd+P switcher should dismiss on Escape reliably.
+        client.select_workspace(source_workspace_id)
+        time.sleep(0.4)
+        window_id = current_window_id(client)
+        if not set_command_palette_visible(client, window_id, False):
+            raise cmuxError("Failed to reset command palette before scenario 5")
+
+        client.focus_surface_by_panel(source_terminal_id)
+        time.sleep(0.2)
+
+        client.simulate_shortcut("cmd+p")
+        if not wait_for(
+            lambda: bool(
+                v2_call(
+                    client,
+                    "debug.command_palette.visible",
+                    {"window_id": window_id},
+                    request_id="palette-visible-switcher-open-escape"
+                ).get("visible")
+            ),
+            timeout_s=2.0,
+            interval_s=0.1
+        ):
+            raise cmuxError("Cmd+P did not open command palette switcher before Escape scenario")
+
+        client.simulate_shortcut("escape")
+        did_dismiss_switcher_on_escape = wait_for(
+            lambda: not bool(
+                v2_call(
+                    client,
+                    "debug.command_palette.visible",
+                    {"window_id": window_id},
+                    request_id="palette-visible-switcher-after-escape"
+                ).get("visible")
+            ),
+            timeout_s=3.0,
+            interval_s=0.1
+        )
+        if not did_dismiss_switcher_on_escape:
+            raise cmuxError("Cmd+P Escape did not dismiss command palette switcher")
+
+        print("PASS: blank-browser focus paths (surface, pane, Cmd+P Enter switcher, and Cmd+P Escape dismiss) drive omnibar, while command palette visibility blocks focus stealing")
         return 0
 
     except cmuxError as exc:

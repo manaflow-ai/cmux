@@ -1080,6 +1080,25 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
     return true
 }
 
+func shouldSubmitCommandPaletteWithReturn(
+    keyCode: UInt16,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags == [] || normalizedFlags == [.shift]
+}
+
+func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
+    guard let editor = window.firstResponder as? NSTextView,
+          editor.isFieldEditor else {
+        return false
+    }
+    return editor.hasMarkedText()
+}
+
 enum BrowserZoomShortcutAction: Equatable {
     case zoomIn
     case zoomOut
@@ -5804,6 +5823,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 userInfo: ["delta": delta]
             )
             return true
+        }
+
+        if commandPaletteVisibleInTargetWindow,
+           let paletteWindow = commandPaletteTargetWindow {
+            let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            if normalizedFlags.isEmpty, event.keyCode == 53 {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteDismissRequested, object: paletteWindow)
+                return true
+            }
+
+            if shouldSubmitCommandPaletteWithReturn(
+                keyCode: event.keyCode,
+                flags: event.modifierFlags
+            ) {
+                if paletteFieldEditorHasMarkedText {
+                    return false
+                }
+                NotificationCenter.default.post(name: .commandPaletteSubmitRequested, object: paletteWindow)
+                return true
+            }
         }
 
         // Guard against stale browserAddressBarFocusedPanelId after focus transitions

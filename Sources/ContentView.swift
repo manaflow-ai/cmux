@@ -2282,6 +2282,30 @@ struct ContentView: View {
             openCommandPaletteSwitcher()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            handleCommandPaletteSubmitRequest()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
+            guard isCommandPalettePresented else { return }
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            dismissCommandPalette()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
             guard Self.shouldHandleCommandPaletteRequest(
@@ -4456,6 +4480,17 @@ struct ContentView: View {
         }
         let index = commandPaletteSelectedIndex(resultCount: visibleResults.count)
         runCommandPaletteCommand(visibleResults[index].command)
+    }
+
+    private func handleCommandPaletteSubmitRequest() {
+        switch commandPaletteMode {
+        case .commands:
+            runSelectedCommandPaletteResult()
+        case .renameInput(let target):
+            continueRenameFlow(target: target)
+        case .renameConfirm(let target, let proposedName):
+            applyRenameFlow(target: target, proposedName: proposedName)
+        }
     }
 
     private func runCommandPaletteCommand(_ command: CommandPaletteCommand) {
