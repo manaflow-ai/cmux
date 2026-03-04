@@ -3766,16 +3766,14 @@ struct SettingsView: View {
     private func relaunchApp() {
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", bundlePath]
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 1 && open -n \"\(bundlePath)\""]
         do {
             try task.run()
         } catch {
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApplication.shared.terminate(nil)
-        }
+        NSApplication.shared.terminate(nil)
     }
 
     private func resetAllSettings() {
