@@ -4275,13 +4275,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let installer = CmuxCLIPathInstaller()
         do {
             let outcome = try installer.install()
-            var informativeText = """
-            Created symlink:
-
-            \(outcome.destinationURL.path) -> \(outcome.sourceURL.path)
-            """
+            var informativeText = String(localized: "cli.install.symlinkCreated", defaultValue: "Created symlink:\n\n\(outcome.destinationURL.path) -> \(outcome.sourceURL.path)")
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to write to /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.install.adminRequired", defaultValue: "Administrator privileges were required to write to /usr/local/bin.")
             }
             presentCLIPathAlert(
                 title: String(localized: "cli.installed", defaultValue: "cmux CLI Installed"),
@@ -4302,11 +4298,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         do {
             let outcome = try installer.uninstall()
             let prefix = outcome.removedExistingEntry
-                ? "Removed \(outcome.destinationURL.path)."
-                : "No cmux CLI symlink was found at \(outcome.destinationURL.path)."
+                ? String(localized: "cli.uninstall.removed", defaultValue: "Removed \(outcome.destinationURL.path).")
+                : String(localized: "cli.uninstall.notFound", defaultValue: "No cmux CLI symlink was found at \(outcome.destinationURL.path).")
             var informativeText = prefix
             if outcome.usedAdministratorPrivileges {
-                informativeText += "\n\nAdministrator privileges were required to modify /usr/local/bin."
+                informativeText += "\n\n" + String(localized: "cli.uninstall.adminRequired", defaultValue: "Administrator privileges were required to modify /usr/local/bin.")
             }
             presentCLIPathAlert(
                 title: String(localized: "cli.uninstalled", defaultValue: "cmux CLI Uninstalled"),
@@ -4331,7 +4327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.alertStyle = style
         alert.messageText = title
         alert.informativeText = informativeText
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
 
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             alert.beginSheetModal(for: window, completionHandler: nil)
