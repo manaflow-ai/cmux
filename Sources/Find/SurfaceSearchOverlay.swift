@@ -74,7 +74,7 @@ struct SurfaceSearchOverlay: View {
                     Image(systemName: "chevron.up")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Next match (Return)")
+                .help(String(localized: "search.nextMatch.help", defaultValue: "Next match (Return)"))
 
                 Button(action: {
                     #if DEBUG
@@ -85,7 +85,7 @@ struct SurfaceSearchOverlay: View {
                     Image(systemName: "chevron.down")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Previous match (Shift+Return)")
+                .help(String(localized: "search.previousMatch.help", defaultValue: "Previous match (Shift+Return)"))
 
                 Button(action: {
                     #if DEBUG
@@ -96,7 +96,7 @@ struct SurfaceSearchOverlay: View {
                     Image(systemName: "xmark")
                 }
                 .buttonStyle(SearchButtonStyle())
-                .help("Close (Esc)")
+                .help(String(localized: "search.close.help", defaultValue: "Close (Esc)"))
             }
             .padding(8)
             .background(.background)
@@ -288,7 +288,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> SearchNativeTextField {
         let field = SearchNativeTextField(frame: .zero)
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
-        field.placeholderString = "Search"
+        field.placeholderString = String(localized: "search.placeholder", defaultValue: "Search")
         field.delegate = context.coordinator
         field.stringValue = text
         context.coordinator.parentField = field

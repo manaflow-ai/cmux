@@ -19,22 +19,22 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .top:
-            return "Top"
+            return String(localized: "workspace.placement.top", defaultValue: "Top")
         case .afterCurrent:
-            return "After current"
+            return String(localized: "workspace.placement.afterCurrent", defaultValue: "After current")
         case .end:
-            return "End"
+            return String(localized: "workspace.placement.end", defaultValue: "End")
         }
     }
 
     var description: String {
         switch self {
         case .top:
-            return "Insert new workspaces at the top of the list."
+            return String(localized: "workspace.placement.top.description", defaultValue: "Insert new workspaces at the top of the list.")
         case .afterCurrent:
-            return "Insert new workspaces directly after the active workspace."
+            return String(localized: "workspace.placement.afterCurrent.description", defaultValue: "Insert new workspaces directly after the active workspace.")
         case .end:
-            return "Append new workspaces to the bottom of the list."
+            return String(localized: "workspace.placement.end.description", defaultValue: "Append new workspaces to the bottom of the list.")
         }
     }
 }
@@ -72,9 +72,9 @@ enum SidebarActiveTabIndicatorStyle: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .leftRail:
-            return "Left Rail"
+            return String(localized: "sidebar.indicator.leftRail", defaultValue: "Left Rail")
         case .solidFill:
-            return "Solid Fill"
+            return String(localized: "sidebar.indicator.solidFill", defaultValue: "Solid Fill")
         }
     }
 }
@@ -1078,9 +1078,13 @@ class TabManager: ObservableObject {
 
         let count = plan.panelIds.count
         let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+        let message = if count == 1 {
+            String(localized: "dialog.closeOtherTabs.message.one", defaultValue: "This will close 1 tab in this pane:\n\(titleLines)")
+        } else {
+            String(localized: "dialog.closeOtherTabs.message.other", defaultValue: "This will close \(count) tabs in this pane:\n\(titleLines)")
+        }
         guard confirmClose(
-            title: "Close other tabs?",
+            title: String(localized: "dialog.closeOtherTabs.title", defaultValue: "Close other tabs?"),
             message: message,
             acceptCmdD: false
         ) else { return }
@@ -1120,8 +1124,8 @@ class TabManager: ObservableObject {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Close")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         // macOS convention: Cmd+D = confirm destructive close (e.g. "Don't Save").
         // We only opt into this for the "close last workspace => close window" path to avoid
@@ -1182,15 +1186,15 @@ class TabManager: ObservableObject {
         if let collapsed, !collapsed.isEmpty {
             return collapsed
         }
-        return "Untitled Tab"
+        return String(localized: "tab.untitled", defaultValue: "Untitled Tab")
     }
 
     private func closeWorkspaceIfRunningProcess(_ workspace: Workspace) {
         let willCloseWindow = tabs.count <= 1
         if workspaceNeedsConfirmClose(workspace),
            !confirmClose(
-               title: "Close workspace?",
-               message: "This will close the workspace and all of its panels.",
+               title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
+               message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
                acceptCmdD: willCloseWindow
            ) {
             return
@@ -1231,8 +1235,8 @@ class TabManager: ObservableObject {
             let needsConfirm = workspaceNeedsConfirmClose(tab)
             if needsConfirm {
                 let message = willCloseWindow
-                    ? "This will close the last tab and close the window."
-                    : "This will close the last tab and close its workspace."
+                    ? String(localized: "dialog.closeLastTabWindow.message", defaultValue: "This will close the last tab and close the window.")
+                    : String(localized: "dialog.closeLastTabWorkspace.message", defaultValue: "This will close the last tab and close its workspace.")
 #if DEBUG
                 dlog(
                     "surface.close.shortcut.confirm tab=\(tab.id.uuidString.prefix(5)) " +
@@ -1240,7 +1244,7 @@ class TabManager: ObservableObject {
                 )
 #endif
                 guard confirmClose(
-                    title: "Close tab?",
+                    title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                     message: message,
                     acceptCmdD: willCloseWindow
                 ) else {
@@ -1272,8 +1276,8 @@ class TabManager: ObservableObject {
             )
 #endif
             guard confirmClose(
-                title: "Close tab?",
-                message: "This will close the current tab.",
+                title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+                message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
                 acceptCmdD: false
             ) else {
 #if DEBUG
@@ -1311,8 +1315,8 @@ class TabManager: ObservableObject {
         if let terminalPanel = tab.terminalPanel(for: surfaceId),
            terminalPanel.needsConfirmClose() {
             guard confirmClose(
-                title: "Close tab?",
-                message: "This will close the current tab.",
+                title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
+                message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
                 acceptCmdD: false
             ) else { return }
         }
