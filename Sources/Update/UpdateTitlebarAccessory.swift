@@ -35,7 +35,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         switch self {
         case .classic:
             return TitlebarControlsStyleConfig(
-                spacing: 10,
+                spacing: 8,
                 iconSize: 15,
                 buttonSize: 24,
                 badgeSize: 14,
@@ -61,7 +61,7 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
             )
         case .roomy:
             return TitlebarControlsStyleConfig(
-                spacing: 14,
+                spacing: 12,
                 iconSize: 16,
                 buttonSize: 28,
                 badgeSize: 16,
@@ -230,8 +230,10 @@ struct TitlebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
+    let onToggleFileTree: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    @AppStorage("sidebarContentMode") private var sidebarContentMode = SidebarContentMode.tabs.rawValue
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
@@ -244,6 +246,7 @@ struct TitlebarControlsView: View {
 
     private enum HintSlot: Int, CaseIterable {
         case toggleSidebar
+        case toggleFileTree
         case showNotifications
         case newTab
 
@@ -251,6 +254,8 @@ struct TitlebarControlsView: View {
             switch self {
             case .toggleSidebar:
                 return .toggleSidebar
+            case .toggleFileTree:
+                return .toggleFileTree
             case .showNotifications:
                 return .showNotifications
             case .newTab:
@@ -322,6 +327,21 @@ struct TitlebarControlsView: View {
             .accessibilityIdentifier("titlebarControl.toggleSidebar")
             .accessibilityLabel("Toggle Sidebar")
             .help(KeyboardShortcutSettings.Action.toggleSidebar.tooltip("Show or hide the sidebar"))
+
+            TitlebarControlButton(config: config, action: {
+                #if DEBUG
+                dlog("titlebar.toggleFileTree")
+                #endif
+                onToggleFileTree()
+            }) {
+                iconLabel(
+                    systemName: sidebarContentMode == SidebarContentMode.fileTree.rawValue ? "folder.fill" : "folder",
+                    config: config
+                )
+            }
+            .accessibilityIdentifier("titlebarControl.toggleFileTree")
+            .accessibilityLabel("Toggle File Tree")
+            .help(KeyboardShortcutSettings.Action.toggleFileTree.tooltip("Switch between tabs and file tree"))
 
             TitlebarControlButton(config: config, action: {
                 #if DEBUG
@@ -712,6 +732,17 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
+        let toggleFileTree = {
+            let current = UserDefaults.standard.string(forKey: "sidebarContentMode") ?? SidebarContentMode.tabs.rawValue
+            if current == SidebarContentMode.fileTree.rawValue {
+                UserDefaults.standard.set(SidebarContentMode.tabs.rawValue, forKey: "sidebarContentMode")
+            } else {
+                UserDefaults.standard.set(SidebarContentMode.fileTree.rawValue, forKey: "sidebarContentMode")
+                if AppDelegate.shared?.sidebarState?.isVisible == false {
+                    _ = AppDelegate.shared?.sidebarState?.toggle()
+                }
+            }
+        }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
         let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
 
@@ -720,6 +751,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 notificationStore: notificationStore,
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
+                onToggleFileTree: toggleFileTree,
                 onToggleNotifications: toggleNotifications,
                 onNewTab: newTab
             )

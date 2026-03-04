@@ -9,6 +9,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -34,6 +35,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleFileTree.defaultsKey) private var toggleFileTreeShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
@@ -505,6 +507,18 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: "Toggle File Tree", shortcut: toggleFileTreeMenuShortcut) {
+                    let current = UserDefaults.standard.string(forKey: "sidebarContentMode") ?? SidebarContentMode.tabs.rawValue
+                    if current == SidebarContentMode.fileTree.rawValue {
+                        UserDefaults.standard.set(SidebarContentMode.tabs.rawValue, forKey: "sidebarContentMode")
+                    } else {
+                        UserDefaults.standard.set(SidebarContentMode.fileTree.rawValue, forKey: "sidebarContentMode")
+                        if !sidebarState.isVisible {
+                            sidebarState.toggle()
+                        }
+                    }
+                }
+
                 Divider()
 
                 splitCommandButton(title: "Next Surface", shortcut: nextSurfaceMenuShortcut) {
@@ -761,6 +775,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var toggleFileTreeMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleFileTreeShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleFileTree.defaultShortcut
         )
     }
 

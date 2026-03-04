@@ -4076,6 +4076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager = context.tabManager
             sidebarState = context.sidebarState
             sidebarSelectionState = context.sidebarSelectionState
+
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
 #if DEBUG
@@ -4523,6 +4524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager = context.tabManager
             sidebarState = context.sidebarState
             sidebarSelectionState = context.sidebarSelectionState
+
             TerminalController.shared.setActiveTabManager(context.tabManager)
         }
 
@@ -6393,6 +6395,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             _ = toggleSidebarInActiveMainWindow()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleFileTree)) {
+            let current = UserDefaults.standard.string(forKey: "sidebarContentMode") ?? SidebarContentMode.tabs.rawValue
+            if current == SidebarContentMode.fileTree.rawValue {
+                UserDefaults.standard.set(SidebarContentMode.tabs.rawValue, forKey: "sidebarContentMode")
+            } else {
+                UserDefaults.standard.set(SidebarContentMode.fileTree.rawValue, forKey: "sidebarContentMode")
+                if sidebarState?.isVisible == false {
+                    sidebarState?.toggle()
+                }
+            }
             return true
         }
 
