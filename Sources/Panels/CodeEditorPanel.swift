@@ -61,4 +61,8 @@ final class CodeEditorPanel: Panel, ObservableObject {
     func unfocus() {
         isFocused = false
     }
+
+    func triggerFlash() {
+        // No flash animation for code editor panels
+    }
 }

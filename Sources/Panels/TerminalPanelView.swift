@@ -15,37 +15,26 @@ struct TerminalPanelView: View {
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            GhosttyTerminalView(
-                terminalSurface: panel.surface,
-                isActive: isFocused,
-                isVisibleInUI: isVisibleInUI,
-                portalZPriority: portalPriority,
-                showsInactiveOverlay: isSplit && !isFocused,
-                showsUnreadNotificationRing: hasUnreadNotification,
-                inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-                inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-                reattachToken: panel.viewReattachToken,
-                onFocus: { _ in onFocus() },
-                onTriggerFlash: onTriggerFlash
-            )
-            // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
-            // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
-            .id(panel.id)
-            .background(Color.clear)
-
-            // Search overlay
-            if let searchState = panel.searchState {
-                SurfaceSearchOverlay(
-                    surface: panel.surface,
-                    searchState: searchState,
-                    onClose: {
-                        panel.searchState = nil
-                        panel.hostedView.moveFocus()
-                    }
-                )
-            }
-        }
+        // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
+        // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
+        GhosttyTerminalView(
+            terminalSurface: panel.surface,
+            isActive: isFocused,
+            isVisibleInUI: isVisibleInUI,
+            portalZPriority: portalPriority,
+            showsInactiveOverlay: isSplit && !isFocused,
+            showsUnreadNotificationRing: hasUnreadNotification,
+            inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+            inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+            searchState: panel.searchState,
+            reattachToken: panel.viewReattachToken,
+            onFocus: { _ in onFocus() },
+            onTriggerFlash: onTriggerFlash
+        )
+        // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+        // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
+        .id(panel.id)
+        .background(Color.clear)
     }
 }
 
