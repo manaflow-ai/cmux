@@ -2989,9 +2989,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let owningSelectedTabId else { return true }
             return owningSelectedTabId == surfaceTabId
         }
-        if let owningSelectedTabId {
-            return owningSelectedTabId == surfaceTabId
-        }
         if let activeSelectedTabId {
             return activeSelectedTabId == surfaceTabId
         }
