@@ -9,10 +9,10 @@ export const metadata: Metadata = {
 const posts = [
   {
     slug: "cmd-shift-u",
-    title: "My Favorite Feature: Cmd+Shift+U",
+    title: "Cmd+Shift+U",
     date: "2026-03-04",
     summary:
-      "The single keyboard shortcut that changed how I work with AI coding agents.",
+      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
   },
   {
     slug: "zen-of-cmux",

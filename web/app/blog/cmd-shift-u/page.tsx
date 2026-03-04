@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "My Favorite Feature: Cmd+Shift+U",
+  title: "Cmd+Shift+U",
   description:
-    "The single keyboard shortcut that changed how I work with AI coding agents.",
+    "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
   keywords: [
     "cmux",
     "terminal",
@@ -16,18 +16,18 @@ export const metadata: Metadata = {
     "workflow",
   ],
   openGraph: {
-    title: "My Favorite Feature: Cmd+Shift+U",
+    title: "Cmd+Shift+U",
     description:
-      "The single keyboard shortcut that changed how I work with AI coding agents.",
+      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
     type: "article",
     publishedTime: "2026-03-04T00:00:00Z",
     url: "https://cmux.dev/blog/cmd-shift-u",
   },
   twitter: {
     card: "summary",
-    title: "My Favorite Feature: Cmd+Shift+U",
+    title: "Cmd+Shift+U",
     description:
-      "The single keyboard shortcut that changed how I work with AI coding agents.",
+      "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
   },
   alternates: {
     canonical: "https://cmux.dev/blog/cmd-shift-u",
@@ -46,52 +46,40 @@ export default function CmdShiftUPage() {
         </Link>
       </div>
 
-      <h1>My Favorite Feature: Cmd+Shift+U</h1>
+      <h1>Cmd+Shift+U</h1>
       <time dateTime="2026-03-04" className="text-sm text-muted">
         March 4, 2026
       </time>
 
       <p className="mt-6">
-        People assume my favorite cmux feature is vertical tabs. It&apos;s not.
-        It&apos;s <kbd>Cmd+Shift+U</kbd>.
-      </p>
-
-      <p>
-        When you run multiple AI coding agents across different workspaces,
-        you lose track of which ones are done. Maybe Codex finished fixing
-        that bug in workspace 3. Maybe Claude wrapped up the refactor in
-        workspace 7. You don&apos;t know until you click through each tab
-        and check.
-      </p>
-
-      <p>
-        <kbd>Cmd+Shift+U</kbd> fixes this. It jumps you to the latest unread
-        notification, which means the most recent agent that just finished
-        its task. One keystroke and you&apos;re looking at the result. No
-        hunting, no tab scanning, no context lost trying to remember which
-        workspace was which.
+        My favorite cmux feature is <kbd>Cmd+Shift+U</kbd>. I usually have
+        4-8 agents running at once, and finished tasks get buried. I used to
+        click through tabs to find what just completed. That broke my focus
+        and I still missed things that finished minutes ago.
       </p>
 
       {/* TODO: add showcase video here */}
 
       <p>
-        The way it works: cmux has a{" "}
-        <Link href="/docs/notifications">notification system</Link> that
-        agents can fire through OSC sequences, CLI hooks, or the{" "}
-        <code>cmux notify</code> command. When an agent completes a task,
-        it sends a notification tied to its workspace and surface.{" "}
-        <kbd>Cmd+Shift+U</kbd> finds the newest unread one, switches to that
-        workspace, focuses the exact pane, flashes it so your eyes land on
-        it, and marks it as read. If the notification came from a different
-        window, it brings that window forward too.
+        <kbd>Cmd+Shift+U</kbd> jumps to the newest unread notification. In
+        practice that means the last agent that finished. It switches to the
+        right workspace, focuses the exact pane, flashes it so you see where
+        to look, and marks it read. If the notification came from another
+        window, that window comes forward.
       </p>
 
       <p>
-        It turns a multi-agent workflow from &quot;check on things
-        periodically&quot; into &quot;get pulled to the right place at the
-        right time.&quot; I hit it dozens of times a day without thinking
-        about it. The best features are the ones that disappear into muscle
-        memory.
+        Agents trigger{" "}
+        <Link href="/docs/notifications">notifications</Link> through OSC
+        sequences, CLI hooks, or <code>cmux notify</code> when they complete
+        a task. Each notification is tied to a workspace and surface.{" "}
+        <kbd>Cmd+Shift+U</kbd> just finds the newest unread one and takes you
+        there.
+      </p>
+
+      <p>
+        I use it like an inbox for agent completions. Press the shortcut, read
+        the result, move on. I press it probably 30-40 times on a busy day.
       </p>
     </>
   );
