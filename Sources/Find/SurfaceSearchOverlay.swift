@@ -300,9 +300,17 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             guard let surface = notification.object as? TerminalSurface,
                   surface.id == coordinator.parent.surfaceId else { return }
             guard let window = field.window else { return }
+            // Don't re-focus if already first responder. makeFirstResponder on an
+            // already-editing NSTextField ends the editing session and restarts it
+            // with all text selected, causing typed characters to replace each other.
+            let fr = window.firstResponder
+            let alreadyFocused = fr === field ||
+                field.currentEditor() != nil ||
+                ((fr as? NSTextView)?.delegate as? NSTextField) === field
             #if DEBUG
-            dlog("find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5))")
+            dlog("find.nativeField.searchFocusNotification surface=\(coordinator.parent.surfaceId.uuidString.prefix(5)) alreadyFocused=\(alreadyFocused)")
             #endif
+            guard !alreadyFocused else { return }
             window.makeFirstResponder(field)
         }
 
