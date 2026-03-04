@@ -273,12 +273,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             XCTFail("Failed to create tmux session: \(createSession.stderr)")
             return
         }
-        guard let tmuxSocketPath = try resolveTmuxSocketPath(
+        let socketLookup = try resolveTmuxSocketPath(
             tmuxBin: tmuxBin,
             tmuxServerName: tmuxServerName,
+            sessionName: sessionName,
+            tmuxTmpDir: tmuxTmpDir,
             environment: tmuxEnvironment
-        ) else {
-            XCTFail("Failed to resolve tmux socket path for server \(tmuxServerName)")
+        )
+        guard let tmuxSocketPath = socketLookup.path else {
+            XCTFail("Failed to resolve tmux socket path for server \(tmuxServerName). \(socketLookup.debug)")
             return
         }
         let paneLookup = try firstTmuxPaneId(
@@ -705,16 +708,52 @@ final class MultiWindowNotificationsUITests: XCTestCase {
     private func resolveTmuxSocketPath(
         tmuxBin: String,
         tmuxServerName: String,
-        environment: [String: String]? = nil
-    ) throws -> String? {
-        let result = try runProcess(
-            executable: tmuxBin,
-            arguments: ["-L", tmuxServerName, "display-message", "-p", "#{socket_path}"],
-            environment: environment
-        )
-        guard result.status == 0 else { return nil }
-        let value = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty ? nil : value
+        sessionName: String,
+        tmuxTmpDir: String,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval = 3.0
+    ) throws -> (path: String?, debug: String) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var attempts: [String] = []
+
+        while true {
+            let result = try runProcess(
+                executable: tmuxBin,
+                arguments: [
+                    "-L",
+                    tmuxServerName,
+                    "display-message",
+                    "-p",
+                    "-t",
+                    sessionName,
+                    "#{socket_path}",
+                ],
+                environment: environment
+            )
+            let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            attempts.append("display-message status=\(result.status) stdout=\(stdout) stderr=\(stderr)")
+
+            if result.status == 0, !stdout.isEmpty, FileManager.default.fileExists(atPath: stdout) {
+                return (stdout, attempts.suffix(5).joined(separator: " | "))
+            }
+
+            if let entries = try? FileManager.default.contentsOfDirectory(atPath: tmuxTmpDir) {
+                for entry in entries where entry.hasPrefix("tmux-") {
+                    let parent = (tmuxTmpDir as NSString).appendingPathComponent(entry)
+                    let candidate = (parent as NSString).appendingPathComponent(tmuxServerName)
+                    if FileManager.default.fileExists(atPath: candidate) {
+                        attempts.append("fallback candidate=\(candidate)")
+                        return (candidate, attempts.suffix(5).joined(separator: " | "))
+                    }
+                }
+            }
+
+            if Date() >= deadline {
+                return (nil, attempts.suffix(5).joined(separator: " | "))
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 
     private func resolveCmuxCLIExecutable() -> String? {
