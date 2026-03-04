@@ -2294,6 +2294,10 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func keyDown(with event: NSEvent) {
+        if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            super.keyDown(with: event)
+            return
+        }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
             return
         }
@@ -2301,6 +2305,9 @@ private final class OmnibarNativeTextField: NSTextField {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            return super.performKeyEquivalent(with: event)
+        }
         if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
             return true
         }
@@ -2615,7 +2622,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
         )
         let desiredDisplayText = activeInlineCompletion?.displayText ?? text
         if let editor = nsView.currentEditor() as? NSTextView {
-            if editor.string != desiredDisplayText {
+            if !editor.hasMarkedText(), editor.string != desiredDisplayText {
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = desiredDisplayText
                 nsView.stringValue = desiredDisplayText
@@ -2659,7 +2666,7 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
-        if let editor = nsView.currentEditor() as? NSTextView {
+        if let editor = nsView.currentEditor() as? NSTextView, !editor.hasMarkedText() {
             if let activeInlineCompletion {
                 let currentSelection = editor.selectedRange()
                 let desiredSelection = omnibarDesiredSelectionRangeForInlineCompletion(
