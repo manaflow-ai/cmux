@@ -1821,15 +1821,18 @@ struct ContentView: View {
                     )
                     .opacity(isVisible ? 1 : 0)
                     .allowsHitTesting(isSelectedWorkspace)
+                    .accessibilityHidden(!isVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                 }
             }
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
+            .accessibilityHidden(sidebarSelectionState.selection != .tabs)
 
             NotificationsPage(selection: $sidebarSelectionState.selection)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
+                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, titlebarPadding)
         .overlay(alignment: .top) {
