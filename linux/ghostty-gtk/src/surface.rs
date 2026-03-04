@@ -66,6 +66,8 @@ mod imp {
                 }
                 self.surface.set(ptr::null_mut());
             }
+            // Note: GObject automatically chains dispose to parent classes;
+            // no explicit parent_dispose() call needed in gtk4-rs.
         }
     }
 

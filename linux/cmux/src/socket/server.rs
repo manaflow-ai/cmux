@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::Semaphore;
+use tokio::time::{timeout, Duration};
 
 use crate::app::SharedState;
 use crate::socket::auth;
@@ -17,6 +18,9 @@ use crate::socket::v2;
 const MAX_REQUEST_LEN: usize = 1024 * 1024;
 /// Maximum concurrent client connections.
 const MAX_CONNECTIONS: usize = 64;
+/// Idle timeout per client connection. Clients that send no data within this
+/// window are disconnected to free resources.
+const CLIENT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Determine the socket path. Prefers `XDG_RUNTIME_DIR` (user-private) over `/tmp`.
 ///
@@ -29,7 +33,7 @@ pub fn socket_path() -> String {
             if let Ok(meta) = std::fs::metadata(path) {
                 use std::os::unix::fs::MetadataExt;
                 let my_uid = unsafe { libc::getuid() };
-                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o022) == 0 {
+                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o777) == 0o700 {
                     return format!("{}/cmux.sock", dir);
                 }
             }
@@ -125,7 +129,13 @@ async fn handle_client(
         // Bounded line read: consume from BufReader in chunks, enforcing MAX_REQUEST_LEN
         // before the full line is assembled in memory.
         let eof = loop {
-            let available = reader.fill_buf().await?;
+            let available = match timeout(CLIENT_IDLE_TIMEOUT, reader.fill_buf()).await {
+                Ok(r) => r?,
+                Err(_) => {
+                    tracing::debug!("Client idle timeout, disconnecting");
+                    return Ok(());
+                }
+            };
             if available.is_empty() {
                 break true;
             }

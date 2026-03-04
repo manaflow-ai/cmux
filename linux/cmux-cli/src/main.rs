@@ -19,7 +19,7 @@ fn default_socket_path() -> String {
             if let Ok(meta) = std::fs::metadata(path) {
                 use std::os::unix::fs::MetadataExt;
                 let my_uid = unsafe { libc::getuid() };
-                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o022) == 0 {
+                if meta.is_dir() && meta.uid() == my_uid && (meta.mode() & 0o777) == 0o700 {
                     return format!("{}/cmux.sock", dir);
                 }
             }
