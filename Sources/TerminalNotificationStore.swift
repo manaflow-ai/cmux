@@ -301,6 +301,39 @@ enum AppFocusState {
     }
 }
 
+enum NotificationAuthorizationState: Equatable {
+    case unknown
+    case notDetermined
+    case authorized
+    case denied
+    case provisional
+    case ephemeral
+
+    var statusLabel: String {
+        switch self {
+        case .unknown, .notDetermined:
+            return "Not Requested"
+        case .authorized:
+            return "Allowed"
+        case .denied:
+            return "Denied"
+        case .provisional:
+            return "Deliver Quietly"
+        case .ephemeral:
+            return "Temporary"
+        }
+    }
+
+    var allowsDelivery: Bool {
+        switch self {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .unknown, .notDetermined, .denied:
+            return false
+        }
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -331,6 +364,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    private enum AuthorizationRequestOrigin {
+        case notificationDelivery
+        case settingsButton
+        case settingsTest
+    }
 
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
@@ -338,9 +376,11 @@ final class TerminalNotificationStore: ObservableObject {
             refreshDockBadge()
         }
     }
+    @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAuthorization = false
+    private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
     private var userDefaultsObserver: NSObjectProtocol?
     private let settingsPromptWindowRetryDelay: TimeInterval = 0.5
@@ -373,6 +413,7 @@ final class TerminalNotificationStore: ObservableObject {
             self?.refreshDockBadge()
         }
         refreshDockBadge()
+        refreshAuthorizationStatus()
     }
 
     deinit {
@@ -402,6 +443,65 @@ final class TerminalNotificationStore: ObservableObject {
 
     var unreadCount: Int {
         indexes.unreadCount
+    }
+
+    func refreshAuthorizationStatus() {
+        center.getNotificationSettings { [weak self] settings in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+            }
+        }
+    }
+
+    func requestAuthorizationFromSettings() {
+        ensureAuthorization(origin: .settingsButton) { _ in }
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+            return
+        }
+        notificationSettingsURLOpener(url)
+    }
+
+    func sendSettingsTestNotification() {
+        ensureAuthorization(origin: .settingsTest) { [weak self] authorized in
+            guard let self, authorized else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = "cmux test notification"
+            content.body = "Desktop notifications are enabled."
+            content.sound = NotificationSoundSettings.sound()
+            content.categoryIdentifier = Self.categoryIdentifier
+
+            let request = UNNotificationRequest(
+                identifier: "cmux.settings.test.\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+
+            self.center.add(request) { error in
+                if let error {
+                    NSLog("Failed to schedule test notification: \(error)")
+                } else {
+                    NotificationSoundSettings.runCustomCommand(
+                        title: content.title,
+                        subtitle: content.subtitle,
+                        body: content.body
+                    )
+                }
+            }
+        }
+    }
+
+    func handleApplicationDidBecomeActive() {
+        if hasDeferredAuthorizationRequest {
+            hasDeferredAuthorizationRequest = false
+            ensureAuthorization(origin: .settingsButton) { _ in }
+            return
+        }
+        refreshAuthorizationStatus()
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {
@@ -586,7 +686,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func scheduleUserNotification(_ notification: TerminalNotification) {
-        ensureAuthorization { [weak self] authorized in
+        ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
@@ -626,23 +726,38 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func ensureAuthorization(_ completion: @escaping (Bool) -> Void) {
+    private func ensureAuthorization(
+        origin: AuthorizationRequestOrigin,
+        _ completion: @escaping (Bool) -> Void
+    ) {
         center.getNotificationSettings { [weak self] settings in
-            guard let self else {
-                completion(false)
-                return
-            }
+            DispatchQueue.main.async {
+                guard let self else {
+                    completion(false)
+                    return
+                }
 
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                completion(true)
-            case .denied:
-                self.promptToEnableNotifications()
-                completion(false)
-            case .notDetermined:
-                self.requestAuthorizationIfNeeded(completion)
-            @unknown default:
-                completion(false)
+                self.authorizationState = Self.authorizationState(from: settings.authorizationStatus)
+                switch settings.authorizationStatus {
+                case .authorized, .provisional, .ephemeral:
+                    completion(true)
+                case .denied:
+                    self.promptToEnableNotifications()
+                    completion(false)
+                case .notDetermined:
+                    if Self.shouldDeferAutomaticAuthorizationRequest(
+                        origin: origin,
+                        status: settings.authorizationStatus,
+                        isAppActive: AppFocusState.isAppActive()
+                    ) {
+                        self.hasDeferredAuthorizationRequest = true
+                        completion(false)
+                    } else {
+                        self.requestAuthorizationIfNeeded(completion)
+                    }
+                @unknown default:
+                    completion(false)
+                }
             }
         }
     }
@@ -653,8 +768,16 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
         hasRequestedAuthorization = true
+        hasDeferredAuthorizationRequest = false
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            completion(granted)
+            DispatchQueue.main.async {
+                if granted {
+                    self.authorizationState = .authorized
+                } else {
+                    self.refreshAuthorizationStatus()
+                }
+                completion(granted)
+            }
         }
     }
 
@@ -686,12 +809,44 @@ final class TerminalNotificationStore: ObservableObject {
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.openSettings", defaultValue: "Open Settings"))
         alert.addButton(withTitle: String(localized: "dialog.enableNotifications.notNow", defaultValue: "Not Now"))
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn,
-                  let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+            guard response == .alertFirstButtonReturn else {
                 return
             }
-            self?.notificationSettingsURLOpener(url)
+            self?.openNotificationSettings()
         }
+    }
+
+    static func authorizationState(from status: UNAuthorizationStatus) -> NotificationAuthorizationState {
+        switch status {
+        case .authorized:
+            return .authorized
+        case .denied:
+            return .denied
+        case .notDetermined:
+            return .notDetermined
+        case .provisional:
+            return .provisional
+        case .ephemeral:
+            return .ephemeral
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    static func shouldDeferAutomaticAuthorizationRequest(
+        status: UNAuthorizationStatus,
+        isAppActive: Bool
+    ) -> Bool {
+        status == .notDetermined && !isAppActive
+    }
+
+    private static func shouldDeferAutomaticAuthorizationRequest(
+        origin: AuthorizationRequestOrigin,
+        status: UNAuthorizationStatus,
+        isAppActive: Bool
+    ) -> Bool {
+        guard origin == .notificationDelivery else { return false }
+        return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
     }
 
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {

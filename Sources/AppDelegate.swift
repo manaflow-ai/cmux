@@ -1791,7 +1791,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             PostHogAnalytics.shared.trackHourlyActive(reason: "didBecomeActive")
         }
 
-        guard let tabManager, let notificationStore else { return }
+        guard let notificationStore else { return }
+        notificationStore.handleApplicationDidBecomeActive()
+        guard let tabManager else { return }
         guard let tabId = tabManager.selectedTabId else { return }
         let surfaceId = tabManager.focusedSurfaceId(for: tabId)
         guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return }

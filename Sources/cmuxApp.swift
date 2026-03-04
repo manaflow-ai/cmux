@@ -2809,6 +2809,7 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -2919,6 +2920,45 @@ struct SettingsView: View {
         }
     }
 
+    private var notificationPermissionStatusText: String {
+        notificationStore.authorizationState.statusLabel
+    }
+
+    private var notificationPermissionStatusColor: Color {
+        switch notificationStore.authorizationState {
+        case .authorized, .provisional, .ephemeral:
+            return .green
+        case .denied:
+            return .red
+        case .unknown, .notDetermined:
+            return .secondary
+        }
+    }
+
+    private var notificationPermissionSubtitle: String {
+        switch notificationStore.authorizationState {
+        case .unknown, .notDetermined:
+            return "Desktop notifications are not enabled yet."
+        case .authorized:
+            return "Desktop notifications are enabled."
+        case .denied:
+            return "Desktop notifications are disabled in System Settings."
+        case .provisional:
+            return "Desktop notifications are enabled with quiet delivery."
+        case .ephemeral:
+            return "Desktop notifications are temporarily enabled."
+        }
+    }
+
+    private var notificationPermissionActionTitle: String {
+        switch notificationStore.authorizationState {
+        case .unknown, .notDetermined:
+            return "Enable"
+        case .authorized, .denied, .provisional, .ephemeral:
+            return "Open Settings"
+        }
+    }
+
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
         guard let baseline = topBlurBaselineOffset else { return 0 }
         let reveal = (baseline - offset) / 24
@@ -2945,6 +2985,15 @@ struct SettingsView: View {
         notificationSoundCustomFilePath = url.path
         notificationSound = NotificationSoundSettings.customFileValue
         previewNotificationSound()
+    }
+
+    private func handleNotificationPermissionAction() {
+        switch notificationStore.authorizationState {
+        case .unknown, .notDetermined:
+            notificationStore.requestAuthorizationFromSettings()
+        case .authorized, .denied, .provisional, .ephemeral:
+            notificationStore.openNotificationSettings()
+        }
     }
 
     private func saveSocketPassword() {
@@ -3060,6 +3109,30 @@ struct SettingsView: View {
                             Toggle("", isOn: $notificationDockBadgeEnabled)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Desktop Notifications",
+                            subtitle: notificationPermissionSubtitle
+                        ) {
+                            HStack(spacing: 6) {
+                                Text(notificationPermissionStatusText)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(notificationPermissionStatusColor)
+                                    .frame(width: 98, alignment: .trailing)
+
+                                Button(notificationPermissionActionTitle) {
+                                    handleNotificationPermissionAction()
+                                }
+                                .controlSize(.small)
+
+                                Button("Send Test") {
+                                    notificationStore.sendSettingsTestNotification()
+                                }
+                                .controlSize(.small)
+                            }
                         }
 
                         SettingsCardDivider()
@@ -3752,6 +3825,7 @@ struct SettingsView: View {
         .toggleStyle(.switch)
         .onAppear {
             BrowserHistoryStore.shared.loadIfNeeded()
+            notificationStore.refreshAuthorizationStatus()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist

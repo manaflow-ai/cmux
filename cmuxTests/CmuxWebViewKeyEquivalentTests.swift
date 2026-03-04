@@ -5,6 +5,7 @@ import WebKit
 import SwiftUI
 import ObjectiveC.runtime
 import Bonsplit
+import UserNotifications
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6709,6 +6710,43 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+    }
+
+    func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .notDetermined), .notDetermined)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .denied), .denied)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .authorized), .authorized)
+        XCTAssertEqual(TerminalNotificationStore.authorizationState(from: .provisional), .provisional)
+    }
+
+    func testNotificationAuthorizationStateDeliveryCapability() {
+        XCTAssertFalse(NotificationAuthorizationState.unknown.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.notDetermined.allowsDelivery)
+        XCTAssertFalse(NotificationAuthorizationState.denied.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.authorized.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.provisional.allowsDelivery)
+        XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
+    }
+
+    func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
+        XCTAssertTrue(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: false
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .notDetermined,
+                isAppActive: true
+            )
+        )
+        XCTAssertFalse(
+            TerminalNotificationStore.shouldDeferAutomaticAuthorizationRequest(
+                status: .authorized,
+                isAppActive: false
+            )
+        )
     }
 
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
