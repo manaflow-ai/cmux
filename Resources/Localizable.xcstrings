@@ -852,23 +852,6 @@
         }
       }
     },
-    "browser.error.reload": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reload"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再読み込み"
-          }
-        }
-      }
-    },
     "browser.error.noInternet": {
       "extractionState": "manual",
       "localizations": {
@@ -882,6 +865,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "インターネット接続がありません"
+          }
+        }
+      }
+    },
+    "browser.error.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
           }
         }
       }
@@ -8774,6 +8774,23 @@
         }
       }
     },
+    "shortcut.toggleTerminalCopyMode.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Terminal Copy Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルコピーモードを切替"
+          }
+        }
+      }
+    },
     "sidebar.closeWorkspace.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -9063,6 +9080,23 @@
         }
       }
     },
+    "socketControl.allowAll.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full open access"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全オープンアクセス"
+          }
+        }
+      }
+    },
     "socketControl.automation.description": {
       "extractionState": "manual",
       "localizations": {
@@ -9144,23 +9178,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ソケットパスワードファイルのパスを解決できません。"
-          }
-        }
-      }
-    },
-    "socketControl.allowAll.name": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full open access"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "完全オープンアクセス"
           }
         }
       }

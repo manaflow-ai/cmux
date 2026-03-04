@@ -23,6 +23,7 @@ enum KeyboardShortcutSettings {
         case renameWorkspace
         case closeWorkspace
         case newSurface
+        case toggleTerminalCopyMode
 
         // Panes / splits
         case focusLeft
@@ -60,6 +61,7 @@ enum KeyboardShortcutSettings {
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusLeft: return String(localized: "shortcut.focusPaneLeft.label", defaultValue: "Focus Pane Left")
             case .focusRight: return String(localized: "shortcut.focusPaneRight.label", defaultValue: "Focus Pane Right")
             case .focusUp: return String(localized: "shortcut.focusPaneUp.label", defaultValue: "Focus Pane Up")
@@ -102,6 +104,7 @@ enum KeyboardShortcutSettings {
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
             case .newSurface: return "shortcut.newSurface"
+            case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -160,6 +163,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .toggleTerminalCopyMode:
+                return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:

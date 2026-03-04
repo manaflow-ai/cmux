@@ -6027,6 +6027,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleTerminalCopyMode)) {
+            let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
+#if DEBUG
+            dlog(
+                "shortcut.action name=toggleTerminalCopyMode handled=\(handled ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            // Only consume when a focused terminal actually handled the toggle.
+            // Otherwise allow the event to continue through the responder chain.
+            return handled
+        }
+
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSidebarTab)) {
 #if DEBUG
