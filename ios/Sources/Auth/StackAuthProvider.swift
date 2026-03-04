@@ -40,13 +40,12 @@ class StackAuthProvider: AuthProvider {
             throw AuthError.unauthorized
         }
 
-        onIdToken(accessToken)
-
         do {
             if let currentUser = try await stack.getUser(or: .returnNull) {
                 let user = await StackAuthUser(currentUser: currentUser)
                 AuthUserCache.shared.save(user)
                 AuthSessionCache.shared.setHasTokens(true)
+                onIdToken(accessToken)
                 return StackAuthResult(accessToken: accessToken, user: user)
             }
         } catch {
@@ -56,6 +55,7 @@ class StackAuthProvider: AuthProvider {
         if let cachedUser = AuthUserCache.shared.load(),
            await stack.getRefreshToken() != nil {
             AuthSessionCache.shared.setHasTokens(true)
+            onIdToken(accessToken)
             return StackAuthResult(accessToken: accessToken, user: cachedUser)
         }
 
