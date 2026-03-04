@@ -6562,6 +6562,10 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let container = HostContainerView()
         container.wantsLayer = false
+        // The actual terminal surface lives in the AppKit portal layer above SwiftUI.
+        // This empty placeholder should not be walked by the accessibility subsystem.
+        container.setAccessibilityRole(.none)
+        container.setAccessibilityElement(false)
         return container
     }
 
