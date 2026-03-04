@@ -190,6 +190,151 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertFalse(after.contains(marker), "Expected typing to be blocked while empty notifications popover is open")
     }
 
+    func testTmuxOSCBridgeRoutesNotificationToMappedSurface() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll"]
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = launchTag
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for tmux OSC bridge test. state=\(app.state.rawValue)"
+        )
+
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        guard let resolvedPath = resolveSocketPath(timeout: 8.0) else {
+            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
+        }
+        socketPath = resolvedPath
+        let pingResponse = waitForSocketPong(timeout: 8.0)
+        guard pingResponse == "PONG" else {
+            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
+        }
+
+        guard let workspaceId = currentWorkspaceId() else {
+            XCTFail("Expected current workspace ID from control socket")
+            return
+        }
+        guard let surfaceId = currentFocusedSurfaceId() else {
+            XCTFail("Expected focused surface ID from control socket")
+            return
+        }
+
+        guard let tmuxBin = resolveExecutable(
+            named: "tmux",
+            fallbacks: ["/usr/bin/tmux", "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]
+        ) else {
+            throw XCTSkip("tmux is not available on this runner")
+        }
+        guard let cmuxBin = resolveCmuxCLIExecutable() else {
+            XCTFail("Unable to resolve cmux CLI executable from test environment")
+            return
+        }
+
+        _ = socketCommand("clear_notifications")
+
+        let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let tmuxSocket = "/tmp/cmux-ui-test-tmux-\(token).sock"
+        let bridgeLogPath = "/tmp/cmux-ui-test-tmux-bridge-\(token).log"
+        let sessionName = "cmuxui\(String(token.prefix(10)))"
+        let notificationTitle = "tmux_bridge_\(String(token.prefix(12)))"
+        let notificationBody = "bridge_body_\(String(token.suffix(12)))"
+        try? FileManager.default.removeItem(atPath: tmuxSocket)
+        try? FileManager.default.removeItem(atPath: bridgeLogPath)
+        defer {
+            _ = try? runProcess(
+                executable: tmuxBin,
+                arguments: ["-S", tmuxSocket, "kill-server"]
+            )
+            try? FileManager.default.removeItem(atPath: tmuxSocket)
+            try? FileManager.default.removeItem(atPath: bridgeLogPath)
+        }
+
+        let createSession = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocket, "new-session", "-d", "-s", sessionName]
+        )
+        guard createSession.status == 0 else {
+            XCTFail("Failed to create tmux session: \(createSession.stderr)")
+            return
+        }
+        guard let paneId = try firstTmuxPaneId(tmuxBin: tmuxBin, tmuxSocket: tmuxSocket) else {
+            XCTFail("Failed to resolve tmux pane ID")
+            return
+        }
+
+        for (option, value) in [
+            ("@cmux_workspace_id", workspaceId),
+            ("@cmux_surface_id", surfaceId),
+            ("@cmux_socket_path", socketPath),
+        ] {
+            let setResult = try runProcess(
+                executable: tmuxBin,
+                arguments: ["-S", tmuxSocket, "set-option", "-p", "-t", paneId, option, value]
+            )
+            guard setResult.status == 0 else {
+                XCTFail("Failed to set tmux pane option \(option): \(setResult.stderr)")
+                return
+            }
+        }
+
+        let bridgeProcess = Process()
+        bridgeProcess.executableURL = URL(fileURLWithPath: cmuxBin)
+        bridgeProcess.arguments = [
+            "--socket",
+            socketPath,
+            "tmux-osc-bridge",
+            "--ensure",
+            "--tmux-socket",
+            tmuxSocket,
+            "--tmux-bin",
+            tmuxBin,
+            "--debug-log",
+            bridgeLogPath,
+        ]
+        var bridgeEnv = ProcessInfo.processInfo.environment
+        if bridgeEnv["PATH"]?.isEmpty ?? true {
+            bridgeEnv["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+        }
+        bridgeProcess.environment = bridgeEnv
+        bridgeProcess.standardOutput = Pipe()
+        bridgeProcess.standardError = Pipe()
+        try bridgeProcess.run()
+        defer { terminateProcess(bridgeProcess) }
+
+        XCTAssertTrue(
+            waitForBridgeAttach(logPath: bridgeLogPath, timeout: 8.0),
+            "Bridge did not report attach in log at \(bridgeLogPath)"
+        )
+        XCTAssertTrue(bridgeProcess.isRunning, "tmux OSC bridge exited early")
+
+        let oscCommand = "printf '\\033]777;notify;\(notificationTitle);\(notificationBody)\\a'"
+        let sendResult = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocket, "send-keys", "-t", paneId, oscCommand, "C-m"]
+        )
+        guard sendResult.status == 0 else {
+            XCTFail("Failed to send OSC payload via tmux: \(sendResult.stderr)")
+            return
+        }
+
+        guard let bridgedNotification = waitForNotification(
+            title: notificationTitle,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            timeout: 10.0
+        ) else {
+            let debugLog = (try? String(contentsOfFile: bridgeLogPath, encoding: .utf8)) ?? "<missing bridge log>"
+            XCTFail("Expected bridged notification for title=\(notificationTitle). bridge log:\n\(debugLog)")
+            return
+        }
+        XCTAssertEqual(bridgedNotification.subtitle, "tmux")
+        XCTAssertEqual(bridgedNotification.body, notificationBody)
+    }
+
     private func clickNotificationPopoverRowAndWaitForFocusChange(
         button: XCUIElement,
         app: XCUIApplication,
@@ -313,6 +458,21 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         if taggedDebugSocket != socketPath {
             candidates.append(taggedDebugSocket)
         }
+        candidates.append("/tmp/cmux-debug.sock")
+        candidates.append("/tmp/cmux.sock")
+        if let entries = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") {
+            let tagged = entries
+                .filter { $0.hasPrefix("cmux-debug-") && $0.hasSuffix(".sock") }
+                .map { "/tmp/\($0)" }
+                .sorted {
+                    let a = ((try? FileManager.default.attributesOfItem(atPath: $0)[.modificationDate]) as? Date) ?? .distantPast
+                    let b = ((try? FileManager.default.attributesOfItem(atPath: $1)[.modificationDate]) as? Date) ?? .distantPast
+                    return a > b
+                }
+            candidates.append(contentsOf: tagged)
+        }
+        var seen = Set<String>()
+        candidates = candidates.filter { seen.insert($0).inserted }
         return candidates
     }
 
@@ -454,6 +614,231 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = Data(base64Encoded: encoded) else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    private struct SocketNotification {
+        let id: String
+        let workspaceId: String
+        let surfaceId: String?
+        let isRead: Bool
+        let title: String
+        let subtitle: String
+        let body: String
+    }
+
+    private func currentWorkspaceId() -> String? {
+        guard let response = socketCommand("current_workspace") else { return nil }
+        let value = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, !value.hasPrefix("ERROR") else { return nil }
+        return value
+    }
+
+    private func currentFocusedSurfaceId() -> String? {
+        guard let response = socketCommand("list_surfaces") else { return nil }
+        let lines = response
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return nil }
+
+        for line in lines where line.hasPrefix("*") {
+            if let id = parseSurfaceId(from: line) {
+                return id
+            }
+        }
+        return parseSurfaceId(from: lines[0])
+    }
+
+    private func parseSurfaceId(from line: String) -> String? {
+        var text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("*") {
+            text.removeFirst()
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2 else { return nil }
+        let id = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
+    private func listNotifications() -> [SocketNotification] {
+        guard let response = socketCommand("list_notifications") else { return [] }
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "No notifications" else { return [] }
+
+        var items: [SocketNotification] = []
+        for rawLine in trimmed.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let payload = String(line[line.index(after: colon)...])
+            let parts = payload.split(separator: "|", maxSplits: 6, omittingEmptySubsequences: false)
+            guard parts.count == 7 else { continue }
+            let id = String(parts[0])
+            let workspaceId = String(parts[1])
+            let surfaceRaw = String(parts[2])
+            let readRaw = String(parts[3])
+            let title = String(parts[4])
+            let subtitle = String(parts[5])
+            let body = String(parts[6])
+            items.append(
+                SocketNotification(
+                    id: id,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceRaw == "none" ? nil : surfaceRaw,
+                    isRead: readRaw == "read",
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+            )
+        }
+        return items
+    }
+
+    private func waitForNotification(
+        title: String,
+        workspaceId: String,
+        surfaceId: String,
+        timeout: TimeInterval
+    ) -> SocketNotification? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let match = listNotifications().first(where: {
+                $0.title == title &&
+                $0.workspaceId == workspaceId &&
+                $0.surfaceId == surfaceId &&
+                !$0.isRead
+            }) {
+                return match
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return listNotifications().first(where: {
+            $0.title == title &&
+            $0.workspaceId == workspaceId &&
+            $0.surfaceId == surfaceId
+        })
+    }
+
+    private func waitForBridgeAttach(logPath: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let log = try? String(contentsOfFile: logPath, encoding: .utf8),
+               log.contains("attach session=") {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let log = try? String(contentsOfFile: logPath, encoding: .utf8),
+           log.contains("attach session=") {
+            return true
+        }
+        return false
+    }
+
+    private func firstTmuxPaneId(tmuxBin: String, tmuxSocket: String) throws -> String? {
+        let result = try runProcess(
+            executable: tmuxBin,
+            arguments: ["-S", tmuxSocket, "list-panes", "-a", "-F", "#{pane_id}"]
+        )
+        guard result.status == 0 else { return nil }
+        for line in result.stdout.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private func resolveCmuxCLIExecutable() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        var candidates: [String] = []
+
+        if let explicit = env["CMUX_UI_TEST_CMUX_CLI_PATH"], !explicit.isEmpty {
+            candidates.append(explicit)
+        }
+        if let builtProducts = env["BUILT_PRODUCTS_DIR"], !builtProducts.isEmpty {
+            candidates.append((builtProducts as NSString).appendingPathComponent("cmux"))
+        }
+        if let targetBuildDir = env["TARGET_BUILD_DIR"], !targetBuildDir.isEmpty {
+            candidates.append((targetBuildDir as NSString).appendingPathComponent("cmux"))
+            let parent = (targetBuildDir as NSString).deletingLastPathComponent
+            candidates.append((parent as NSString).appendingPathComponent("cmux"))
+        }
+
+        let testBundlePath = Bundle(for: Self.self).bundleURL.path
+        let pathComponents = (testBundlePath as NSString).pathComponents
+        if let productsIndex = pathComponents.firstIndex(of: "Products"), productsIndex + 1 < pathComponents.count {
+            let prefix = pathComponents.prefix(productsIndex + 2).joined(separator: "/")
+            let normalizedPrefix = prefix.hasPrefix("/") ? prefix : "/" + prefix
+            candidates.append((normalizedPrefix as NSString).appendingPathComponent("cmux"))
+        }
+
+        if let fromPath = resolveExecutable(named: "cmux", fallbacks: ["/usr/local/bin/cmux", "/opt/homebrew/bin/cmux"]) {
+            candidates.append(fromPath)
+        }
+
+        var seen = Set<String>()
+        for candidate in candidates {
+            guard !candidate.isEmpty else { continue }
+            guard seen.insert(candidate).inserted else { continue }
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func resolveExecutable(named name: String, fallbacks: [String]) -> String? {
+        let env = ProcessInfo.processInfo.environment
+        let searchPath = env["PATH"]?.split(separator: ":").map(String.init) ?? []
+        for entry in searchPath {
+            guard !entry.isEmpty else { continue }
+            let candidate = (entry as NSString).appendingPathComponent(name)
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        for fallback in fallbacks where FileManager.default.isExecutableFile(atPath: fallback) {
+            return fallback
+        }
+        return nil
+    }
+
+    private func runProcess(
+        executable: String,
+        arguments: [String],
+        environment: [String: String]? = nil
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        if let environment {
+            process.environment = environment
+        }
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
+    }
+
+    private func terminateProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(2.0)
+        while process.isRunning, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if process.isRunning {
+            _ = try? runProcess(executable: "/bin/kill", arguments: ["-9", String(process.processIdentifier)])
+        }
     }
 
     private func loadData() -> [String: String]? {
