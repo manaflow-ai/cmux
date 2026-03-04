@@ -60,11 +60,13 @@ export default function CmdShiftUPage() {
 
       <video
         src="/blog/cmd-shift-u.mp4"
+        width={1824}
+        height={1080}
         autoPlay
         loop
         muted
         playsInline
-        className="my-6 rounded-lg w-full"
+        className="my-6 rounded-lg w-full h-auto"
       />
 
       <p>
