@@ -192,9 +192,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     func testTmuxOSCBridgeRoutesNotificationToMappedSurface() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-socketControlMode", "allowAll"]
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchArguments += ["-socketControlMode", "automation"]
+        socketPath = "/tmp/cmux-debug-\(launchTag).sock"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "automation"
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_TAG"] = launchTag
