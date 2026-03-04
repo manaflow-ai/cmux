@@ -41,9 +41,13 @@ def main() -> int:
     expect('"tmux-osc-bridge"' in cli, "CLI missing tmux-osc-bridge command registration", failures)
     expect("Usage: cmux tmux-osc-bridge" in cli, "CLI missing tmux-osc-bridge help text", failures)
     expect("notification.create_for_target" in cli, "tmux bridge should forward via notification.create_for_target", failures)
+    expect("bridgeShouldRestartForNotificationError" in cli, "tmux bridge should only restart on connectivity errors", failures)
+    expect("notify_failed_stale_target" in cli, "tmux bridge should drop stale pane mappings on per-target notification errors", failures)
     expect("@cmux_socket_path" in cli, "tmux bridge should scope pane mappings to cmux socket path", failures)
     expect("stale_pid_unverified_skip_terminate" in cli, "ensure mode should avoid killing unverified reused PIDs", failures)
     expect("bridgeProcessMatchesRecord" in cli, "ensure mode should verify PID identity before reusing existing bridge process", failures)
+    expect('path.hasSuffix(" (deleted)")' in cli, "bridge health checks should ignore deleted socket descriptors", failures)
+    expect("path.contains(expectedSocketPath)" not in cli, "bridge health checks should not use substring matches for socket paths", failures)
     expect(
         "if byte == 0x5C { // \\\n                        state = .normal\n                        flushDCS" in cli,
         "DCS passthrough parser should reset state before flushDCS",

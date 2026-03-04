@@ -6013,8 +6013,17 @@ struct CMUXCLI {
                     )
                     logger.log("notify pane=\(event.paneId) workspace=\(target.workspaceId) surface=\(target.surfaceId) title=\(item.title)")
                 } catch {
-                    logger.log("notify_failed pane=\(event.paneId) error=\(error)")
-                    throw CLIError(message: "tmux-osc-bridge lost cmux socket connectivity: \(error)")
+                    if bridgeShouldRestartForNotificationError(error) {
+                        logger.log("notify_failed_connectivity pane=\(event.paneId) error=\(error)")
+                        throw CLIError(message: "tmux-osc-bridge lost cmux socket connectivity: \(error)")
+                    }
+
+                    // Per-target errors (for example stale workspace/surface IDs) should not
+                    // tear down the whole bridge. Drop this pane mapping and let the next event
+                    // repopulate targets from tmux pane metadata.
+                    paneTargets.removeValue(forKey: event.paneId)
+                    lastTargetRefresh = .distantPast
+                    logger.log("notify_failed_stale_target pane=\(event.paneId) error=\(error) dropped_mapping=1")
                 }
             }
         }
@@ -6264,14 +6273,43 @@ struct CMUXCLI {
         }
         guard result.status == 0 else { return false }
 
+        let expectedPath = expectedSocketPath.trimmingCharacters(in: .whitespacesAndNewlines)
         for rawLine in result.stdout.components(separatedBy: .newlines) {
             guard rawLine.hasPrefix("n") else { continue }
-            let path = String(rawLine.dropFirst())
-            if path == expectedSocketPath || path.contains(expectedSocketPath) {
+            let path = String(rawLine.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { continue }
+            if path.hasSuffix(" (deleted)") {
+                continue
+            }
+            if path == expectedPath {
                 return true
             }
         }
         return false
+    }
+
+    private func bridgeShouldRestartForNotificationError(_ error: Error) -> Bool {
+        let lowercasedMessage: String
+        if let cliError = error as? CLIError {
+            lowercasedMessage = cliError.message.lowercased()
+        } else {
+            lowercasedMessage = String(describing: error).lowercased()
+        }
+
+        let connectivitySignals = [
+            "failed to connect to socket",
+            "not connected",
+            "failed to write to socket",
+            "socket read error",
+            "command timed out",
+            "broken pipe",
+            "connection reset",
+            "no such file or directory",
+            "invalid utf-8 response",
+            "invalid utf-8 v2 response"
+        ]
+
+        return connectivitySignals.contains { lowercasedMessage.contains($0) }
     }
 
     private func canSafelyTerminateBridgeProcess(record: BridgePIDRecord) -> Bool {
