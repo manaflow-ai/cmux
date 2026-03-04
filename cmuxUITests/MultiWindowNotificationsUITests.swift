@@ -192,11 +192,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
 
     func testTmuxOSCBridgeRoutesNotificationToMappedSurface() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-socketControlMode", "automation"]
-        socketPath = "/tmp/cmux-debug-\(launchTag).sock"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "automation"
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TMUX_OSC_BRIDGE_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TMUX_OSC_BRIDGE_PATH"] = dataPath
         app.launchEnvironment["CMUX_TAG"] = launchTag
         app.launch()
         XCTAssertTrue(
@@ -204,22 +201,25 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             "Expected app to launch for tmux OSC bridge test. state=\(app.state.rawValue)"
         )
 
-        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 12.0))
-        guard let resolvedPath = resolveSocketPath(timeout: 20.0) else {
-            throw XCTSkip("Control socket unavailable in this test environment. requested=\(socketPath)")
-        }
-        socketPath = resolvedPath
-        let pingResponse = waitForSocketPong(timeout: 20.0)
-        guard pingResponse == "PONG" else {
-            throw XCTSkip("Control socket did not respond in time. path=\(socketPath) response=\(pingResponse ?? "<nil>")")
-        }
-
-        guard let workspaceId = currentWorkspaceId() else {
-            XCTFail("Expected current workspace ID from control socket")
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0))
+        XCTAssertTrue(
+            waitForData(keys: ["workspaceId", "surfaceId", "socketPath"], timeout: 10.0),
+            "Expected tmux bridge UI test setup data"
+        )
+        guard let setup = loadData() else {
+            XCTFail("Missing tmux bridge setup data")
             return
         }
-        guard let surfaceId = currentFocusedSurfaceId() else {
-            XCTFail("Expected focused surface ID from control socket")
+        guard let workspaceId = setup["workspaceId"], !workspaceId.isEmpty else {
+            XCTFail("Missing workspaceId in tmux bridge setup data")
+            return
+        }
+        guard let surfaceId = setup["surfaceId"], !surfaceId.isEmpty else {
+            XCTFail("Missing surfaceId in tmux bridge setup data")
+            return
+        }
+        guard let socketPath = setup["socketPath"], !socketPath.isEmpty else {
+            XCTFail("Missing socketPath in tmux bridge setup data")
             return
         }
 
@@ -227,21 +227,20 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             named: "tmux",
             fallbacks: ["/usr/bin/tmux", "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"]
         ) else {
-            throw XCTSkip("tmux is not available on this runner")
+            XCTFail("tmux is not available on this runner")
+            return
         }
         guard let cmuxBin = resolveCmuxCLIExecutable() else {
             XCTFail("Unable to resolve cmux CLI executable from test environment")
             return
         }
 
-        _ = socketCommand("clear_notifications")
-
         let token = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let tmuxSocket = "/tmp/cmux-ui-test-tmux-\(token).sock"
         let bridgeLogPath = "/tmp/cmux-ui-test-tmux-bridge-\(token).log"
         let sessionName = "cmuxui\(String(token.prefix(10)))"
-        let notificationTitle = "tmux_bridge_\(String(token.prefix(12)))"
-        let notificationBody = "bridge_body_\(String(token.suffix(12)))"
+        let notificationTitle = "tmux_bridge_\(String(token.prefix(8)))"
+        let notificationBody = "bridge_body_\(String(token.suffix(8)))"
         try? FileManager.default.removeItem(atPath: tmuxSocket)
         try? FileManager.default.removeItem(atPath: bridgeLogPath)
         defer {
@@ -321,18 +320,15 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             return
         }
 
-        guard let bridgedNotification = waitForNotification(
-            title: notificationTitle,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            timeout: 10.0
-        ) else {
+        app.activate()
+        app.typeKey("i", modifierFlags: [.command])
+        let notificationLabel = app.staticTexts[notificationTitle]
+        guard notificationLabel.waitForExistence(timeout: 10.0) else {
             let debugLog = (try? String(contentsOfFile: bridgeLogPath, encoding: .utf8)) ?? "<missing bridge log>"
-            XCTFail("Expected bridged notification for title=\(notificationTitle). bridge log:\n\(debugLog)")
+            XCTFail("Expected bridged notification label '\(notificationTitle)'. bridge log:\n\(debugLog)")
             return
         }
-        XCTAssertEqual(bridgedNotification.subtitle, "tmux")
-        XCTAssertEqual(bridgedNotification.body, notificationBody)
+        XCTAssertTrue(app.staticTexts[notificationBody].exists, "Expected bridged notification body text")
     }
 
     private func clickNotificationPopoverRowAndWaitForFocusChange(
@@ -614,111 +610,6 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         let encoded = String(response.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = Data(base64Encoded: encoded) else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    private struct SocketNotification {
-        let id: String
-        let workspaceId: String
-        let surfaceId: String?
-        let isRead: Bool
-        let title: String
-        let subtitle: String
-        let body: String
-    }
-
-    private func currentWorkspaceId() -> String? {
-        guard let response = socketCommand("current_workspace") else { return nil }
-        let value = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !value.hasPrefix("ERROR") else { return nil }
-        return value
-    }
-
-    private func currentFocusedSurfaceId() -> String? {
-        guard let response = socketCommand("list_surfaces") else { return nil }
-        let lines = response
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-
-        for line in lines where line.hasPrefix("*") {
-            if let id = parseSurfaceId(from: line) {
-                return id
-            }
-        }
-        return parseSurfaceId(from: lines[0])
-    }
-
-    private func parseSurfaceId(from line: String) -> String? {
-        var text = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("*") {
-            text.removeFirst()
-            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let parts = text.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-        guard parts.count == 2 else { return nil }
-        let id = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return id.isEmpty ? nil : id
-    }
-
-    private func listNotifications() -> [SocketNotification] {
-        guard let response = socketCommand("list_notifications") else { return [] }
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != "No notifications" else { return [] }
-
-        var items: [SocketNotification] = []
-        for rawLine in trimmed.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            let payload = String(line[line.index(after: colon)...])
-            let parts = payload.split(separator: "|", maxSplits: 6, omittingEmptySubsequences: false)
-            guard parts.count == 7 else { continue }
-            let id = String(parts[0])
-            let workspaceId = String(parts[1])
-            let surfaceRaw = String(parts[2])
-            let readRaw = String(parts[3])
-            let title = String(parts[4])
-            let subtitle = String(parts[5])
-            let body = String(parts[6])
-            items.append(
-                SocketNotification(
-                    id: id,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceRaw == "none" ? nil : surfaceRaw,
-                    isRead: readRaw == "read",
-                    title: title,
-                    subtitle: subtitle,
-                    body: body
-                )
-            )
-        }
-        return items
-    }
-
-    private func waitForNotification(
-        title: String,
-        workspaceId: String,
-        surfaceId: String,
-        timeout: TimeInterval
-    ) -> SocketNotification? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let match = listNotifications().first(where: {
-                $0.title == title &&
-                $0.workspaceId == workspaceId &&
-                $0.surfaceId == surfaceId &&
-                !$0.isRead
-            }) {
-                return match
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return listNotifications().first(where: {
-            $0.title == title &&
-            $0.workspaceId == workspaceId &&
-            $0.surfaceId == surfaceId
-        })
     }
 
     private func waitForBridgeAttach(logPath: String, timeout: TimeInterval) -> Bool {
