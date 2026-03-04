@@ -5110,7 +5110,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
-        surfaceView.onFocus = handler
+        surfaceView.onFocus = { [weak self] in
+            // When the terminal surface gains focus (click, tab, etc.), update the
+            // search focus target so window reactivation restores terminal focus.
+            if self?.surfaceView.terminalSurface?.searchState != nil {
+                self?.searchFocusTarget = .terminal
+            }
+            handler?()
+        }
     }
 
     func setTriggerFlashHandler(_ handler: (() -> Void)?) {
@@ -5797,23 +5804,23 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         switch searchFocusTarget {
         case .searchField:
-            // Find the actual NSTextField inside the hosting view and make it first responder.
-            // Making the NSHostingView itself first responder eats keys as performKeyEquivalent.
-            // Just posting .ghosttySearchFocus doesn't work because SwiftUI @FocusState can't
-            // propagate to AppKit when the first responder is the window itself.
+            // Two-phase focus restore:
+            // 1. AppKit: make the backing NSTextField first responder so typing works immediately.
+            //    (notification alone fails when first responder is NSWindow)
+            // 2. SwiftUI: post .ghosttySearchFocus so @FocusState syncs and .onExitCommand/onKeyPress work.
+            //    (AppKit alone breaks SwiftUI event handlers like Escape and Return)
+            var usedAppKit = false
             if let overlay = searchOverlayHostingView,
                let textField = findTextField(in: overlay) {
                 window.makeFirstResponder(textField)
-#if DEBUG
-                dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=appkit_textfield")
-#endif
-            } else if let terminalSurface = surfaceView.terminalSurface {
-                // Fallback: post notification and hope SwiftUI handles it.
-                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
-#if DEBUG
-                dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification_fallback")
-#endif
+                usedAppKit = true
             }
+            if let terminalSurface = surfaceView.terminalSurface {
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+            }
+#if DEBUG
+            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=\(usedAppKit ? "appkit+notification" : "notification_only")")
+#endif
         case .terminal:
             window.makeFirstResponder(surfaceView)
 #if DEBUG
