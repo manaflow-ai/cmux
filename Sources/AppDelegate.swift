@@ -4457,7 +4457,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.showNotificationsPopoverFromMenuBar()
             },
             onOpenNotification: { [weak self] notification in
-                _ = self?.openNotification(
+                _ = self?.openNotificationFromUserAction(
                     tabId: notification.tabId,
                     surfaceId: notification.surfaceId,
                     notificationId: notification.id
@@ -7252,7 +7252,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return nil
             }()
             DispatchQueue.main.async {
-                _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+                _ = self.openNotificationFromUserAction(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    notificationId: notificationId
+                )
             }
         case UNNotificationDismissActionIdentifier:
             DispatchQueue.main.async {
@@ -7415,6 +7419,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         window?.performClose(nil)
+    }
+
+    @discardableResult
+    func openNotificationFromUserAction(tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
+        let opened = openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
+        if !opened, let notificationId, let notificationStore {
+            notificationStore.markRead(id: notificationId)
+        }
+        return opened
     }
 
     @discardableResult

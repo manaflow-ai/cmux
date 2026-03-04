@@ -785,7 +785,7 @@ struct cmuxApp: App {
     }
 
     private func openNotificationFromMainMenu(_ notification: TerminalNotification) {
-        _ = appDelegate.openNotification(
+        _ = appDelegate.openNotificationFromUserAction(
             tabId: notification.tabId,
             surfaceId: notification.surfaceId,
             notificationId: notification.id
