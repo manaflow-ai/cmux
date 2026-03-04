@@ -52,34 +52,28 @@ export default function CmdShiftUPage() {
       </time>
 
       <p className="mt-6">
-        My favorite cmux feature is <kbd>Cmd+Shift+U</kbd>. I usually have
-        4-8 agents running at once, and finished tasks get buried. I used to
-        click through tabs to find what just completed. That broke my focus
-        and I still missed things that finished minutes ago.
+        My favorite cmux feature is <kbd>Cmd+Shift+U</kbd>. I have 17
+        workspaces open right now, each running an agent. I used to click
+        through tabs and the notification panel to figure out what completed.
+        Typing is faster.
       </p>
 
-      {/* TODO: add showcase video here */}
+      <video
+        src="/blog/cmd-shift-u.mp4"
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full"
+      />
 
       <p>
-        <kbd>Cmd+Shift+U</kbd> jumps to the newest unread notification. In
-        practice that means the last agent that finished. It switches to the
-        right workspace, focuses the exact pane, flashes it so you see where
-        to look, and marks it read. If the notification came from another
-        window, that window comes forward.
-      </p>
-
-      <p>
-        Agents trigger{" "}
-        <Link href="/docs/notifications">notifications</Link> through OSC
-        sequences, CLI hooks, or <code>cmux notify</code> when they complete
-        a task. Each notification is tied to a workspace and surface.{" "}
-        <kbd>Cmd+Shift+U</kbd> just finds the newest unread one and takes you
-        there.
-      </p>
-
-      <p>
-        I use it like an inbox for agent completions. Press the shortcut, read
-        the result, move on. I press it probably 30-40 times on a busy day.
+        <kbd>Cmd+Shift+U</kbd> jumps to the newest unread{" "}
+        <Link href="/docs/notifications">notification</Link>. In practice
+        that means the last agent that finished. It switches to the right
+        workspace, focuses the exact pane, flashes it so you see where to
+        look, and marks it read. If the notification came from another window,
+        that window comes forward.
       </p>
     </>
   );
