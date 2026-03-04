@@ -1547,8 +1547,8 @@ struct CMUXCLI {
         // Determine subcommand. Default to "open" if the first arg looks like a path.
         let subcommand: String
         let subArgs: [String]
-        if let first = args.first, first.lowercased() == "open" {
-            subcommand = "open"
+        if let first = args.first, !looksLikePath(first) {
+            subcommand = first.lowercased()
             subArgs = Array(args.dropFirst())
         } else {
             // Treat direct path argument as implicit "open"
