@@ -27,7 +27,12 @@ def read_lines(path: Path) -> list[str]:
     return [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines()]
 
 
-def run_wrapper(args: list[str], env_overrides: dict[str, str | None]) -> tuple[int, list[str], str, str]:
+def run_wrapper(
+    args: list[str],
+    env_overrides: dict[str, str | None],
+    *,
+    enable_debug_log: bool = False,
+) -> tuple[int, list[str], str, str, list[str]]:
     tmp_dir_override = os.environ.get("CMUX_TEST_TMPDIR")
     tmp_kwargs = {"prefix": "cmux-claude-wrapper-test-"}
     if tmp_dir_override:
@@ -46,6 +51,7 @@ def run_wrapper(args: list[str], env_overrides: dict[str, str | None]) -> tuple[
 
         argv_log = tmp / "argv.log"
         claudecode_log = tmp / "claudecode.log"
+        debug_log = tmp / "wrapper-debug.log"
         fake_claude = real_dir / "claude"
         make_executable(
             fake_claude,
@@ -63,6 +69,12 @@ printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_LOG"
         env["FAKE_ARGV_LOG"] = str(argv_log)
         env["FAKE_CLAUDECODE_LOG"] = str(claudecode_log)
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '')}"
+        if enable_debug_log:
+            env["CMUX_CLAUDE_WRAPPER_DEBUG"] = "1"
+            env["CMUX_CLAUDE_WRAPPER_DEBUG_LOG"] = str(debug_log)
+        else:
+            env.pop("CMUX_CLAUDE_WRAPPER_DEBUG", None)
+            env.pop("CMUX_CLAUDE_WRAPPER_DEBUG_LOG", None)
 
         for key, value in env_overrides.items():
             if value is None:
@@ -81,7 +93,8 @@ printf '%s' "${CLAUDECODE:-}" > "$FAKE_CLAUDECODE_LOG"
 
         argv = read_lines(argv_log)
         claudecode = claudecode_log.read_text(encoding="utf-8") if claudecode_log.exists() else ""
-        return proc.returncode, argv, claudecode, proc.stderr.strip()
+        debug_lines = read_lines(debug_log)
+        return proc.returncode, argv, claudecode, proc.stderr.strip(), debug_lines
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -90,7 +103,7 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
 
 
 def test_tmux_like_env_injects_hooks_without_surface(failures: list[str]) -> None:
-    code, argv, claudecode, stderr = run_wrapper(
+    code, argv, claudecode, stderr, _debug_lines = run_wrapper(
         ["chat", "hello"],
         {
             "TMUX": "/tmp/tmux-1000/default,1,0",
@@ -107,7 +120,7 @@ def test_tmux_like_env_injects_hooks_without_surface(failures: list[str]) -> Non
 
 
 def test_plain_tmux_without_cmux_socket_passthrough(failures: list[str]) -> None:
-    code, argv, _claudecode, stderr = run_wrapper(
+    code, argv, _claudecode, stderr, _debug_lines = run_wrapper(
         ["chat", "hello"],
         {
             "TMUX": "/tmp/tmux-1000/default,1,0",
@@ -121,7 +134,7 @@ def test_plain_tmux_without_cmux_socket_passthrough(failures: list[str]) -> None
 
 
 def test_hooks_disabled_passthrough(failures: list[str]) -> None:
-    code, argv, _claudecode, stderr = run_wrapper(
+    code, argv, _claudecode, stderr, _debug_lines = run_wrapper(
         ["chat", "hello"],
         {
             "TMUX": "/tmp/tmux-1000/default,1,0",
@@ -135,11 +148,31 @@ def test_hooks_disabled_passthrough(failures: list[str]) -> None:
     expect("--session-id" not in argv, f"hooks-disabled mode should not inject session-id, argv={argv}", failures)
 
 
+def test_debug_log_explains_hook_decision(failures: list[str]) -> None:
+    code, _argv, _claudecode, stderr, debug_lines = run_wrapper(
+        ["chat", "hello"],
+        {
+            "TMUX": "/tmp/tmux-1000/default,1,0",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-debug-regression.sock",
+            "CMUX_SURFACE_ID": None,
+        },
+        enable_debug_log=True,
+    )
+    expect(code == 0, f"debug mode wrapper exit should be 0, got {code}: {stderr}", failures)
+    expect(bool(debug_lines), "expected debug log lines when CMUX_CLAUDE_WRAPPER_DEBUG=1", failures)
+    merged = "\n".join(debug_lines)
+    expect("start " in merged, f"expected wrapper start log entry, got {merged!r}", failures)
+    expect("cmux_mode enabled" in merged, f"expected cmux mode log entry, got {merged!r}", failures)
+    expect("hook_injection" in merged, f"expected hook injection log entry, got {merged!r}", failures)
+    expect("exec mode=hooks_with_session" in merged, f"expected exec decision log entry, got {merged!r}", failures)
+
+
 def main() -> int:
     failures: list[str] = []
     test_tmux_like_env_injects_hooks_without_surface(failures)
     test_plain_tmux_without_cmux_socket_passthrough(failures)
     test_hooks_disabled_passthrough(failures)
+    test_debug_log_explains_hook_decision(failures)
 
     if failures:
         print("claude wrapper tmux env regression tests failed:")

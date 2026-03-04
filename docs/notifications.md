@@ -44,6 +44,17 @@ If the tmux server was started outside cmux and these values are empty, start a
 new tmux server from a cmux terminal (or set the values manually) so agent
 hooks can route notifications correctly.
 
+To debug Claude wrapper decisions in tmux, enable wrapper logging:
+
+```bash
+export CMUX_CLAUDE_WRAPPER_DEBUG=1
+export CMUX_CLAUDE_WRAPPER_DEBUG_LOG=/tmp/cmux-claude-wrapper.log
+tail -f /tmp/cmux-claude-wrapper.log
+```
+
+The log records whether the wrapper chose passthrough mode or injected cmux
+hooks, along with the key env values used for that decision.
+
 ```python
 # Python
 import shutil
