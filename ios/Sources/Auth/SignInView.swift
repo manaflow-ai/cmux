@@ -251,10 +251,16 @@ struct SignInView: View {
         Button {
             Task { await signInWithGoogle() }
         } label: {
-            Label("Sign in with Google", image: "GoogleLogo")
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity)
-                .contentShape(.capsule)
+            HStack(spacing: 6) {
+                Image("GoogleLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 16, height: 16)
+                Text("Sign in with Google")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(.capsule)
         }
         .disabled(isAuthInProgress)
         .buttonStyle(.glass)
