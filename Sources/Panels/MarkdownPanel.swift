@@ -35,7 +35,13 @@ final class MarkdownPanel: Panel, ObservableObject {
     // main actor, but DispatchSource.cancel() is thread-safe.
     private nonisolated(unsafe) var fileWatchSource: DispatchSourceFileSystemObject?
     private var fileDescriptor: Int32 = -1
+    private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
+
+    /// Maximum number of reattach attempts after a file delete/rename event.
+    private static let maxReattachAttempts = 6
+    /// Delay between reattach attempts (total window: attempts * delay = 3s).
+    private static let reattachDelay: TimeInterval = 0.5
 
     // MARK: - Init
 
@@ -60,6 +66,7 @@ final class MarkdownPanel: Panel, ObservableObject {
     }
 
     func close() {
+        isClosed = true
         stopFileWatcher()
     }
 
@@ -110,18 +117,7 @@ final class MarkdownPanel: Panel, ObservableObject {
                     self.loadFileContent()
                     if self.isFileUnavailable {
                         self.stopFileWatcher()
-                        // Attempt to re-attach after a short delay in case the file
-                        // is being atomically replaced (write to tmp, rename over).
-                        self.watchQueue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                            guard let self else { return }
-                            DispatchQueue.main.async {
-                                if FileManager.default.fileExists(atPath: self.filePath) {
-                                    self.isFileUnavailable = false
-                                    self.loadFileContent()
-                                    self.startFileWatcher()
-                                }
-                            }
-                        }
+                        self.scheduleReattach(attempt: 1)
                     }
                 }
             } else {
@@ -138,6 +134,26 @@ final class MarkdownPanel: Panel, ObservableObject {
 
         source.resume()
         fileWatchSource = source
+    }
+
+    /// Retry reattaching the file watcher up to `maxReattachAttempts` times.
+    /// Each attempt checks if the file has reappeared. Bails out early if
+    /// the panel has been closed.
+    private func scheduleReattach(attempt: Int) {
+        guard attempt <= Self.maxReattachAttempts else { return }
+        watchQueue.asyncAfter(deadline: .now() + Self.reattachDelay) { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                guard !self.isClosed else { return }
+                if FileManager.default.fileExists(atPath: self.filePath) {
+                    self.isFileUnavailable = false
+                    self.loadFileContent()
+                    self.startFileWatcher()
+                } else {
+                    self.scheduleReattach(attempt: attempt + 1)
+                }
+            }
+        }
     }
 
     private func stopFileWatcher() {
