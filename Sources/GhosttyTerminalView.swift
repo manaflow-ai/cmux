@@ -2674,7 +2674,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
 
-        let selected = String(cString: text.text)
+        guard let ptr = text.text, text.text_len > 0 else { return nil }
+        let selectedData = Data(bytes: ptr, count: Int(text.text_len))
+        let selected = String(decoding: selectedData, as: UTF8.self)
         return selected.isEmpty ? nil : selected
     }
 
