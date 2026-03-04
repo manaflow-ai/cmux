@@ -8,16 +8,21 @@ import UserNotifications
 // indefinitely. These helpers dispatch the calls off the main thread so they never
 // freeze the UI.
 extension UNUserNotificationCenter {
+    private static let removalQueue = DispatchQueue(
+        label: "com.cmuxterm.notification-removal",
+        qos: .utility
+    )
+
     func removeDeliveredNotificationsOffMain(withIdentifiers ids: [String]) {
         guard !ids.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async {
+        Self.removalQueue.async {
             self.removeDeliveredNotifications(withIdentifiers: ids)
         }
     }
 
     func removePendingNotificationRequestsOffMain(withIdentifiers ids: [String]) {
         guard !ids.isEmpty else { return }
-        DispatchQueue.global(qos: .utility).async {
+        Self.removalQueue.async {
             self.removePendingNotificationRequests(withIdentifiers: ids)
         }
     }
