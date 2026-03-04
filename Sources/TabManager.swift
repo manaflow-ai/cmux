@@ -753,6 +753,12 @@ class TabManager: ObservableObject {
         _ = selectedTerminalPanel?.performBindingAction("search:previous")
     }
 
+    @discardableResult
+    func toggleFocusedTerminalCopyMode() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.surface.toggleKeyboardCopyMode()
+    }
+
     func hideFind() {
         selectedTerminalPanel?.searchState = nil
     }
