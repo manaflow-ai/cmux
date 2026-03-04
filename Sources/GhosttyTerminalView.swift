@@ -2465,7 +2465,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         guard let createdSurface = surface else { return }
 
         // For vsync-driven rendering, Ghostty needs to know which display we're on so it can
-        // start a CVDisplayLink with the right refresh rate. If we don't set this early, the
+        // start a CADisplayLink with the right refresh rate. If we don't set this early, the
         // renderer can believe vsync is "running" but never deliver frames, which looks like a
         // frozen terminal until focus/visibility changes force a synchronous draw.
         //
@@ -2632,7 +2632,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
-        // Ghostty's CVDisplayLink can end up started before the display id is valid, leaving
+        // Ghostty's CADisplayLink can end up started before the display id is valid, leaving
         // hasVsync() true but with no callbacks ("stuck-vsync-no-frames"). Reasserting the
         // display id *after* focusing lets Ghostty restart the display link when needed.
         if focused {

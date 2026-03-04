@@ -5,7 +5,7 @@ import Bonsplit
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    @ObservedObject var workspace: Workspace
+    var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let workspacePortalPriority: Int
@@ -17,7 +17,7 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @Environment(\.colorScheme) private var colorScheme
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(TerminalNotificationStore.self) var notificationStore: TerminalNotificationStore
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -297,7 +297,7 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    var workspace: Workspace
     let paneId: PaneID
     @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()

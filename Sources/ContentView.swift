@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import Observation
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
@@ -247,9 +248,10 @@ struct TitlebarLayerBackground: NSViewRepresentable {
     }
 }
 
-final class SidebarState: ObservableObject {
-    @Published var isVisible: Bool
-    @Published var persistedWidth: CGFloat
+@Observable
+final class SidebarState {
+    var isVisible: Bool
+    var persistedWidth: CGFloat
 
     init(isVisible: Bool = true, persistedWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)) {
         self.isVisible = isVisible
@@ -1218,12 +1220,12 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
 }
 
 struct ContentView: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateViewModel
     let windowId: UUID
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
-    @EnvironmentObject var sidebarState: SidebarState
-    @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @Environment(TabManager.self) var tabManager: TabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore: TerminalNotificationStore
+    @Environment(SidebarState.self) var sidebarState: SidebarState
+    @Environment(SidebarSelectionState.self) var sidebarSelectionState: SidebarSelectionState
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1234,7 +1236,7 @@ struct ContentView: View {
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
     @State private var observedWindow: NSWindow?
-    @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
+    @State private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -1766,7 +1768,7 @@ struct ContentView: View {
             .onAppear {
                 clampSidebarWidthIfNeeded(availableWidth: totalWidth)
             }
-            .onChange(of: totalWidth) {
+            .onChange(of: totalWidth) { _, _ in
                 clampSidebarWidthIfNeeded(availableWidth: totalWidth)
             }
         }
@@ -1775,11 +1777,18 @@ struct ContentView: View {
     private var sidebarView: some View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
-            selection: $sidebarSelectionState.selection,
+            selection: sidebarSelectionBinding,
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex
         )
         .frame(width: sidebarWidth)
+    }
+
+    private var sidebarSelectionBinding: Binding<SidebarSelection> {
+        Binding(
+            get: { sidebarSelectionState.selection },
+            set: { sidebarSelectionState.selection = $0 }
+        )
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -1827,7 +1836,7 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
 
-            NotificationsPage(selection: $sidebarSelectionState.selection)
+            NotificationsPage(selection: sidebarSelectionBinding)
                 .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
         }
@@ -2124,7 +2133,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { _, newValue in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2146,7 +2155,7 @@ struct ContentView: View {
             updateTitlebarText()
         })
 
-        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _, _ in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -2160,7 +2169,7 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
+        view = AnyView(view.onChange(of: retiringWorkspaceId) { _, _ in
             reconcileMountedWorkspaceIds()
         })
 
@@ -2214,7 +2223,7 @@ struct ContentView: View {
             completeWorkspaceHandoffIfNeeded(focusedTabId: selectedTabId, reason: "browser_address_bar")
         })
 
-        view = AnyView(view.onReceive(tabManager.$tabs) { tabs in
+        view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
             if let retiringWorkspaceId, !existingIds.contains(retiringWorkspaceId) {
                 self.retiringWorkspaceId = nil
@@ -2375,11 +2384,11 @@ struct ContentView: View {
             }
         }))
 
-        view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintHex) { _, _ in
             updateWindowGlassTint()
         })
 
-        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _, _ in
             updateWindowGlassTint()
         })
 
@@ -2406,7 +2415,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarWidth) { _ in
+        view = AnyView(view.onChange(of: sidebarWidth) { _, _ in
             let sanitized = normalizedSidebarWidth(sidebarWidth)
             if abs(sidebarWidth - sanitized) > 0.5 {
                 sidebarWidth = sanitized
@@ -2418,11 +2427,11 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
+        view = AnyView(view.onChange(of: sidebarState.isVisible) { _, _ in
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
+        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { _, newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
@@ -2844,7 +2853,7 @@ struct ContentView: View {
                 ),
                 anchor: commandPaletteScrollTargetAnchor
             )
-            .onChange(of: commandPaletteSelectedResultIndex) { _ in
+            .onChange(of: commandPaletteSelectedResultIndex) { _, _ in
                 updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: true)
             }
 
@@ -2863,14 +2872,14 @@ struct ContentView: View {
             updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
             resetCommandPaletteSearchFocus()
         }
-        .onChange(of: commandPaletteQuery) { _ in
+        .onChange(of: commandPaletteQuery) { _, _ in
             commandPaletteSelectedResultIndex = 0
             commandPaletteHoveredResultIndex = nil
             commandPaletteScrollTargetIndex = nil
             commandPaletteScrollTargetAnchor = nil
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: visibleResults.count) { _ in
+        .onChange(of: visibleResults.count) { _, _ in
             commandPaletteSelectedResultIndex = commandPaletteSelectedIndex(resultCount: visibleResults.count)
             updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: false)
             if let hoveredIndex = commandPaletteHoveredResultIndex, hoveredIndex >= visibleResults.count {
@@ -2878,7 +2887,7 @@ struct ContentView: View {
             }
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: commandPaletteSelectedResultIndex) { _ in
+        .onChange(of: commandPaletteSelectedResultIndex) { _, _ in
             syncCommandPaletteDebugStateForObservedWindow()
         }
     }
@@ -4067,7 +4076,12 @@ struct ContentView: View {
                 panel.allowsMultipleSelection = false
                 panel.title = "Open Folder"
                 panel.prompt = "Open"
-                if panel.runModal() == .OK, let url = panel.url {
+                if let window = self.observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow {
+                    panel.beginSheetModal(for: window) { response in
+                        guard response == .OK, let url = panel.url else { return }
+                        tabManager.addWorkspace(workingDirectory: url.path)
+                    }
+                } else if panel.runModal() == .OK, let url = panel.url {
                     tabManager.addWorkspace(workingDirectory: url.path)
                 }
             }
@@ -5610,14 +5624,14 @@ private struct SidebarResizerAccessibilityModifier: ViewModifier {
 }
 
 struct VerticalTabsSidebar: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
-    @EnvironmentObject var tabManager: TabManager
+    var updateViewModel: UpdateViewModel
+    @Environment(TabManager.self) var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @StateObject private var commandKeyMonitor = SidebarCommandKeyMonitor()
-    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @State private var commandKeyMonitor = SidebarCommandKeyMonitor()
+    @State private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
 
@@ -5723,7 +5737,7 @@ struct VerticalTabsSidebar: View {
                 reason: "sidebar_disappear"
             )
         }
-        .onChange(of: draggedTabId) { newDraggedTabId in
+        .onChange(of: draggedTabId) { _, newDraggedTabId in
             SidebarDragLifecycleNotification.postStateDidChange(
                 tabId: newDraggedTabId,
                 reason: "drag_state_change"
@@ -5883,7 +5897,8 @@ enum SidebarDragFailsafePolicy {
 }
 
 @MainActor
-private final class SidebarDragFailsafeMonitor: ObservableObject {
+@Observable
+private final class SidebarDragFailsafeMonitor {
     private static let escapeKeyCode: UInt16 = 53
     private var timer: Timer?
     private var pendingClearWorkItem: DispatchWorkItem?
@@ -6047,8 +6062,9 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 }
 
 @MainActor
-private final class SidebarCommandKeyMonitor: ObservableObject {
-    @Published private(set) var isCommandPressed = false
+@Observable
+private final class SidebarCommandKeyMonitor {
+    private(set) var isCommandPressed = false
 
     private weak var hostWindow: NSWindow?
     private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
@@ -6208,7 +6224,7 @@ private final class SidebarCommandKeyMonitor: ObservableObject {
 
 #if DEBUG
 private struct SidebarDevFooter: View {
-    @ObservedObject var updateViewModel: UpdateViewModel
+    var updateViewModel: UpdateViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -6294,7 +6310,7 @@ private final class SidebarScrollViewResolverView: NSView {
 }
 
 private struct SidebarEmptyArea: View {
-    @EnvironmentObject var tabManager: TabManager
+    @Environment(TabManager.self) var tabManager: TabManager
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
@@ -6419,10 +6435,10 @@ enum SidebarWorkspaceShortcutHintMetrics {
 }
 
 private struct TabItemView: View {
-    @EnvironmentObject var tabManager: TabManager
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    @Environment(TabManager.self) var tabManager: TabManager
+    @Environment(TerminalNotificationStore.self) var notificationStore: TerminalNotificationStore
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject var tab: Tab
+    var tab: Tab
     let index: Int
     let rowSpacing: CGFloat
     @Binding var selection: SidebarSelection
@@ -6847,7 +6863,7 @@ private struct TabItemView: View {
                     .onAppear {
                         rowHeight = max(proxy.size.height, 1)
                     }
-                    .onChange(of: proxy.size.height) { newHeight in
+                    .onChange(of: proxy.size.height) { _, newHeight in
                         rowHeight = max(newHeight, 1)
                     }
             }
@@ -7833,7 +7849,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
         .onAppear(perform: renderMarkdown)
-        .onChange(of: block.markdown) { _ in
+        .onChange(of: block.markdown) { _, _ in
             renderMarkdown()
         }
     }
@@ -7986,7 +8002,8 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-private final class SidebarDragAutoScrollController: ObservableObject {
+@Observable
+private final class SidebarDragAutoScrollController {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?

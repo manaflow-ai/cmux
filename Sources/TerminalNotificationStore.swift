@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
 import UserNotifications
+import Combine
+import Observation
 
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
@@ -177,7 +179,8 @@ struct TerminalNotification: Identifiable, Hashable {
 }
 
 @MainActor
-final class TerminalNotificationStore: ObservableObject {
+@Observable
+final class TerminalNotificationStore {
     private struct TabSurfaceKey: Hashable {
         let tabId: UUID
         let surfaceId: UUID?
@@ -195,9 +198,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    private let notificationsSubject = CurrentValueSubject<[TerminalNotification], Never>([])
 
-    @Published private(set) var notifications: [TerminalNotification] = [] {
+    private(set) var notifications: [TerminalNotification] = [] {
         didSet {
+            notificationsSubject.send(notifications)
             indexes = Self.buildIndexes(for: notifications)
             refreshDockBadge()
         }
@@ -239,12 +244,6 @@ final class TerminalNotificationStore: ObservableObject {
         refreshDockBadge()
     }
 
-    deinit {
-        if let userDefaultsObserver {
-            NotificationCenter.default.removeObserver(userDefaultsObserver)
-        }
-    }
-
     static func dockBadgeLabel(unreadCount: Int, isEnabled: Bool, runTag: String? = nil) -> String? {
         let unreadLabel: String? = {
             guard isEnabled, unreadCount > 0 else { return nil }
@@ -266,6 +265,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     var unreadCount: Int {
         indexes.unreadCount
+    }
+
+    var notificationsPublisher: AnyPublisher<[TerminalNotification], Never> {
+        notificationsSubject.eraseToAnyPublisher()
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {

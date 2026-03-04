@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import Foundation
 import Bonsplit
-import CoreVideo
+import QuartzCore
+import Observation
 import Combine
 
 // MARK: - Tab Type Alias for Backwards Compatibility
@@ -443,7 +444,8 @@ fileprivate final class VsyncIOSurfaceTimelineState {
     var firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?
     var trace: [String] = []
 
-    var link: CVDisplayLink?
+    var timer: Timer?
+    var timerTarget: VsyncIOSurfaceTimelineDisplayLinkTarget?
     var continuation: CheckedContinuation<Void, Never>?
 
     init(frameCount: Int, closeFrame: Int) {
@@ -475,26 +477,27 @@ fileprivate final class VsyncIOSurfaceTimelineState {
         finished = true
         let cont = continuation
         continuation = nil
+        timer?.invalidate()
+        timer = nil
+        timerTarget = nil
         lock.unlock()
         cont?.resume()
     }
 }
 
-fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
-    _ displayLink: CVDisplayLink,
-    _ inNow: UnsafePointer<CVTimeStamp>,
-    _ inOutputTime: UnsafePointer<CVTimeStamp>,
-    _ flagsIn: CVOptionFlags,
-    _ flagsOut: UnsafeMutablePointer<CVOptionFlags>,
-    _ ctx: UnsafeMutableRawPointer?
-) -> CVReturn {
-    guard let ctx else { return kCVReturnSuccess }
-    let st = Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).takeUnretainedValue()
-    if !st.tryBeginCapture() { return kCVReturnSuccess }
+@MainActor
+fileprivate final class VsyncIOSurfaceTimelineDisplayLinkTarget: NSObject {
+    private weak var state: VsyncIOSurfaceTimelineState?
 
-    // Sample on the main thread synchronously so we don't "miss" a single compositor frame.
-    // (The previous Task/@MainActor hop could be delayed long enough to skip the blank frame.)
-    DispatchQueue.main.sync {
+    init(state: VsyncIOSurfaceTimelineState) {
+        self.state = state
+    }
+
+    @objc
+    func handleDisplayLink(_ timer: Timer) {
+        _ = timer
+        guard let st = state else { return }
+        if !st.tryBeginCapture() { return }
         defer { st.endCapture() }
         guard st.framesWritten < st.frameCount else { return }
 
@@ -519,8 +522,6 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
             let hasSizeMismatch = hasDimensions && (dw > 2 || dh > 2)
             let stretchRisk = (gravity == CALayerContentsGravity.resize.rawValue)
 
-            // Ignore setup/warmup frames before the close action. We only care about
-            // regressions that happen at/after the close mutation.
             if st.firstBlank == nil, st.framesWritten >= st.closeFrame, s.isProbablyBlank {
                 st.firstBlank = (label: t.label, frame: st.framesWritten)
             }
@@ -543,32 +544,32 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
         }
 
         st.framesWritten += 1
-    }
 
-    // Stop/resume outside the main-thread sync block to avoid reentrancy issues.
-    if st.framesWritten >= st.frameCount, let link = st.link {
-        CVDisplayLinkStop(link)
-        st.finish()
-        Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
+        if st.framesWritten >= st.frameCount, let timer = st.timer {
+            timer.invalidate()
+            st.finish()
+        }
     }
-
-    return kCVReturnSuccess
 }
 #endif
 
 @MainActor
-class TabManager: ObservableObject {
+@Observable
+class TabManager {
     /// The window that owns this TabManager. Set by AppDelegate.registerMainWindow().
     /// Used to apply title updates to the correct window instead of NSApp.keyWindow.
     weak var window: NSWindow?
 
-    @Published var tabs: [Workspace] = []
-    @Published private(set) var isWorkspaceCycleHot: Bool = false
+    private let tabsSubject = CurrentValueSubject<[Workspace], Never>([])
+    var tabs: [Workspace] = [] {
+        didSet { tabsSubject.send(tabs) }
+    }
+    private(set) var isWorkspaceCycleHot: Bool = false
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
-    @Published var selectedTabId: UUID? {
+    var selectedTabId: UUID? {
         didSet {
             guard selectedTabId != oldValue else { return }
             sentryBreadcrumb("workspace.switch", data: [
@@ -683,8 +684,8 @@ class TabManager: ObservableObject {
 #endif
     }
 
-    deinit {
-        workspaceCycleCooldownTask?.cancel()
+    var tabsPublisher: AnyPublisher<[Workspace], Never> {
+        tabsSubject.eraseToAnyPublisher()
     }
 
     private func wireClosedBrowserTracking(for workspace: Workspace) {
@@ -2920,45 +2921,42 @@ class TabManager: ObservableObject {
         }
 	    }
 
-	    @MainActor
-	    private func captureVsyncIOSurfaceTimeline(
-	        frameCount: Int,
-	        closeFrame: Int,
-	        crop: CGRect,
-	        targets: [(label: String, view: GhosttySurfaceScrollView)],
-	        actions: [(frame: Int, action: () -> Void)] = []
-	    ) async -> (firstBlank: (label: String, frame: Int)?, firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?, trace: [String]) {
-	        guard frameCount > 0 else { return (nil, nil, []) }
+    @MainActor
+    private func captureVsyncIOSurfaceTimeline(
+        frameCount: Int,
+        closeFrame: Int,
+        crop: CGRect,
+        targets: [(label: String, view: GhosttySurfaceScrollView)],
+        actions: [(frame: Int, action: () -> Void)] = []
+    ) async -> (firstBlank: (label: String, frame: Int)?, firstSizeMismatch: (label: String, frame: Int, ios: String, expected: String)?, trace: [String]) {
+        guard frameCount > 0 else { return (nil, nil, []) }
 
-	        let st = VsyncIOSurfaceTimelineState(frameCount: frameCount, closeFrame: closeFrame)
-	        st.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
-	        st.nextActionIndex = 0
-	        st.targets = targets.map { t in
-	            VsyncIOSurfaceTimelineState.Target(label: t.label, sample: { @MainActor in
-	                t.view.debugSampleIOSurface(normalizedCrop: crop)
-	            })
-	        }
+        let st = VsyncIOSurfaceTimelineState(frameCount: frameCount, closeFrame: closeFrame)
+        st.scheduledActions = actions.sorted(by: { $0.frame < $1.frame })
+        st.nextActionIndex = 0
+        st.targets = targets.map { t in
+            VsyncIOSurfaceTimelineState.Target(label: t.label, sample: { @MainActor in
+                t.view.debugSampleIOSurface(normalizedCrop: crop)
+            })
+        }
 
-	        let unmanaged = Unmanaged.passRetained(st)
-	        let ctx = unmanaged.toOpaque()
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            st.continuation = cont
+            let target = VsyncIOSurfaceTimelineDisplayLinkTarget(state: st)
+            let timer = Timer(
+                timeInterval: 1.0 / 120.0,
+                target: target,
+                selector: #selector(VsyncIOSurfaceTimelineDisplayLinkTarget.handleDisplayLink(_:)),
+                userInfo: nil,
+                repeats: true
+            )
+            st.timer = timer
+            st.timerTarget = target
+            RunLoop.main.add(timer, forMode: .common)
+        }
 
-	        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-	            st.continuation = cont
-	            var link: CVDisplayLink?
-	            CVDisplayLinkCreateWithActiveCGDisplays(&link)
-	            guard let link else {
-	                st.finish()
-	                Unmanaged<VsyncIOSurfaceTimelineState>.fromOpaque(ctx).release()
-	                return
-	            }
-	            st.link = link
-
-	            CVDisplayLinkSetOutputCallback(link, cmuxVsyncIOSurfaceTimelineCallback, ctx)
-	            CVDisplayLinkStart(link)
-	        }
-
-	        return (st.firstBlank, st.firstSizeMismatch, st.trace)
-	    }
+        return (st.firstBlank, st.firstSizeMismatch, st.trace)
+    }
 
     private func writeSplitCloseRightTestData(_ updates: [String: String], at path: String) {
         var payload = loadSplitCloseRightTestData(at: path)
@@ -3066,29 +3064,14 @@ class TabManager: ObservableObject {
                 rightPanel.surface.sendText("exit\r")
 
                 // Wait for the right panel to close.
-                let closed = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
-                    var cancellable: AnyCancellable?
-                    var resolved = false
-
-                    func finish(_ value: Bool) {
-                        guard !resolved else { return }
-                        resolved = true
-                        cancellable?.cancel()
-                        cont.resume(returning: value)
+                let closeDeadline = Date().addingTimeInterval(8.0)
+                var closed = false
+                while Date() < closeDeadline {
+                    if tab.panels.count == 1 {
+                        closed = true
+                        break
                     }
-
-                    cancellable = tab.$panels
-                        .map { $0.count }
-                        .removeDuplicates()
-                        .sink { count in
-                            if count == 1 {
-                                finish(true)
-                            }
-                        }
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-                        finish(false)
-                    }
+                    try? await Task.sleep(nanoseconds: 50_000_000)
                 }
 
                 if !closed {
@@ -3342,50 +3325,46 @@ class TabManager: ObservableObject {
                 self.uiTestCancellables.removeAll()
             }
 
-            tab.$panels
-                .map { $0.count }
-                .removeDuplicates()
-                .sink { [weak self, weak tab] count in
-                    Task { @MainActor in
-                        guard let self, let tab else { return }
-                        if count == expectedPanelsAfter {
-                            // Require the post-exit state to be stable for a short window so
-                            // we catch "close looked correct, then workspace vanished" races.
-                            try? await Task.sleep(nanoseconds: 1_200_000_000)
-                            guard tab.panels.count == expectedPanelsAfter else { return }
-
-                            let firstResponderPanelAfter = tab.panels.compactMap { (panelId, panel) -> UUID? in
-                                guard let terminal = panel as? TerminalPanel else { return nil }
-                                return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
-                            }.first?.uuidString ?? ""
-
-                            finish([
-                                "workspaceCountAfter": String(self.tabs.count),
-                                "panelCountAfter": String(tab.panels.count),
-                                "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
-                                "focusedPanelAfter": tab.focusedPanelId?.uuidString ?? "",
-                                "firstResponderPanelAfter": firstResponderPanelAfter,
-                            ])
-                        }
+            Task { @MainActor [weak self, weak tab] in
+                guard let self, let tab else { return }
+                while !finished {
+                    if !self.tabs.contains(where: { $0.id == tab.id }) {
+                        finish([
+                            "workspaceCountAfter": "0",
+                            "panelCountAfter": "0",
+                            "closedWorkspace": "1",
+                        ])
+                        return
                     }
-                }
-                .store(in: &uiTestCancellables)
 
-            $tabs
-                .map { $0.contains(where: { $0.id == tab.id }) }
-                .removeDuplicates()
-                .sink { alive in
-                    Task { @MainActor in
-                        if !alive {
-                            finish([
-                                "workspaceCountAfter": "0",
-                                "panelCountAfter": "0",
-                                "closedWorkspace": "1",
-                            ])
+                    if tab.panels.count == expectedPanelsAfter {
+                        // Require the post-exit state to be stable for a short window so
+                        // we catch "close looked correct, then workspace vanished" races.
+                        try? await Task.sleep(nanoseconds: 1_200_000_000)
+                        guard !finished else { return }
+                        guard tab.panels.count == expectedPanelsAfter else {
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            continue
                         }
+
+                        let firstResponderPanelAfter = tab.panels.compactMap { (panelId, panel) -> UUID? in
+                            guard let terminal = panel as? TerminalPanel else { return nil }
+                            return terminal.hostedView.isSurfaceViewFirstResponder() ? panelId : nil
+                        }.first?.uuidString ?? ""
+
+                        finish([
+                            "workspaceCountAfter": String(self.tabs.count),
+                            "panelCountAfter": String(tab.panels.count),
+                            "closedWorkspace": self.tabs.contains(where: { $0.id == tab.id }) ? "0" : "1",
+                            "focusedPanelAfter": tab.focusedPanelId?.uuidString ?? "",
+                            "firstResponderPanelAfter": firstResponderPanelAfter,
+                        ])
+                        return
                     }
+
+                    try? await Task.sleep(nanoseconds: 50_000_000)
                 }
-                .store(in: &uiTestCancellables)
+            }
 
             let work = DispatchWorkItem {
                 finish([

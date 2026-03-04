@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import Bonsplit
 import Combine
+import Observation
 import CoreText
 
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
@@ -889,13 +890,14 @@ struct ClosedBrowserPanelRestoreSnapshot {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
-final class Workspace: Identifiable, ObservableObject {
+@Observable
+final class Workspace: Identifiable {
     let id: UUID
-    @Published var title: String
-    @Published var customTitle: String?
-    @Published var isPinned: Bool = false
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
-    @Published var currentDirectory: String
+    var title: String
+    var customTitle: String?
+    var isPinned: Bool = false
+    var customColor: String?  // hex string, e.g. "#C0392B"
+    var currentDirectory: String
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -904,7 +906,7 @@ final class Workspace: Identifiable, ObservableObject {
     let bonsplitController: BonsplitController
 
     /// Mapping from bonsplit TabID to our Panel instances
-    @Published private(set) var panels: [UUID: any Panel] = [:]
+    private(set) var panels: [UUID: any Panel] = [:]
 
     /// Subscriptions for panel updates (e.g., browser title changes)
     private var panelSubscriptions: [UUID: AnyCancellable] = [:]
@@ -952,24 +954,24 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Published directory for each panel
-    @Published var panelDirectories: [UUID: String] = [:]
-    @Published var panelTitles: [UUID: String] = [:]
-    @Published private(set) var panelCustomTitles: [UUID: String] = [:]
-    @Published private(set) var pinnedPanelIds: Set<UUID> = []
-    @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    var panelDirectories: [UUID: String] = [:]
+    var panelTitles: [UUID: String] = [:]
+    private(set) var panelCustomTitles: [UUID: String] = [:]
+    private(set) var pinnedPanelIds: Set<UUID> = []
+    private(set) var manualUnreadPanelIds: Set<UUID> = []
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
-    @Published var statusEntries: [String: SidebarStatusEntry] = [:]
-    @Published var metadataBlocks: [String: SidebarMetadataBlock] = [:]
-    @Published var logEntries: [SidebarLogEntry] = []
-    @Published var progress: SidebarProgressState?
-    @Published var gitBranch: SidebarGitBranchState?
-    @Published var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
-    @Published var pullRequest: SidebarPullRequestState?
-    @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
-    @Published var listeningPorts: [Int] = []
+    var statusEntries: [String: SidebarStatusEntry] = [:]
+    var metadataBlocks: [String: SidebarMetadataBlock] = [:]
+    var logEntries: [SidebarLogEntry] = []
+    var progress: SidebarProgressState?
+    var gitBranch: SidebarGitBranchState?
+    var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
+    var pullRequest: SidebarPullRequestState?
+    var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
+    var surfaceListeningPorts: [UUID: [Int]] = [:]
+    var listeningPorts: [Int] = []
     var surfaceTTYNames: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 

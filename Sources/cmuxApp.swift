@@ -2,13 +2,14 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import Observation
 
 @main
 struct cmuxApp: App {
-    @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject private var sidebarState = SidebarState()
-    @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @State private var tabManager: TabManager
+    @State private var notificationStore = TerminalNotificationStore.shared
+    @State private var sidebarState = SidebarState()
+    @State private var sidebarSelectionState = SidebarSelectionState()
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -45,7 +46,7 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
-        _tabManager = StateObject(wrappedValue: TabManager())
+        _tabManager = State(initialValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -190,10 +191,10 @@ struct cmuxApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
-                .environmentObject(tabManager)
-                .environmentObject(notificationStore)
-                .environmentObject(sidebarState)
-                .environmentObject(sidebarSelectionState)
+                .environment(tabManager)
+                .environment(notificationStore)
+                .environment(sidebarState)
+                .environment(sidebarSelectionState)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -210,10 +211,10 @@ struct cmuxApp: App {
                         }
                     }
                 }
-                .onChange(of: appearanceMode) { _ in
+                .onChange(of: appearanceMode) { _, _ in
                     applyAppearance()
                 }
-                .onChange(of: socketControlMode) { _ in
+                .onChange(of: socketControlMode) { _, _ in
                     updateSocketController()
                 }
         }
@@ -401,7 +402,21 @@ struct cmuxApp: App {
                     panel.allowsMultipleSelection = false
                     panel.title = "Open Folder"
                     panel.prompt = "Open"
-                    if panel.runModal() == .OK, let url = panel.url {
+                    if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                        panel.beginSheetModal(for: window) { response in
+                            guard response == .OK, let url = panel.url else { return }
+                            if let appDelegate = AppDelegate.shared {
+                                if appDelegate.addWorkspaceInPreferredMainWindow(
+                                    workingDirectory: url.path,
+                                    debugSource: "menu.openFolder"
+                                ) == nil {
+                                    appDelegate.openNewMainWindow(nil)
+                                }
+                            } else {
+                                activeTabManager.addWorkspace(workingDirectory: url.path)
+                            }
+                        }
+                    } else if panel.runModal() == .OK, let url = panel.url {
                         if let appDelegate = AppDelegate.shared {
                             if appDelegate.addWorkspaceInPreferredMainWindow(
                                 workingDirectory: url.path,
@@ -621,7 +636,7 @@ struct cmuxApp: App {
 
     private func showAboutPanel() {
         AboutWindowController.shared.show()
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 
     private func applyAppearance() {
@@ -1007,13 +1022,14 @@ private struct SettingsAboutTitlebarDebugOptions: Equatable {
 }
 
 @MainActor
-private final class SettingsAboutTitlebarDebugStore: ObservableObject {
+@Observable
+private final class SettingsAboutTitlebarDebugStore {
     static let shared = SettingsAboutTitlebarDebugStore()
 
-    @Published var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
+    var settingsOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .settings) {
         didSet { applyToOpenWindows(for: .settings) }
     }
-    @Published var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
+    var aboutOptions = SettingsAboutTitlebarDebugOptions.defaults(for: .about) {
         didSet { applyToOpenWindows(for: .about) }
     }
 
@@ -1183,7 +1199,7 @@ private final class SettingsAboutTitlebarDebugWindowController: NSWindowControll
 }
 
 private struct SettingsAboutTitlebarDebugView: View {
-    @ObservedObject private var store = SettingsAboutTitlebarDebugStore.shared
+    private var store = SettingsAboutTitlebarDebugStore.shared
 
     var body: some View {
         ScrollView {
@@ -1953,7 +1969,7 @@ private struct SidebarDebugView: View {
                             Text(option.title).tag(option.rawValue)
                         }
                     }
-                    .onChange(of: sidebarPreset) { _ in
+                    .onChange(of: sidebarPreset) { _, _ in
                         applyPreset()
                     }
                     .padding(.top, 2)
@@ -2309,19 +2325,19 @@ private struct MenuBarExtraDebugView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .onAppear { applyLiveUpdate() }
-        .onChange(of: previewEnabled) { _ in applyLiveUpdate() }
-        .onChange(of: previewCount) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectX) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectY) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectWidth) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectHeight) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitFontSize) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitFontSize) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitXAdjust) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitXAdjust) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitYOffset) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitYOffset) { _ in applyLiveUpdate() }
-        .onChange(of: textRectWidthAdjust) { _ in applyLiveUpdate() }
+        .onChange(of: previewEnabled) { _, _ in applyLiveUpdate() }
+        .onChange(of: previewCount) { _, _ in applyLiveUpdate() }
+        .onChange(of: badgeRectX) { _, _ in applyLiveUpdate() }
+        .onChange(of: badgeRectY) { _, _ in applyLiveUpdate() }
+        .onChange(of: badgeRectWidth) { _, _ in applyLiveUpdate() }
+        .onChange(of: badgeRectHeight) { _, _ in applyLiveUpdate() }
+        .onChange(of: singleDigitFontSize) { _, _ in applyLiveUpdate() }
+        .onChange(of: multiDigitFontSize) { _, _ in applyLiveUpdate() }
+        .onChange(of: singleDigitXAdjust) { _, _ in applyLiveUpdate() }
+        .onChange(of: multiDigitXAdjust) { _, _ in applyLiveUpdate() }
+        .onChange(of: singleDigitYOffset) { _, _ in applyLiveUpdate() }
+        .onChange(of: multiDigitYOffset) { _, _ in applyLiveUpdate() }
+        .onChange(of: textRectWidthAdjust) { _, _ in applyLiveUpdate() }
     }
 
     private func sliderRow(
@@ -2449,8 +2465,8 @@ private struct BackgroundDebugView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .onChange(of: bgGlassTintHex) { _ in updateWindowGlassTint() }
-        .onChange(of: bgGlassTintOpacity) { _ in updateWindowGlassTint() }
+        .onChange(of: bgGlassTintHex) { _, _ in updateWindowGlassTint() }
+        .onChange(of: bgGlassTintOpacity) { _, _ in updateWindowGlassTint() }
     }
 
     private func updateWindowGlassTint() {
@@ -3988,7 +4004,7 @@ private struct ShortcutSettingRow: View {
 
     var body: some View {
         KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
-            .onChange(of: shortcut) { newValue in
+            .onChange(of: shortcut) { _, newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
             }
             .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in

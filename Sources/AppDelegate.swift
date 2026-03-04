@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import Bonsplit
-import CoreServices
 import UserNotifications
 import Sentry
 import WebKit
@@ -1560,8 +1559,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.launchServicesRegistration",
         qos: .utility
     )
+    private nonisolated static let launchServicesRegisterExecutablePath =
+        "/System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister"
     private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
+    }
+    private nonisolated static func registerBundleWithLaunchServices(_ bundleURL: CFURL) -> OSStatus {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launchServicesRegisterExecutablePath)
+        process.arguments = ["-f", "-R", "-trusted", (bundleURL as URL).path]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0 ? noErr : OSStatus(process.terminationStatus)
+        } catch {
+            NSLog("LaunchServices registration failed to start: \(error.localizedDescription)")
+            return OSStatus(-1)
+        }
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
@@ -4558,10 +4572,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let notificationStore = TerminalNotificationStore.shared
 
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
+            .environment(tabManager)
+            .environment(notificationStore)
+            .environment(sidebarState)
+            .environment(sidebarSelectionState)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
@@ -4611,7 +4625,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             window.makeKeyAndOrderFront(nil)
             setActiveMainWindow(window)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
         }
         if let restoredFrame {
             window.setFrame(restoredFrame, display: true)
@@ -4762,7 +4776,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SettingsWindowController.shared.show()
         },
         activateApplication: @MainActor () -> Void = {
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
         }
     ) {
 #if DEBUG
@@ -6010,13 +6024,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Don't warn again for Cmd+Q"
 
-        let response = alert.runModal()
-        if alert.suppressionButton?.state == .on {
-            QuitWarningSettings.setEnabled(false)
-        }
-
-        if response == .alertFirstButtonReturn {
-            NSApp.terminate(nil)
+        presentNonBlockingAlert(
+            alert,
+            in: NSApp.keyWindow ?? NSApp.mainWindow
+        ) { [weak self] response in
+            if alert.suppressionButton?.state == .on {
+                QuitWarningSettings.setEnabled(false)
+            }
+            if response == .alertFirstButtonReturn {
+                NSApp.terminate(nil)
+            }
+            if let self {
+                #if DEBUG
+                dlog("quit.warning.dismissed response=\(response.rawValue)")
+                #endif
+            }
         }
         return true
     }
@@ -6045,10 +6067,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             input.selectText(nil)
         }
 
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return true }
-        tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        presentNonBlockingAlert(
+            alert,
+            in: NSApp.keyWindow ?? NSApp.mainWindow
+        ) { [weak tabManager] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard let tabManager else { return }
+            tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+        }
         return true
+    }
+
+    private func presentNonBlockingAlert(
+        _ alert: NSAlert,
+        in window: NSWindow?,
+        completion: @escaping (NSApplication.ModalResponse) -> Void
+    ) {
+        if let window {
+            alert.beginSheetModal(for: window, completionHandler: completion)
+            return
+        }
+        completion(alert.runModal())
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
@@ -7528,9 +7567,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func scheduleLaunchServicesBundleRegistration(
         bundleURL: URL = Bundle.main.bundleURL.standardizedFileURL,
         scheduler: @escaping (@escaping @Sendable () -> Void) -> Void = AppDelegate.enqueueLaunchServicesRegistrationWork,
-        register: @escaping (CFURL) -> OSStatus = { url in
-            LSRegisterURL(url, true)
-        },
+        register: @escaping (CFURL) -> OSStatus = AppDelegate.registerBundleWithLaunchServices,
         breadcrumb: @escaping (_ message: String, _ data: [String: Any]) -> Void = { message, data in
             sentryBreadcrumb(message, category: "startup", data: data)
         }
@@ -8127,7 +8164,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             button.toolTip = "cmux"
         }
 
-        notificationsCancellable = notificationStore.$notifications
+        notificationsCancellable = notificationStore.notificationsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshUI()

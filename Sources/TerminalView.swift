@@ -21,7 +21,7 @@ extension SwiftTerm.Color {
 }
 
 struct TerminalContainerView: View {
-    @ObservedObject var tab: Tab
+    var tab: Tab
     let config: GhosttyConfig
 
     init(tab: Tab, config: GhosttyConfig = GhosttyConfig.load()) {
@@ -134,7 +134,7 @@ class FocusableTerminalView: NSView {
 }
 
 struct SwiftTermView: NSViewRepresentable {
-    @ObservedObject var tab: Tab
+    var tab: Tab
     let config: GhosttyConfig
 
     func makeNSView(context: Context) -> FocusableTerminalView {
