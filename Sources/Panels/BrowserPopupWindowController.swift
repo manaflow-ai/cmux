@@ -40,9 +40,11 @@ final class BrowserPopupWindowController: NSWindowController, NSWindowDelegate {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         self.popupWebView = webView
 
-        // Size from windowFeatures or default
-        let width = windowFeatures.width?.doubleValue ?? 800
-        let height = windowFeatures.height?.doubleValue ?? 600
+        // Size from windowFeatures or default, clamped to visible screen area
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        let visibleSize = screen?.visibleFrame.size ?? NSSize(width: 1280, height: 800)
+        let width = min(windowFeatures.width?.doubleValue ?? 800, visibleSize.width)
+        let height = min(windowFeatures.height?.doubleValue ?? 600, visibleSize.height)
         let rect = NSRect(x: 0, y: 0, width: max(width, 200), height: max(height, 150))
 
         // No .nonactivatingPanel — the popup must accept keyboard focus for OAuth form input.
@@ -68,8 +70,8 @@ final class BrowserPopupWindowController: NSWindowController, NSWindowDelegate {
             var origin = NSPoint(x: x, y: y)
             if let screen = NSApp.keyWindow?.screen ?? NSScreen.main {
                 let visible = screen.visibleFrame
-                origin.x = min(max(origin.x, visible.minX), visible.maxX - rect.width)
-                origin.y = min(max(origin.y, visible.minY), visible.maxY - rect.height)
+                origin.x = min(max(origin.x, visible.minX), max(visible.minX, visible.maxX - rect.width))
+                origin.y = min(max(origin.y, visible.minY), max(visible.minY, visible.maxY - rect.height))
             }
             panel.setFrameOrigin(origin)
         } else {
