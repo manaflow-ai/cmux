@@ -3767,7 +3767,8 @@ struct SettingsView: View {
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 1 && open -n \"\(bundlePath)\""]
+        task.arguments = ["-c", "sleep 1 && open -n -- \"$RELAUNCH_PATH\""]
+        task.environment = ["RELAUNCH_PATH": bundlePath]
         do {
             try task.run()
         } catch {
@@ -3780,7 +3781,6 @@ struct SettingsView: View {
         isResettingSettings = true
         appLanguage = LanguageSettings.defaultLanguage.rawValue
         LanguageSettings.apply(.system)
-        isResettingSettings = false
         appearanceMode = AppearanceSettings.defaultMode.rawValue
         appIconMode = AppIconSettings.defaultMode.rawValue
         AppIconSettings.applyIcon(.automatic)
@@ -3822,6 +3822,7 @@ struct SettingsView: View {
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
+        DispatchQueue.main.async { isResettingSettings = false }
     }
 
     private func defaultTabColorBinding(for name: String) -> Binding<Color> {
