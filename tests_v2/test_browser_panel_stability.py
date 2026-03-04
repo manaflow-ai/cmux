@@ -153,6 +153,57 @@ def test_focus_panes_with_loaded_browser(client: cmux) -> tuple[bool, str]:
     return True, "Rapid focus_pane loop with loaded browser did not crash"
 
 
+def test_workspace_switch_with_browser_surface(client: cmux) -> tuple[bool, str]:
+    browser_workspace_id = client.new_workspace()
+    terminal_workspace_id = None
+
+    try:
+        client.select_workspace(browser_workspace_id)
+        time.sleep(0.5)
+
+        browser_id = client.new_surface(panel_type="browser", url="https://example.com")
+        time.sleep(1.2)
+        ensure_webview_focused(client, browser_id, timeout_s=2.0)
+
+        terminal_workspace_id = client.new_workspace()
+        client.select_workspace(terminal_workspace_id)
+        time.sleep(0.3)
+
+        # Repeatedly switch between a browser-active workspace and a terminal workspace.
+        # This reproduces the workspace-switch path that used to trigger Auto Layout recursion.
+        for i in range(120):
+            client.select_workspace(browser_workspace_id)
+            time.sleep(0.03)
+
+            if i % 4 == 0:
+                client.focus_surface(browser_id)
+                client.focus_webview(browser_id)
+
+            client.select_workspace(terminal_workspace_id)
+            time.sleep(0.03)
+
+            if i % 12 == 0 and not client.ping():
+                return False, f"Ping failed during workspace switch loop (i={i})"
+
+        client.select_workspace(browser_workspace_id)
+        time.sleep(0.1)
+        ensure_webview_focused(client, browser_id, timeout_s=1.2)
+        if not client.ping():
+            return False, "Ping failed after workspace switch loop"
+
+        return True, "Repeated workspace switching with browser-active tab did not crash"
+    finally:
+        if terminal_workspace_id is not None:
+            try:
+                client.close_workspace(terminal_workspace_id)
+            except Exception:
+                pass
+        try:
+            client.close_workspace(browser_workspace_id)
+        except Exception:
+            pass
+
+
 def run_tests() -> int:
     print("=" * 60)
     print("cmux Browser Panel Stability Test")
@@ -165,6 +216,7 @@ def run_tests() -> int:
     tests = [
         ("open_browser then new_surface loop", test_open_browser_then_new_surface_loop),
         ("focus panes with loaded browser", test_focus_panes_with_loaded_browser),
+        ("workspace switching with browser surface", test_workspace_switch_with_browser_surface),
     ]
 
     passed = 0
