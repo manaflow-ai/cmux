@@ -17,6 +17,9 @@ const SOCKET_PATH: &str = "/tmp/cmux.sock";
 /// Run the socket server. This should be called from a tokio runtime
 /// on a background thread.
 pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
+    let control_mode = auth::SocketControlMode::from_env();
+    tracing::info!("Socket control mode: {:?}", control_mode);
+
     // Remove stale socket file
     let _ = std::fs::remove_file(SOCKET_PATH);
 
@@ -27,7 +30,7 @@ pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::set_permissions(SOCKET_PATH, std::fs::Permissions::from_mode(0o600))?;
     }
 
     loop {
@@ -36,6 +39,15 @@ pub async fn run_socket_server(state: Arc<SharedState>) -> anyhow::Result<()> {
                 // Authenticate the client
                 match auth::authenticate_peer(&stream) {
                     Ok(peer_info) => {
+                        if !auth::is_authorized(&peer_info, control_mode) {
+                            tracing::warn!(
+                                "Client rejected: pid={}, uid={} (mode={:?})",
+                                peer_info.pid,
+                                peer_info.uid,
+                                control_mode,
+                            );
+                            continue;
+                        }
                         tracing::debug!(
                             "Client connected: pid={}, uid={}",
                             peer_info.pid,

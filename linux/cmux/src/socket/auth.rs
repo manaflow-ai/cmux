@@ -50,3 +50,15 @@ impl SocketControlMode {
         }
     }
 }
+
+/// Check whether a peer is authorized under the given control mode.
+pub fn is_authorized(peer: &PeerInfo, mode: SocketControlMode) -> bool {
+    match mode {
+        SocketControlMode::AllowAll => true,
+        SocketControlMode::LocalUser => is_same_user(peer),
+        SocketControlMode::CmuxOnly => {
+            // Same UID required; full descendant-PID check is TODO (Phase 2+)
+            is_same_user(peer)
+        }
+    }
+}
