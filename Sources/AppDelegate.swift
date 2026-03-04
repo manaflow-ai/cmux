@@ -1733,7 +1733,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
+        // In UI tests, the primary SwiftUI scene can occasionally fail to materialize a
+        // window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
         if isRunningUnderXCTest {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -2790,9 +2791,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState
     ) {
+        let key = ObjectIdentifier(window)
+        if let existing = mainWindowContexts.values.first(where: { $0.windowId == windowId && $0.window !== window }),
+           let existingWindow = existing.window,
+           shouldIgnoreDuplicateWindowRegistration(existingWindow: existingWindow) {
+#if DEBUG
+            dlog(
+                "mainWindow.register.duplicateIgnored windowId=\(String(windowId.uuidString.prefix(8))) " +
+                    "incoming={\(debugWindowToken(window))} existing={\(debugWindowToken(existingWindow))}"
+            )
+#endif
+            window.orderOut(nil)
+            DispatchQueue.main.async { [weak window] in
+                window?.close()
+            }
+            return
+        }
+
         tabManager.window = window
 
-        let key = ObjectIdentifier(window)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
@@ -2835,6 +2852,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isTerminatingApp {
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+    }
+
+    private func shouldIgnoreDuplicateWindowRegistration(existingWindow: NSWindow) -> Bool {
+        guard NSApp.windows.contains(existingWindow) else { return false }
+        return existingWindow.isVisible
+            || existingWindow.isMiniaturized
+            || existingWindow.isKeyWindow
+            || existingWindow.isMainWindow
     }
 
     struct MainWindowSummary {
@@ -4311,6 +4336,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             workingDirectory: workingDirectory
         )
         #endif
+        return workspace.id
+    }
+
+    @discardableResult
+    func addWorkspaceWithoutNewWindowFallback(
+        workingDirectory: String? = nil,
+        event: NSEvent? = nil,
+        debugSource: String = "unspecified",
+        fallbackReason: String = "unspecified"
+    ) -> UUID? {
+        let context: MainWindowContext? = {
+            if let activeManager = tabManager,
+               let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+                return activeContext
+            }
+            if let keyContext = contextForMainWindow(NSApp.keyWindow) {
+                return keyContext
+            }
+            if let mainContext = contextForMainWindow(NSApp.mainWindow) {
+                return mainContext
+            }
+            return mainWindowContexts.values.first
+        }()
+
+        guard let context else {
+#if DEBUG
+            logWorkspaceCreationRouting(
+                phase: "fallback_noop",
+                source: debugSource,
+                reason: "\(fallbackReason)_no_context",
+                event: event,
+                chosenContext: nil,
+                workingDirectory: workingDirectory
+            )
+#endif
+            NSSound.beep()
+            return nil
+        }
+
+        if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            setActiveMainWindow(window)
+        }
+
+        let workspace: Workspace
+        if let workingDirectory {
+            workspace = context.tabManager.addWorkspace(workingDirectory: workingDirectory, select: true)
+        } else {
+            workspace = context.tabManager.addTab(select: true)
+        }
+
+#if DEBUG
+        logWorkspaceCreationRouting(
+            phase: "fallback_existing_window",
+            source: debugSource,
+            reason: fallbackReason,
+            event: event,
+            chosenContext: context,
+            workspaceId: workspace.id,
+            workingDirectory: workingDirectory
+        )
+#endif
         return workspace.id
     }
 
@@ -6400,31 +6486,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            // Cmd+N semantics:
-            // - If there are no main windows, create a new window.
-            // - Otherwise, create a new workspace in the active window.
-            if mainWindowContexts.isEmpty {
-                #if DEBUG
-                logWorkspaceCreationRouting(
-                    phase: "fallback_new_window",
-                    source: "shortcut.cmdN",
-                    reason: "no_main_windows",
+            if addWorkspaceInPreferredMainWindow(event: event, debugSource: "shortcut.cmdN") == nil {
+                let reason = mainWindowContexts.isEmpty ? "no_main_windows" : "workspace_creation_returned_nil"
+                _ = addWorkspaceWithoutNewWindowFallback(
                     event: event,
-                    chosenContext: nil
+                    debugSource: "shortcut.cmdN",
+                    fallbackReason: reason
                 )
-                #endif
-                openNewMainWindow(nil)
-            } else if addWorkspaceInPreferredMainWindow(event: event, debugSource: "shortcut.cmdN") == nil {
-                #if DEBUG
-                logWorkspaceCreationRouting(
-                    phase: "fallback_new_window",
-                    source: "shortcut.cmdN",
-                    reason: "workspace_creation_returned_nil",
-                    event: event,
-                    chosenContext: nil
-                )
-                #endif
-                openNewMainWindow(nil)
             }
             return true
         }

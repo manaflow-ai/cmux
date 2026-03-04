@@ -5,11 +5,11 @@ import Bonsplit
 
 @main
 struct cmuxApp: App {
+    private static let primaryWindowId = UUID()
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
-    private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -188,8 +188,8 @@ struct cmuxApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
-            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: primaryWindowId)
+        Window("cmux", id: "primary-main-window") {
+            ContentView(updateViewModel: appDelegate.updateViewModel, windowId: Self.primaryWindowId)
                 .environmentObject(tabManager)
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
@@ -382,12 +382,10 @@ struct cmuxApp: App {
                 splitCommandButton(title: "New Workspace", shortcut: newWorkspaceMenuShortcut) {
                     if let appDelegate = AppDelegate.shared {
                         if appDelegate.addWorkspaceInPreferredMainWindow(debugSource: "menu.newWorkspace") == nil {
-#if DEBUG
-                            FocusLogStore.shared.append(
-                                "cmdn.route phase=fallback_new_window src=menu.newWorkspace reason=workspace_creation_returned_nil"
+                            _ = appDelegate.addWorkspaceWithoutNewWindowFallback(
+                                debugSource: "menu.newWorkspace",
+                                fallbackReason: "workspace_creation_returned_nil"
                             )
-#endif
-                            appDelegate.openNewMainWindow(nil)
                         }
                     } else {
                         activeTabManager.addTab()
@@ -407,7 +405,11 @@ struct cmuxApp: App {
                                 workingDirectory: url.path,
                                 debugSource: "menu.openFolder"
                             ) == nil {
-                                appDelegate.openNewMainWindow(nil)
+                                _ = appDelegate.addWorkspaceWithoutNewWindowFallback(
+                                    workingDirectory: url.path,
+                                    debugSource: "menu.openFolder",
+                                    fallbackReason: "workspace_creation_returned_nil"
+                                )
                             }
                         } else {
                             activeTabManager.addWorkspace(workingDirectory: url.path)
