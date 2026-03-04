@@ -10,6 +10,7 @@ struct SignInView: View {
     @State private var showCodeEntry = false
     @State private var error: String?
     @State private var isAppleSigningIn = false
+    @State private var isGoogleSigningIn = false
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     @FocusState private var emailFocused: Bool
@@ -54,6 +55,8 @@ struct SignInView: View {
 
                 appleSignInView
 
+                googleSignInView
+
                 DividerLabel(text: "or continue with email")
 
                 VStack(spacing: 12) {
@@ -82,7 +85,7 @@ struct SignInView: View {
                             .frame(maxWidth: .infinity)
                         .contentShape(.capsule)
                     }
-                    .disabled(email.isEmpty || authManager.isLoading || isAppleSigningIn)
+                    .disabled(email.isEmpty || isAuthInProgress)
                     .buttonStyle(.glassProminent)
                     .buttonBorderShape(.capsule)
                     .controlSize(.extraLarge)
@@ -159,7 +162,7 @@ struct SignInView: View {
                         .frame(maxWidth: .infinity)
                     .contentShape(.capsule)
                 }
-                .disabled(code.count != 6 || authManager.isLoading || isAppleSigningIn)
+                .disabled(code.count != 6 || isAuthInProgress)
                 .buttonStyle(.glassProminent)
                 .buttonBorderShape(.capsule)
                 .controlSize(.extraLarge)
@@ -220,7 +223,7 @@ struct SignInView: View {
                 .frame(maxWidth: .infinity)
             .contentShape(.capsule)
         }
-        .disabled(authManager.isLoading || isAppleSigningIn)
+        .disabled(isAuthInProgress)
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
         .controlSize(.extraLarge)
@@ -240,6 +243,45 @@ struct SignInView: View {
             }
             error = detailedErrorMessage(err)
             print("🔐 Apple Sign In failed: \(err)")
+            SentrySDK.capture(error: err)
+        }
+    }
+
+    private var googleSignInView: some View {
+        Button {
+            Task { await signInWithGoogle() }
+        } label: {
+            HStack(spacing: 6) {
+                Image("GoogleLogo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 16, height: 16)
+                Text("Sign in with Google")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(.capsule)
+        }
+        .disabled(isAuthInProgress)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.extraLarge)
+        .accessibilityIdentifier("signin.google")
+    }
+
+    private func signInWithGoogle() async {
+        error = nil
+        isGoogleSigningIn = true
+        defer { isGoogleSigningIn = false }
+
+        do {
+            try await authManager.signInWithGoogle()
+        } catch let err {
+            if let stackError = err as? StackAuthErrorProtocol, stackError.code == "oauth_cancelled" {
+                return
+            }
+            error = detailedErrorMessage(err)
+            print("🔐 Google Sign In failed: \(err)")
             SentrySDK.capture(error: err)
         }
     }
@@ -321,7 +363,7 @@ struct SignInView: View {
     }
 
     private var isAuthInProgress: Bool {
-        authManager.isLoading || isAppleSigningIn
+        authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
     }
 }
 

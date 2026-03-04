@@ -96,6 +96,7 @@ private final class InputBarUITestHarnessViewController: UIViewController {
 #endif
 
 struct SettingsView: View {
+    @SwiftUI.Environment(\.dismiss) private var dismiss
     @StateObject private var authManager = AuthManager.shared
     @StateObject private var notifications = NotificationManager.shared
     @State private var testNotificationAlert: TestNotificationAlert?
@@ -204,7 +205,9 @@ struct SettingsView: View {
 
                 Section {
                     Button(role: .destructive) {
+                        dismiss()
                         Task {
+                            try? await Task.sleep(for: .milliseconds(300))
                             await authManager.signOut()
                         }
                     } label: {

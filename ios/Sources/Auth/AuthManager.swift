@@ -235,6 +235,19 @@ class AuthManager: ObservableObject {
         try await completeSignIn()
     }
 
+    // MARK: - Google Sign In
+
+    func signInWithGoogle() async throws {
+        isLoading = true
+        defer { isLoading = false }
+
+        try await stack.signInWithOAuth(
+            provider: "google",
+            presentationContextProvider: AuthPresentationContextProvider.shared
+        )
+        try await completeSignIn()
+    }
+
     private func completeSignIn() async throws {
         guard let user = try await stack.getUser(or: .throw) else {
             throw AuthError.unauthorized

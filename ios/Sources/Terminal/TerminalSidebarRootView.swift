@@ -21,8 +21,15 @@ struct TerminalSidebarRootView: View {
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(destination: ConversationListView()) {
-                        Label("Legacy Tasks", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    Menu {
+                        NavigationLink(destination: SettingsView()) {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                        NavigationLink(destination: ConversationListView()) {
+                            Label("History", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                        }
+                    } label: {
+                        Label("More", systemImage: "ellipsis.circle")
                     }
                 }
             }
