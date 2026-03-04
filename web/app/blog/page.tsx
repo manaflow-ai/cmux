@@ -8,6 +8,13 @@ export const metadata: Metadata = {
 
 const posts = [
   {
+    slug: "ai-coding-tools-compared",
+    title: "AI Coding Tools Compared: cmux, Cursor, Emdash, Conductor, Superset",
+    date: "2026-03-03",
+    summary:
+      "An honest comparison of tools for running AI coding agents. What each does well and where they differ.",
+  },
+  {
     slug: "zen-of-cmux",
     title: "The Zen of cmux",
     date: "2026-02-27",
