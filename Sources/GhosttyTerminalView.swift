@@ -304,10 +304,12 @@ enum TerminalKeyboardCopyModeAction: Equatable {
 struct TerminalKeyboardCopyModeInputState: Equatable {
     var countPrefix: Int?
     var pendingYankLine = false
+    var pendingG = false
 
     mutating func reset() {
         countPrefix = nil
         pendingYankLine = false
+        pendingG = false
     }
 }
 
@@ -439,7 +441,8 @@ func terminalKeyboardCopyModeAction(
         if normalized == [.shift] {
             return hasSelection ? .adjustSelection(.end) : .scrollToBottom
         }
-        return hasSelection ? .adjustSelection(.home) : .scrollToTop
+        // Bare "g" is a prefix key (e.g. gg); handled in resolve.
+        return nil
     case "0", "^":
         return hasSelection ? .adjustSelection(.beginningOfLine) : nil
     case "$", "4":
@@ -486,6 +489,17 @@ func terminalKeyboardCopyModeResolve(
         state.pendingYankLine = false
     }
 
+    if state.pendingG {
+        if chars == "g", normalized.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(state.countPrefix ?? 1)
+            let action: TerminalKeyboardCopyModeAction = hasSelection ? .adjustSelection(.home) : .scrollToTop
+            state.reset()
+            return .perform(action, count: count)
+        }
+        // Not `gg`, cancel and treat as fresh command.
+        state.pendingG = false
+    }
+
     if normalized.isEmpty,
        let scalar = chars.unicodeScalars.first,
        scalar.isASCII,
@@ -506,6 +520,11 @@ func terminalKeyboardCopyModeResolve(
 
     if !hasSelection, chars == "y", normalized.isEmpty {
         state.pendingYankLine = true
+        return .consume
+    }
+
+    if chars == "g", normalized.isEmpty {
+        state.pendingG = true
         return .consume
     }
 

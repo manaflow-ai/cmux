@@ -1401,14 +1401,14 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
     }
 
     func testGAndShiftGMapping() {
-        XCTAssertEqual(
+        // Bare "g" is a prefix key (gg), not an immediate action.
+        XCTAssertNil(
             terminalKeyboardCopyModeAction(
                 keyCode: 5,
                 charactersIgnoringModifiers: "g",
                 modifierFlags: [],
                 hasSelection: false
-            ),
-            .scrollToTop
+            )
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -1645,6 +1645,43 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testGGScrollsToTop() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testGGWithSelectionAdjustsToHome() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .perform(.adjustSelection(.home), count: 1))
+    }
+
+    func testCountedGG() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(22, chars: "5", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .perform(.scrollToTop, count: 5))
+    }
+
+    func testPendingGCancelledByOtherKey() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        // "j" after "g" cancels pending g and processes "j" normally.
+        XCTAssertEqual(resolve(38, chars: "j", hasSelection: false, state: &state), .perform(.scrollLines(1), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testShiftGStillWorksImmediately() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(5, chars: "g", modifiers: [.shift], hasSelection: false, state: &state),
+            .perform(.scrollToBottom, count: 1)
+        )
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 }
