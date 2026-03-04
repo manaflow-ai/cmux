@@ -6587,6 +6587,130 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationBadgeSettings.isDockBadgeEnabled(defaults: defaults))
     }
 
+    func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.usesSystemSound(defaults: defaults))
+        XCTAssertNil(NotificationSoundSettings.sound(defaults: defaults))
+    }
+
+    func testNotificationCustomFileURLExpandsTildePath() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let rawPath = "~/Library/Sounds/my-custom.wav"
+        defaults.set(rawPath, forKey: NotificationSoundSettings.customFilePathKey)
+        let expectedPath = (rawPath as NSString).expandingTildeInPath
+        XCTAssertEqual(NotificationSoundSettings.customFileURL(defaults: defaults)?.path, expectedPath)
+    }
+
+    func testNotificationCustomFileSelectionMustBeExplicit() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set("~/Library/Sounds/my-custom.wav", forKey: NotificationSoundSettings.customFilePathKey)
+
+        defaults.set("none", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set("Ping", forKey: NotificationSoundSettings.key)
+        XCTAssertFalse(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        XCTAssertTrue(NotificationSoundSettings.isCustomFileSelected(defaults: defaults))
+    }
+
+    func testNotificationCustomStagingPreservesSourceFileWithCmuxPrefix() {
+        let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let fileManager = FileManager.default
+        let soundsDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: soundsDirectory, withIntermediateDirectories: true)
+        } catch {
+            XCTFail("Failed to create sounds directory: \(error)")
+            return
+        }
+
+        let sourceURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.source-\(UUID().uuidString).custtest",
+            isDirectory: false
+        )
+        let stagedURL = soundsDirectory.appendingPathComponent(
+            "cmux-custom-notification-sound.custtest",
+            isDirectory: false
+        )
+        defer {
+            try? fileManager.removeItem(at: sourceURL)
+            try? fileManager.removeItem(at: stagedURL)
+        }
+
+        do {
+            try Data("test".utf8).write(to: sourceURL, options: .atomic)
+        } catch {
+            XCTFail("Failed to write source custom sound file: \(error)")
+            return
+        }
+
+        defaults.set(NotificationSoundSettings.customFileValue, forKey: NotificationSoundSettings.key)
+        defaults.set(sourceURL.path, forKey: NotificationSoundSettings.customFilePathKey)
+
+        _ = NotificationSoundSettings.sound(defaults: defaults)
+
+        XCTAssertTrue(fileManager.fileExists(atPath: sourceURL.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: stagedURL.path))
+    }
+
     func testNotificationSettingsPromptUsesSheetAndNeverRunsModal() {
         let store = TerminalNotificationStore.shared
         let alertSpy = NotificationSettingsAlertSpy()

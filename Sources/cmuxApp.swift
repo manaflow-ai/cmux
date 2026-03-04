@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import UniformTypeIdentifiers
 
 @main
 struct cmuxApp: App {
@@ -2786,6 +2787,8 @@ struct SettingsView: View {
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
+    @AppStorage(NotificationSoundSettings.customFilePathKey)
+    private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
@@ -2894,10 +2897,54 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
+    private var hasCustomNotificationSoundFilePath: Bool {
+        !notificationSoundCustomFilePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var notificationSoundCustomFileDisplayName: String {
+        guard hasCustomNotificationSoundFilePath else {
+            return "No file selected"
+        }
+        return URL(fileURLWithPath: notificationSoundCustomFilePath).lastPathComponent
+    }
+
+    private var canPreviewNotificationSound: Bool {
+        switch notificationSound {
+        case "none":
+            return false
+        case NotificationSoundSettings.customFileValue:
+            return hasCustomNotificationSoundFilePath
+        default:
+            return true
+        }
+    }
+
     private func blurOpacity(forContentOffset offset: CGFloat) -> Double {
         guard let baseline = topBlurBaselineOffset else { return 0 }
         let reveal = (baseline - offset) / 24
         return Double(min(max(reveal, 0), 1))
+    }
+
+    private func previewNotificationSound() {
+        if notificationSound == NotificationSoundSettings.customFileValue {
+            NotificationSoundSettings.playCustomFileSound(path: notificationSoundCustomFilePath)
+            return
+        }
+        NotificationSoundSettings.previewSound(value: notificationSound)
+    }
+
+    private func chooseNotificationSoundFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.audio]
+        panel.title = "Choose Notification Sound"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        notificationSoundCustomFilePath = url.path
+        notificationSound = NotificationSoundSettings.customFileValue
+        previewNotificationSound()
     }
 
     private func saveSocketPassword() {
@@ -3017,25 +3064,49 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsPickerRow(
+                        SettingsCardRow(
                             "Notification Sound",
-                            subtitle: "Sound played when a notification arrives.",
-                            controlWidth: pickerColumnWidth,
-                            selection: $notificationSound
+                            subtitle: "Sound played when a notification arrives."
                         ) {
-                            ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
-                                Text(sound.label).tag(sound.value)
+                            VStack(alignment: .trailing, spacing: 6) {
+                                HStack(spacing: 6) {
+                                    Picker("", selection: $notificationSound) {
+                                        ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
+                                            Text(sound.label).tag(sound.value)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    Button {
+                                        previewNotificationSound()
+                                    } label: {
+                                        Image(systemName: "play.fill")
+                                            .font(.system(size: 9))
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                    .disabled(!canPreviewNotificationSound)
+                                }
+
+                                if notificationSound == NotificationSoundSettings.customFileValue {
+                                    HStack(spacing: 6) {
+                                        Text(notificationSoundCustomFileDisplayName)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                            .frame(width: 170, alignment: .trailing)
+                                        Button("Choose...") {
+                                            chooseNotificationSoundFile()
+                                        }
+                                        .controlSize(.small)
+                                        Button("Clear") {
+                                            notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
+                                        }
+                                        .controlSize(.small)
+                                        .disabled(!hasCustomNotificationSoundFilePath)
+                                    }
+                                }
                             }
-                        } extraTrailing: {
-                            Button {
-                                NotificationSoundSettings.previewSound(value: notificationSound)
-                            } label: {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 9))
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(notificationSound == "none")
                         }
 
                         SettingsCardDivider()
@@ -3771,6 +3842,7 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationSound = NotificationSoundSettings.defaultValue
+        notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
         notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
         notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit

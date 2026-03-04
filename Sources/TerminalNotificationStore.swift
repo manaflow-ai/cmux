@@ -31,6 +31,10 @@ extension UNUserNotificationCenter {
 enum NotificationSoundSettings {
     static let key = "notificationSound"
     static let defaultValue = "default"
+    static let customFileValue = "custom_file"
+    static let customFilePathKey = "notificationSoundCustomFilePath"
+    static let defaultCustomFilePath = ""
+    private static let stagedCustomSoundBaseName = "cmux-custom-notification-sound"
     static let customCommandKey = "notificationCustomCommand"
     static let defaultCustomCommand = ""
 
@@ -50,6 +54,7 @@ enum NotificationSoundSettings {
         ("Sosumi", "Sosumi"),
         ("Submarine", "Submarine"),
         ("Tink", "Tink"),
+        ("Custom File...", customFileValue),
         ("None", "none"),
     ]
 
@@ -60,8 +65,25 @@ enum NotificationSoundSettings {
             return .default
         case "none":
             return nil
+        case customFileValue:
+            guard let customSoundName = stagedCustomSoundName(defaults: defaults) else {
+                return nil
+            }
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: customSoundName))
         default:
             return UNNotificationSound(named: UNNotificationSoundName(rawValue: value))
+        }
+    }
+
+    static func usesSystemSound(defaults: UserDefaults = .standard) -> Bool {
+        let value = defaults.string(forKey: key) ?? defaultValue
+        switch value {
+        case "none":
+            return false
+        case customFileValue:
+            return customFileURL(defaults: defaults) != nil
+        default:
+            return true
         }
     }
 
@@ -69,15 +91,129 @@ enum NotificationSoundSettings {
         return (defaults.string(forKey: key) ?? defaultValue) == "none"
     }
 
-    static func previewSound(value: String) {
+    static func isCustomFileSelected(defaults: UserDefaults = .standard) -> Bool {
+        (defaults.string(forKey: key) ?? defaultValue) == customFileValue
+    }
+
+    static func stagedCustomSoundName(defaults: UserDefaults = .standard) -> String? {
+        guard let sourceURL = customFileURL(defaults: defaults) else { return nil }
+        let sourceExtension = sourceURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sourceExtension.isEmpty else {
+            NSLog("Notification custom sound requires a file extension: \(sourceURL.path)")
+            return nil
+        }
+
+        let destinationDirectory = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Sounds", isDirectory: true)
+        let destinationFileName = "\(stagedCustomSoundBaseName).\(sourceExtension.lowercased())"
+        let destinationURL = destinationDirectory.appendingPathComponent(destinationFileName, isDirectory: false)
+        let fileManager = FileManager.default
+
+        do {
+            try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+            try copyStagedSoundIfNeeded(from: sourceURL, to: destinationURL, fileManager: fileManager)
+            try cleanupStaleStagedSoundFiles(
+                in: destinationDirectory,
+                keeping: destinationFileName,
+                preservingSourceURL: sourceURL,
+                fileManager: fileManager
+            )
+            return destinationFileName
+        } catch {
+            NSLog("Failed to stage custom notification sound: \(error)")
+            return nil
+        }
+    }
+
+    static func customFileURL(defaults: UserDefaults = .standard) -> URL? {
+        guard let path = normalizedCustomFilePath(defaults.string(forKey: customFilePathKey) ?? defaultCustomFilePath) else {
+            return nil
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+    }
+
+    static func playCustomFileSound(defaults: UserDefaults = .standard) {
+        guard let url = customFileURL(defaults: defaults) else { return }
+        playSoundFile(at: url)
+    }
+
+    static func playCustomFileSound(path: String) {
+        guard let normalizedPath = normalizedCustomFilePath(path) else { return }
+        let url = URL(fileURLWithPath: (normalizedPath as NSString).expandingTildeInPath)
+        playSoundFile(at: url)
+    }
+
+    static func previewSound(value: String, defaults: UserDefaults = .standard) {
         switch value {
         case "default":
             NSSound.beep()
         case "none":
             break
+        case customFileValue:
+            playCustomFileSound(defaults: defaults)
         default:
             NSSound(named: NSSound.Name(value))?.play()
         }
+    }
+
+    private static func normalizedCustomFilePath(_ rawPath: String) -> String? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private static func playSoundFile(at url: URL) {
+        DispatchQueue.main.async {
+            guard let sound = NSSound(contentsOf: url, byReference: false) else {
+                NSLog("Notification custom sound failed to load from path: \(url.path)")
+                return
+            }
+            sound.play()
+        }
+    }
+
+    private static func cleanupStaleStagedSoundFiles(
+        in directoryURL: URL,
+        keeping fileName: String,
+        preservingSourceURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let prefix = "\(stagedCustomSoundBaseName)."
+        let normalizedSource = preservingSourceURL.standardizedFileURL
+        for fileNameCandidate in try fileManager.contentsOfDirectory(atPath: directoryURL.path) {
+            guard fileNameCandidate.hasPrefix(prefix), fileNameCandidate != fileName else { continue }
+            let staleURL = directoryURL.appendingPathComponent(fileNameCandidate, isDirectory: false)
+            if staleURL.standardizedFileURL == normalizedSource {
+                continue
+            }
+            try? fileManager.removeItem(at: staleURL)
+        }
+    }
+
+    private static func copyStagedSoundIfNeeded(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        fileManager: FileManager
+    ) throws {
+        let normalizedSource = sourceURL.standardizedFileURL
+        let normalizedDestination = destinationURL.standardizedFileURL
+        guard normalizedSource != normalizedDestination else { return }
+
+        if fileManager.fileExists(atPath: normalizedDestination.path) {
+            let sourceAttributes = try fileManager.attributesOfItem(atPath: normalizedSource.path)
+            let destinationAttributes = try fileManager.attributesOfItem(atPath: normalizedDestination.path)
+            let sourceSize = sourceAttributes[.size] as? NSNumber
+            let destinationSize = destinationAttributes[.size] as? NSNumber
+            let sourceDate = sourceAttributes[.modificationDate] as? Date
+            let destinationDate = destinationAttributes[.modificationDate] as? Date
+            if sourceSize == destinationSize && sourceDate == destinationDate {
+                return
+            }
+            try fileManager.removeItem(at: normalizedDestination)
+        }
+
+        try fileManager.copyItem(at: normalizedSource, to: normalizedDestination)
     }
 
     private static let customCommandQueue = DispatchQueue(

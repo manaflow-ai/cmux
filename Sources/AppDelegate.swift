@@ -7619,7 +7619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         var options: UNNotificationPresentationOptions = [.banner, .list]
-        if !NotificationSoundSettings.isSilent() {
+        if notification.request.content.sound != nil {
             options.insert(.sound)
         }
         completionHandler(options)
