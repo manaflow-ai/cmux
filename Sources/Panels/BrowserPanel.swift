@@ -3116,11 +3116,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             message = error.localizedDescription
         }
 
-        let escapedURL = failedURL
-            .replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-            .replacingOccurrences(of: "\"", with: "&quot;")
+        let escapeHTML: (String) -> String = { value in
+            value
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+                .replacingOccurrences(of: "\"", with: "&quot;")
+        }
+
+        let escapedTitle = escapeHTML(title)
+        let escapedMessage = escapeHTML(message)
+        let escapedURL = escapeHTML(failedURL)
+        let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
 
         let html = """
         <!DOCTYPE html>
@@ -3156,10 +3163,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         </head>
         <body>
         <div class="container">
-            <h1>\(title)</h1>
-            <p>\(message)</p>
+            <h1>\(escapedTitle)</h1>
+            <p>\(escapedMessage)</p>
             <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">Reload</button>
+            <button onclick="location.reload()">\(escapedReloadLabel)</button>
         </div>
         </body>
         </html>

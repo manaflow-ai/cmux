@@ -26,7 +26,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         case .password:
             return String(localized: "socketControl.password.name", defaultValue: "Password mode")
         case .allowAll:
-            return String(localized: "socketControl.fullOpen.name", defaultValue: "Full open access")
+            return String(localized: "socketControl.allowAll.name", defaultValue: "Full open access")
         }
     }
 
