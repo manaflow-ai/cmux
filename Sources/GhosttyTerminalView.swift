@@ -3315,10 +3315,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: ghostty_surface_t) {
-        guard !ghostty_surface_has_selection(surface) else { return }
+        // In visual mode the user owns the selection range; don't disturb it.
+        // Outside visual mode we keep a 1-cell cursor selection for visibility,
+        // so we still need to refresh the viewport row after scrolling.
+        guard !keyboardCopyModeVisualActive else { return }
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
         keyboardCopyModeViewportRow = anchor.row
-        _ = ghostty_surface_clear_selection(surface)
+        // Preserve the visible cursor indicator.
+        _ = ghostty_surface_select_cursor_cell(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -3419,9 +3423,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollHalfPage(delta):
             let fraction = delta > 0 ? 0.5 : -0.5
-            for _ in 0 ..< count {
-                _ = performBindingAction("scroll_page_fractional:\(fraction)")
-            }
+            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0

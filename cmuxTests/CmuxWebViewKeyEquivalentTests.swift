@@ -1662,6 +1662,7 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .consume)
         XCTAssertEqual(resolve(5, chars: "g", hasSelection: true, state: &state), .perform(.adjustSelection(.home), count: 1))
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 
     func testCountedGG() {
