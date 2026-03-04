@@ -430,7 +430,20 @@ impl GhosttyGlSurface {
 
         #[cfg(feature = "link-ghostty")]
         {
-            let cstr = std::ffi::CString::new(text).unwrap();
+            let Ok(cstr) = std::ffi::CString::new(text) else {
+                // Text contains NUL bytes — split on NUL and send each segment
+                for segment in text.split('\0') {
+                    if segment.is_empty() {
+                        continue;
+                    }
+                    if let Ok(c) = std::ffi::CString::new(segment) {
+                        unsafe {
+                            ghostty_surface_text(surface, c.as_ptr(), segment.len());
+                        }
+                    }
+                }
+                return;
+            };
             unsafe {
                 ghostty_surface_text(surface, cstr.as_ptr(), text.len());
             }

@@ -76,13 +76,15 @@ enum WorkspaceCommands {
     },
     /// Select the next workspace
     Next {
-        #[arg(long, default_value = "true")]
-        wrap: bool,
+        /// Don't wrap around at the end
+        #[arg(long)]
+        no_wrap: bool,
     },
     /// Select the previous workspace
     Previous {
-        #[arg(long, default_value = "true")]
-        wrap: bool,
+        /// Don't wrap around at the end
+        #[arg(long)]
+        no_wrap: bool,
     },
     /// Select the last workspace
     Last,
@@ -150,13 +152,13 @@ fn main() -> anyhow::Result<()> {
                 "workspace.select",
                 serde_json::json!({"index": index}),
             ),
-            WorkspaceCommands::Next { wrap } => (
+            WorkspaceCommands::Next { no_wrap } => (
                 "workspace.next",
-                serde_json::json!({"wrap": wrap}),
+                serde_json::json!({"wrap": !no_wrap}),
             ),
-            WorkspaceCommands::Previous { wrap } => (
+            WorkspaceCommands::Previous { no_wrap } => (
                 "workspace.previous",
-                serde_json::json!({"wrap": wrap}),
+                serde_json::json!({"wrap": !no_wrap}),
             ),
             WorkspaceCommands::Last => ("workspace.last", serde_json::json!({})),
             WorkspaceCommands::Close { index } => (
@@ -227,9 +229,15 @@ fn main() -> anyhow::Result<()> {
 
 /// Send a v2 request to the cmux socket and return the response.
 fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Result<Value> {
-    let mut stream = UnixStream::connect(socket_path)
+    let stream = UnixStream::connect(socket_path)
         .map_err(|e| anyhow::anyhow!("Cannot connect to cmux at {}: {}", socket_path, e))?;
 
+    // Set read/write timeouts to prevent hanging indefinitely
+    let timeout = std::time::Duration::from_secs(10);
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+
+    let mut writer = std::io::BufWriter::new(&stream);
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     let request = serde_json::json!({
         "id": id,
@@ -238,11 +246,11 @@ fn send_request(socket_path: &str, method: &str, params: Value) -> anyhow::Resul
     });
 
     let request_json = serde_json::to_string(&request)?;
-    stream.write_all(request_json.as_bytes())?;
-    stream.write_all(b"\n")?;
-    stream.flush()?;
+    writer.write_all(request_json.as_bytes())?;
+    writer.write_all(b"\n")?;
+    writer.flush()?;
 
-    let mut reader = BufReader::new(stream);
+    let mut reader = BufReader::new(&stream);
     let mut line = String::new();
     reader.read_line(&mut line)?;
 
@@ -274,7 +282,7 @@ fn format_response(method: &str, response: &Value) {
                 for ws in workspaces {
                     let index = ws.get("index").and_then(|v| v.as_u64()).unwrap_or(0);
                     let title = ws.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    let selected = ws.get("is_selected").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let selected = ws.get("selected").and_then(|v| v.as_bool()).unwrap_or(false);
                     let panels = ws.get("panel_count").and_then(|v| v.as_u64()).unwrap_or(0);
                     let marker = if selected { "*" } else { " " };
                     println!("{}{} {} ({} panels)", marker, index, title, panels);

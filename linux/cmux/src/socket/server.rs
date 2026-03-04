@@ -81,22 +81,58 @@ async fn handle_client(
 ) -> anyhow::Result<()> {
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
-    let mut line = String::new();
+    let mut line_buf: Vec<u8> = Vec::with_capacity(4096);
 
     loop {
-        line.clear();
-        let bytes_read = reader.read_line(&mut line).await?;
-        if bytes_read == 0 {
+        line_buf.clear();
+
+        // Bounded line read: consume from BufReader in chunks, enforcing MAX_REQUEST_LEN
+        // before the full line is assembled in memory.
+        let eof = loop {
+            let available = reader.fill_buf().await?;
+            if available.is_empty() {
+                break true;
+            }
+            match available.iter().position(|&b| b == b'\n') {
+                Some(pos) => {
+                    line_buf.extend_from_slice(&available[..pos]);
+                    reader.consume(pos + 1);
+                    break false;
+                }
+                None => {
+                    let len = available.len();
+                    line_buf.extend_from_slice(available);
+                    reader.consume(len);
+                    if line_buf.len() > MAX_REQUEST_LEN {
+                        tracing::warn!(
+                            "Client sent oversized request ({} bytes), disconnecting",
+                            line_buf.len()
+                        );
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        if eof && line_buf.is_empty() {
             break; // Client disconnected
         }
 
-        if line.len() > MAX_REQUEST_LEN {
-            tracing::warn!("Client sent oversized request ({} bytes), disconnecting", line.len());
+        if line_buf.len() > MAX_REQUEST_LEN {
+            tracing::warn!(
+                "Client sent oversized request ({} bytes), disconnecting",
+                line_buf.len()
+            );
             break;
         }
 
-        let trimmed = line.trim();
+        let trimmed = std::str::from_utf8(&line_buf)
+            .map(|s| s.trim())
+            .unwrap_or("");
         if trimmed.is_empty() {
+            if eof {
+                break;
+            }
             continue;
         }
 
@@ -107,6 +143,10 @@ async fn handle_client(
         writer.write_all(response_json.as_bytes()).await?;
         writer.write_all(b"\n").await?;
         writer.flush().await?;
+
+        if eof {
+            break;
+        }
     }
 
     Ok(())

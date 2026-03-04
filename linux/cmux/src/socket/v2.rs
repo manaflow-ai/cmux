@@ -91,7 +91,7 @@ pub fn dispatch(json_line: &str, state: &Arc<SharedState>) -> Response {
 
         // Workspace commands
         "workspace.list" => handle_workspace_list(id, state),
-        "workspace.new" => handle_workspace_new(id, &req.params, state),
+        "workspace.new" | "workspace.create" => handle_workspace_new(id, &req.params, state),
         "workspace.select" => handle_workspace_select(id, &req.params, state),
         "workspace.next" => handle_workspace_next(id, &req.params, state),
         "workspace.previous" => handle_workspace_previous(id, &req.params, state),
@@ -128,7 +128,8 @@ fn handle_capabilities(id: Value) -> Response {
         "system.ping",
         "system.capabilities",
         "workspace.list",
-        "workspace.new",
+        "workspace.new",      // alias: workspace.create
+        "workspace.create",
         "workspace.select",
         "workspace.next",
         "workspace.previous",
@@ -161,7 +162,7 @@ fn handle_workspace_list(id: Value, state: &Arc<SharedState>) -> Response {
                 "title": ws.display_title(),
                 "directory": ws.current_directory,
                 "panel_count": ws.panels.len(),
-                "is_selected": tm.selected_index() == Some(i),
+                "selected": tm.selected_index() == Some(i),
             })
         })
         .collect();
@@ -186,13 +187,13 @@ fn handle_workspace_new(id: Value, params: &Value, state: &Arc<SharedState>) -> 
     let ws_id = ws.id;
     state.lock_tab_manager().add_workspace(ws);
 
-    Response::success(id, serde_json::json!({"workspace": ws_id.to_string()}))
+    Response::success(id, serde_json::json!({"workspace_id": ws_id.to_string()}))
 }
 
 fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
@@ -203,7 +204,7 @@ fn handle_workspace_select(id: Value, params: &Value, state: &Arc<SharedState>) 
     } else if let Some(wid) = ws_id {
         tm.select_by_id(wid)
     } else {
-        return Response::error(id, "invalid_params", "Provide 'index' or 'workspace'");
+        return Response::error(id, "invalid_params", "Provide 'index' or 'workspace_id'");
     };
 
     if selected {
@@ -233,7 +234,7 @@ fn handle_workspace_last(id: Value, state: &Arc<SharedState>) -> Response {
 fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let index = params.get("index").and_then(|v| v.as_u64()).map(|v| v as usize);
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
 
@@ -258,7 +259,7 @@ fn handle_workspace_close(id: Value, params: &Value, state: &Arc<SharedState>) -
 
 fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let key = params.get("key").and_then(|v| v.as_str());
@@ -287,7 +288,7 @@ fn handle_workspace_set_status(id: Value, params: &Value, state: &Arc<SharedStat
 
 fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let branch = params.get("branch").and_then(|v| v.as_str());
@@ -317,7 +318,7 @@ fn handle_workspace_report_git(id: Value, params: &Value, state: &Arc<SharedStat
 
 fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let value = params.get("value").and_then(|v| v.as_f64());
@@ -347,7 +348,7 @@ fn handle_workspace_set_progress(id: Value, params: &Value, state: &Arc<SharedSt
 
 fn handle_workspace_append_log(id: Value, params: &Value, state: &Arc<SharedState>) -> Response {
     let ws_id = params
-        .get("workspace")
+        .get("workspace_id")
         .and_then(|v| v.as_str())
         .and_then(|s| uuid::Uuid::parse_str(s).ok());
     let message = params.get("message").and_then(|v| v.as_str());

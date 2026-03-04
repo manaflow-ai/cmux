@@ -8,6 +8,7 @@ use crate::model::workspace::{LogEntry, Progress, StatusEntry};
 
 /// Root session snapshot.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSessionSnapshot {
     pub version: u32,
     pub created_at: f64,
@@ -16,6 +17,7 @@ pub struct AppSessionSnapshot {
 
 /// Window snapshot (Linux has one window typically, but supports multiple).
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionWindowSnapshot {
     pub frame: Option<SessionRectSnapshot>,
     pub tab_manager: SessionTabManagerSnapshot,
@@ -24,6 +26,7 @@ pub struct SessionWindowSnapshot {
 
 /// Tab manager snapshot.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionTabManagerSnapshot {
     pub selected_workspace_index: Option<usize>,
     pub workspaces: Vec<SessionWorkspaceSnapshot>,
@@ -31,6 +34,7 @@ pub struct SessionTabManagerSnapshot {
 
 /// Workspace snapshot.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionWorkspaceSnapshot {
     pub process_title: String,
     pub custom_title: Option<String>,
@@ -57,12 +61,14 @@ pub enum SessionWorkspaceLayoutSnapshot {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionPaneLayoutSnapshot {
     pub panel_ids: Vec<Uuid>,
     pub selected_panel_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSplitLayoutSnapshot {
     pub orientation: SplitOrientation,
     pub divider_position: f64,
@@ -72,6 +78,7 @@ pub struct SessionSplitLayoutSnapshot {
 
 /// Panel snapshot.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionPanelSnapshot {
     pub id: Uuid,
     #[serde(rename = "type")]
@@ -89,12 +96,14 @@ pub struct SessionPanelSnapshot {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionTerminalPanelSnapshot {
     pub working_directory: Option<String>,
     pub scrollback: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionBrowserPanelSnapshot {
     pub url_string: Option<String>,
     pub should_render_web_view: bool,
@@ -104,6 +113,7 @@ pub struct SessionBrowserPanelSnapshot {
 
 /// Window geometry.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionRectSnapshot {
     pub x: f64,
     pub y: f64,
@@ -113,6 +123,7 @@ pub struct SessionRectSnapshot {
 
 /// Sidebar state.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionSidebarSnapshot {
     pub is_visible: bool,
     pub selection: String,
