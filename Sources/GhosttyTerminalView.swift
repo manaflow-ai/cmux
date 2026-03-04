@@ -660,6 +660,7 @@ class GhosttyApp {
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
+        ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
     }
 
@@ -767,6 +768,7 @@ class GhosttyApp {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+            scheduleSurfaceRefreshAfterConfigurationReload(source: source)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
@@ -791,7 +793,14 @@ class GhosttyApp {
         config = newConfig
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+        scheduleSurfaceRefreshAfterConfigurationReload(source: source)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
+        DispatchQueue.main.async {
+            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
+        }
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
