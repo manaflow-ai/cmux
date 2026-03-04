@@ -216,6 +216,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
            browserShouldOpenURLExternally(url) {
             NSWorkspace.shared.open(url)
             decisionHandler(.cancel)
@@ -224,6 +225,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // Match main browser's insecure HTTP guard
         if let url = navigationAction.request.url,
+           navigationAction.targetFrame?.isMainFrame != false,
            browserShouldBlockInsecureHTTPURL(url) {
             decisionHandler(.cancel)
             return
