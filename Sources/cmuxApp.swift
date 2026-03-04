@@ -2957,7 +2957,8 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             "Notification Sound",
-                            subtitle: "Sound played when a notification arrives."
+                            subtitle: "Sound played when a notification arrives.",
+                            controlWidth: pickerColumnWidth
                         ) {
                             HStack(spacing: 6) {
                                 Picker("", selection: $notificationSound) {
@@ -2966,6 +2967,7 @@ struct SettingsView: View {
                                     }
                                 }
                                 .labelsHidden()
+                                .pickerStyle(.menu)
                                 Button {
                                     NotificationSoundSettings.previewSound(value: notificationSound)
                                 } label: {
