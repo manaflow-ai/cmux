@@ -8,6 +8,7 @@ struct SurfaceSearchOverlay: View {
     @ObservedObject var searchState: TerminalSurface.SearchState
     let onMoveFocusToTerminal: () -> Void
     let onNavigateSearch: (_ action: String) -> Void
+    let onFieldDidFocus: () -> Void
     let onClose: () -> Void
     @State private var corner: Corner = .topRight
     @State private var dragOffset: CGSize = .zero
@@ -23,6 +24,7 @@ struct SurfaceSearchOverlay: View {
                     text: $searchState.needle,
                     isFocused: $isSearchFieldFocused,
                     surfaceId: surfaceId,
+                    onFieldDidFocus: onFieldDidFocus,
                     onEscape: {
                         #if DEBUG
                         dlog("find.nativeField.escape surface=\(surfaceId.uuidString.prefix(5)) needleEmpty=\(searchState.needle.isEmpty)")
@@ -211,6 +213,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let surfaceId: UUID
+    let onFieldDidFocus: () -> Void
     let onEscape: () -> Void
     let onReturn: (_ isShift: Bool) -> Void
 
@@ -241,6 +244,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
             #if DEBUG
             dlog("find.nativeField.beginEditing surface=\(parent.surfaceId.uuidString.prefix(5))")
             #endif
+            parent.onFieldDidFocus()
             if !parent.isFocused {
                 DispatchQueue.main.async {
                     self.parent.isFocused = true
@@ -321,9 +325,9 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.parentField = nsView
 
-        // Sync text from binding to field
+        // Sync text from binding to field (skip during active IME composition)
         if let editor = nsView.currentEditor() as? NSTextView {
-            if editor.string != text {
+            if editor.string != text, !editor.hasMarkedText() {
                 context.coordinator.isProgrammaticMutation = true
                 editor.string = text
                 nsView.stringValue = text

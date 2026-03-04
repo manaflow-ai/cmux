@@ -5119,13 +5119,17 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
+        guard let handler else {
+            surfaceView.onFocus = nil
+            return
+        }
         surfaceView.onFocus = { [weak self] in
             // When the terminal surface gains focus (click, tab, etc.), update the
             // search focus target so window reactivation restores terminal focus.
             if self?.surfaceView.terminalSurface?.searchState != nil {
                 self?.searchFocusTarget = .terminal
             }
-            handler?()
+            handler()
         }
     }
 
@@ -5206,6 +5210,10 @@ final class GhosttySurfaceScrollView: NSView {
             },
             onNavigateSearch: { [weak terminalSurface] action in
                 _ = terminalSurface?.performBindingAction(action)
+            },
+            onFieldDidFocus: { [weak self, weak terminalSurface] in
+                self?.searchFocusTarget = .searchField
+                terminalSurface?.setFocus(false)
             },
             onClose: { [weak self, weak terminalSurface] in
                 terminalSurface?.searchState = nil
@@ -5688,11 +5696,6 @@ final class GhosttySurfaceScrollView: NSView {
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
 
         guard isActive else { return }
-        if surfaceView.terminalSurface?.searchState != nil {
-            guard let window else { return }
-            restoreSearchFocus(window: window)
-            return
-        }
         guard let window else { return }
         guard surfaceView.isVisibleInUI else {
             retry()
@@ -5729,6 +5732,12 @@ final class GhosttySurfaceScrollView: NSView {
         guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
               tab.bonsplitController.focusedPaneId == paneId else {
             retry()
+            return
+        }
+
+        // Search focus restoration — only after confirming this is the active tab/pane.
+        if surfaceView.terminalSurface?.searchState != nil {
+            restoreSearchFocus(window: window)
             return
         }
 
