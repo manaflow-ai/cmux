@@ -1955,7 +1955,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 	        didSet {
 	            if let searchState {
 	                hostedView.cancelFocusRequest()
-                NSLog("Find: search state created tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+#if DEBUG
+                dlog("find.searchState created tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
+#endif
                 searchNeedleCancellable = searchState.$needle
                     .removeDuplicates()
                     .map { needle -> AnyPublisher<String, Never> in
@@ -1969,12 +1971,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
                     }
                     .switchToLatest()
                     .sink { [weak self] needle in
-                        NSLog("Find: needle updated tab=%@ surface=%@ needle=%@", self?.tabId.uuidString ?? "unknown", self?.id.uuidString ?? "unknown", needle)
+#if DEBUG
+                        dlog("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
+#endif
                         _ = self?.performBindingAction("search:\(needle)")
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
-                NSLog("Find: search state cleared tab=%@ surface=%@", tabId.uuidString, id.uuidString)
+#if DEBUG
+                dlog("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
+#endif
                 _ = performBindingAction("end_search")
             }
         }
@@ -5789,7 +5795,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         // Don't steal focus from a search overlay on another surface in this window.
-        if let fr = window.firstResponder as? NSView, isSearchOverlayOrDescendant(fr) {
+        if let fr = window.firstResponder, isSearchOverlayOrDescendant(fr) {
 #if DEBUG
             dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchOverlayFocused")
 #endif
@@ -5826,8 +5832,18 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
-    /// Check if a view is a search overlay hosting view or a descendant of one.
-    private func isSearchOverlayOrDescendant(_ view: NSView) -> Bool {
+    /// Check if a responder is inside a search overlay hosting view.
+    /// Handles the AppKit field-editor case: when an NSTextField is being edited,
+    /// window.firstResponder is the shared NSTextView field editor, not the text field.
+    private func isSearchOverlayOrDescendant(_ responder: NSResponder) -> Bool {
+        // If the responder is a field editor, follow its delegate back to the owning control.
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor,
+           let editedView = editor.delegate as? NSView {
+            return isSearchOverlayOrDescendant(editedView)
+        }
+
+        guard let view = responder as? NSView else { return false }
         var current: NSView? = view
         while let v = current {
             if v is NSHostingView<SurfaceSearchOverlay> { return true }

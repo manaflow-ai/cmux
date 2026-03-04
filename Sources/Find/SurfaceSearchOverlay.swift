@@ -337,6 +337,7 @@ private struct SearchTextFieldRepresentable: NSViewRepresentable {
                 context.coordinator.pendingFocusRequest = true
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
+                    guard let coordinator, coordinator.parent.isFocused else { return }
                     guard let nsView, let window = nsView.window else { return }
                     let fr = window.firstResponder
                     let alreadyFocused = fr === nsView ||

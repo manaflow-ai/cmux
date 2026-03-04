@@ -727,17 +727,18 @@ class TabManager: ObservableObject {
 
     func startSearch() {
         guard let panel = selectedTerminalPanel else {
-            NSLog("Find: startSearch SKIPPED no selectedTerminalPanel")
+#if DEBUG
+            dlog("find.startSearch SKIPPED no selectedTerminalPanel")
+#endif
             return
         }
         let wasNil = panel.searchState == nil
         if wasNil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: startSearch workspace=%@ panel=%@ created=%@ firstResponder=%@",
-              panel.workspaceId.uuidString, panel.id.uuidString,
-              wasNil ? "yes" : "no(reuse)",
-              String(describing: panel.surface.hostedView.window?.firstResponder))
+#if DEBUG
+        dlog("find.startSearch workspace=\(panel.workspaceId.uuidString.prefix(5)) panel=\(panel.id.uuidString.prefix(5)) created=\(wasNil ? "yes" : "no(reuse)") firstResponder=\(String(describing: panel.surface.hostedView.window?.firstResponder))")
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("start_search")
     }
@@ -747,7 +748,9 @@ class TabManager: ObservableObject {
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
-        NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
+#if DEBUG
+        dlog("find.searchSelection workspace=\(panel.workspaceId.uuidString.prefix(5)) panel=\(panel.id.uuidString.prefix(5))")
+#endif
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
         _ = panel.performBindingAction("search_selection")
     }
@@ -767,7 +770,9 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
-        NSLog("Find: hideFind panel=%@", selectedTerminalPanel?.id.uuidString ?? "nil")
+#if DEBUG
+        dlog("find.hideFind panel=\(selectedTerminalPanel?.id.uuidString.prefix(5) ?? "nil")")
+#endif
         selectedTerminalPanel?.searchState = nil
     }
 
