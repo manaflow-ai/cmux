@@ -5794,24 +5794,46 @@ final class GhosttySurfaceScrollView: NSView {
     /// Restore focus when window becomes key and the find bar is open.
     /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
     private func restoreSearchFocus(window: NSWindow) {
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         switch searchFocusTarget {
         case .searchField:
-            // Post the notification to trigger @FocusState in the overlay.
-            // Do NOT call window.makeFirstResponder(overlay) because that makes the
-            // NSHostingView itself the responder, which eats keystrokes as performKeyEquivalent
-            // instead of routing them to the SwiftUI TextField inside.
-            if let terminalSurface = surfaceView.terminalSurface {
-                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
-            }
+            // Find the actual NSTextField inside the hosting view and make it first responder.
+            // Making the NSHostingView itself first responder eats keys as performKeyEquivalent.
+            // Just posting .ghosttySearchFocus doesn't work because SwiftUI @FocusState can't
+            // propagate to AppKit when the first responder is the window itself.
+            if let overlay = searchOverlayHostingView,
+               let textField = findTextField(in: overlay) {
+                window.makeFirstResponder(textField)
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") target=searchField")
+                dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=appkit_textfield")
 #endif
+            } else if let terminalSurface = surfaceView.terminalSurface {
+                // Fallback: post notification and hope SwiftUI handles it.
+                NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
+#if DEBUG
+                dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification_fallback")
+#endif
+            }
         case .terminal:
             window.makeFirstResponder(surfaceView)
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") target=terminal")
+            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=terminal")
 #endif
         }
+    }
+
+    /// Find the first NSTextField descendant in a view hierarchy.
+    /// Used to locate the SwiftUI TextField's backing NSTextField inside the search overlay.
+    private func findTextField(in view: NSView) -> NSTextField? {
+        for subview in view.subviews {
+            if let textField = subview as? NSTextField, textField.isEditable {
+                return textField
+            }
+            if let found = findTextField(in: subview) {
+                return found
+            }
+        }
+        return nil
     }
 
     /// Check if a view is a search overlay hosting view or a descendant of one.
