@@ -453,6 +453,7 @@ private enum SocketPasswordResolver {
 
 final class SocketClient {
     private let path: String
+    private let telemetry: CLISocketSentryTelemetry?
     private var socketFD: Int32 = -1
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let responseTimeoutSeconds: TimeInterval = {
@@ -465,8 +466,9 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
-    init(path: String) {
+    fileprivate init(path: String, telemetry: CLISocketSentryTelemetry? = nil) {
         self.path = path
+        self.telemetry = telemetry
     }
 
     func connect() throws {
@@ -518,11 +520,35 @@ final class SocketClient {
     func send(command: String) throws -> String {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         let payload = command + "\n"
-        try payload.withCString { ptr in
-            let sent = Darwin.write(socketFD, ptr, strlen(ptr))
-            if sent < 0 {
-                throw CLIError(message: "Failed to write to socket")
+        let commandSummary = Self.commandSummary(command)
+        telemetry?.breadcrumb(
+            "socket.send.attempt",
+            data: ["command_summary": commandSummary]
+        )
+
+        let payloadBytes = Array(payload.utf8)
+        var written = 0
+        while written < payloadBytes.count {
+            let sent = payloadBytes.withUnsafeBytes { rawBuffer -> Int in
+                guard let base = rawBuffer.baseAddress else { return -1 }
+                return Darwin.write(socketFD, base.advanced(by: written), payloadBytes.count - written)
             }
+            if sent <= 0 {
+                let code = errno
+                let errorDescription = String(cString: strerror(code))
+                telemetry?.breadcrumb(
+                    "socket.send.write.failure",
+                    data: [
+                        "command_summary": commandSummary,
+                        "errno": Int(code),
+                        "errno_description": errorDescription,
+                        "bytes_written": written,
+                        "bytes_total": payloadBytes.count
+                    ]
+                )
+                throw CLIError(message: "Failed to write to socket (\(code): \(errorDescription))")
+            }
+            written += sent
         }
 
         var data = Data()
@@ -533,36 +559,109 @@ final class SocketClient {
             var pollFD = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
             let ready = poll(&pollFD, 1, 100)
             if ready < 0 {
-                throw CLIError(message: "Socket read error")
+                let code = errno
+                let errorDescription = String(cString: strerror(code))
+                telemetry?.breadcrumb(
+                    "socket.send.poll.failure",
+                    data: [
+                        "command_summary": commandSummary,
+                        "errno": Int(code),
+                        "errno_description": errorDescription
+                    ]
+                )
+                throw CLIError(message: "Socket read error (\(code): \(errorDescription))")
             }
             if ready == 0 {
                 if sawNewline {
                     break
                 }
                 if Date().timeIntervalSince(start) > Self.responseTimeoutSeconds {
-                    throw CLIError(message: "Command timed out")
+                    telemetry?.breadcrumb(
+                        "socket.send.timeout",
+                        data: [
+                            "command_summary": commandSummary,
+                            "timeout_seconds": Self.responseTimeoutSeconds,
+                            "received_bytes": data.count
+                        ]
+                    )
+                    throw CLIError(message: "Command timed out after \(Self.responseTimeoutSeconds)s")
                 }
                 continue
             }
 
             var buffer = [UInt8](repeating: 0, count: 8192)
             let count = Darwin.read(socketFD, &buffer, buffer.count)
-            if count <= 0 {
+            if count < 0 {
+                let code = errno
+                let errorDescription = String(cString: strerror(code))
+                telemetry?.breadcrumb(
+                    "socket.send.read.failure",
+                    data: [
+                        "command_summary": commandSummary,
+                        "errno": Int(code),
+                        "errno_description": errorDescription,
+                        "received_bytes": data.count
+                    ]
+                )
+                throw CLIError(message: "Socket read error (\(code): \(errorDescription))")
+            }
+            if count == 0 {
+                if !sawNewline {
+                    telemetry?.breadcrumb(
+                        "socket.send.read.eof",
+                        data: [
+                            "command_summary": commandSummary,
+                            "received_bytes": data.count
+                        ]
+                    )
+                    throw CLIError(message: "Socket closed before response completed")
+                }
                 break
             }
             data.append(buffer, count: count)
-            if data.contains(UInt8(0x0A)) {
+            if buffer[..<count].contains(UInt8(0x0A)) {
                 sawNewline = true
             }
         }
 
         guard var response = String(data: data, encoding: .utf8) else {
+            telemetry?.breadcrumb(
+                "socket.send.invalid_utf8",
+                data: [
+                    "command_summary": commandSummary,
+                    "received_bytes": data.count
+                ]
+            )
             throw CLIError(message: "Invalid UTF-8 response")
         }
         if response.hasSuffix("\n") {
             response.removeLast()
         }
         return response
+    }
+
+    private static func commandSummary(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "<empty>" }
+
+        if trimmed.lowercased().hasPrefix("auth ") {
+            return "auth <redacted>"
+        }
+
+        if trimmed.first == "{",
+           let jsonData = trimmed.data(using: .utf8),
+           let jsonObject = try? JSONSerialization.jsonObject(with: jsonData, options: []),
+           let payload = jsonObject as? [String: Any] {
+            let method = (payload["method"] as? String) ?? "unknown"
+            let id = (payload["id"] as? String) ?? "unknown"
+            return "jsonrpc method=\(method) id=\(id)"
+        }
+
+        if let commandVerb = trimmed.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first {
+            return String(commandVerb)
+        }
+
+        return trimmed
     }
 
     func sendV2(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
@@ -706,7 +805,7 @@ struct CMUXCLI {
             return
         }
 
-        let client = SocketClient(path: socketPath)
+        let client = SocketClient(path: socketPath, telemetry: cliTelemetry)
         cliTelemetry.breadcrumb(
             "socket.connect.attempt",
             data: ["command": command]
@@ -722,10 +821,18 @@ struct CMUXCLI {
         defer { client.close() }
 
         if let socketPassword = SocketPasswordResolver.resolve(explicit: socketPasswordArg) {
-            let authResponse = try client.send(command: "auth \(socketPassword)")
-            if authResponse.hasPrefix("ERROR:"),
-               !authResponse.contains("Unknown command 'auth'") {
-                throw CLIError(message: authResponse)
+            cliTelemetry.breadcrumb("socket.auth.attempt")
+            do {
+                let authResponse = try client.send(command: "auth \(socketPassword)")
+                if authResponse.hasPrefix("ERROR:"),
+                   !authResponse.contains("Unknown command 'auth'") {
+                    throw CLIError(message: authResponse)
+                }
+                cliTelemetry.breadcrumb("socket.auth.success")
+            } catch {
+                cliTelemetry.breadcrumb("socket.auth.failure")
+                cliTelemetry.captureError(stage: "socket_auth", error: error)
+                throw error
             }
         }
 
@@ -737,7 +844,8 @@ struct CMUXCLI {
             _ = try client.sendV2(method: "window.focus", params: ["window_id": normalizedWindow])
         }
 
-        switch command {
+        do {
+            switch command {
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
@@ -1514,6 +1622,16 @@ struct CMUXCLI {
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
+            }
+        } catch {
+            if command != "claude-hook" {
+                cliTelemetry.breadcrumb(
+                    "command.dispatch.failure",
+                    data: ["command": command]
+                )
+                cliTelemetry.captureError(stage: "command_dispatch", error: error)
+            }
+            throw error
         }
     }
 
