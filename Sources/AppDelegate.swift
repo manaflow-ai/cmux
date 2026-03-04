@@ -7376,12 +7376,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
-        // so fall back to keyCode matching for common printable keys.
+        // Primary matching: use the layout-aware character from charactersIgnoringModifiers.
+        // This respects Dvorak, Colemak, and other alternate keyboard layouts.
         if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == shortcutKey {
             return true
         }
-        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
+
+        // Control-key combos can produce control characters (e.g. Ctrl+H => backspace),
+        // so fall back to keyCode matching ONLY when Control is pressed.
+        if flags.contains(.control), let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
