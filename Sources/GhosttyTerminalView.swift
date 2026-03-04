@@ -5804,22 +5804,13 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         switch searchFocusTarget {
         case .searchField:
-            // Two-phase focus restore:
-            // 1. AppKit: make the backing NSTextField first responder so typing works immediately.
-            //    (notification alone fails when first responder is NSWindow)
-            // 2. SwiftUI: post .ghosttySearchFocus so @FocusState syncs and .onExitCommand/onKeyPress work.
-            //    (AppKit alone breaks SwiftUI event handlers like Escape and Return)
-            var usedAppKit = false
-            if let overlay = searchOverlayHostingView,
-               let textField = findTextField(in: overlay) {
-                window.makeFirstResponder(textField)
-                usedAppKit = true
-            }
+            // Post notification — SearchTextFieldRepresentable's Coordinator
+            // observes it and calls makeFirstResponder on the native NSTextField.
             if let terminalSurface = surfaceView.terminalSurface {
                 NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
             }
 #if DEBUG
-            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=\(usedAppKit ? "appkit+notification" : "notification_only")")
+            dlog("find.restoreSearchFocus surface=\(surfaceShort) target=searchField via=notification")
 #endif
         case .terminal:
             window.makeFirstResponder(surfaceView)
@@ -5827,20 +5818,6 @@ final class GhosttySurfaceScrollView: NSView {
             dlog("find.restoreSearchFocus surface=\(surfaceShort) target=terminal")
 #endif
         }
-    }
-
-    /// Find the first NSTextField descendant in a view hierarchy.
-    /// Used to locate the SwiftUI TextField's backing NSTextField inside the search overlay.
-    private func findTextField(in view: NSView) -> NSTextField? {
-        for subview in view.subviews {
-            if let textField = subview as? NSTextField, textField.isEditable {
-                return textField
-            }
-            if let found = findTextField(in: subview) {
-                return found
-            }
-        }
-        return nil
     }
 
     /// Check if a view is a search overlay hosting view or a descendant of one.
