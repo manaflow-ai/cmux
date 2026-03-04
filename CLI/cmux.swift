@@ -400,6 +400,204 @@ private final class ClaudeHookSessionStore {
     }
 }
 
+private struct CodexHookParsedInput {
+    let rawInput: String
+    let object: [String: Any]?
+    let sessionId: String?
+    let cwd: String?
+    let event: String?
+    let message: String?
+    let isApproval: Bool
+}
+
+private struct CodexHookSessionRecord: Codable {
+    var sessionId: String
+    var workspaceId: String
+    var surfaceId: String
+    var cwd: String?
+    var lastSubtitle: String?
+    var lastBody: String?
+    var startedAt: TimeInterval
+    var updatedAt: TimeInterval
+}
+
+private struct CodexHookSessionStoreFile: Codable {
+    var version: Int = 1
+    var sessions: [String: CodexHookSessionRecord] = [:]
+}
+
+private final class CodexHookSessionStore {
+    private static let defaultStatePath = "~/.cmuxterm/codex-hook-sessions.json"
+    private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
+
+    private let statePath: String
+    private let fileManager: FileManager
+    private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
+
+    init(
+        processEnv: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) {
+        if let overridePath = processEnv["CMUX_CODEX_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            self.statePath = NSString(string: overridePath).expandingTildeInPath
+        } else {
+            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
+        }
+        self.fileManager = fileManager
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    func lookup(sessionId: String) throws -> CodexHookSessionRecord? {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return nil }
+        return try withLockedState { state in
+            state.sessions[normalized]
+        }
+    }
+
+    func upsert(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        lastSubtitle: String? = nil,
+        lastBody: String? = nil
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = state.sessions[normalized] ?? CodexHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                startedAt: now,
+                updatedAt: now
+            )
+            record.workspaceId = workspaceId
+            record.surfaceId = surfaceId
+            if let cwd = normalizeOptional(cwd) {
+                record.cwd = cwd
+            }
+            if let subtitle = normalizeOptional(lastSubtitle) {
+                record.lastSubtitle = subtitle
+            }
+            if let body = normalizeOptional(lastBody) {
+                record.lastBody = body
+            }
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    func consume(
+        sessionId: String?,
+        workspaceId: String?,
+        surfaceId: String?
+    ) throws -> CodexHookSessionRecord? {
+        let normalizedSessionId = normalizeOptional(sessionId)
+        let normalizedWorkspace = normalizeOptional(workspaceId)
+        let normalizedSurface = normalizeOptional(surfaceId)
+        return try withLockedState { state in
+            if let normalizedSessionId,
+               let removed = state.sessions.removeValue(forKey: normalizedSessionId) {
+                return removed
+            }
+
+            guard let fallback = fallbackRecord(
+                sessions: Array(state.sessions.values),
+                workspaceId: normalizedWorkspace,
+                surfaceId: normalizedSurface
+            ) else {
+                return nil
+            }
+            state.sessions.removeValue(forKey: fallback.sessionId)
+            return fallback
+        }
+    }
+
+    private func fallbackRecord(
+        sessions: [CodexHookSessionRecord],
+        workspaceId: String?,
+        surfaceId: String?
+    ) -> CodexHookSessionRecord? {
+        if let surfaceId {
+            let matches = sessions.filter { $0.surfaceId == surfaceId }
+            return matches.max(by: { $0.updatedAt < $1.updatedAt })
+        }
+        if let workspaceId {
+            let matches = sessions.filter { $0.workspaceId == workspaceId }
+            if matches.count == 1 {
+                return matches[0]
+            }
+        }
+        return nil
+    }
+
+    private func withLockedState<T>(_ body: (inout CodexHookSessionStoreFile) throws -> T) throws -> T {
+        let lockPath = statePath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Codex hook state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock Codex hook state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+
+        var state = loadUnlocked()
+        pruneExpired(&state)
+        let result = try body(&state)
+        try saveUnlocked(state)
+        return result
+    }
+
+    private func loadUnlocked() -> CodexHookSessionStoreFile {
+        guard fileManager.fileExists(atPath: statePath) else {
+            return CodexHookSessionStoreFile()
+        }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
+              let decoded = try? decoder.decode(CodexHookSessionStoreFile.self, from: data) else {
+            return CodexHookSessionStoreFile()
+        }
+        return decoded
+    }
+
+    private func saveUnlocked(_ state: CodexHookSessionStoreFile) throws {
+        let stateURL = URL(fileURLWithPath: statePath)
+        let parentURL = stateURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
+        let data = try encoder.encode(state)
+        try data.write(to: stateURL, options: .atomic)
+    }
+
+    private func pruneExpired(_ state: inout CodexHookSessionStoreFile) {
+        let now = Date().timeIntervalSince1970
+        let cutoff = now - Self.maxStateAgeSeconds
+        state.sessions = state.sessions.filter { _, record in
+            record.updatedAt >= cutoff
+        }
+    }
+
+    private func normalizeSessionId(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func normalizeOptional(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+}
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -1430,6 +1628,9 @@ struct CMUXCLI {
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
             print(response)
+
+        case "codex-hook":
+            try runCodexHook(commandArgs: commandArgs, client: client)
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -4471,6 +4672,27 @@ struct CMUXCLI {
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
             """
+        case "codex-hook":
+            return """
+            Usage: cmux codex-hook <session-start|stop|notification|approval|prompt-submit> [flags] [json-payload]
+
+            Hook for OpenAI Codex integration. Reads JSON from stdin (or first positional payload argument).
+
+            Subcommands:
+              session-start   Signal that a Codex session has started
+              stop            Signal that a Codex session has stopped
+              notification    Forward a Codex completion notification
+              approval        Forward an approval-requested notification
+              prompt-submit   Clear notification state and mark session Running
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+            Example:
+              echo '{"session_id":"abc"}' | cmux codex-hook session-start
+              cmux codex-hook notification '{"event":"agent-turn-complete","last-assistant-message":"Done"}'
+            """
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -5802,6 +6024,450 @@ struct CMUXCLI {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
     }
 
+    private func runCodexHook(commandArgs: [String], client: SocketClient) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let hookArgs = Array(commandArgs.dropFirst())
+        let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let stdinRaw = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let payloadArg = codexHookPayloadArgument(from: hookArgs)
+        let rawInput: String = {
+            let trimmed = stdinRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return stdinRaw }
+            return payloadArg ?? ""
+        }()
+
+        let parsedInput = parseCodexHookInput(
+            rawInput: rawInput,
+            fallbackSessionId: ProcessInfo.processInfo.environment["CMUX_CODEX_SESSION_ID"],
+            fallbackCWD: ProcessInfo.processInfo.environment["PWD"]
+        )
+        let sessionStore = CodexHookSessionStore()
+        let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
+        let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
+
+        switch subcommand {
+        case "session-start", "active", "start":
+            let workspaceId = fallbackWorkspaceId
+            let surfaceId = try resolveSurfaceIdForClaudeHook(
+                surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd
+                )
+            }
+            try setCodexStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
+
+        case "prompt-submit":
+            var workspaceId = fallbackWorkspaceId
+            if let sessionId = parsedInput.sessionId,
+               let mapped = try? sessionStore.lookup(sessionId: sessionId),
+               let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+                workspaceId = mappedWorkspace
+            }
+            try setCodexStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("OK")
+
+        case "stop", "idle":
+            let consumedSession = try? sessionStore.consume(
+                sessionId: parsedInput.sessionId,
+                workspaceId: fallbackWorkspaceId,
+                surfaceId: fallbackSurfaceId
+            )
+            let workspaceId = consumedSession?.workspaceId ?? fallbackWorkspaceId
+            try clearCodexStatus(client: client, workspaceId: workspaceId)
+
+            if let completion = summarizeCodexHookStop(
+                parsedInput: parsedInput,
+                sessionRecord: consumedSession
+            ) {
+                let surfaceId = try resolveSurfaceIdForClaudeHook(
+                    consumedSession?.surfaceId ?? surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+                let title = "Codex"
+                let subtitle = sanitizeNotificationField(completion.subtitle)
+                let body = sanitizeNotificationField(completion.body)
+                let payload = "\(title)|\(subtitle)|\(body)"
+                let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                print(response)
+            } else {
+                print("OK")
+            }
+
+        case "approval", "approval-requested":
+            let summary = summarizeCodexHookNotification(parsedInput: parsedInput, forceApproval: true)
+            try routeCodexHookNotification(
+                summary: summary,
+                parsedInput: parsedInput,
+                fallbackWorkspaceId: fallbackWorkspaceId,
+                preferredSurface: surfaceArg,
+                sessionStore: sessionStore,
+                client: client
+            )
+
+        case "notification", "notify":
+            let summary = summarizeCodexHookNotification(parsedInput: parsedInput, forceApproval: false)
+            try routeCodexHookNotification(
+                summary: summary,
+                parsedInput: parsedInput,
+                fallbackWorkspaceId: fallbackWorkspaceId,
+                preferredSurface: surfaceArg,
+                sessionStore: sessionStore,
+                client: client
+            )
+
+        case "help", "--help", "-h":
+            print(
+                """
+                cmux codex-hook <session-start|stop|notification|approval|prompt-submit> [--workspace <id|index>] [--surface <id|index>] [json-payload]
+                """
+            )
+
+        default:
+            throw CLIError(message: "Unknown codex-hook subcommand: \(subcommand)")
+        }
+    }
+
+    private func routeCodexHookNotification(
+        summary: (subtitle: String, body: String),
+        parsedInput: CodexHookParsedInput,
+        fallbackWorkspaceId: String,
+        preferredSurface: String?,
+        sessionStore: CodexHookSessionStore,
+        client: SocketClient
+    ) throws {
+        var workspaceId = fallbackWorkspaceId
+        var resolvedSurface = preferredSurface
+        if let sessionId = parsedInput.sessionId,
+           let mapped = try? sessionStore.lookup(sessionId: sessionId),
+           let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
+            workspaceId = mappedWorkspace
+            resolvedSurface = mapped.surfaceId
+        }
+
+        let surfaceId = try resolveSurfaceIdForClaudeHook(
+            resolvedSurface,
+            workspaceId: workspaceId,
+            client: client
+        )
+
+        let title = "Codex"
+        let subtitle = sanitizeNotificationField(summary.subtitle)
+        let body = sanitizeNotificationField(summary.body)
+        let payload = "\(title)|\(subtitle)|\(body)"
+
+        if let sessionId = parsedInput.sessionId {
+            try? sessionStore.upsert(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: parsedInput.cwd,
+                lastSubtitle: summary.subtitle,
+                lastBody: summary.body
+            )
+        }
+
+        let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+        let status = codexStatusForNotificationSubtitle(summary.subtitle)
+        _ = try? setCodexStatus(
+            client: client,
+            workspaceId: workspaceId,
+            value: status.value,
+            icon: status.icon,
+            color: status.color
+        )
+        print(response)
+    }
+
+    private func codexStatusForNotificationSubtitle(_ subtitle: String) -> (value: String, icon: String, color: String) {
+        switch subtitle {
+        case "Approval":
+            return ("Approval requested", "exclamationmark.triangle.fill", "#F59E0B")
+        case "Completed":
+            return ("Completed", "checkmark.circle.fill", "#2EBD59")
+        case "Error":
+            return ("Error", "xmark.octagon.fill", "#FF4D4F")
+        default:
+            return ("Needs input", "bell.fill", "#4C8DFF")
+        }
+    }
+
+    private func setCodexStatus(
+        client: SocketClient,
+        workspaceId: String,
+        value: String,
+        icon: String,
+        color: String
+    ) throws {
+        _ = try client.send(
+            command: "set_status codex \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        )
+    }
+
+    private func clearCodexStatus(client: SocketClient, workspaceId: String) throws {
+        _ = try client.send(command: "clear_status codex --tab=\(workspaceId)")
+    }
+
+    private func codexHookPayloadArgument(from hookArgs: [String]) -> String? {
+        var index = 0
+        while index < hookArgs.count {
+            let token = hookArgs[index]
+            if token == "--" {
+                if index + 1 < hookArgs.count {
+                    return hookArgs[index + 1]
+                }
+                break
+            }
+            if token == "--workspace" || token == "--surface" {
+                index += 2
+                continue
+            }
+            if token.hasPrefix("--workspace=") || token.hasPrefix("--surface=") {
+                index += 1
+                continue
+            }
+            return token
+        }
+        return nil
+    }
+
+    private func parseCodexHookInput(
+        rawInput: String,
+        fallbackSessionId: String?,
+        fallbackCWD: String?
+    ) -> CodexHookParsedInput {
+        let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data, options: []),
+              let object = json as? [String: Any] else {
+            let sessionFallback = fallbackSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cwdFallback = fallbackCWD?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return CodexHookParsedInput(
+                rawInput: rawInput,
+                object: nil,
+                sessionId: (sessionFallback?.isEmpty == false ? sessionFallback : nil),
+                cwd: (cwdFallback?.isEmpty == false ? cwdFallback : nil),
+                event: nil,
+                message: nil,
+                isApproval: false
+            )
+        }
+
+        let sessionId = extractCodexHookSessionId(from: object) ?? {
+            let fallback = fallbackSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (fallback?.isEmpty == false ? fallback : nil)
+        }()
+        let cwd = extractCodexHookCWD(from: object) ?? {
+            let fallback = fallbackCWD?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (fallback?.isEmpty == false ? fallback : nil)
+        }()
+        let event = firstString(in: object, keys: ["event", "type", "notification_type", "reason"])
+            ?? (object["event"] as? [String: Any]).flatMap { firstString(in: $0, keys: ["type", "name"]) }
+        let message = extractCodexHookMessage(from: object)
+        let lower = "\(event ?? "") \(message ?? "")".lowercased()
+        let isApproval = lower.contains("approval-requested")
+            || lower.contains("approval requested")
+            || lower.contains("approval")
+        return CodexHookParsedInput(
+            rawInput: rawInput,
+            object: object,
+            sessionId: sessionId,
+            cwd: cwd,
+            event: event,
+            message: message,
+            isApproval: isApproval
+        )
+    }
+
+    private func extractCodexHookSessionId(from object: [String: Any]) -> String? {
+        if let id = firstString(in: object, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        if let session = object["session"] as? [String: Any],
+           let id = firstString(in: session, keys: ["id", "session_id", "sessionId"]) {
+            return id
+        }
+        if let data = object["data"] as? [String: Any],
+           let id = firstString(in: data, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        if let context = object["context"] as? [String: Any],
+           let id = firstString(in: context, keys: ["session_id", "sessionId"]) {
+            return id
+        }
+        return nil
+    }
+
+    private func extractCodexHookCWD(from object: [String: Any]) -> String? {
+        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]
+        if let cwd = firstString(in: object, keys: cwdKeys) {
+            return cwd
+        }
+        if let data = object["data"] as? [String: Any],
+           let cwd = firstString(in: data, keys: cwdKeys) {
+            return cwd
+        }
+        if let context = object["context"] as? [String: Any],
+           let cwd = firstString(in: context, keys: cwdKeys) {
+            return cwd
+        }
+        return nil
+    }
+
+    private func extractCodexHookMessage(from object: [String: Any]) -> String? {
+        let keys = [
+            "last-assistant-message",
+            "last_assistant_message",
+            "lastAssistantMessage",
+            "message",
+            "body",
+            "text",
+            "error",
+            "description"
+        ]
+        if let direct = firstString(in: object, keys: keys) {
+            return direct
+        }
+        if let data = object["data"] as? [String: Any],
+           let nested = firstString(in: data, keys: keys) {
+            return nested
+        }
+        if let details = object["details"] as? [String: Any],
+           let nested = firstString(in: details, keys: keys) {
+            return nested
+        }
+        return nil
+    }
+
+    private func summarizeCodexHookStop(
+        parsedInput: CodexHookParsedInput,
+        sessionRecord: CodexHookSessionRecord?
+    ) -> (subtitle: String, body: String)? {
+        let cwd = parsedInput.cwd ?? sessionRecord?.cwd
+        let projectName: String? = {
+            guard let cwd = cwd, !cwd.isEmpty else { return nil }
+            let path = NSString(string: cwd).expandingTildeInPath
+            let tail = URL(fileURLWithPath: path).lastPathComponent
+            return tail.isEmpty ? path : tail
+        }()
+
+        var body = "Codex session completed"
+        if let projectName, !projectName.isEmpty {
+            body += " in \(projectName)"
+        }
+
+        let lastMessage = parsedInput.message ?? sessionRecord?.lastBody ?? sessionRecord?.lastSubtitle
+        if let lastMessage, !lastMessage.isEmpty {
+            body += ". Last: \(lastMessage)"
+        }
+
+        return ("Completed", truncate(normalizedSingleLine(body), maxLength: 200))
+    }
+
+    private func summarizeCodexHookNotification(
+        parsedInput: CodexHookParsedInput,
+        forceApproval: Bool
+    ) -> (subtitle: String, body: String) {
+        let fallbackMessage = "Codex needs your input"
+        let message = normalizedSingleLine(parsedInput.message ?? fallbackMessage)
+        let classified = classifyCodexNotification(
+            event: parsedInput.event ?? "",
+            message: message,
+            forceApproval: forceApproval || parsedInput.isApproval
+        )
+
+        var body = classified.body
+        if let session = parsedInput.sessionId, !session.isEmpty {
+            let shortSession = String(session.prefix(8))
+            if !body.contains(shortSession) {
+                body = "\(body) [\(shortSession)]"
+            }
+        }
+        return (classified.subtitle, truncate(body, maxLength: 180))
+    }
+
+    private func classifyCodexNotification(
+        event: String,
+        message: String,
+        forceApproval: Bool
+    ) -> (subtitle: String, body: String) {
+        let lowered = "\(event) \(message)".lowercased()
+        if forceApproval || lowered.contains("approval-requested") || lowered.contains("approval requested") {
+            let body = message.isEmpty ? "Approval requested" : message
+            return ("Approval", body)
+        }
+
+        let hasNegatedFailure = containsNegatedFailureContext(lowered)
+        let hasErrorKeyword = lowered.contains("error")
+            || lowered.contains("failed")
+            || lowered.contains("failure")
+            || lowered.contains("exception")
+
+        if hasErrorKeyword && !hasNegatedFailure {
+            let body = message.isEmpty ? "Codex reported an error" : message
+            return ("Error", body)
+        }
+
+        if lowered.contains("agent-turn-complete")
+            || lowered.contains("turn complete")
+            || lowered.contains("completed")
+            || lowered.contains("done")
+            || lowered.contains("succeeded")
+            || lowered.contains("success")
+            || hasNegatedFailure {
+            let body = message.isEmpty ? "Turn complete" : message
+            return ("Completed", body)
+        }
+
+        if lowered.contains("wait") || lowered.contains("input") || lowered.contains("prompt") {
+            let body = message.isEmpty ? "Codex is waiting for your input" : message
+            return ("Waiting", body)
+        }
+
+        let body = message.isEmpty ? "Codex needs your input" : message
+        return ("Attention", body)
+    }
+
+    private func containsNegatedFailureContext(_ lowered: String) -> Bool {
+        let patterns = [
+            "\\bno\\s+(open\\s+)?(test\\s+)?failures?\\b",
+            "\\bwithout\\s+failures?\\b",
+            "\\b0\\s+failures?\\b",
+            "\\bzero\\s+failures?\\b",
+            "\\bfailures?\\s+(were\\s+)?fixed\\b",
+            "\\bfixed\\s+(the\\s+)?(test\\s+)?failures?\\b",
+            "\\bno\\s+errors?\\b",
+            "\\berrors?\\s+resolved\\b"
+        ]
+        for pattern in patterns where lowered.range(of: pattern, options: .regularExpression) != nil {
+            return true
+        }
+        return false
+    }
+
     private func resolveWorkspaceIdForClaudeHook(_ raw: String?, client: SocketClient) throws -> String {
         if let raw, !raw.isEmpty, let candidate = try? resolveWorkspaceId(raw, client: client) {
             let probe = try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])
@@ -6423,6 +7089,7 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          codex-hook <session-start|stop|notification|approval|prompt-submit> [--workspace <id|ref>] [--surface <id|ref>] [json-payload]
 
           # sidebar metadata commands
           set-status <key> <value> [--icon <name>] [--color <#hex>] [--workspace <id|ref>]
@@ -6434,7 +7101,6 @@ struct CMUXCLI {
           clear-log [--workspace <id|ref>]
           list-log [--limit <n>] [--workspace <id|ref>]
           sidebar-state [--workspace <id|ref>]
-
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

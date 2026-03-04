@@ -497,6 +497,37 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
     }
 
+    func testCodexIntegrationDefaultsToEnabledWhenUnset() {
+        let suiteName = "cmux.tests.codex-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: CodexIntegrationSettings.hooksEnabledKey)
+        XCTAssertTrue(CodexIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
+    func testCodexIntegrationRespectsStoredPreference() {
+        let suiteName = "cmux.tests.codex-hooks.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: CodexIntegrationSettings.hooksEnabledKey)
+        XCTAssertTrue(CodexIntegrationSettings.hooksEnabled(defaults: defaults))
+
+        defaults.set(false, forKey: CodexIntegrationSettings.hooksEnabledKey)
+        XCTAssertFalse(CodexIntegrationSettings.hooksEnabled(defaults: defaults))
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0

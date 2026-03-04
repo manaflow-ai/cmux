@@ -2356,6 +2356,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         }
+        let codexHooksEnabled = CodexIntegrationSettings.hooksEnabled()
+        if !codexHooksEnabled {
+            env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

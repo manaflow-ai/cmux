@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - injects cmux hooks and status routing
+#
+# When running inside a cmux terminal (CMUX_SOCKET_PATH is set), this wrapper
+# injects Codex runtime config so notifications are routed through
+# `cmux codex-hook`. Outside cmux, it passes through unchanged.
+
+set -u
+
+find_real_codex() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/codex" ]] && printf '%s' "$d/codex" && return 0
+    done
+    return 1
+}
+
+json_escape() {
+    python3 -c 'import json, sys; print(json.dumps(sys.argv[1])[1:-1], end="")' "${1-}"
+}
+
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+# Pass through if not running inside a cmux shell or integration is disabled.
+if [[ -z "${CMUX_SOCKET_PATH:-}" || "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec "$REAL_CODEX" "$@"
+fi
+
+# Pass through utility/admin subcommands that don't need integration.
+case "${1:-}" in
+    mcp|completion|sandbox|debug|features|login|logout|app|app-server|mcp-server)
+        exec "$REAL_CODEX" "$@"
+        ;;
+esac
+
+SESSION_ID="${CMUX_CODEX_SESSION_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+ESCAPED_SESSION_ID="$(json_escape "$SESSION_ID")"
+ESCAPED_CWD="$(json_escape "${PWD:-}")"
+START_PAYLOAD="{\"session_id\":\"$ESCAPED_SESSION_ID\",\"cwd\":\"$ESCAPED_CWD\"}"
+
+printf '%s' "$START_PAYLOAD" | cmux codex-hook session-start >/dev/null 2>&1 || true
+
+# Official Codex notification hooks:
+# - notify command receives a JSON payload as argv[1]
+# - approval-requested is surfaced through TUI notifications
+NOTIFY_CFG='notify=["cmux","codex-hook","notification"]'
+TUI_EVENTS_CFG='tui.notifications=["agent-turn-complete","approval-requested"]'
+TUI_METHOD_CFG='tui.notification_method="osc9"'
+
+STATUS=0
+CHILD_PID=""
+STOP_SENT=0
+
+send_stop_payload() {
+    local exit_code="${1:-0}"
+    if [[ "$STOP_SENT" == "1" ]]; then
+        return
+    fi
+    STOP_SENT=1
+    local payload
+    payload="{\"session_id\":\"$ESCAPED_SESSION_ID\",\"cwd\":\"$ESCAPED_CWD\",\"exit_code\":$exit_code}"
+    printf '%s' "$payload" | cmux codex-hook stop >/dev/null 2>&1 || true
+}
+
+on_exit() {
+    local exit_code="${STATUS:-$?}"
+    send_stop_payload "$exit_code"
+}
+
+on_signal() {
+    local signal_name="$1"
+    local signal_code=1
+    case "$signal_name" in
+        INT) signal_code=130 ;;
+        TERM) signal_code=143 ;;
+    esac
+    STATUS="$signal_code"
+    if [[ -n "${CHILD_PID:-}" ]]; then
+        kill "-$signal_name" "$CHILD_PID" 2>/dev/null || kill "$CHILD_PID" 2>/dev/null || true
+        wait "$CHILD_PID" 2>/dev/null || true
+    fi
+    exit "$signal_code"
+}
+
+trap 'on_exit' EXIT
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
+
+CMUX_CODEX_SESSION_ID="$SESSION_ID" \
+    "$REAL_CODEX" \
+    -c "$NOTIFY_CFG" \
+    -c "$TUI_EVENTS_CFG" \
+    -c "$TUI_METHOD_CFG" \
+    "$@" &
+CHILD_PID=$!
+wait "$CHILD_PID"
+STATUS=$?
+
+exit "$STATUS"

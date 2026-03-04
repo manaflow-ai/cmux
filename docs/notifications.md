@@ -87,13 +87,21 @@ Add to `~/.claude/settings.json`:
 
 ### OpenAI Codex
 
-Add to `~/.codex/config.toml`:
+If you launch `codex` inside cmux, integration is automatic:
+- cmux wraps `codex` via `Resources/bin/codex`
+- completion payloads route through `cmux codex-hook notification`
+- sidebar status is updated (`Running`, `Needs input`, `Approval requested`, `Error`)
+- `approval-requested` events are enabled via `tui.notifications`
+
+If you manage Codex config manually, add this to `~/.codex/config.toml`:
 
 ```toml
-notify = ["bash", "-c", "command -v cmux &>/dev/null && cmux notify --title Codex --body \"$(echo $1 | jq -r '.\"last-assistant-message\" // \"Turn complete\"' 2>/dev/null | head -c 100)\" || osascript -e 'display notification \"Turn complete\" with title \"Codex\"'", "--"]
+notify = ["cmux", "codex-hook", "notification"]
+tui.notifications = ["agent-turn-complete", "approval-requested"]
+tui.notification_method = "osc9"
 ```
 
-Or create a simple script `~/.local/bin/codex-notify.sh`:
+Or keep a simple fallback script `~/.local/bin/codex-notify.sh`:
 
 ```bash
 #!/bin/bash
