@@ -4604,7 +4604,7 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView = GhosttyFlashOverlayView(frame: .zero)
         flashLayer = CAShapeLayer()
         keyboardCopyModeBadgeView = GhosttyPassthroughVisualEffectView(frame: .zero)
-        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: "VIM COPY")
+        keyboardCopyModeBadgeLabel = NSTextField(labelWithString: "COPY MODE")
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
@@ -4688,7 +4688,6 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.borderColor = cmuxAccentNSColor().withAlphaComponent(0.45).cgColor
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold)
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
         keyboardCopyModeBadgeLabel.lineBreakMode = .byClipping
         keyboardCopyModeBadgeView.addSubview(keyboardCopyModeBadgeLabel)
