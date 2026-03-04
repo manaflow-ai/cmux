@@ -41,7 +41,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         case .password:
             return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in a local file.")
         case .allowAll:
-            return String(localized: "socketControl.fullOpen.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
+            return String(localized: "socketControl.allowAll.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
         }
     }
 

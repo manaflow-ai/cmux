@@ -2074,7 +2074,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn't secure")
+        alert.messageText = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
         alert.informativeText = String(localized: "browser.error.insecure.message", defaultValue: "\(host) uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux.")
         alert.addButton(withTitle: String(localized: "browser.openInDefaultBrowser", defaultValue: "Open in Default Browser"))
         alert.addButton(withTitle: String(localized: "browser.proceedInCmux", defaultValue: "Proceed in cmux"))
@@ -3095,7 +3095,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
              (NSURLErrorDomain, NSURLErrorCannotFindHost),
              (NSURLErrorDomain, NSURLErrorTimedOut):
             title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
-            message = "\(failedURL.isEmpty ? "The site" : failedURL) refused to connect. Check that a server is running on this address."
+            if failedURL.isEmpty {
+                message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
+            } else {
+                message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
+            }
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
              (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
             title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
@@ -3330,7 +3334,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
     private func javaScriptDialogTitle(for webView: WKWebView) -> String {
         if let absolute = webView.url?.absoluteString, !absolute.isEmpty {
-            return "The page at \(absolute) says:"
+            return String(localized: "browser.dialog.pageSaysAt", defaultValue: "The page at \(absolute) says:")
         }
         return String(localized: "browser.dialog.pageSays", defaultValue: "This page says:")
     }

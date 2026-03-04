@@ -7791,9 +7791,14 @@ enum NotificationMenuSnapshotBuilder {
     }
 
     static func stateHintTitle(unreadCount: Int) -> String {
-        unreadCount == 0
-            ? String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
-            : String(localized: "statusMenu.unreadCount", defaultValue: "\(unreadCount) unread notifications")
+        switch unreadCount {
+        case 0:
+            return String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications")
+        case 1:
+            return String(localized: "statusMenu.unreadCount.one", defaultValue: "1 unread notification")
+        default:
+            return String(localized: "statusMenu.unreadCount.other", defaultValue: "\(unreadCount) unread notifications")
+        }
     }
 }
 

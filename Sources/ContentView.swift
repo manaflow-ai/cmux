@@ -2942,15 +2942,6 @@ struct ContentView: View {
         }
     }
 
-    private func renameTargetNoun(_ target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return "workspace"
-        case .tab:
-            return "tab"
-        }
-    }
-
     private func renameInputHintText(target: CommandPaletteRenameTarget) -> String {
         switch target.kind {
         case .workspace:
@@ -7223,7 +7214,7 @@ private struct TabItemView: View {
     }
 
     private var accessibilityTitle: String {
-        "\(tab.title), workspace \(index + 1) of \(tabManager.tabs.count)"
+        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(tabManager.tabs.count)")
     }
 
     private func moveBy(_ delta: Int) {
