@@ -260,8 +260,13 @@ final class MultiWindowNotificationsUITests: XCTestCase {
             XCTFail("Failed to create tmux session: \(createSession.stderr)")
             return
         }
-        guard let paneId = try firstTmuxPaneId(tmuxBin: tmuxBin, tmuxSocket: tmuxSocket) else {
-            XCTFail("Failed to resolve tmux pane ID")
+        let paneLookup = try firstTmuxPaneId(
+            tmuxBin: tmuxBin,
+            tmuxSocket: tmuxSocket,
+            sessionName: sessionName
+        )
+        guard let paneId = paneLookup.id else {
+            XCTFail("Failed to resolve tmux pane ID. \(paneLookup.debug)")
             return
         }
 
@@ -628,19 +633,47 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         return false
     }
 
-    private func firstTmuxPaneId(tmuxBin: String, tmuxSocket: String) throws -> String? {
-        let result = try runProcess(
-            executable: tmuxBin,
-            arguments: ["-S", tmuxSocket, "list-panes", "-a", "-F", "#{pane_id}"]
-        )
-        guard result.status == 0 else { return nil }
-        for line in result.stdout.components(separatedBy: .newlines) {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                return trimmed
+    private func firstTmuxPaneId(
+        tmuxBin: String,
+        tmuxSocket: String,
+        sessionName: String,
+        timeout: TimeInterval = 3.0
+    ) throws -> (id: String?, debug: String) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var attempts: [String] = []
+
+        while true {
+            let result = try runProcess(
+                executable: tmuxBin,
+                arguments: [
+                    "-S",
+                    tmuxSocket,
+                    "list-panes",
+                    "-t",
+                    sessionName,
+                    "-F",
+                    "#{pane_id}",
+                ]
+            )
+
+            let stdout = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            attempts.append("status=\(result.status) stdout=\(stdout) stderr=\(stderr)")
+
+            if result.status == 0 {
+                for line in stdout.components(separatedBy: .newlines) {
+                    let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        return (trimmed, attempts.suffix(5).joined(separator: " | "))
+                    }
+                }
             }
+
+            if Date() >= deadline {
+                return (nil, attempts.suffix(5).joined(separator: " | "))
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        return nil
     }
 
     private func resolveCmuxCLIExecutable() -> String? {
