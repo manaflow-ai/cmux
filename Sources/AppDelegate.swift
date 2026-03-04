@@ -991,10 +991,15 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
 
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
-    firstResponderIsBrowser: Bool
+    firstResponderIsBrowser: Bool,
+    flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
-    return keyCode == 36 || keyCode == 76
+    guard keyCode == 36 || keyCode == 76 else { return false }
+    // Keep browser Return forwarding narrow: only plain/Shift Return should be
+    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
+    // like Toggle Pane Zoom (Cmd+Shift+Enter).
+    return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -1174,6 +1179,33 @@ func shouldRouteTerminalFontZoomShortcutToGhostty(
         keyCode: keyCode,
         literalChars: literalChars
     ) != nil
+}
+
+func shouldRouteTerminalCommandShortcutToGhostty(
+    flags: NSEvent.ModifierFlags,
+    chars: String,
+    keyCode: UInt16,
+    terminalHasSelection: Bool
+) -> Bool {
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard normalizedFlags.contains(.command) else { return false }
+
+    let normalizedChars = chars.lowercased()
+    if normalizedFlags == [.command] {
+        // Keep Preferences (Cmd+,) menu-routed even when a terminal is focused.
+        if normalizedChars == "," || keyCode == 43 {
+            return false
+        }
+
+        // Preserve standard copy behavior when text is selected in the terminal.
+        if (normalizedChars == "c" || keyCode == 8), terminalHasSelection {
+            return false
+        }
+    }
+
+    return true
 }
 
 func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
@@ -1496,7 +1528,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
     private var commandPaletteSelectionByWindowId: [UUID: Int] = [:]
     private var commandPaletteSnapshotByWindowId: [UUID: CommandPaletteDebugSnapshot] = [:]
-    private weak var lastActiveMainWindow: NSWindow?
 
     var updateViewModel: UpdateViewModel {
         updateController.viewModel
@@ -1555,10 +1586,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if NSApp.activationPolicy() != .regular {
-            NSApp.setActivationPolicy(.regular)
-        }
-
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -1724,7 +1751,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tab.triggerNotificationFocusFlash(panelId: surfaceId, requiresSplit: false, shouldFocus: false)
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
-        bringMainWindowToFrontOnActivationIfNeeded()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -3343,6 +3369,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return nil
+    }
+
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+        var refreshedCount = 0
+        forEachTerminalPanel { terminalPanel in
+            terminalPanel.hostedView.reconcileGeometryNow()
+            terminalPanel.surface.forceRefresh()
+            refreshedCount += 1
+        }
+#if DEBUG
+        dlog("reload.config.surfaceRefresh source=\(source) count=\(refreshedCount)")
+#endif
+    }
+
+    private func forEachTerminalPanel(_ body: (TerminalPanel) -> Void) {
+        var seenManagers: Set<ObjectIdentifier> = []
+
+        func visitManager(_ manager: TabManager?) {
+            guard let manager else { return }
+            let managerId = ObjectIdentifier(manager)
+            guard seenManagers.insert(managerId).inserted else { return }
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    body(terminalPanel)
+                }
+            }
+        }
+
+        visitManager(tabManager)
+        for context in mainWindowContexts.values {
+            visitManager(context.tabManager)
+        }
     }
 
     func focusMainWindow(windowId: UUID) -> Bool {
@@ -6176,11 +6235,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .right)
             return true
         }
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+#if DEBUG
+            dlog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
+#endif
             _ = performBrowserSplitShortcut(direction: .down)
             return true
         }
@@ -6694,7 +6759,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
 
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else { return false }
+        #if DEBUG
+        let directionLabel: String
+        switch direction {
+        case .left: directionLabel = "left"
+        case .right: directionLabel = "right"
+        case .up: directionLabel = "up"
+        case .down: directionLabel = "down"
+        }
+        let selectedTabBefore = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelBefore = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut pre dir=\(directionLabel) " +
+            "tab=\(selectedTabBefore) focusedPanel=\(focusedPanelBefore)"
+        )
+        #endif
+
+        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
+            #if DEBUG
+            dlog("split.browser.shortcut failed dir=\(directionLabel)")
+            #endif
+            return false
+        }
+
+        #if DEBUG
+        let selectedTabAfter = tabManager?.selectedTabId?.uuidString.prefix(5) ?? "nil"
+        let focusedPanelAfter = tabManager?.selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil"
+        dlog(
+            "split.browser.shortcut post dir=\(directionLabel) " +
+            "created=\(panelId.uuidString.prefix(5)) tab=\(selectedTabAfter) focusedPanel=\(focusedPanelAfter)"
+        )
+        #endif
+
         _ = focusBrowserAddressBar(panelId: panelId)
         return true
     }
@@ -7096,7 +7192,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
-            self.lastActiveMainWindow = window
             self.setActiveMainWindow(window)
         }
     }
@@ -7454,36 +7549,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             notificationStore.markRead(id: notificationId)
         }
-    }
-
-    private func bringMainWindowToFrontOnActivationIfNeeded() {
-        guard let window = frontmostKnownMainWindow() else { return }
-        bringToFront(window)
-    }
-
-    private func frontmostKnownMainWindow() -> NSWindow? {
-        let directCandidates: [NSWindow?] = [lastActiveMainWindow, NSApp.keyWindow, NSApp.mainWindow]
-        for candidate in directCandidates where candidate != nil {
-            if let window = candidate, isMainTerminalWindow(window) {
-                return window
-            }
-        }
-
-        if let activeManager = tabManager,
-           let context = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
-           let window = context.window ?? windowForMainWindowId(context.windowId) {
-            return window
-        }
-
-        if let visible = mainWindowContexts.values
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
-            .first(where: { $0.isVisible }) {
-            return visible
-        }
-
-        return mainWindowContexts.values
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
-            .first
     }
 
 #if DEBUG
@@ -8367,7 +8432,8 @@ private extension NSWindow {
         // mark handled to avoid the AppKit alert sound path.
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil
+            firstResponderIsBrowser: firstResponderWebView != nil,
+            flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
             // On re-entry, fall back to normal dispatch to avoid an infinite loop.
@@ -8389,6 +8455,23 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        // Support custom tmux prefixes (for example Cmd+C): when the terminal is focused
+        // and no app-level shortcut matched, prefer forwarding Command-key input to the
+        // terminal rather than consuming it as a menu key equivalent.
+        if let ghosttyView = firstResponderGhosttyView,
+           shouldRouteTerminalCommandShortcutToGhostty(
+               flags: event.modifierFlags,
+               chars: event.charactersIgnoringModifiers ?? "",
+               keyCode: event.keyCode,
+               terminalHasSelection: ghosttyView.terminalSurface?.hasSelection() ?? false
+           ) {
+            ghosttyView.keyDown(with: event)
+#if DEBUG
+            dlog("  → ghostty command passthrough")
 #endif
             return true
         }

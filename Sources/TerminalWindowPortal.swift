@@ -1488,6 +1488,55 @@ final class WindowTerminalPortal: NSObject {
     }
 
 #if DEBUG
+    struct DebugStats {
+        let windowNumber: Int
+        let entryCount: Int
+        let hostSubviewCount: Int
+        let terminalSubviewCount: Int
+        let mappedTerminalSubviewCount: Int
+        let orphanTerminalSubviewCount: Int
+        let visibleOrphanTerminalSubviewCount: Int
+        let staleEntryCount: Int
+    }
+
+    func debugStats() -> DebugStats {
+        let terminalSubviews = hostView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }
+        var mappedTerminalSubviewCount = 0
+        var orphanTerminalSubviewCount = 0
+        var visibleOrphanTerminalSubviewCount = 0
+
+        for hostedView in terminalSubviews {
+            let hostedId = ObjectIdentifier(hostedView)
+            if entriesByHostedId[hostedId] != nil {
+                mappedTerminalSubviewCount += 1
+            } else {
+                orphanTerminalSubviewCount += 1
+                if hostedView.window != nil,
+                   !hostedView.isHidden,
+                   hostedView.frame.width > Self.tinyHideThreshold,
+                   hostedView.frame.height > Self.tinyHideThreshold {
+                    visibleOrphanTerminalSubviewCount += 1
+                }
+            }
+        }
+
+        let staleEntryCount = entriesByHostedId.values.reduce(0) { partialResult, entry in
+            guard let hostedView = entry.hostedView else { return partialResult + 1 }
+            return hostedView.superview === hostView ? partialResult : partialResult + 1
+        }
+
+        return DebugStats(
+            windowNumber: window?.windowNumber ?? -1,
+            entryCount: entriesByHostedId.count,
+            hostSubviewCount: hostView.subviews.count,
+            terminalSubviewCount: terminalSubviews.count,
+            mappedTerminalSubviewCount: mappedTerminalSubviewCount,
+            orphanTerminalSubviewCount: orphanTerminalSubviewCount,
+            visibleOrphanTerminalSubviewCount: visibleOrphanTerminalSubviewCount,
+            staleEntryCount: staleEntryCount
+        )
+    }
+
     func debugEntryCount() -> Int {
         entriesByHostedId.count
     }
@@ -1540,6 +1589,30 @@ final class WindowTerminalPortal: NSObject {
 enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
+#if DEBUG
+    private static var blockedBindCount: Int = 0
+    private static var blockedBindReasons: [String: Int] = [:]
+#endif
+
+    private static func bindBlockReason(
+        expectedSurfaceId: UUID?,
+        expectedGeneration: UInt64?,
+        actual: (surfaceId: UUID?, generation: UInt64?, state: String)
+    ) -> String {
+        if actual.surfaceId == nil {
+            return "missingSurface"
+        }
+        if actual.state != "live" {
+            return "state_\(actual.state)"
+        }
+        if let expectedSurfaceId, actual.surfaceId != expectedSurfaceId {
+            return "surfaceMismatch"
+        }
+        if let expectedGeneration, actual.generation != expectedGeneration {
+            return "generationMismatch"
+        }
+        return "guardRejected"
+    }
 
     private static func installWindowCloseObserverIfNeeded(for window: NSWindow) {
         guard objc_getAssociatedObject(window, &cmuxWindowTerminalPortalCloseObserverKey) == nil else { return }
@@ -1603,11 +1676,46 @@ enum TerminalWindowPortalRegistry {
         return portal
     }
 
-    static func bind(hostedView: GhosttySurfaceScrollView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
+    static func bind(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0,
+        expectedSurfaceId: UUID? = nil,
+        expectedGeneration: UInt64? = nil
+    ) {
         guard let window = anchorView.window else { return }
 
         let windowId = ObjectIdentifier(window)
         let hostedId = ObjectIdentifier(hostedView)
+        let guardState = hostedView.portalBindingGuardState()
+        guard hostedView.canAcceptPortalBinding(
+            expectedSurfaceId: expectedSurfaceId,
+            expectedGeneration: expectedGeneration
+        ) else {
+            if let oldWindowId = hostedToWindowId.removeValue(forKey: hostedId) {
+                portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
+            }
+#if DEBUG
+            let reason = bindBlockReason(
+                expectedSurfaceId: expectedSurfaceId,
+                expectedGeneration: expectedGeneration,
+                actual: guardState
+            )
+            blockedBindCount += 1
+            blockedBindReasons[reason, default: 0] += 1
+            dlog(
+                "portal.bind.blocked hosted=\(portalDebugToken(hostedView)) " +
+                "reason=\(reason) expectedSurface=\(expectedSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+                "expectedGeneration=\(expectedGeneration.map { String($0) } ?? "nil") " +
+                "actualSurface=\(guardState.surfaceId?.uuidString.prefix(5) ?? "nil") " +
+                "actualGeneration=\(guardState.generation.map { String($0) } ?? "nil") " +
+                "actualState=\(guardState.state)"
+            )
+#endif
+            return
+        }
+
         let nextPortal = portal(for: window)
 
         if let oldWindowId = hostedToWindowId[hostedId],
@@ -1673,6 +1781,69 @@ enum TerminalWindowPortalRegistry {
 #if DEBUG
     static func debugPortalCount() -> Int {
         portalsByWindowId.count
+    }
+
+    static func debugPortalStats() -> [String: Any] {
+        var portals: [[String: Any]] = []
+        var totals: [String: Int] = [
+            "entry_count": 0,
+            "host_subview_count": 0,
+            "terminal_subview_count": 0,
+            "mapped_terminal_subview_count": 0,
+            "orphan_terminal_subview_count": 0,
+            "visible_orphan_terminal_subview_count": 0,
+            "stale_entry_count": 0,
+            "mapped_hosted_count": 0,
+        ]
+
+        for (windowId, portal) in portalsByWindowId {
+            let stats = portal.debugStats()
+            let mappedHostedCount = hostedToWindowId.values.reduce(0) { partialResult, mappedWindowId in
+                partialResult + (mappedWindowId == windowId ? 1 : 0)
+            }
+            let integrityOK =
+                stats.orphanTerminalSubviewCount == 0 &&
+                stats.visibleOrphanTerminalSubviewCount == 0 &&
+                stats.staleEntryCount == 0 &&
+                mappedHostedCount == stats.entryCount
+
+            portals.append([
+                "window_number": stats.windowNumber,
+                "entry_count": stats.entryCount,
+                "mapped_hosted_count": mappedHostedCount,
+                "host_subview_count": stats.hostSubviewCount,
+                "terminal_subview_count": stats.terminalSubviewCount,
+                "mapped_terminal_subview_count": stats.mappedTerminalSubviewCount,
+                "orphan_terminal_subview_count": stats.orphanTerminalSubviewCount,
+                "visible_orphan_terminal_subview_count": stats.visibleOrphanTerminalSubviewCount,
+                "stale_entry_count": stats.staleEntryCount,
+                "integrity_ok": integrityOK,
+            ])
+
+            totals["entry_count", default: 0] += stats.entryCount
+            totals["host_subview_count", default: 0] += stats.hostSubviewCount
+            totals["terminal_subview_count", default: 0] += stats.terminalSubviewCount
+            totals["mapped_terminal_subview_count", default: 0] += stats.mappedTerminalSubviewCount
+            totals["orphan_terminal_subview_count", default: 0] += stats.orphanTerminalSubviewCount
+            totals["visible_orphan_terminal_subview_count", default: 0] += stats.visibleOrphanTerminalSubviewCount
+            totals["stale_entry_count", default: 0] += stats.staleEntryCount
+            totals["mapped_hosted_count", default: 0] += mappedHostedCount
+        }
+
+        portals.sort {
+            let lhs = ($0["window_number"] as? Int) ?? Int.min
+            let rhs = ($1["window_number"] as? Int) ?? Int.min
+            return lhs < rhs
+        }
+
+        return [
+            "portal_count": portals.count,
+            "hosted_mapping_count": hostedToWindowId.count,
+            "guarded_bind_blocked_count": blockedBindCount,
+            "guarded_bind_blocked_reasons": blockedBindReasons,
+            "portals": portals,
+            "totals": totals,
+        ]
     }
 #endif
 }

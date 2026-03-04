@@ -2985,7 +2985,8 @@ struct SettingsView: View {
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                             subtitle: sidebarBranchVerticalLayout
                                 ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
-                                : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line.")
+                                : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $sidebarBranchVerticalLayout) {
                                 Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)

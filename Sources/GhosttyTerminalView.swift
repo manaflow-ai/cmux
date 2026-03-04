@@ -660,6 +660,7 @@ class GhosttyApp {
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
+        ghostty_config_load_recursive_files(config)
         ghostty_config_finalize(config)
     }
 
@@ -767,6 +768,7 @@ class GhosttyApp {
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+            scheduleSurfaceRefreshAfterConfigurationReload(source: source)
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
@@ -791,7 +793,14 @@ class GhosttyApp {
         config = newConfig
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
+        scheduleSurfaceRefreshAfterConfigurationReload(source: source)
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+    }
+
+    private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
+        DispatchQueue.main.async {
+            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
+        }
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
@@ -1613,6 +1622,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private enum PortalLifecycleState: String {
+        case live
+        case closing
+        case closed
+    }
+    private var portalLifecycleState: PortalLifecycleState = .live
+    private var portalLifecycleGeneration: UInt64 = 1
     @Published var searchState: SearchState? = nil {
 	        didSet {
 	            if let searchState {
@@ -1671,6 +1687,52 @@ final class TerminalSurface: Identifiable, ObservableObject {
         tabId = newTabId
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
+    }
+
+    func portalBindingGeneration() -> UInt64 {
+        portalLifecycleGeneration
+    }
+
+    func portalBindingStateLabel() -> String {
+        portalLifecycleState.rawValue
+    }
+
+    func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
+        guard portalLifecycleState == .live else { return false }
+        if let expectedSurfaceId, expectedSurfaceId != id {
+            return false
+        }
+        if let expectedGeneration, expectedGeneration != portalLifecycleGeneration {
+            return false
+        }
+        return true
+    }
+
+    func beginPortalCloseLifecycle(reason: String) {
+        guard portalLifecycleState != .closed else { return }
+        guard portalLifecycleState != .closing else { return }
+        portalLifecycleState = .closing
+        portalLifecycleGeneration &+= 1
+#if DEBUG
+        dlog(
+            "surface.lifecycle.close.begin surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
+            "generation=\(portalLifecycleGeneration)"
+        )
+#endif
+    }
+
+    private func markPortalLifecycleClosed(reason: String) {
+        guard portalLifecycleState != .closed else { return }
+        portalLifecycleState = .closed
+        portalLifecycleGeneration &+= 1
+#if DEBUG
+        dlog(
+            "surface.lifecycle.close.sealed surface=\(id.uuidString.prefix(5)) " +
+            "workspace=\(tabId.uuidString.prefix(5)) reason=\(reason) " +
+            "generation=\(portalLifecycleGeneration)"
+        )
+#endif
     }
     #if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
@@ -2288,6 +2350,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        markPortalLifecycleClosed(reason: "deinit")
+
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
 
@@ -2299,9 +2363,25 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = nil
 
         guard let surfaceToFree else {
+#if DEBUG
+            dlog(
+                "surface.lifecycle.deinit.skip surface=\(id.uuidString.prefix(5)) " +
+                "workspace=\(tabId.uuidString.prefix(5)) reason=noRuntimeSurface"
+            )
+#endif
             callbackContext?.release()
             return
         }
+
+#if DEBUG
+        let surfaceToken = String(id.uuidString.prefix(5))
+        let workspaceToken = String(tabId.uuidString.prefix(5))
+        dlog(
+            "surface.lifecycle.deinit.begin surface=\(surfaceToken) " +
+            "workspace=\(workspaceToken) hasAttachedView=\(attachedView != nil ? 1 : 0) " +
+            "hostedInWindow=\(hostedView.window != nil ? 1 : 0)"
+        )
+#endif
 
         // Keep teardown asynchronous to avoid re-entrant close/deinit loops, but retain
         // callback userdata until surface free completes so callbacks never dereference
@@ -2309,6 +2389,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+#if DEBUG
+            dlog(
+                "surface.lifecycle.deinit.end surface=\(surfaceToken) " +
+                "workspace=\(workspaceToken) freed=1"
+            )
+#endif
         }
     }
 }
@@ -3404,10 +3490,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let chars = event.characters, !chars.isEmpty else { return nil }
 
         if chars.count == 1, let scalar = chars.unicodeScalars.first {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
             if scalar.value < 0x20 {
-                return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+                if flags.contains(.control) {
+                    return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
+                }
+
+                // Some AppKit key paths can report Shift+` as a bare ESC control
+                // character even though the physical key should produce "~".
+                if scalar.value == 0x1B,
+                   flags == [.shift],
+                   event.charactersIgnoringModifiers == "`" {
+                    return "~"
+                }
             }
             // Private Use Area characters (function keys) should not be sent
             if scalar.value >= 0xF700 && scalar.value <= 0xF8FF {
@@ -3420,7 +3518,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Get the unshifted codepoint for the key event
     private func unshiftedCodepointFromEvent(_ event: NSEvent) -> UInt32 {
-        guard let chars = event.characters(byApplyingModifiers: []),
+        if let layoutChars = KeyboardLayout.character(forKeyCode: event.keyCode),
+           layoutChars.count == 1,
+           let layoutScalar = layoutChars.unicodeScalars.first,
+           layoutScalar.value >= 0x20,
+           !(layoutScalar.value >= 0xF700 && layoutScalar.value <= 0xF8FF) {
+            return layoutScalar.value
+        }
+
+        guard let chars = (event.characters(byApplyingModifiers: []) ?? event.charactersIgnoringModifiers ?? event.characters),
               let scalar = chars.unicodeScalars.first else { return 0 }
         return scalar.value
     }
@@ -3764,6 +3870,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     deinit {
         // Surface lifecycle is managed by TerminalSurface, not the view
+#if DEBUG
+        dlog(
+            "surface.view.deinit view=\(Unmanaged.passUnretained(self).toOpaque()) " +
+            "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0)"
+        )
+#endif
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
@@ -4111,6 +4224,25 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
+    func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
+        guard let terminalSurface = surfaceView.terminalSurface else {
+            return (surfaceId: nil, generation: nil, state: "missingSurface")
+        }
+        return (
+            surfaceId: terminalSurface.id,
+            generation: terminalSurface.portalBindingGeneration(),
+            state: terminalSurface.portalBindingStateLabel()
+        )
+    }
+
+    func canAcceptPortalBinding(expectedSurfaceId: UUID?, expectedGeneration: UInt64?) -> Bool {
+        guard let terminalSurface = surfaceView.terminalSurface else { return false }
+        return terminalSurface.canAcceptPortalBinding(
+            expectedSurfaceId: expectedSurfaceId,
+            expectedGeneration: expectedGeneration
+        )
+    }
+
     init(surfaceView: GhosttyNSView) {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
@@ -4249,6 +4381,13 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     deinit {
+#if DEBUG
+        dlog(
+            "surface.hosted.deinit surface=\(debugSurfaceId?.uuidString.prefix(5) ?? "nil") " +
+            "inWindow=\(window != nil ? 1 : 0) hasSuperview=\(superview != nil ? 1 : 0) " +
+            "hidden=\(isHidden ? 1 : 0) frame=\(String(format: "%.1fx%.1f", frame.width, frame.height))"
+        )
+#endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         cancelFocusRequest()
@@ -5660,6 +5799,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
         hostedView.setSearchOverlay(searchState: searchState)
         hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
         hostedView.setTriggerFlashHandler(onTriggerFlash)
+        let portalExpectedSurfaceId = terminalSurface.id
+        let portalExpectedGeneration = terminalSurface.portalBindingGeneration()
         let forwardedDropZone = isVisibleInUI ? paneDropZone : nil
 #if DEBUG
         if coordinator.lastPaneDropZone != paneDropZone {
@@ -5695,7 +5836,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     hostedView: hostedView,
                     to: host,
                     visibleInUI: coordinator.desiredIsVisibleInUI,
-                    zPriority: coordinator.desiredPortalZPriority
+                    zPriority: coordinator.desiredPortalZPriority,
+                    expectedSurfaceId: portalExpectedSurfaceId,
+                    expectedGeneration: portalExpectedGeneration
                 )
                 coordinator.lastBoundHostId = ObjectIdentifier(host)
                 hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -5719,7 +5862,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
                     )
                     coordinator.lastBoundHostId = ObjectIdentifier(host)
                     hostedView.setVisibleInUI(coordinator.desiredIsVisibleInUI)
@@ -5742,7 +5887,9 @@ struct GhosttyTerminalView: NSViewRepresentable {
                         hostedView: hostedView,
                         to: host,
                         visibleInUI: coordinator.desiredIsVisibleInUI,
-                        zPriority: coordinator.desiredPortalZPriority
+                        zPriority: coordinator.desiredPortalZPriority,
+                        expectedSurfaceId: portalExpectedSurfaceId,
+                        expectedGeneration: portalExpectedGeneration
                     )
                     coordinator.lastBoundHostId = hostId
                 }

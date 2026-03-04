@@ -1988,7 +1988,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -1997,7 +1998,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertTrue(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 76,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2006,7 +2008,8 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 13,
-                firstResponderIsBrowser: true
+                firstResponderIsBrowser: true,
+                flags: []
             )
         )
     }
@@ -2015,7 +2018,58 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
         XCTAssertFalse(
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
-                firstResponderIsBrowser: false
+                firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testRoutesForShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertTrue(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandShiftReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command, .shift]
+            )
+        )
+    }
+
+    func testDoesNotRouteForCommandReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.command]
+            )
+        )
+    }
+
+    func testDoesNotRouteForOptionReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.option]
+            )
+        )
+    }
+
+    func testDoesNotRouteForControlReturnWhenBrowserFirstResponder() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                flags: [.control]
             )
         )
     }
@@ -2223,6 +2277,71 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
                 chars: ";",
                 keyCode: 41,
                 literalChars: "+"
+            )
+        )
+    }
+}
+
+final class TerminalCommandShortcutRoutingPolicyTests: XCTestCase {
+    func testRoutesCommandCToTerminalWhenNoSelection() {
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "c",
+                keyCode: 8, // kVK_ANSI_C
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testKeepsCommandCCopyMenuRoutedWhenSelectionExists() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "c",
+                keyCode: 8, // kVK_ANSI_C
+                terminalHasSelection: true
+            )
+        )
+    }
+
+    func testKeepsCommandCommaMenuRoutedForPreferences() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: ",",
+                keyCode: 43, // kVK_ANSI_Comma
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testRequiresCommandModifier() {
+        XCTAssertFalse(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.control],
+                chars: "c",
+                keyCode: 8,
+                terminalHasSelection: false
+            )
+        )
+    }
+
+    func testRoutesOtherCommandShortcutsToTerminal() {
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command, .option],
+                chars: "c",
+                keyCode: 8,
+                terminalHasSelection: false
+            )
+        )
+        XCTAssertTrue(
+            shouldRouteTerminalCommandShortcutToGhostty(
+                flags: [.command],
+                chars: "v",
+                keyCode: 9, // kVK_ANSI_V
+                terminalHasSelection: false
             )
         )
     }

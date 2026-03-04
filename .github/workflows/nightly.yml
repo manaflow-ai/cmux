@@ -3,9 +3,6 @@ name: Nightly macOS build
 on:
   push:
     branches: [main]
-  schedule:
-    # Every hour at :30. The 'decide' job skips if main has no new commits.
-    - cron: "30 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -367,12 +364,3 @@ jobs:
         run: |
           security delete-keychain build.keychain >/dev/null 2>&1 || true
           rm -f /tmp/cert.p12
-
-  skipped:
-    needs: decide
-    if: needs.decide.outputs.should_build != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: No nightly build needed
-        run: |
-          echo "No changes on main since last nightly tag; skipping build."
