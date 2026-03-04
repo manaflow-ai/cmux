@@ -18,7 +18,7 @@ class StackAuthProvider: AuthProvider {
 
     /// Not supported - Stack Auth requires OTP flow with UI
     /// Use AuthManager.sendCode() and verifyCode() instead, then call loginFromCache()
-    func login() async throws -> StackAuthResult {
+    func login(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> StackAuthResult {
         throw AuthError.unauthorized
     }
 
@@ -35,7 +35,7 @@ class StackAuthProvider: AuthProvider {
     }
 
     /// Re-authenticate using stored tokens
-    func loginFromCache() async throws -> StackAuthResult {
+    func loginFromCache(onIdToken: @Sendable @escaping (String?) -> Void) async throws -> StackAuthResult {
         guard let accessToken = await stack.getAccessToken() else {
             throw AuthError.unauthorized
         }
