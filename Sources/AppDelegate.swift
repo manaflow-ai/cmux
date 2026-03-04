@@ -7156,7 +7156,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .list])
+        var options: UNNotificationPresentationOptions = [.banner, .list]
+        if !NotificationSoundSettings.isSilent() {
+            options.insert(.sound)
+        }
+        completionHandler(options)
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
