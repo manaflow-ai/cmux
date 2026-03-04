@@ -2985,7 +2985,8 @@ struct SettingsView: View {
                             "Sidebar Branch Layout",
                             subtitle: sidebarBranchVerticalLayout
                                 ? "Vertical: each branch appears on its own line."
-                                : "Inline: all branches share one line."
+                                : "Inline: all branches share one line.",
+                            controlWidth: pickerColumnWidth
                         ) {
                             Picker("", selection: $sidebarBranchVerticalLayout) {
                                 Text("Vertical").tag(true)
