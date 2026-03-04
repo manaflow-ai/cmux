@@ -28,6 +28,46 @@ extension UNUserNotificationCenter {
     }
 }
 
+enum NotificationSoundSettings {
+    static let key = "notificationSound"
+    static let defaultValue = "default"
+
+    static let systemSounds: [(label: String, value: String)] = [
+        ("Default", "default"),
+        ("Basso", "Basso"),
+        ("Blow", "Blow"),
+        ("Bottle", "Bottle"),
+        ("Frog", "Frog"),
+        ("Funk", "Funk"),
+        ("Glass", "Glass"),
+        ("Hero", "Hero"),
+        ("Morse", "Morse"),
+        ("Ping", "Ping"),
+        ("Pop", "Pop"),
+        ("Purr", "Purr"),
+        ("Sosumi", "Sosumi"),
+        ("Submarine", "Submarine"),
+        ("Tink", "Tink"),
+        ("None", "none"),
+    ]
+
+    static func sound(defaults: UserDefaults = .standard) -> UNNotificationSound? {
+        let value = defaults.string(forKey: key) ?? defaultValue
+        switch value {
+        case "default":
+            return .default
+        case "none":
+            return nil
+        default:
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: value))
+        }
+    }
+
+    static func isSilent(defaults: UserDefaults = .standard) -> Bool {
+        return (defaults.string(forKey: key) ?? defaultValue) == "none"
+    }
+}
+
 enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
     static let defaultDockBadgeEnabled = true
@@ -379,7 +419,7 @@ final class TerminalNotificationStore: ObservableObject {
             content.title = notification.title.isEmpty ? appName : notification.title
             content.subtitle = notification.subtitle
             content.body = notification.body
-            content.sound = UNNotificationSound.default
+            content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
                 "tabId": notification.tabId.uuidString,
