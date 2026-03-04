@@ -2895,14 +2895,10 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
-                        SettingsCardRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth) {
-                            Picker("", selection: $appearanceMode) {
-                                ForEach(AppearanceMode.visibleCases) { mode in
-                                    Text(mode.displayName).tag(mode.rawValue)
-                                }
+                        SettingsPickerRow(String(localized: "settings.app.theme", defaultValue: "Theme"), controlWidth: pickerColumnWidth, selection: $appearanceMode) {
+                            ForEach(AppearanceMode.visibleCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -2917,18 +2913,15 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.app.newWorkspacePlacement", defaultValue: "New Workspace Placement"),
                             subtitle: selectedWorkspacePlacement.description,
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: $newWorkspacePlacement
                         ) {
-                            Picker("", selection: $newWorkspacePlacement) {
-                                ForEach(NewWorkspacePlacement.allCases) { placement in
-                                    Text(placement.displayName).tag(placement.rawValue)
-                                }
+                            ForEach(NewWorkspacePlacement.allCases) { placement in
+                                Text(placement.displayName).tag(placement.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -2955,29 +2948,25 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             "Notification Sound",
                             subtitle: "Sound played when a notification arrives.",
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: $notificationSound
                         ) {
-                            HStack(spacing: 6) {
-                                Picker("", selection: $notificationSound) {
-                                    ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
-                                        Text(sound.label).tag(sound.value)
-                                    }
-                                }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
-                                Button {
-                                    NotificationSoundSettings.previewSound(value: notificationSound)
-                                } label: {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 9))
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(notificationSound == "none")
+                            ForEach(NotificationSoundSettings.systemSounds, id: \.value) { sound in
+                                Text(sound.label).tag(sound.value)
                             }
+                        } extraTrailing: {
+                            Button {
+                                NotificationSoundSettings.previewSound(value: notificationSound)
+                            } label: {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 9))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(notificationSound == "none")
                         }
 
                         SettingsCardDivider()
@@ -3032,19 +3021,16 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"),
                             subtitle: sidebarBranchVerticalLayout
                                 ? String(localized: "settings.app.sidebarBranchLayout.subtitleVertical", defaultValue: "Vertical: each branch appears on its own line.")
                                 : String(localized: "settings.app.sidebarBranchLayout.subtitleInline", defaultValue: "Inline: all branches share one line."),
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: $sidebarBranchVerticalLayout
                         ) {
-                            Picker("", selection: $sidebarBranchVerticalLayout) {
-                                Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
-                                Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
-                            }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
+                            Text(String(localized: "settings.app.sidebarBranchLayout.vertical", defaultValue: "Vertical")).tag(true)
+                            Text(String(localized: "settings.app.sidebarBranchLayout.inline", defaultValue: "Inline")).tag(false)
                         }
 
                         SettingsCardDivider()
@@ -3129,17 +3115,14 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
                     SettingsCard {
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: sidebarIndicatorStyleSelection
                         ) {
-                            Picker("", selection: sidebarIndicatorStyleSelection) {
-                                ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
-                                    Text(style.displayName).tag(style.rawValue)
-                                }
+                            ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -3220,19 +3203,16 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
                     SettingsCard {
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
                             subtitle: selectedSocketControlMode.description,
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: socketModeSelection,
+                            accessibilityId: "AutomationSocketModePicker"
                         ) {
-                            Picker("", selection: socketModeSelection) {
-                                ForEach(SocketControlMode.uiCases) { mode in
-                                    Text(mode.displayName).tag(mode.rawValue)
-                                }
+                            ForEach(SocketControlMode.uiCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
-                            .accessibilityIdentifier("AutomationSocketModePicker")
                         }
 
                         SettingsCardDivider()
@@ -3324,18 +3304,15 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
                     SettingsCard {
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
                             subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: $browserSearchEngine
                         ) {
-                            Picker("", selection: $browserSearchEngine) {
-                                ForEach(BrowserSearchEngine.allCases) { engine in
-                                    Text(engine.displayName).tag(engine.rawValue)
-                                }
+                            ForEach(BrowserSearchEngine.allCases) { engine in
+                                Text(engine.displayName).tag(engine.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -3348,20 +3325,17 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardRow(
+                        SettingsPickerRow(
                             String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
                             subtitle: selectedBrowserThemeMode == .system
                                 ? String(localized: "settings.browser.theme.subtitleSystem", defaultValue: "System follows app and macOS appearance.")
                                 : String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(selectedBrowserThemeMode.displayName) forces that color scheme for compatible pages."),
-                            controlWidth: pickerColumnWidth
+                            controlWidth: pickerColumnWidth,
+                            selection: browserThemeModeSelection
                         ) {
-                            Picker("", selection: browserThemeModeSelection) {
-                                ForEach(BrowserThemeMode.allCases) { mode in
-                                    Text(mode.displayName).tag(mode.rawValue)
-                                }
+                            ForEach(BrowserThemeMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
                             }
-                            .labelsHidden()
-                            .pickerStyle(.menu)
                         }
 
                         SettingsCardDivider()
@@ -3878,6 +3852,74 @@ private struct SettingsCardRow<Trailing: View>: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SettingsPickerRow<SelectionValue: Hashable, PickerContent: View, ExtraTrailing: View>: View {
+    let title: String
+    let subtitle: String?
+    let controlWidth: CGFloat
+    @Binding var selection: SelectionValue
+    let pickerContent: PickerContent
+    let extraTrailing: ExtraTrailing
+    let accessibilityId: String?
+
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        controlWidth: CGFloat,
+        selection: Binding<SelectionValue>,
+        accessibilityId: String? = nil,
+        @ViewBuilder content: () -> PickerContent,
+        @ViewBuilder extraTrailing: () -> ExtraTrailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.controlWidth = controlWidth
+        self._selection = selection
+        self.pickerContent = content()
+        self.extraTrailing = extraTrailing()
+        self.accessibilityId = accessibilityId
+    }
+
+    var body: some View {
+        SettingsCardRow(title, subtitle: subtitle, controlWidth: controlWidth) {
+            HStack(spacing: 6) {
+                Picker("", selection: $selection) {
+                    pickerContent
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .applyIf(accessibilityId != nil) { $0.accessibilityIdentifier(accessibilityId!) }
+                extraTrailing
+            }
+        }
+    }
+}
+
+extension SettingsPickerRow where ExtraTrailing == EmptyView {
+    init(
+        _ title: String,
+        subtitle: String? = nil,
+        controlWidth: CGFloat,
+        selection: Binding<SelectionValue>,
+        accessibilityId: String? = nil,
+        @ViewBuilder content: () -> PickerContent
+    ) {
+        self.init(title, subtitle: subtitle, controlWidth: controlWidth, selection: selection, accessibilityId: accessibilityId, content: content) {
+            EmptyView()
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func applyIf(_ condition: Bool, transform: (Self) -> some View) -> some View {
+        if condition {
+            transform(self)
+        } else {
+            self
+        }
     }
 }
 
