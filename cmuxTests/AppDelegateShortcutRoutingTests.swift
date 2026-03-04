@@ -476,6 +476,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(appDelegate.tabManager === firstManager, "Unresolved event window should not retarget active manager")
     }
 
+    func testCmdShiftMReturnsFalseWhenNoFocusedTerminalCanHandle() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        // Force unresolved shortcut routing context and no active manager.
+        appDelegate.tabManager = nil
+
+        guard let event = makeKeyDownEvent(
+            key: "m",
+            modifiers: [.command, .shift],
+            keyCode: 46, // kVK_ANSI_M
+            windowNumber: Int.max
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+M event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+Shift+M should not be consumed when no terminal can toggle copy mode"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+    }
+
     func testPresentPreferencesWindowShowsCustomSettingsWindowAndActivates() {
         var showFallbackSettingsWindowCallCount = 0
         var activateApplicationCallCount = 0
