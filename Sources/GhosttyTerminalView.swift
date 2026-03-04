@@ -5778,6 +5778,13 @@ final class GhosttySurfaceScrollView: NSView {
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
             return
         }
+        // Don't steal focus from a search overlay on another surface in this window.
+        if let fr = window.firstResponder as? NSView, isSearchOverlayOrDescendant(fr) {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=searchOverlayFocused")
+#endif
+            return
+        }
 #if DEBUG
         dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
 #endif
@@ -5789,11 +5796,10 @@ final class GhosttySurfaceScrollView: NSView {
     private func restoreSearchFocus(window: NSWindow) {
         switch searchFocusTarget {
         case .searchField:
-            // Make the hosting view first responder so SwiftUI @FocusState can take effect,
-            // then post the notification to set isSearchFieldFocused = true.
-            if let overlay = searchOverlayHostingView {
-                window.makeFirstResponder(overlay)
-            }
+            // Post the notification to trigger @FocusState in the overlay.
+            // Do NOT call window.makeFirstResponder(overlay) because that makes the
+            // NSHostingView itself the responder, which eats keystrokes as performKeyEquivalent
+            // instead of routing them to the SwiftUI TextField inside.
             if let terminalSurface = surfaceView.terminalSurface {
                 NotificationCenter.default.post(name: .ghosttySearchFocus, object: terminalSurface)
             }
@@ -5806,6 +5812,16 @@ final class GhosttySurfaceScrollView: NSView {
             dlog("find.restoreSearchFocus surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") target=terminal")
 #endif
         }
+    }
+
+    /// Check if a view is a search overlay hosting view or a descendant of one.
+    private func isSearchOverlayOrDescendant(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let v = current {
+            if v is NSHostingView<SurfaceSearchOverlay> { return true }
+            current = v.superview
+        }
+        return false
     }
 
 #if DEBUG
