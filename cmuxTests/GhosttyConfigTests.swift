@@ -659,6 +659,69 @@ final class WindowTransparencyDecisionTests: XCTestCase {
     }
 }
 
+final class WindowBackgroundSelectionGateTests: XCTestCase {
+    func testShouldApplyWindowBackgroundUsesOwningWindowSelectionWhenAvailable() {
+        let tabId = UUID()
+        let activeSelectedTabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningSelectedTabId: tabId,
+                activeSelectedTabId: activeSelectedTabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundRejectsWhenOwningSelectionDiffers() {
+        let tabId = UUID()
+
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningSelectedTabId: UUID(),
+                activeSelectedTabId: tabId
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundFallsBackToActiveSelection() {
+        let tabId = UUID()
+
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: tabId
+            )
+        )
+        XCTAssertFalse(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: tabId,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: UUID()
+            )
+        )
+    }
+
+    func testShouldApplyWindowBackgroundAllowsWhenNoSelectionContext() {
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: UUID(),
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+        XCTAssertTrue(
+            GhosttyNSView.shouldApplyWindowBackground(
+                surfaceTabId: nil,
+                owningSelectedTabId: nil,
+                activeSelectedTabId: nil
+            )
+        )
+    }
+}
+
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)
