@@ -28,6 +28,7 @@ struct BrowserSearchOverlay: View {
             HStack(spacing: 4) {
                 TextField("Search", text: $searchState.needle)
                     .textFieldStyle(.plain)
+                    .accessibilityIdentifier("BrowserFindSearchTextField")
                     .frame(width: 180)
                     .padding(.leading, 8)
                     .padding(.trailing, 50)
