@@ -726,6 +726,7 @@ final class WindowTerminalPortal: NSObject {
         guard let window else { return false }
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
+        let browserHost = preferredBrowserHost(in: container)
 
         if hostView.superview !== container ||
             installedContainerView !== container ||
@@ -734,7 +735,11 @@ final class WindowTerminalPortal: NSObject {
             installConstraints.removeAll()
 
             hostView.removeFromSuperview()
-            container.addSubview(hostView, positioned: .above, relativeTo: reference)
+            if let browserHost {
+                container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
+            } else {
+                container.addSubview(hostView, positioned: .above, relativeTo: reference)
+            }
 
             installConstraints = [
                 hostView.leadingAnchor.constraint(equalTo: reference.leadingAnchor),
@@ -745,6 +750,10 @@ final class WindowTerminalPortal: NSObject {
             NSLayoutConstraint.activate(installConstraints)
             installedContainerView = container
             installedReferenceView = reference
+        } else if let browserHost {
+            if !Self.isView(browserHost, above: hostView, in: container) {
+                container.addSubview(hostView, positioned: .below, relativeTo: browserHost)
+            }
         } else if !Self.isView(hostView, above: reference, in: container) {
             container.addSubview(hostView, positioned: .above, relativeTo: reference)
         }
@@ -835,6 +844,10 @@ final class WindowTerminalPortal: NSObject {
             return false
         }
         return viewIndex > referenceIndex
+    }
+
+    private func preferredBrowserHost(in container: NSView) -> WindowBrowserHostView? {
+        container.subviews.last(where: { $0 is WindowBrowserHostView }) as? WindowBrowserHostView
     }
 
 #if DEBUG

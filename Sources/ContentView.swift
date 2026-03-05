@@ -631,7 +631,12 @@ final class FileDropOverlayView: NSView {
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
-    private func webViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+    func webViewUnderPoint(_ windowPoint: NSPoint) -> WKWebView? {
+        if let window,
+           let portalWebView = BrowserWindowPortalRegistry.webViewAtWindowPoint(windowPoint, in: window) {
+            return portalWebView
+        }
+
         guard let window, let contentView = window.contentView else { return nil }
         isHidden = true
         defer { isHidden = false }
