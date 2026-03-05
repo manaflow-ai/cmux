@@ -1240,6 +1240,10 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     private var geometryReconcileScheduled = false
     private var geometryReconcileNeedsRerun = false
+    /// Cached bounds per panel from last reconcile pass, used for delta-based
+    /// reconcile. Only panels whose bounds changed get reconcileGeometryNow()
+    /// and forceRefresh() calls.
+    private var lastReconciledBounds: [UUID: CGSize] = [:]
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
     private var nonFocusSplitFocusReassertGeneration: UInt64 = 0
@@ -3358,7 +3362,8 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             let hostedView = terminalPanel.hostedView
-            let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
+            let currentBounds = hostedView.bounds.size
+            let hasUsableBounds = currentBounds.width > 1 && currentBounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
             let isAttached = hostedView.window != nil && hostedView.superview != nil
 
@@ -3368,6 +3373,26 @@ final class Workspace: Identifiable, ObservableObject {
                 terminalPanel.requestViewReattach()
                 needsFollowUpPass = true
             }
+
+            // Delta-based reconcile: skip panels whose bounds haven't changed since
+            // the last reconcile pass. This prevents redundant reflow-triggering
+            // resize calls on terminals that weren't affected by the split operation.
+            let previousBounds = lastReconciledBounds[panel.id]
+            let boundsChanged = previousBounds == nil
+                || previousBounds!.width != currentBounds.width
+                || previousBounds!.height != currentBounds.height
+            lastReconciledBounds[panel.id] = currentBounds
+
+            guard boundsChanged || !isAttached || !hasSurface else {
+#if DEBUG
+                dlog("geometry.reconcile.skip panel=\(panel.id.uuidString.prefix(5)) bounds=\(Int(currentBounds.width))x\(Int(currentBounds.height)) unchanged")
+#endif
+                continue
+            }
+
+#if DEBUG
+            dlog("geometry.reconcile panel=\(panel.id.uuidString.prefix(5)) bounds=\(Int(currentBounds.width))x\(Int(currentBounds.height)) prev=\(previousBounds.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") attached=\(isAttached ? 1 : 0) surface=\(hasSurface ? 1 : 0)")
+#endif
 
             hostedView.reconcileGeometryNow()
             // Re-check surface after reconcileGeometryNow() which can trigger AppKit
