@@ -2206,7 +2206,9 @@ struct ContentView: View {
     }
 
     private func openInEditor(_ path: String, tabManager: TabManager?) {
-        tabManager?.selectedTab?.newCodeEditorSurfaceInFocusedPane(filePath: path, focus: true)
+        Task { @MainActor in
+            await tabManager?.selectedTab?.newCodeEditorSurfaceInFocusedPane(filePath: path, focus: true)
+        }
     }
 
     private var contentAndSidebarLayout: AnyView {
@@ -2644,7 +2646,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: tabManager.selectedTabId) { _ in
-            if sidebarContentModeState.mode == .fileTree {
+            if sidebarContentModeState.mode == .fileTree || isSplitLayout {
                 if let dir = tabManager.selectedTab?.currentDirectory {
                     fileTreeModel.loadDirectory(dir)
                 }

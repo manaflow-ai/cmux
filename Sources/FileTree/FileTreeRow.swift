@@ -57,18 +57,18 @@ struct FileTreeRow: View {
                 }
             }
             .contextMenu {
-                Button("Copy Path") {
+                Button(String(localized: "file.copyPath", defaultValue: "Copy Path")) {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(node.path, forType: .string)
                 }
-                Button("Reveal in Finder") {
+                Button(String(localized: "file.revealInFinder", defaultValue: "Reveal in Finder")) {
                     NSWorkspace.shared.selectFile(node.path, inFileViewerRootedAtPath: "")
                 }
-                Button("Open in Default App") {
+                Button(String(localized: "file.openInDefaultApp", defaultValue: "Open in Default App")) {
                     NSWorkspace.shared.open(URL(fileURLWithPath: node.path))
                 }
                 Divider()
-                Button("Open in Editor") {
+                Button(String(localized: "file.openInEditor", defaultValue: "Open in Editor")) {
                     onFileAction(node.path)
                 }
             }

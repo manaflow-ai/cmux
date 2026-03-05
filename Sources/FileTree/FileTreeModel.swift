@@ -29,9 +29,11 @@ final class FileTreeModel: ObservableObject {
                 if n.isExpanded && n.children == nil {
                     n.children = []
                     let path = n.path
+                    let gen = self.loadGeneration
                     Task { @MainActor [weak self] in
                         guard let self else { return }
                         let children = await self.scanDirectory(path)
+                        guard gen == self.loadGeneration else { return }
                         var current = self.rootNodes
                         let _ = self.findAndUpdate(in: &current, id: node.id) { n in
                             n.children = children

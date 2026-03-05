@@ -77,7 +77,7 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return "Open Browser"
             case .toggleBrowserDeveloperTools: return "Toggle Browser Developer Tools"
             case .showBrowserJavaScriptConsole: return "Show Browser JavaScript Console"
-            case .toggleFileTree: return "Toggle File Tree"
+            case .toggleFileTree: return String(localized: "keyboardShortcut.toggleFileTree", defaultValue: "Toggle File Tree")
             }
         }
 

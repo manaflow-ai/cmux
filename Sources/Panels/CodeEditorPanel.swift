@@ -19,7 +19,7 @@ final class CodeEditorPanel: Panel, ObservableObject {
 
     var displayTitle: String {
         let name = (filePath as NSString).lastPathComponent
-        return name.isEmpty ? "Untitled" : name
+        return name.isEmpty ? String(localized: "codeEditor.untitled", defaultValue: "Untitled") : name
     }
 
     var detectedLanguageName: String? {
@@ -28,25 +28,30 @@ final class CodeEditorPanel: Panel, ObservableObject {
 
     var displayIcon: String? { "doc.text" }
 
-    init(workspaceId: UUID, filePath: String) {
+    init(workspaceId: UUID, filePath: String, content: String = "") {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.initialContent = content
+    }
 
-        do {
-            self.initialContent = try String(contentsOfFile: filePath, encoding: .utf8)
-        } catch {
-            self.initialContent = ""
-        }
+    static func load(workspaceId: UUID, filePath: String) async -> CodeEditorPanel {
+        let content = await Task.detached {
+            (try? String(contentsOfFile: filePath, encoding: .utf8)) ?? ""
+        }.value
+        return await CodeEditorPanel(workspaceId: workspaceId, filePath: filePath, content: content)
     }
 
     func save() {
         guard let text = currentTextProvider?() else { return }
-        do {
-            try text.write(toFile: filePath, atomically: true, encoding: .utf8)
-            isDirty = false
-        } catch {
-            NSLog("[CodeEditorPanel] Failed to save \(filePath): \(error)")
+        let path = filePath
+        Task.detached {
+            do {
+                try text.write(toFile: path, atomically: true, encoding: .utf8)
+                await MainActor.run { self.isDirty = false }
+            } catch {
+                NSLog("[CodeEditorPanel] Failed to save \(path): \(error)")
+            }
         }
     }
 

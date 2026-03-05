@@ -2166,7 +2166,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Find an existing code editor panel with the given file path in this workspace.
     func existingCodeEditorPanel(forFilePath path: String) -> CodeEditorPanel? {
-        panels.values.compactMap { $0 as? CodeEditorPanel }.first { $0.filePath == path }
+        let standardized = URL(fileURLWithPath: path).standardized.path
+        return panels.values.compactMap { $0 as? CodeEditorPanel }.first {
+            URL(fileURLWithPath: $0.filePath).standardized.path == standardized
+        }
     }
 
     /// Create a new code editor surface in the specified pane.
@@ -2175,7 +2178,7 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         filePath: String,
         focus: Bool? = nil
-    ) -> CodeEditorPanel? {
+    ) async -> CodeEditorPanel? {
         // If a code editor for this file already exists, just focus it
         if let existing = existingCodeEditorPanel(forFilePath: filePath) {
             if let tabId = surfaceIdFromPanelId(existing.id) {
@@ -2189,7 +2192,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let editorPanel = CodeEditorPanel(workspaceId: id, filePath: filePath)
+        let editorPanel = await CodeEditorPanel.load(workspaceId: id, filePath: filePath)
         panels[editorPanel.id] = editorPanel
         panelTitles[editorPanel.id] = editorPanel.displayTitle
 
@@ -3098,9 +3101,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func newCodeEditorSurfaceInFocusedPane(filePath: String, focus: Bool? = nil) -> CodeEditorPanel? {
+    func newCodeEditorSurfaceInFocusedPane(filePath: String, focus: Bool? = nil) async -> CodeEditorPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
-        return newCodeEditorSurface(inPane: focusedPaneId, filePath: filePath, focus: focus)
+        return await newCodeEditorSurface(inPane: focusedPaneId, filePath: filePath, focus: focus)
     }
 
     @discardableResult

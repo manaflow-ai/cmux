@@ -72,7 +72,6 @@ enum LanguageDetection {
         case "xml", "svg", "plist":            return "XML"
         case "txt":                            return "Plain Text"
         case "cfg", "conf", "ini":             return "Config"
-        case "makefile":                       return "Makefile"
         default:
             // Check filename-based detection
             let name = (path as NSString).lastPathComponent.lowercased()

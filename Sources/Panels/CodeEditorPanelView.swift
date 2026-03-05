@@ -74,7 +74,7 @@ struct CodeEditorTextView: NSViewRepresentable {
     var onSave: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTextChange: onTextChange, onSave: onSave)
+        Coordinator(onTextChange: onTextChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -166,11 +166,9 @@ struct CodeEditorTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, STTextViewDelegate {
         let onTextChange: () -> Void
-        let onSave: () -> Void
 
-        init(onTextChange: @escaping () -> Void, onSave: @escaping () -> Void) {
+        init(onTextChange: @escaping () -> Void) {
             self.onTextChange = onTextChange
-            self.onSave = onSave
         }
 
         func textViewDidChangeText(_ notification: Notification) {

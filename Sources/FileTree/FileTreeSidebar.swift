@@ -10,30 +10,28 @@ struct FileTreeSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             // File tree content
-            GeometryReader { proxy in
-                ScrollView {
-                    if model.rootNodes.isEmpty {
-                        Text("Empty directory")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.top, 24)
-                    } else {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(model.rootNodes) { node in
-                                FileTreeRow(
-                                    node: node,
-                                    depth: 0,
-                                    model: model,
-                                    onFileAction: onFileAction
-                                )
-                            }
+            ScrollView {
+                if model.rootNodes.isEmpty {
+                    Text(String(localized: "fileTree.emptyDirectory", defaultValue: "Empty directory"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 24)
+                } else {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.rootNodes) { node in
+                            FileTreeRow(
+                                node: node,
+                                depth: 0,
+                                model: model,
+                                onFileAction: onFileAction
+                            )
                         }
-                        .padding(.vertical, 4)
                     }
+                    .padding(.vertical, 4)
                 }
-                .modifier(ClearScrollBackground())
             }
+            .modifier(ClearScrollBackground())
         }
         .ignoresSafeArea()
         .onChange(of: workspace.currentDirectory) { newDirectory in
